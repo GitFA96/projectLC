@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { CircleAlert, CircleCheck, FileUp } from "lucide-react";
+import Link from "next/link";
+import { CircleAlert, CircleCheck, FileUp, Loader2, MoveRight } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -25,11 +25,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ItemLink } from "@/components/item-link";
-import { slotItemSchema } from "@/lib/import/schemas";
-import { isKnownItem, resolveItemRef } from "@/lib/client-item-cache";
-import { PHASES, SLOT_LABELS } from "@/lib/constants/wow";
-import type { SlotItem } from "@/lib/types";
+import { ItemLink, type ItemRef } from "@/components/item-link";
+import { parseSixtyUpgradesExport } from "@/lib/import/sixtyupgrades";
+import { parseGargulExport } from "@/lib/import/gargul";
+import { diffGearSetSlots } from "@/lib/import/diff";
+import { PHASES, SLOT_LABELS, type Phase, type Quality } from "@/lib/constants/wow";
+import {
+  commitGargul,
+  commitSixtyUpgrades,
+  type GargulCommitActionResult,
+  type SixtyCommitResult,
+} from "@/app/admin/import/actions";
 
 const SU_EXAMPLE = JSON.stringify(
   {
@@ -54,17 +60,40 @@ const GARGUL_EXAMPLE = [
   "2026-06-04;22:58;30095;Fang of the Leviathan;Pugmage;0",
 ].join("\n");
 
-function DisabledCommit() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span>
-          <Button disabled>Commit import</Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>Preview only — persistence ships in Milestone 2.</TooltipContent>
-    </Tooltip>
-  );
+export interface ImportPrefill {
+  tab?: string;
+  character?: string;
+  kind?: string;
+  phase?: string;
+}
+
+/** Item cache rows shipped from the server so previews resolve icon/quality live. */
+export interface KnownItem {
+  id: number;
+  name: string;
+  quality: Quality;
+  icon: string;
+}
+
+interface ItemResolver {
+  resolve: (itemId: number, fallbackName?: string) => ItemRef;
+  isKnown: (itemId: number) => boolean;
+}
+
+function makeItemResolver(items: KnownItem[]): ItemResolver {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  return {
+    resolve: (itemId, fallbackName) => {
+      const cached = byId.get(itemId);
+      return {
+        itemId,
+        name: cached?.name ?? fallbackName,
+        quality: cached?.quality,
+        icon: cached?.icon,
+      };
+    },
+    isKnown: (itemId) => byId.has(itemId),
+  };
 }
 
 function Warnings({ warnings }: { warnings: string[] }) {
@@ -81,62 +110,86 @@ function Warnings({ warnings }: { warnings: string[] }) {
   );
 }
 
+function ErrorPanel({ message }: { message: string }) {
+  return <p className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{message}</p>;
+}
+
+function CommitButton({ pending, onClick, disabled, children }: {
+  pending: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button onClick={onClick} disabled={disabled || pending}>
+      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+      {children}
+    </Button>
+  );
+}
+
 /* SixtyUpgrades */
 
-interface SuPreview {
-  setName?: string;
-  characterName?: string;
-  slots: SlotItem[];
-  stats: [string, number][];
-  warnings: string[];
-}
-
-function parseSixtyUpgrades(text: string): SuPreview | { error: string } {
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return { error: "Not valid JSON — paste the raw SixtyUpgrades set export." };
-  }
-  if (typeof json !== "object" || json === null || !Array.isArray((json as { slots?: unknown }).slots)) {
-    return { error: "JSON has no `slots` array — is this a SixtyUpgrades set export?" };
-  }
-  const raw = json as { name?: string; character?: { name?: string }; slots: unknown[]; stats?: unknown };
-  const warnings: string[] = [];
-  const slots: SlotItem[] = [];
-  raw.slots.forEach((slot, i) => {
-    const parsed = slotItemSchema.safeParse(slot);
-    if (parsed.success) {
-      slots.push(parsed.data);
-      if (!isKnownItem(parsed.data.itemId)) {
-        warnings.push(`Slot ${parsed.data.slot}: item ${parsed.data.itemId} (“${parsed.data.itemName}”) is not in the item cache — icon/quality unknown until backfilled.`);
-      }
-    } else {
-      warnings.push(`Slot entry ${i + 1} skipped: ${parsed.error.issues[0]?.message ?? "invalid shape"}.`);
-    }
-  });
-  const stats: [string, number][] = [];
-  if (raw.stats && typeof raw.stats === "object") {
-    for (const [key, value] of Object.entries(raw.stats)) {
-      if (typeof value === "number") stats.push([key, value]);
-      else warnings.push(`Stat “${key}” ignored (not a number).`);
-    }
-  }
-  if (slots.length === 0) return { error: "No valid slot entries found." };
-  return { setName: raw.name, characterName: raw.character?.name, slots, stats, warnings };
-}
-
-function SixtyUpgradesTab({ characters }: { characters: string[] }) {
+function SixtyUpgradesTab({
+  characters,
+  prefill,
+  items,
+}: {
+  characters: string[];
+  prefill: ImportPrefill;
+  items: ItemResolver;
+}) {
+  const prefillCharacter =
+    characters.find((c) => c.toLowerCase() === prefill.character?.toLowerCase()) ?? characters[0] ?? "";
   const [text, setText] = React.useState("");
-  const [target, setTarget] = React.useState<string>(characters[0] ?? "");
-  const [kind, setKind] = React.useState("wishlist");
-  const [phase, setPhase] = React.useState("2");
-  const [preview, setPreview] = React.useState<SuPreview | { error: string } | null>(null);
+  const [target, setTarget] = React.useState<string>(prefillCharacter);
+  const [kind, setKind] = React.useState(prefill.kind === "current" ? "current" : "wishlist");
+  const [phase, setPhase] = React.useState(
+    prefill.phase && PHASES.some((p) => String(p.phase) === prefill.phase) ? prefill.phase : "2",
+  );
+  const [preview, setPreview] = React.useState<ReturnType<typeof parseSixtyUpgradesExport> | null>(null);
+  const [result, setResult] = React.useState<SixtyCommitResult | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  // Any input change invalidates a pending confirm/result panel.
+  const update = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setResult(null);
+  };
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     setText(await file.text());
+    setResult(null);
   };
+
+  const commit = (confirmReplace: boolean) => {
+    startTransition(async () => {
+      const res = await commitSixtyUpgrades({
+        json: text,
+        characterName: target,
+        kind: kind as "current" | "wishlist",
+        phase: kind === "wishlist" ? (Number(phase) as Phase) : undefined,
+        confirmReplace,
+      });
+      setResult(res);
+      if (res.status === "committed") {
+        setText("");
+        setPreview(null);
+      }
+    });
+  };
+
+  const newParse = React.useMemo(
+    () => (text.trim() ? parseSixtyUpgradesExport(text) : null),
+    [text],
+  );
+  const confirmDiff =
+    result?.status === "needs-confirm" && newParse?.ok
+      ? diffGearSetSlots(result.existing.slots, newParse.parsed.slots)
+      : [];
+
+  const targetLabel = kind === "wishlist" ? `P${phase} wishlist` : "current gear";
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -145,13 +198,17 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
           <CardTitle>SixtyUpgrades set export</CardTitle>
           <p className="text-xs text-muted-foreground">
             In SixtyUpgrades: open the set → Export → JSON. Paste it here or upload the file. One set
-            marked “current” per character; wishlists are per phase.
+            marked “current” per character; wishlists are per phase. Re-importing updates the existing
+            set after you confirm the changes.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
           <Textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setResult(null);
+            }}
             placeholder='{"name":"P2 wishlist","slots":[…]}'
             className="min-h-44 font-mono text-xs"
           />
@@ -165,14 +222,14 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
                 onChange={(e) => onFile(e.target.files?.[0])}
               />
             </label>
-            <Button variant="ghost" size="sm" onClick={() => setText(SU_EXAMPLE)}>
+            <Button variant="ghost" size="sm" onClick={() => update(setText)(SU_EXAMPLE)}>
               Insert example
             </Button>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <Label className="text-xs">Character</Label>
-              <Select value={target} onValueChange={setTarget}>
+              <Select value={target} onValueChange={update(setTarget)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -187,7 +244,7 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Import as</Label>
-              <Select value={kind} onValueChange={setKind}>
+              <Select value={kind} onValueChange={update(setKind)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -200,7 +257,7 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
             {kind === "wishlist" && (
               <div className="space-y-1">
                 <Label className="text-xs">Phase</Label>
-                <Select value={phase} onValueChange={setPhase}>
+                <Select value={phase} onValueChange={update(setPhase)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -216,11 +273,73 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setPreview(parseSixtyUpgrades(text))} disabled={!text.trim()}>
+            <Button
+              variant="secondary"
+              onClick={() => setPreview(parseSixtyUpgradesExport(text))}
+              disabled={!text.trim()}
+            >
               Preview
             </Button>
-            <DisabledCommit />
+            <CommitButton pending={pending} onClick={() => commit(false)} disabled={!text.trim() || !target}>
+              Commit import
+            </CommitButton>
           </div>
+
+          {result?.status === "error" && <ErrorPanel message={result.message} />}
+
+          {result?.status === "needs-confirm" && (
+            <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-800">
+                {target} already has {kind === "wishlist" ? `a P${phase} wishlist` : "current gear"}:{" "}
+                “{result.existing.name}” ({result.existing.slotCount} slots, imported{" "}
+                {result.existing.importedAt.slice(0, 10)})
+              </p>
+              {confirmDiff.length === 0 ? (
+                <p className="text-xs text-amber-700">
+                  The new import has identical items — replacing only updates the stats and import date.
+                </p>
+              ) : (
+                <div className="space-y-1 text-xs text-amber-800">
+                  <p>Replacing changes {confirmDiff.length} slot{confirmDiff.length === 1 ? "" : "s"}:</p>
+                  <ul className="space-y-0.5">
+                    {confirmDiff.map((row) => (
+                      <li key={row.label} className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{row.label}:</span>
+                        <span className="text-amber-700/80">{row.before.join(" + ") || "—"}</span>
+                        <MoveRight className="h-3 w-3 shrink-0" />
+                        <span>{row.after.join(" + ") || "—"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <CommitButton pending={pending} onClick={() => commit(true)}>
+                  Replace {kind === "wishlist" ? `P${phase} wishlist` : "current gear"}
+                </CommitButton>
+                <Button variant="ghost" size="sm" onClick={() => setResult(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {result?.status === "committed" && (
+            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              <p className="flex items-center gap-1.5 font-medium">
+                <CircleCheck className="h-4 w-4" />
+                {result.replaced ? "Updated" : "Imported"} “{result.setName}” —{" "}
+                {result.kind === "wishlist" ? `P${result.phase} wishlist` : "current gear"} for{" "}
+                {result.characterName} ({result.slotCount} slots)
+              </p>
+              <Warnings warnings={result.warnings} />
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/characters/${encodeURIComponent(result.characterName.toLowerCase())}`}>
+                  View {result.characterName}
+                </Link>
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -230,22 +349,30 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
         </CardHeader>
         <CardContent className="space-y-3">
           {!preview && <p className="text-sm text-muted-foreground">Paste an export and hit Preview.</p>}
-          {preview && "error" in preview && (
-            <p className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{preview.error}</p>
-          )}
-          {preview && !("error" in preview) && (
+          {preview && !preview.ok && <ErrorPanel message={preview.error} />}
+          {preview?.ok && (
             <>
               <p className="flex flex-wrap items-center gap-2 text-sm">
                 <CircleCheck className="h-4 w-4 text-emerald-600" />
-                <span className="font-medium">{preview.setName ?? "Unnamed set"}</span>
-                {preview.characterName && (
-                  <span className="text-muted-foreground">detected character: {preview.characterName}</span>
+                <span className="font-medium">{preview.parsed.setName ?? "Unnamed set"}</span>
+                {preview.parsed.character?.name && (
+                  <span className="text-muted-foreground">
+                    detected character: {preview.parsed.character.name}
+                  </span>
                 )}
-                <Badge variant="secondary">
-                  → {target}, {kind === "wishlist" ? `P${phase} wishlist` : "current gear"}
-                </Badge>
+                <Badge variant="secondary">→ {target}, {targetLabel}</Badge>
               </p>
-              <Warnings warnings={preview.warnings} />
+              <Warnings
+                warnings={[
+                  ...preview.parsed.warnings,
+                  ...preview.parsed.slots
+                    .filter((s) => !items.isKnown(s.itemId))
+                    .map(
+                      (s) =>
+                        `Slot ${s.slot}: item ${s.itemId} (“${s.itemName}”) is not in the item cache — icon/quality unknown until backfilled.`,
+                    ),
+                ]}
+              />
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -255,13 +382,13 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {preview.slots.map((s) => (
+                  {preview.parsed.slots.map((s) => (
                     <TableRow key={`${s.slot}-${s.itemId}`}>
                       <TableCell className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                         {SLOT_LABELS[s.slot]}
                       </TableCell>
                       <TableCell>
-                        <ItemLink item={resolveItemRef(s.itemId, s.itemName)} />
+                        <ItemLink item={items.resolve(s.itemId, s.itemName)} />
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {[s.enchant?.name, s.gems && s.gems.length > 0 ? `${s.gems.length} gem(s)` : undefined]
@@ -272,15 +399,15 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
                   ))}
                 </TableBody>
               </Table>
-              {preview.stats.length > 0 && (
+              {Object.keys(preview.parsed.stats).length > 0 && (
                 <p className="flex flex-wrap gap-1.5">
-                  {preview.stats.slice(0, 10).map(([k, v]) => (
+                  {Object.entries(preview.parsed.stats).slice(0, 10).map(([k, v]) => (
                     <Badge key={k} variant="muted" className="tabular-nums">
                       {k}: {v}
                     </Badge>
                   ))}
-                  {preview.stats.length > 10 && (
-                    <Badge variant="muted">+{preview.stats.length - 10} more</Badge>
+                  {Object.keys(preview.parsed.stats).length > 10 && (
+                    <Badge variant="muted">+{Object.keys(preview.parsed.stats).length - 10} more</Badge>
                   )}
                 </p>
               )}
@@ -294,64 +421,42 @@ function SixtyUpgradesTab({ characters }: { characters: string[] }) {
 
 /* Gargul */
 
-interface GargulRow {
-  awardedAt: string;
-  itemId: number;
-  itemName: string;
-  winner: string;
-  matched: boolean;
-  offspec: boolean;
-  knownItem: boolean;
-}
-
-function parseGargul(text: string, rosterNames: string[]): { rows: GargulRow[]; warnings: string[] } {
-  const lower = new Set(rosterNames.map((n) => n.toLowerCase()));
-  const rows: GargulRow[] = [];
-  const warnings: string[] = [];
-  const lines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  for (const [i, line] of lines.entries()) {
-    const delimiter = line.includes(";") ? ";" : line.includes("\t") ? "\t" : ",";
-    const cols = line.split(delimiter).map((c) => c.trim());
-    let date: string, time: string, idRaw: string, itemName: string, winner: string, osRaw: string;
-    if (cols.length >= 6) {
-      [date, time, idRaw, itemName, winner, osRaw] = cols;
-    } else if (cols.length === 5) {
-      [date, idRaw, itemName, winner, osRaw] = cols;
-      time = "00:00";
-    } else {
-      warnings.push(`Line ${i + 1} skipped — expected 5-6 columns, got ${cols.length}.`);
-      continue;
-    }
-    const itemId = Number(idRaw);
-    if (!Number.isInteger(itemId) || itemId <= 0) {
-      warnings.push(`Line ${i + 1} skipped — “${idRaw}” is not an item ID.`);
-      continue;
-    }
-    rows.push({
-      awardedAt: `${date} ${time}`.trim(),
-      itemId,
-      itemName,
-      winner,
-      matched: lower.has(winner.toLowerCase()),
-      offspec: osRaw === "1" || /^(os|offspec|yes|true)$/i.test(osRaw ?? ""),
-      knownItem: isKnownItem(itemId),
-    });
-  }
-  return { rows, warnings };
-}
-
-function GargulTab({ characters, zones }: { characters: string[]; zones: string[] }) {
+function GargulTab({
+  characters,
+  zones,
+  items,
+}: {
+  characters: string[];
+  zones: string[];
+  items: ItemResolver;
+}) {
   const [text, setText] = React.useState("");
   const [date, setDate] = React.useState("");
   const [selectedZones, setSelectedZones] = React.useState<string[]>([]);
   const [note, setNote] = React.useState("");
-  const [preview, setPreview] = React.useState<ReturnType<typeof parseGargul> | null>(null);
+  const [preview, setPreview] = React.useState<ReturnType<typeof parseGargulExport> | null>(null);
+  const [result, setResult] = React.useState<GargulCommitActionResult | null>(null);
+  const [pending, startTransition] = React.useTransition();
 
-  const unresolved = preview?.rows.filter((r) => !r.matched) ?? [];
-  const unknownItems = preview?.rows.filter((r) => !r.knownItem) ?? [];
+  const rosterLower = React.useMemo(() => new Set(characters.map((n) => n.toLowerCase())), [characters]);
+  const unresolved = preview?.lines.filter((l) => !rosterLower.has(l.rawWinnerName.toLowerCase())) ?? [];
+  const unknownItems = preview?.lines.filter((l) => !items.isKnown(l.itemId)) ?? [];
+
+  const commit = () => {
+    startTransition(async () => {
+      const res = await commitGargul({
+        text,
+        date,
+        zones: selectedZones,
+        note: note || undefined,
+      });
+      setResult(res);
+      if (res.status === "committed" && res.inserted > 0) {
+        setText("");
+        setPreview(null);
+      }
+    });
+  };
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -363,13 +468,16 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               @DATE;@TIME;@ID;@ITEM;@WINNER;@OS
             </code>{" "}
-            — semicolon, comma or tab separated all work.
+            — semicolon, comma or tab separated all work, and item links (@LINK) are understood too.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
           <Textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setResult(null);
+            }}
             placeholder="2026-06-04;22:55;30243;Helm of the Vanquished Defender;Thrainn;0"
             className="min-h-44 font-mono text-xs"
           />
@@ -379,7 +487,15 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">Raid date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8" />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setResult(null);
+                }}
+                className="h-8"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Note</Label>
@@ -400,11 +516,12 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
                   <button
                     key={zone}
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
                       setSelectedZones((prev) =>
                         active ? prev.filter((z) => z !== zone) : [...prev, zone],
-                      )
-                    }
+                      );
+                      setResult(null);
+                    }}
                     className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors ${
                       active
                         ? "border-foreground/30 bg-primary text-primary-foreground"
@@ -420,13 +537,65 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
-              onClick={() => setPreview(parseGargul(text, characters))}
+              onClick={() => setPreview(parseGargulExport(text, { fallbackDate: date || undefined }))}
               disabled={!text.trim()}
             >
               Preview
             </Button>
-            <DisabledCommit />
+            <CommitButton
+              pending={pending}
+              onClick={commit}
+              disabled={!text.trim() || !date || selectedZones.length === 0}
+            >
+              Commit import
+            </CommitButton>
           </div>
+          {(!date || selectedZones.length === 0) && text.trim() !== "" && (
+            <p className="text-[11px] text-muted-foreground">
+              Set the raid date and pick the zone(s) to enable committing.
+            </p>
+          )}
+
+          {result?.status === "error" && <ErrorPanel message={result.message} />}
+
+          {result?.status === "committed" && (
+            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              {result.inserted > 0 ? (
+                <>
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <CircleCheck className="h-4 w-4" />
+                    Raid session created — {result.inserted} award{result.inserted === 1 ? "" : "s"} recorded
+                    {result.skippedDuplicates > 0 &&
+                      `, ${result.skippedDuplicates} already-known award(s) skipped`}
+                  </p>
+                  {result.unresolved.length > 0 && (
+                    <p className="text-xs text-amber-700">
+                      Unresolved winners (kept by name, no roster match):{" "}
+                      {result.unresolved.join(", ")} — add them as characters and re-link in a later
+                      milestone, or fix the roster and re-import.
+                    </p>
+                  )}
+                  {result.itemsCached > 0 && (
+                    <p className="text-xs">
+                      {result.itemsCached} new item(s) learned from item links and cached.
+                    </p>
+                  )}
+                  <Warnings warnings={result.warnings} />
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/loot?session=${encodeURIComponent(result.sessionId ?? "")}`}>
+                      View this session in the loot ledger
+                    </Link>
+                  </Button>
+                </>
+              ) : (
+                <p className="flex items-center gap-1.5">
+                  <CircleAlert className="h-4 w-4 text-amber-600" />
+                  All {result.skippedDuplicates} award(s) in the paste were already recorded — nothing
+                  imported, no session created.
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -440,7 +609,7 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
             <>
               <p className="flex flex-wrap items-center gap-2 text-sm">
                 <CircleCheck className="h-4 w-4 text-emerald-600" />
-                {preview.rows.length} awards parsed
+                {preview.lines.length} awards parsed
                 {unresolved.length > 0 && (
                   <Badge variant="warning">{unresolved.length} unresolved winner(s)</Badge>
                 )}
@@ -449,7 +618,7 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
                 )}
               </p>
               <Warnings warnings={preview.warnings} />
-              {preview.rows.length > 0 && (
+              {preview.lines.length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -460,20 +629,20 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {preview.rows.map((row, i) => (
+                    {preview.lines.map((row, i) => (
                       <TableRow key={i}>
                         <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                          {row.awardedAt}
+                          {row.awardedAt.replace("T", " ").slice(0, 16)}
                         </TableCell>
                         <TableCell>
-                          <ItemLink item={resolveItemRef(row.itemId, row.itemName)} />
+                          <ItemLink item={items.resolve(row.itemId, row.itemName)} />
                         </TableCell>
                         <TableCell>
-                          {row.matched ? (
-                            <span className="text-sm font-medium">{row.winner}</span>
+                          {rosterLower.has(row.rawWinnerName.toLowerCase()) ? (
+                            <span className="text-sm font-medium">{row.rawWinnerName}</span>
                           ) : (
                             <Badge variant="warning" title="No roster character with this name">
-                              {row.winner} ?
+                              {row.rawWinnerName} ?
                             </Badge>
                           )}
                         </TableCell>
@@ -490,7 +659,8 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
                 </Table>
               )}
               <p className="text-[11px] text-muted-foreground">
-                Wishlist matching runs at commit time against each winner&apos;s imported wishlists.
+                Already-recorded awards are skipped at commit time; wishlist matching always runs live
+                against each winner&apos;s imported wishlists.
               </p>
             </>
           )}
@@ -503,21 +673,26 @@ function GargulTab({ characters, zones }: { characters: string[]; zones: string[
 export function ImportTabs({
   characters,
   zones,
+  knownItems,
+  prefill = {},
 }: {
   characters: string[];
   zones: string[];
+  knownItems: KnownItem[];
+  prefill?: ImportPrefill;
 }) {
+  const items = React.useMemo(() => makeItemResolver(knownItems), [knownItems]);
   return (
-    <Tabs defaultValue="sixtyupgrades">
+    <Tabs defaultValue={prefill.tab === "gargul" ? "gargul" : "sixtyupgrades"}>
       <TabsList>
         <TabsTrigger value="sixtyupgrades">SixtyUpgrades sets</TabsTrigger>
         <TabsTrigger value="gargul">Gargul loot</TabsTrigger>
       </TabsList>
       <TabsContent value="sixtyupgrades">
-        <SixtyUpgradesTab characters={characters} />
+        <SixtyUpgradesTab characters={characters} prefill={prefill} items={items} />
       </TabsContent>
       <TabsContent value="gargul">
-        <GargulTab characters={characters} zones={zones} />
+        <GargulTab characters={characters} zones={zones} items={items} />
       </TabsContent>
     </Tabs>
   );
