@@ -45,6 +45,11 @@ export function WowheadRefresher() {
   }, [pathname]);
 
   useEffect(() => {
+    // Watch <main> (all app content), NOT document.body: the widget appends
+    // its tooltip nodes directly to <body>, so a body-wide observer re-fires
+    // refreshLinks() from the open tooltip's own DOM churn — which dismisses
+    // the tooltip about a second into every hover.
+    const root = document.querySelector("main") ?? document.body;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new MutationObserver((mutations) => {
       // Only rescan when nodes were added; refreshLinks itself doesn't add nodes
@@ -53,7 +58,7 @@ export function WowheadRefresher() {
       clearTimeout(timer);
       timer = setTimeout(() => window.$WowheadPower?.refreshLinks?.(), 150);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(root, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
       clearTimeout(timer);
