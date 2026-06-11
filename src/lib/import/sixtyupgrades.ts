@@ -1,18 +1,22 @@
 import { slotItemSchema, statBlockSchema } from "@/lib/import/schemas";
-import { SLOT_IDS, type SlotId } from "@/lib/constants/wow";
+import { PHASE_IDS, SLOT_IDS, type Phase, type SlotId } from "@/lib/constants/wow";
 import type { SlotItem, StatBlock } from "@/lib/types";
 
 /**
- * SixtyUpgrades set-export parser. Tolerant by design: the export schema is
- * community-observed rather than documented, so unknown fields are ignored,
- * slot names are mapped through aliases, and anything skipped is reported as
- * a warning instead of failing the whole import. Pure module — used by the
- * client-side preview and the server-side commit alike.
+ * SixtyUpgrades set-export parser, built against a real export
+ * (__fixtures__/sixtyupgrades-fury-warrior.json): the slot list is `items`
+ * with UPPER_SNAKE slot names (FINGER_1, MAIN_HAND…), the character block
+ * carries `gameClass`/`race` in caps, and the set's `phase` rides along.
+ * Tolerant by design — unknown fields are ignored, slot names go through
+ * aliases, and anything skipped becomes a warning instead of failing the
+ * import. Pure module, shared by the client preview and the server commit.
  */
 
 export interface ParsedSixtyUpgrades {
   setName?: string;
   character?: { name?: string; class?: string; spec?: string; race?: string };
+  /** The phase the set was built for, when the export carries one. */
+  phase?: Phase;
   stats: StatBlock;
   slots: SlotItem[];
   warnings: string[];
@@ -56,6 +60,16 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
+/** "WARRIOR" → "Warrior", "BLOOD_ELF" → "Blood Elf" — display casing for caps enums. */
+function titleCase(v: string | undefined): string | undefined {
+  if (!v) return undefined;
+  return v
+    .toLowerCase()
+    .split(/[\s_]+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 /** Map one raw slot entry to the canonical SlotItem shape (field aliases included). */
 function normalizeSlotEntry(raw: unknown): unknown {
   const entry = asRecord(raw);
@@ -97,8 +111,12 @@ export function parseSixtyUpgradesExport(text: string): SixtyUpgradesParseResult
   const warnings: string[] = [];
   let root = asRecord(json);
 
+  // Real exports call the slot list `items`; accept `slots` for hand-written data.
+  const slotList = (r: Record<string, unknown> | undefined): unknown[] | undefined =>
+    Array.isArray(r?.items) ? r.items : Array.isArray(r?.slots) ? r.slots : undefined;
+
   // Tolerate "export all sets" wrappers: { sets: [...] } or { set: {...} }.
-  if (root && !Array.isArray(root.slots)) {
+  if (root && !slotList(root)) {
     if (Array.isArray(root.sets) && root.sets.length > 0) {
       if (root.sets.length > 1) {
         warnings.push(`Export contains ${root.sets.length} sets — using the first. Import one set at a time.`);
@@ -108,13 +126,14 @@ export function parseSixtyUpgradesExport(text: string): SixtyUpgradesParseResult
       root = asRecord(root.set);
     }
   }
-  if (!root || !Array.isArray(root.slots)) {
-    return { ok: false, error: "JSON has no `slots` array — is this a SixtyUpgrades set export?" };
+  const rawSlots = slotList(root);
+  if (!root || !rawSlots) {
+    return { ok: false, error: "JSON has no `items` array — is this a SixtyUpgrades set export?" };
   }
 
   const slots: SlotItem[] = [];
   const seenSlots = new Set<SlotId>();
-  root.slots.forEach((rawSlot, i) => {
+  rawSlots.forEach((rawSlot, i) => {
     const parsed = slotItemSchema.safeParse(normalizeSlotEntry(rawSlot));
     if (!parsed.success) {
       const slotHint = asRecord(rawSlot)?.slot;
@@ -149,17 +168,23 @@ export function parseSixtyUpgradesExport(text: string): SixtyUpgradesParseResult
   const character = rawCharacter
     ? {
         name: asString(rawCharacter.name),
-        class: asString(rawCharacter.class),
+        class: titleCase(asString(rawCharacter.gameClass) ?? asString(rawCharacter.class)),
         spec: asString(rawCharacter.spec),
-        race: asString(rawCharacter.race),
+        race: titleCase(asString(rawCharacter.race)),
       }
     : undefined;
+
+  const phase =
+    typeof root.phase === "number" && (PHASE_IDS as readonly number[]).includes(root.phase)
+      ? (root.phase as Phase)
+      : undefined;
 
   return {
     ok: true,
     parsed: {
       setName: asString(root.name),
       character,
+      phase,
       stats: statBlockSchema.parse(stats),
       slots,
       warnings,

@@ -1,0 +1,296 @@
+{
+    "name": "hey",
+    "phase": 2,
+    "character": {
+        "name": "hey",
+        "level": 70,
+        "gameClass": "WARRIOR",
+        "race": "HUMAN",
+        "faction": "ALLIANCE"
+    },
+    "items": [
+        {
+            "name": "Destroyer Battle-Helm",
+            "id": 30120,
+            "enchant": {
+                "name": "Glyph of Ferocity",
+                "id": 3003,
+                "itemId": 29192
+            },
+            "gems": [
+                {
+                    "name": "Enigmatic Skyfire Diamond",
+                    "id": 25895
+                },
+                {
+                    "name": "Stone of Blades",
+                    "id": 33143
+                }
+            ],
+            "slot": "HEAD"
+        },
+        {
+            "name": "Pendant of the Perilous",
+            "id": 30022,
+            "slot": "NECK"
+        },
+        {
+            "name": "Ripfiend Shoulderplates",
+            "id": 30740,
+            "enchant": {
+                "name": "Might of the Scourge",
+                "id": 2717,
+                "itemId": 23548
+            },
+            "gems": [
+                {
+                    "name": "Smooth Ornate Dawnstone",
+                    "id": 28119
+                },
+                {
+                    "name": "Crimson Sun",
+                    "id": 33131
+                }
+            ],
+            "slot": "SHOULDERS"
+        },
+        {
+            "name": "Bulwark of the Ancient Kings",
+            "id": 28485,
+            "enchant": {
+                "name": "Enchant Chest - Exceptional Stats",
+                "id": 2661,
+                "spellId": 27960
+            },
+            "gems": [
+                {
+                    "name": "Inscribed Ornate Topaz",
+                    "id": 28363
+                },
+                {
+                    "name": "Enscribed Fire Opal",
+                    "id": 30584
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "CHEST"
+        },
+        {
+            "name": "Belt of One-Hundred Deaths",
+            "id": 30106,
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "WAIST"
+        },
+        {
+            "name": "Greaves of the Bloodwarder",
+            "id": 29950,
+            "enchant": {
+                "name": "Nethercobra Leg Armor",
+                "id": 3012,
+                "itemId": 29535
+            },
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "LEGS"
+        },
+        {
+            "name": "Warboots of Obliteration",
+            "id": 30081,
+            "enchant": {
+                "name": "Enchant Boots - Dexterity",
+                "id": 2657,
+                "spellId": 27951
+            },
+            "slot": "FEET"
+        },
+        {
+            "name": "Bracers of Eradication",
+            "id": 30057,
+            "enchant": {
+                "name": "Enchant Bracer - Brawn",
+                "id": 2647,
+                "spellId": 27899
+            },
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "WRISTS"
+        },
+        {
+            "name": "Gauntlets of Martial Perfection",
+            "id": 28824,
+            "enchant": {
+                "name": "Enchant Gloves - Major Strength",
+                "id": 684,
+                "spellId": 33995
+            },
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "HANDS"
+        },
+        {
+            "name": "Band of the Ranger-General",
+            "id": 29997,
+            "slot": "FINGER_1"
+        },
+        {
+            "name": "Ring of Reciprocity",
+            "id": 30738,
+            "slot": "FINGER_2"
+        },
+        {
+            "name": "Tsunami Talisman",
+            "id": 30627,
+            "slot": "TRINKET_1"
+        },
+        {
+            "name": "Drake Fang Talisman",
+            "id": 19406,
+            "slot": "TRINKET_2"
+        },
+        {
+            "name": "Vengeance Wrap",
+            "id": 24259,
+            "enchant": {
+                "name": "Enchant Cloak - Greater Agility",
+                "id": 368,
+                "spellId": 34004
+            },
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "BACK"
+        },
+        {
+            "name": "Talon of the Phoenix",
+            "id": 32944,
+            "enchant": {
+                "name": "Enchant Weapon - Potency",
+                "id": 2668,
+                "spellId": 27972
+            },
+            "slot": "MAIN_HAND"
+        },
+        {
+            "name": "Fang of Vashj",
+            "id": 30103,
+            "enchant": {
+                "name": "Enchant Weapon - Potency",
+                "id": 2668,
+                "spellId": 27972
+            },
+            "slot": "OFF_HAND"
+        },
+        {
+            "name": "Barrel-Blade Longrifle",
+            "id": 30724,
+            "gems": [
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                },
+                {
+                    "name": "Inscribed Noble Topaz",
+                    "id": 24058
+                }
+            ],
+            "slot": "RANGED"
+        }
+    ],
+    "consumables": [],
+    "buffs": [],
+    "talents": [],
+    "points": [
+        {
+            "name": "Fury",
+            "stats": {
+                "dps": 11.75,
+                "attackPower": 1,
+                "agility": 1.75,
+                "strength": 2.5,
+                "armorPen": 0.5,
+                "critRating": 2.5,
+                "hasteRating": 3,
+                "hitRating": 1.5,
+                "expertiseRating": 3.75,
+                "metaSockets": 107.5,
+                "redSockets": 25.5,
+                "yellowSockets": 25.5,
+                "blueSockets": 25.5
+            }
+        }
+    ],
+    "stats": {
+        "agility": 171,
+        "armor": 9184,
+        "attackPower": 1908,
+        "block": 5,
+        "blockValueBonus": 29,
+        "crit": 27.43,
+        "critRating": 466,
+        "defense": 350,
+        "dodge": 7.08,
+        "dodgeRating": 12,
+        "expertise": 11,
+        "expertiseRating": 46,
+        "health": 8824,
+        "hit": 10.91,
+        "hitRating": 172,
+        "intellect": 39,
+        "mainHandSpeed": 2.7,
+        "mana": 305,
+        "offHandSpeed": 1.8,
+        "parry": 5,
+        "rangedAttackPower": 1949,
+        "rangedCrit": 27.43,
+        "rangedCritRating": 466,
+        "rangedHit": 10.91,
+        "rangedHitRating": 172,
+        "rangedSpeed": 2.6,
+        "spirit": 62,
+        "stamina": 456,
+        "strength": 583
+    },
+    "exportOptions": {
+        "buffs": true,
+        "talents": true
+    }
+}

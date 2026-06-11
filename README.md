@@ -54,13 +54,13 @@ Each paste becomes one raid session. Winners are matched to roster characters by
 
 > **Note on seed data:** the roster, gear sets and awards are fictional demo data. Item IDs/names/icons are best-effort real TBC entries to make Wowhead tooltips work, but expect a few inaccuracies — they exist to exercise the UI and get replaced by your real imports.
 
-> **Note on export formats:** the SixtyUpgrades JSON shape and Gargul export are parsed tolerantly (slot-name aliases, column-shape detection, item links), but both were built against assumed formats. If a real export doesn't parse, file it as a fixture — the parsers in `src/lib/import/` are test-driven.
+> **Note on export formats:** the SixtyUpgrades parser is **built against a real export** (checked in as a test fixture under `src/lib/import/__fixtures__/`) — `items` array, UPPER_SNAKE slot names, `gameClass`, per-set `phase`, computed stats. The Gargul parser still targets an *assumed* format (**TODO:** validate against a real Gargul export — tolerant column-shape detection and item links should cover most configs until then).
 
 ## Roadmap
 
 - **M1** — UI draft on realistic seed data ✓
 - **M2 (this)** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
-- **M3** — LC decision support: contention ranking, fairness upgrades, Gargul column mapping, manual winner resolution, item-cache backfill
+- **M3** — LC decision support: contention ranking, fairness upgrades, manual winner resolution, item-cache backfill; **TODO: validate the Gargul parser against a real export** (+ column mapping if needed)
 - **M4** — Warcraft Logs integration: performance, enchant/gem/consumable audits per raid
 
 ## License

@@ -7,6 +7,9 @@ import type { Quality } from "@/lib/constants/wow";
  * name + winner. Handles the recommended format @DATE;@TIME;@ID;@ITEM;@WINNER;@OS
  * plus @LINK variants (in-game item links carry id, name and quality color).
  * Pure module — shared by the client preview and the server commit.
+ *
+ * TODO(M3): validate against a real Gargul export — unlike the SixtyUpgrades
+ * parser (built on a real fixture), this format is still assumed.
  */
 
 export interface ParsedGargulLine {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseSixtyUpgradesExport } from "@/lib/import/sixtyupgrades";
+import realExport from "@/lib/import/__fixtures__/sixtyupgrades-fury-warrior.json";
 
 function ok(text: string) {
   const result = parseSixtyUpgradesExport(text);
@@ -100,5 +101,43 @@ describe("parseSixtyUpgradesExport", () => {
     expect(parseSixtyUpgradesExport("not json").ok).toBe(false);
     expect(parseSixtyUpgradesExport('{"foo": 1}').ok).toBe(false);
     expect(parseSixtyUpgradesExport('{"slots": []}').ok).toBe(false);
+  });
+
+  it("parses a real SixtyUpgrades export (fixture, regression)", () => {
+    const parsed = ok(JSON.stringify(realExport));
+
+    expect(parsed.setName).toBe("hey");
+    expect(parsed.phase).toBe(2);
+    expect(parsed.character?.name).toBe("hey");
+    expect(parsed.character?.class).toBe("Warrior"); // from gameClass: "WARRIOR"
+    expect(parsed.character?.race).toBe("Human");
+
+    // All 17 equipment slots, UPPER_SNAKE names mapped to canonical ids.
+    expect(parsed.slots).toHaveLength(17);
+    const bySlot = new Map(parsed.slots.map((s) => [s.slot, s]));
+    expect(bySlot.get("head")?.itemId).toBe(30120);
+    expect(bySlot.get("shoulder")?.itemId).toBe(30740); // SHOULDERS
+    expect(bySlot.get("wrist")?.itemId).toBe(30057); // WRISTS
+    expect(bySlot.get("ring1")?.itemId).toBe(29997); // FINGER_1
+    expect(bySlot.get("ring2")?.itemId).toBe(30738); // FINGER_2
+    expect(bySlot.get("trinket1")?.itemId).toBe(30627); // TRINKET_1
+    expect(bySlot.get("mainHand")?.itemId).toBe(32944); // MAIN_HAND
+    expect(bySlot.get("offHand")?.itemId).toBe(30103); // OFF_HAND
+    expect(bySlot.get("ranged")?.itemId).toBe(30724);
+
+    // Enchants and gems survive (extra keys like itemId/spellId are stripped).
+    expect(bySlot.get("head")?.enchant).toEqual({ id: 3003, name: "Glyph of Ferocity" });
+    expect(bySlot.get("head")?.gems?.map((g) => g.name)).toEqual([
+      "Enigmatic Skyfire Diamond",
+      "Stone of Blades",
+    ]);
+    expect(bySlot.get("chest")?.gems).toHaveLength(3);
+
+    // The computed stat block passes through untouched.
+    expect(parsed.stats.stamina).toBe(456);
+    expect(parsed.stats.crit).toBe(27.43);
+    expect(parsed.stats.mainHandSpeed).toBe(2.7);
+
+    expect(parsed.warnings).toEqual([]);
   });
 });

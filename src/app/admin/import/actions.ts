@@ -73,6 +73,9 @@ export async function commitSixtyUpgrades(rawInput: SixtyCommitInput): Promise<S
     }
 
     const phase = input.kind === "wishlist" ? input.phase : undefined;
+    if (phase !== undefined && parsed.parsed.phase !== undefined && parsed.parsed.phase !== phase) {
+      warnings.push(`The export is built for P${parsed.parsed.phase} but was imported as a P${phase} wishlist.`);
+    }
     const defaultName =
       input.kind === "current" ? "Current gear" : `P${phase} wishlist`;
     const result = await repo.upsertGearSet(

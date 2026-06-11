@@ -37,16 +37,23 @@ import {
   type SixtyCommitResult,
 } from "@/app/admin/import/actions";
 
+/** Mirrors the real SixtyUpgrades export shape (see src/lib/import/__fixtures__). */
 const SU_EXAMPLE = JSON.stringify(
   {
     name: "P2 wishlist",
-    character: { name: "Thrainn", class: "Warrior", spec: "Protection" },
-    stats: { health: 14350, stamina: 920, defenseRating: 401, dodgeRating: 268 },
-    slots: [
-      { slot: "head", itemId: 30243, itemName: "Helm of the Vanquished Defender" },
-      { slot: "trinket2", itemId: 30446, itemName: "Solarian's Sapphire" },
-      { slot: "mainHand", itemId: 28749, itemName: "King's Defender", enchant: { name: "Mongoose" } },
+    phase: 2,
+    character: { name: "Thrainn", level: 70, gameClass: "WARRIOR", race: "ORC", faction: "HORDE" },
+    items: [
+      { name: "Helm of the Vanquished Defender", id: 30243, slot: "HEAD" },
+      { name: "Solarian's Sapphire", id: 30446, slot: "TRINKET_2" },
+      {
+        name: "King's Defender",
+        id: 28749,
+        enchant: { name: "Enchant Weapon - Mongoose", id: 2673 },
+        slot: "MAIN_HAND",
+      },
     ],
+    stats: { health: 14350, stamina: 920, defense: 401, dodgeRating: 268 },
   },
   null,
   2,
@@ -209,7 +216,7 @@ function SixtyUpgradesTab({
               setText(e.target.value);
               setResult(null);
             }}
-            placeholder='{"name":"P2 wishlist","slots":[…]}'
+            placeholder='{"name":"P2 wishlist","phase":2,"items":[…],"stats":{…}}'
             className="min-h-44 font-mono text-xs"
           />
           <div className="flex flex-wrap items-center gap-2">
@@ -272,6 +279,23 @@ function SixtyUpgradesTab({
               </div>
             )}
           </div>
+          {kind === "wishlist" &&
+            newParse?.ok &&
+            newParse.parsed.phase !== undefined &&
+            String(newParse.parsed.phase) !== phase && (
+              <p className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+                <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                The pasted export is built for P{newParse.parsed.phase}, not P{phase}.
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => update(setPhase)(String(newParse.parsed.phase))}
+                >
+                  Import as P{newParse.parsed.phase}
+                </Button>
+              </p>
+            )}
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
@@ -357,20 +381,26 @@ function SixtyUpgradesTab({
                 <span className="font-medium">{preview.parsed.setName ?? "Unnamed set"}</span>
                 {preview.parsed.character?.name && (
                   <span className="text-muted-foreground">
-                    detected character: {preview.parsed.character.name}
+                    {preview.parsed.character.name}
+                    {preview.parsed.character.class && ` · ${preview.parsed.character.class}`}
                   </span>
+                )}
+                {preview.parsed.phase !== undefined && (
+                  <Badge variant="muted">built for P{preview.parsed.phase}</Badge>
                 )}
                 <Badge variant="secondary">→ {target}, {targetLabel}</Badge>
               </p>
               <Warnings
                 warnings={[
                   ...preview.parsed.warnings,
-                  ...preview.parsed.slots
-                    .filter((s) => !items.isKnown(s.itemId))
-                    .map(
-                      (s) =>
-                        `Slot ${s.slot}: item ${s.itemId} (“${s.itemName}”) is not in the item cache — icon/quality unknown until backfilled.`,
-                    ),
+                  ...(() => {
+                    const unknown = preview.parsed.slots.filter((s) => !items.isKnown(s.itemId));
+                    return unknown.length > 0
+                      ? [
+                          `${unknown.length} item(s) aren't in the local item cache yet — they'll render with the export's name but without icon/quality until backfilled.`,
+                        ]
+                      : [];
+                  })(),
                 ]}
               />
               <Table>
