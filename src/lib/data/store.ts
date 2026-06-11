@@ -6,11 +6,13 @@ import {
 } from "@/lib/analysis/wishlist";
 import { computeItemContention } from "@/lib/analysis/contention";
 import { computeFairness } from "@/lib/analysis/fairness";
+import { summarizePerformance } from "@/lib/analysis/performance";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
   AwardWithContext,
   Character,
   CharacterBundle,
+  CharacterPerformance,
   CharacterSummary,
   FairnessGroup,
   GearSet,
@@ -18,9 +20,13 @@ import type {
   Item,
   ItemDemand,
   LootAward,
+  PerformanceReportView,
   Phase,
   PhaseWishlistView,
   RaidSession,
+  WclPlayerFight,
+  WclReport,
+  WclReportView,
 } from "@/lib/types";
 import type { Repo } from "@/lib/data/repo";
 
@@ -36,6 +42,8 @@ export interface EntityStore {
   gearSets: GearSet[];
   raidSessions: RaidSession[];
   lootAwards: LootAward[];
+  wclReports: WclReport[];
+  wclPlayerFights: WclPlayerFight[];
 }
 
 /** Referential integrity — hard errors; these always indicate a broken data source. */
@@ -55,10 +63,24 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: award ${award.id} references unknown characterId ${award.characterId}`);
     }
   }
+  const reportCodes = new Set(store.wclReports.map((r) => r.code));
+  for (const report of store.wclReports) {
+    if (report.raidSessionId !== null && !sessionIds.has(report.raidSessionId)) {
+      throw new Error(`${sourceLabel}: WCL report ${report.code} references unknown raidSessionId ${report.raidSessionId}`);
+    }
+  }
+  for (const row of store.wclPlayerFights) {
+    if (!reportCodes.has(row.reportCode)) {
+      throw new Error(`${sourceLabel}: WCL player fight ${row.id} references unknown reportCode ${row.reportCode}`);
+    }
+    if (row.characterId !== null && !charIds.has(row.characterId)) {
+      throw new Error(`${sourceLabel}: WCL player fight ${row.id} references unknown characterId ${row.characterId}`);
+    }
+  }
 }
 
 export function createRepoFromStore(store: EntityStore): Repo {
-  const { guild, roster, items, gearSets, raidSessions, lootAwards } = store;
+  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -243,6 +265,48 @@ export function createRepoFromStore(store: EntityStore): Repo {
             b.awardCount - a.awardCount ||
             a.name.localeCompare(b.name),
         );
+    },
+
+    async listWclReports(): Promise<WclReportView[]> {
+      return [...wclReports]
+        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+        .map((report) => {
+          const rows = wclPlayerFights.filter((r) => r.reportCode === report.code);
+          return {
+            report,
+            session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
+            playerCount: new Set(rows.map((r) => r.actorName.toLowerCase())).size,
+            encounterCount: new Set(rows.map((r) => r.encounterId)).size,
+            killCount: new Set(rows.filter((r) => r.kill).map((r) => r.fightId)).size,
+          };
+        });
+    },
+
+    async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {
+      const character = charactersBySlug.get(slug.toLowerCase());
+      if (!character) return null;
+      const myRows = wclPlayerFights.filter((r) => r.characterId === character.id);
+      const reports: PerformanceReportView[] = [...wclReports]
+        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+        .map((report): PerformanceReportView | undefined => {
+          const rows = myRows
+            .filter((r) => r.reportCode === report.code)
+            .sort((a, b) => a.fightId - b.fightId);
+          const summary = summarizePerformance(rows);
+          return summary
+            ? {
+                report,
+                session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
+                rows,
+                summary,
+              }
+            : undefined;
+        })
+        .filter((v): v is PerformanceReportView => v !== undefined);
+      // Career rollup in chronological order (oldest report first) so
+      // "latest pull" facts like the enchant audit come from the newest data.
+      const chronological = [...reports].reverse().flatMap((r) => r.rows);
+      return { character, reports, career: summarizePerformance(chronological) };
     },
 
     async getDashboard() {

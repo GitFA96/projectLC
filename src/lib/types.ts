@@ -8,6 +8,9 @@ import type {
   raidSessionSchema,
   slotItemSchema,
   statBlockSchema,
+  wclPlayerFightSchema,
+  wclReportSchema,
+  wclRoleSchema,
 } from "@/lib/import/schemas";
 import type { Phase, Quality, Role, SlotId, WowClass } from "@/lib/constants/wow";
 
@@ -22,6 +25,9 @@ export type StatBlock = z.infer<typeof statBlockSchema>;
 export type GearSet = z.infer<typeof gearSetSchema>;
 export type RaidSession = z.infer<typeof raidSessionSchema>;
 export type LootAward = z.infer<typeof lootAwardSchema>;
+export type WclReport = z.infer<typeof wclReportSchema>;
+export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
+export type WclRole = z.infer<typeof wclRoleSchema>;
 
 /* Derived view models (computed, never stored) */
 
@@ -136,6 +142,59 @@ export interface ItemDemand {
   openCount: number;
   awardCount: number;
   lastAwardedAt?: string;
+}
+
+/* Warcraft Logs performance views (derived) */
+
+/** Rollup over a set of player-fight rows (one report, or a whole career). */
+export interface PerformanceSummary {
+  fights: number;
+  kills: number;
+  wipes: number;
+  deaths: number;
+  medianParse?: number;
+  bestParse?: number;
+  medianBracket?: number;
+  /** Dominant role/spec across the rows. */
+  role: WclRole;
+  spec?: string;
+  /** % of pulls covered: flask or two elixirs / food / temp weapon buff. */
+  flaskOrElixirsPct: number;
+  foodPct: number;
+  weaponBuffPct: number;
+  /** Both flask-or-elixirs AND food up — the headline preparation number. */
+  preparedPct: number;
+  potionsTotal: number;
+  potionsPerFight: number;
+  prepots: number;
+  drums: number;
+  runes: number;
+  healthstones: number;
+  /** From the most recent pull in the rows. */
+  missingEnchants: string[];
+}
+
+export interface PerformanceReportView {
+  report: WclReport;
+  session?: RaidSession;
+  rows: WclPlayerFight[];
+  summary: PerformanceSummary;
+}
+
+export interface CharacterPerformance {
+  character: Character;
+  /** Newest report first. */
+  reports: PerformanceReportView[];
+  /** Rollup across every report the character appears in (undefined when none). */
+  career?: PerformanceSummary;
+}
+
+export interface WclReportView {
+  report: WclReport;
+  session?: RaidSession;
+  playerCount: number;
+  encounterCount: number;
+  killCount: number;
 }
 
 export interface DashboardData {

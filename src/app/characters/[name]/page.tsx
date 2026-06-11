@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Activity, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
@@ -110,6 +110,13 @@ export default async function CharacterPage({ params }: { params: Promise<Params
               items={summary.completionByPhase.map((c) => ({ phase: c.phase, pct: c.completion.pct }))}
               activePhase={guild.activePhase}
             />
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/characters/${encodeURIComponent(character.name.toLowerCase())}/performance`}
+              >
+                <Activity className="h-3.5 w-3.5" /> Performance
+              </Link>
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link href={`/characters/${encodeURIComponent(character.name.toLowerCase())}/edit`}>
                 <Pencil className="h-3.5 w-3.5" /> Edit

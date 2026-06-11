@@ -1,6 +1,6 @@
 # projectLC
 
-Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character-based view of who has what, who wants what per phase, and who got what — combining **SixtyUpgrades** gear sets (current gear + phase wishlists) with **Gargul** loot exports.
+Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character-based view of who has what, who wants what per phase, who got what — and how they perform — combining **SixtyUpgrades** gear sets (current gear + phase wishlists), **Gargul** loot exports and **Warcraft Logs** reports.
 
 ## What's in the app
 
@@ -10,10 +10,11 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/roster` | All characters: class/spec/role, per-phase wishlist completion, items won, add raiders |
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
+| `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, enchant audit, per-report + career rollups |
 | `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
-| `/admin/import` | Commit SixtyUpgrades JSON sets and Gargul award pastes, with preview and validation |
+| `/admin/import` | Commit SixtyUpgrades JSON sets, Gargul award pastes and Warcraft Logs reports, with preview and validation |
 
 ## Stack
 
@@ -49,6 +50,24 @@ Each paste becomes one raid session. Winners are matched to roster characters by
 
 Awards whose winner didn't auto-match the roster show up amber in the ledger (and as a dashboard banner). Each one can be **assigned to a roster character** (typo, rename, late roster add — wishlist matching re-derives instantly) or **marked off-roster** (disenchanted, banked, PUG), which settles it without inventing a character. Both are reversible; `rawWinnerName` always keeps exactly what Gargul said.
 
+### Warcraft Logs (performance)
+
+One-time setup: create a free API client at [warcraftlogs.com/api/clients](https://www.warcraftlogs.com/api/clients) (any name, no redirect URL) and put the pair in `.env.local`:
+
+```
+WCL_CLIENT_ID=…
+WCL_CLIENT_SECRET=…
+```
+
+Then paste a report URL on the import page's **Warcraft Logs** tab (optionally linking it to the night's Gargul session). One import costs ~5 API calls (the free tier allows thousands/hour) and records, per raider per boss pull:
+
+- **parse percentile** (DPS; HPS for healers; tanks in their bracket) plus the **ilvl-bracket percentile** — high parse + low bracket reads "carried by gear", the reverse reads "outplaying their gear"
+- **deaths**, bucketed per pull
+- **preparation**: flask/elixirs, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones used in-fight (from cast events)
+- **enchant audit**: expected-to-be-enchanted slots missing a permanent enchant — freshly awarded loot shows up here until it's enchanted
+
+Players are matched to the roster by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup.
+
 ### Model decisions
 
 - A **wishlist is a whole gear set** (`kind: "wishlist"` + phase), exactly like a SixtyUpgrades export. Stat comparison is a pure diff of the two sets' computed stat blocks — the app never computes WoW stats itself.
@@ -66,7 +85,7 @@ Awards whose winner didn't auto-match the roster show up amber in the ledger (an
 - **M1** — UI draft on realistic seed data ✓
 - **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
 - **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
-- **M4** — Warcraft Logs integration: performance, enchant/gem/consumable audits per raid
+- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓, per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓; **remaining: validate against a real report fetch** (the GraphQL JSON blobs are built tolerant but unverified against live data), curated class-specific buff-uptime metrics, raid-wide preparation overview
 
 ## License
 

@@ -8,11 +8,13 @@ import {
   insertItem,
   insertLootAward,
   insertRaidSession,
+  insertWclPlayerFight,
+  insertWclReport,
   loadStore,
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
-import { characterSchema, gearSetSchema } from "@/lib/import/schemas";
+import { characterSchema, gearSetSchema, wclPlayerFightSchema, wclReportSchema } from "@/lib/import/schemas";
 import type {
   AwardDraft,
   AwardResolution,
@@ -24,9 +26,12 @@ import type {
   RaidSessionDraft,
   ResolveAwardResult,
   UpsertGearSetResult,
+  WclPlayerFightDraft,
+  WclReportDraft,
+  WclSaveResult,
   WriteRepo,
 } from "@/lib/data/repo";
-import type { Character, GearSet, Item, LootAward, RaidSession } from "@/lib/types";
+import type { Character, GearSet, Item, LootAward, RaidSession, WclPlayerFight } from "@/lib/types";
 
 /**
  * SQLite-backed repository. Reads go through the same derived read model as
@@ -234,6 +239,56 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true, award: { ...award, characterId, external } };
   },
 
+  async saveWclReport(reportDraft: WclReportDraft, rowDrafts: WclPlayerFightDraft[]): Promise<WclSaveResult> {
+    const model = readModel();
+    if (reportDraft.raidSessionId && !model.store.raidSessions.some((s) => s.id === reportDraft.raidSessionId)) {
+      return { ok: false, error: "The selected raid session no longer exists." };
+    }
+    if (rowDrafts.length === 0) {
+      return { ok: false, error: "The report has no per-player boss data to import." };
+    }
+
+    const parsedReport = wclReportSchema.safeParse({
+      ...reportDraft,
+      fetchedAt: new Date().toISOString(),
+      raidSessionId: reportDraft.raidSessionId ?? null,
+    });
+    if (!parsedReport.success) {
+      return { ok: false, error: parsedReport.error.issues[0]?.message ?? "Invalid report." };
+    }
+    const report = parsedReport.data;
+
+    const matched = new Set<string>();
+    const unmatched = new Set<string>();
+    const rows: WclPlayerFight[] = rowDrafts.map((draft) => {
+      const character = characterByName(draft.actorName);
+      (character ? matched : unmatched).add(draft.actorName);
+      return wclPlayerFightSchema.parse({
+        ...draft,
+        id: `${report.code}:${draft.fightId}:${draft.actorName.toLowerCase()}`,
+        reportCode: report.code,
+        characterId: character?.id ?? null,
+      } satisfies WclPlayerFight);
+    });
+
+    const db = getDb();
+    const existed = model.store.wclReports.some((r) => r.code === report.code);
+    withTx(db, () => {
+      db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(report.code);
+      insertWclReport(db, report); // INSERT OR REPLACE keyed on code
+      for (const row of rows) insertWclPlayerFight(db, row);
+      bumpDataVersion(db);
+    });
+    return {
+      ok: true,
+      report,
+      replaced: existed,
+      fightCount: new Set(rows.map((r) => r.fightId)).size,
+      matched: [...matched].sort(),
+      unmatched: [...unmatched].sort(),
+    };
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     const db = getDb();
     const known = new Set(readModel().store.items.map((i) => i.id));
@@ -260,6 +315,8 @@ export function getSqliteRepo(): WriteRepo {
     getItemContention: (itemId) => readModel().repo.getItemContention(itemId),
     listItemDemand: () => readModel().repo.listItemDemand(),
     getDashboard: () => readModel().repo.getDashboard(),
+    listWclReports: () => readModel().repo.listWclReports(),
+    getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
   };
   return { ...readDelegate, ...writeMethods };
 }

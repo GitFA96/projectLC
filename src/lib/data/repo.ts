@@ -2,6 +2,7 @@ import type {
   AwardWithContext,
   Character,
   CharacterBundle,
+  CharacterPerformance,
   CharacterSummary,
   DashboardData,
   GearSet,
@@ -11,6 +12,9 @@ import type {
   ItemDemand,
   LootAward,
   RaidSession,
+  WclPlayerFight,
+  WclReport,
+  WclReportView,
 } from "@/lib/types";
 
 /**
@@ -32,6 +36,10 @@ export interface Repo {
   /** Every known item (cache ∪ wishlists ∪ awards) with demand counts, most contested first. */
   listItemDemand(): Promise<ItemDemand[]>;
   getDashboard(): Promise<DashboardData>;
+  /** Fetched Warcraft Logs reports, newest first. */
+  listWclReports(): Promise<WclReportView[]>;
+  /** Per-report performance + career rollup for one character (null = unknown character). */
+  getCharacterPerformance(slug: string): Promise<CharacterPerformance | null>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -81,6 +89,25 @@ export type ResolveAwardResult =
   | { ok: true; award: LootAward }
   | { ok: false; error: string };
 
+/** A fetched report ready to persist: identity fields are derived at save time. */
+export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId"> & {
+  raidSessionId?: string | null;
+};
+export type WclPlayerFightDraft = Omit<WclPlayerFight, "id" | "reportCode" | "characterId">;
+
+export type WclSaveResult =
+  | {
+      ok: true;
+      report: WclReport;
+      /** True when this code had been fetched before (rows were replaced). */
+      replaced: boolean;
+      fightCount: number;
+      /** Distinct player names matched to roster characters / left unmatched. */
+      matched: string[];
+      unmatched: string[];
+    }
+  | { ok: false; error: string };
+
 export interface WriteRepo extends Repo {
   findCharacterByName(name: string): Promise<Character | undefined>;
   /** The set an import would overwrite, if any (kind "current", or wishlist for the given phase). */
@@ -99,6 +126,12 @@ export interface WriteRepo extends Repo {
   createRaidSessionWithAwards(session: RaidSessionDraft, awards: AwardDraft[]): Promise<GargulCommitResult>;
   /** Settle (or reopen) the winner of one award — see AwardResolution. */
   resolveAward(awardId: string, resolution: AwardResolution): Promise<ResolveAwardResult>;
+  /**
+   * Persist one fetched Warcraft Logs report. Players are matched to roster
+   * characters by name (like Gargul winners); re-saving the same report code
+   * replaces it wholesale, so refetching is the update flow.
+   */
+  saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
 }

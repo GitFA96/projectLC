@@ -4,6 +4,8 @@ import itemsJson from "@/data/seed/items.json";
 import gearSetsJson from "@/data/seed/gear-sets.json";
 import raidSessionsJson from "@/data/seed/raid-sessions.json";
 import lootAwardsJson from "@/data/seed/loot-awards.json";
+import wclReportsJson from "@/data/seed/wcl-reports.json";
+import wclPlayerFightsJson from "@/data/seed/wcl-player-fights.json";
 import {
   seedGearSetsSchema,
   seedGuildSchema,
@@ -11,6 +13,8 @@ import {
   seedLootAwardsSchema,
   seedRaidSessionsSchema,
   seedRosterSchema,
+  seedWclPlayerFightsSchema,
+  seedWclReportsSchema,
 } from "@/lib/import/schemas";
 import { validateStore, type EntityStore } from "@/lib/data/store";
 
@@ -39,6 +43,8 @@ export function loadSeedStore(): EntityStore {
     gearSets: parse("gear-sets.json", seedGearSetsSchema, gearSetsJson),
     raidSessions: parse("raid-sessions.json", seedRaidSessionsSchema, raidSessionsJson),
     lootAwards: parse("loot-awards.json", seedLootAwardsSchema, lootAwardsJson),
+    wclReports: parse("wcl-reports.json", seedWclReportsSchema, wclReportsJson),
+    wclPlayerFights: parse("wcl-player-fights.json", seedWclPlayerFightsSchema, wclPlayerFightsJson),
   };
   validateStore(store, "seed data");
   return store;

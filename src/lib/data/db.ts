@@ -8,10 +8,21 @@ import {
   itemSchema,
   lootAwardSchema,
   raidSessionSchema,
+  wclPlayerFightSchema,
+  wclReportSchema,
 } from "@/lib/import/schemas";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
-import type { Character, GearSet, Guild, Item, LootAward, RaidSession } from "@/lib/types";
+import type {
+  Character,
+  GearSet,
+  Guild,
+  Item,
+  LootAward,
+  RaidSession,
+  WclPlayerFight,
+  WclReport,
+} from "@/lib/types";
 
 /**
  * SQLite persistence on Node's built-in driver (node:sqlite) — no native
@@ -95,6 +106,46 @@ CREATE TABLE IF NOT EXISTS loot_awards (
 );
 CREATE INDEX IF NOT EXISTS loot_awards_dedupe
   ON loot_awards(item_id, raw_winner_name COLLATE NOCASE, awarded_at);
+CREATE TABLE IF NOT EXISTS wcl_reports (
+  code            TEXT PRIMARY KEY,
+  title           TEXT NOT NULL,
+  zone            TEXT,
+  start_time      TEXT NOT NULL,
+  end_time        TEXT NOT NULL,
+  fetched_at      TEXT NOT NULL,
+  raid_session_id TEXT
+);
+CREATE TABLE IF NOT EXISTS wcl_player_fights (
+  id                    TEXT PRIMARY KEY,
+  report_code           TEXT NOT NULL REFERENCES wcl_reports(code),
+  fight_id              INTEGER NOT NULL,
+  encounter_id          INTEGER NOT NULL,
+  encounter_name        TEXT NOT NULL,
+  kill                  INTEGER NOT NULL,
+  fight_percentage      REAL,
+  duration_ms           INTEGER NOT NULL,
+  actor_name            TEXT NOT NULL,
+  character_id          TEXT,
+  class_name            TEXT,
+  spec                  TEXT,
+  role                  TEXT NOT NULL,
+  parse_percent         REAL,
+  bracket_percent       REAL,
+  amount                REAL,
+  deaths                INTEGER NOT NULL DEFAULT 0,
+  flask                 TEXT,
+  elixirs_json          TEXT NOT NULL DEFAULT '[]',
+  food                  INTEGER NOT NULL DEFAULT 0,
+  weapon_buff           INTEGER NOT NULL DEFAULT 0,
+  prepot                INTEGER NOT NULL DEFAULT 0,
+  potions_json          TEXT NOT NULL DEFAULT '[]',
+  drums                 INTEGER NOT NULL DEFAULT 0,
+  runes                 INTEGER NOT NULL DEFAULT 0,
+  healthstones          INTEGER NOT NULL DEFAULT 0,
+  missing_enchants_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS wcl_player_fights_by_report ON wcl_player_fights(report_code);
+CREATE INDEX IF NOT EXISTS wcl_player_fights_by_character ON wcl_player_fights(character_id);
 `;
 
 export function defaultDbPath(): string {
@@ -216,6 +267,31 @@ export function insertLootAward(db: DatabaseSync, a: LootAward): void {
   );
 }
 
+export function insertWclReport(db: DatabaseSync, r: WclReport): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO wcl_reports (code, title, zone, start_time, end_time, fetched_at, raid_session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(r.code, r.title, r.zone ?? null, r.startTime, r.endTime, r.fetchedAt, r.raidSessionId);
+}
+
+export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void {
+  db.prepare(
+    `INSERT INTO wcl_player_fights (
+       id, report_code, fight_id, encounter_id, encounter_name, kill, fight_percentage,
+       duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
+       bracket_percent, amount, deaths, flask, elixirs_json, food, weapon_buff, prepot,
+       potions_json, drums, runes, healthstones, missing_enchants_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
+    f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
+    f.spec ?? null, f.role, f.parsePercent ?? null, f.bracketPercent ?? null, f.amount ?? null,
+    f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), f.food ? 1 : 0, f.weaponBuff ? 1 : 0,
+    f.prepot ? 1 : 0, JSON.stringify(f.potions), f.drums, f.runes, f.healthstones,
+    JSON.stringify(f.missingEnchants),
+  );
+}
+
 function rowToGuild(r: Row): unknown {
   return { id: r.id, name: r.name, realm: r.realm, faction: r.faction, activePhase: r.active_phase };
 }
@@ -258,6 +334,30 @@ function rowToLootAward(r: Row): unknown {
   };
 }
 
+function rowToWclReport(r: Row): unknown {
+  return {
+    code: r.code, title: r.title, zone: opt(r.zone), startTime: r.start_time,
+    endTime: r.end_time, fetchedAt: r.fetched_at,
+    raidSessionId: (r.raid_session_id as string | null) ?? null,
+  };
+}
+
+function rowToWclPlayerFight(r: Row): unknown {
+  return {
+    id: r.id, reportCode: r.report_code, fightId: r.fight_id, encounterId: r.encounter_id,
+    encounterName: r.encounter_name, kill: r.kill === 1, fightPercentage: opt(r.fight_percentage),
+    durationMs: r.duration_ms, actorName: r.actor_name,
+    characterId: (r.character_id as string | null) ?? null,
+    className: opt(r.class_name), spec: opt(r.spec), role: r.role,
+    parsePercent: opt(r.parse_percent), bracketPercent: opt(r.bracket_percent),
+    amount: opt(r.amount), deaths: r.deaths, flask: opt(r.flask),
+    elixirs: JSON.parse(r.elixirs_json as string), food: r.food === 1,
+    weaponBuff: r.weapon_buff === 1, prepot: r.prepot === 1,
+    potions: JSON.parse(r.potions_json as string), drums: r.drums, runes: r.runes,
+    healthstones: r.healthstones, missingEnchants: JSON.parse(r.missing_enchants_json as string),
+  };
+}
+
 function parseAll<T>(label: string, schema: { parse: (d: unknown) => T }, rows: unknown[]): T[] {
   return rows.map((row) => {
     try {
@@ -278,6 +378,8 @@ export function loadStore(db: DatabaseSync): EntityStore {
     gearSets: parseAll("gear_sets", gearSetSchema, (db.prepare("SELECT * FROM gear_sets").all() as Row[]).map(rowToGearSet)),
     raidSessions: parseAll("raid_sessions", raidSessionSchema, (db.prepare("SELECT * FROM raid_sessions").all() as Row[]).map(rowToRaidSession)),
     lootAwards: parseAll("loot_awards", lootAwardSchema, (db.prepare("SELECT * FROM loot_awards").all() as Row[]).map(rowToLootAward)),
+    wclReports: parseAll("wcl_reports", wclReportSchema, (db.prepare("SELECT * FROM wcl_reports").all() as Row[]).map(rowToWclReport)),
+    wclPlayerFights: parseAll("wcl_player_fights", wclPlayerFightSchema, (db.prepare("SELECT * FROM wcl_player_fights").all() as Row[]).map(rowToWclPlayerFight)),
   };
   validateStore(store, "sqlite database");
   return store;
@@ -295,6 +397,8 @@ function seedIfEmpty(db: DatabaseSync): void {
       for (const s of seed.gearSets) insertGearSet(db, s);
       for (const s of seed.raidSessions) insertRaidSession(db, s);
       for (const a of seed.lootAwards) insertLootAward(db, a);
+      for (const r of seed.wclReports) insertWclReport(db, r);
+      for (const f of seed.wclPlayerFights) insertWclPlayerFight(db, f);
       bumpDataVersion(db);
     });
   } catch (e) {

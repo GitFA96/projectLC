@@ -36,6 +36,7 @@ import {
   type GargulCommitActionResult,
   type SixtyCommitResult,
 } from "@/app/admin/import/actions";
+import { importWclReport, type WclImportActionResult } from "@/app/admin/import/wcl-actions";
 
 /** Mirrors the real SixtyUpgrades export shape (see src/lib/import/__fixtures__). */
 const SU_EXAMPLE = JSON.stringify(
@@ -700,29 +701,197 @@ function GargulTab({
   );
 }
 
+/* Warcraft Logs */
+
+export interface SessionOption {
+  id: string;
+  label: string;
+}
+
+function WclTab({ sessions, configured }: { sessions: SessionOption[]; configured: boolean }) {
+  const [report, setReport] = React.useState("");
+  const [sessionId, setSessionId] = React.useState("none");
+  const [result, setResult] = React.useState<WclImportActionResult | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  const commit = () => {
+    startTransition(async () => {
+      setResult(
+        await importWclReport({
+          report,
+          raidSessionId: sessionId === "none" ? undefined : sessionId,
+        }),
+      );
+    });
+  };
+
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Warcraft Logs report</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Paste a report URL (or just its code). The app fetches parses, per-pull consumable
+            usage, deaths and an enchant audit via the official API — players are matched to the
+            roster by name. Fetching the same report again replaces it (the update flow).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!configured ? (
+            <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-medium">Warcraft Logs API credentials aren&apos;t configured.</p>
+              <ol className="list-decimal space-y-1 pl-4 text-xs text-amber-700">
+                <li>
+                  Create a (free) API client at{" "}
+                  <a
+                    href="https://www.warcraftlogs.com/api/clients"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    warcraftlogs.com/api/clients
+                  </a>{" "}
+                  — any name, no redirect URL needed.
+                </li>
+                <li>
+                  Put the pair in <code className="rounded bg-amber-100 px-1 font-mono">.env.local</code>:{" "}
+                  <code className="rounded bg-amber-100 px-1 font-mono">WCL_CLIENT_ID</code> and{" "}
+                  <code className="rounded bg-amber-100 px-1 font-mono">WCL_CLIENT_SECRET</code>
+                </li>
+                <li>Restart the dev server and reload this page.</li>
+              </ol>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">Report URL or code</Label>
+                <Input
+                  value={report}
+                  onChange={(e) => {
+                    setReport(e.target.value);
+                    setResult(null);
+                  }}
+                  placeholder="https://classic.warcraftlogs.com/reports/AbCdEf1234567890"
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Link to raid session (optional)</Label>
+                <Select value={sessionId} onValueChange={setSessionId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not linked</SelectItem>
+                    {sessions.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <CommitButton pending={pending} onClick={commit} disabled={!report.trim()}>
+                Fetch &amp; import
+              </CommitButton>
+            </>
+          )}
+
+          {result?.status === "not-configured" && (
+            <ErrorPanel message="Warcraft Logs credentials are not configured — reload the page for setup instructions." />
+          )}
+          {result?.status === "error" && <ErrorPanel message={result.message} />}
+          {result?.status === "committed" && (
+            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              <p className="flex items-center gap-1.5 font-medium">
+                <CircleCheck className="h-4 w-4" />
+                {result.replaced ? "Updated" : "Imported"} “{result.title}”
+                {result.zone && ` — ${result.zone}`} ({result.fightCount} boss pull
+                {result.fightCount === 1 ? "" : "s"})
+              </p>
+              <p className="text-xs">
+                {result.matched.length} raider(s) matched to the roster
+                {result.unmatched.length > 0 &&
+                  ` · not on the roster (ignored on profiles): ${result.unmatched.join(", ")}`}
+              </p>
+              <Warnings warnings={result.warnings} />
+              {result.matched.length > 0 && (
+                <Button asChild size="sm" variant="outline">
+                  <Link
+                    href={`/characters/${encodeURIComponent(result.matched[0].toLowerCase())}/performance`}
+                  >
+                    View {result.matched[0]}&apos;s performance
+                  </Link>
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>What gets imported</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            For every boss pull and every raider: <span className="text-foreground">parse percentile</span>{" "}
+            (DPS, or HPS for healers) with its item-level bracket percentile,{" "}
+            <span className="text-foreground">deaths</span>, and the full{" "}
+            <span className="text-foreground">preparation picture</span> — flask/elixirs, food,
+            weapon buff at the pull, pre-pots, and potions/drums/runes used during the fight.
+          </p>
+          <p>
+            Gear seen at each pull also feeds an <span className="text-foreground">enchant audit</span>{" "}
+            (expected-to-be-enchanted slots missing a permanent enchant).
+          </p>
+          <p>
+            Everything lands on each character&apos;s <span className="text-foreground">Performance</span>{" "}
+            page (linked from their profile), per report and as a career rollup. Linking a report to
+            a Gargul session ties the night&apos;s performance to its loot decisions.
+          </p>
+          <p className="text-xs">
+            Costs ~5 API calls per report — the free Warcraft Logs tier allows thousands per hour.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function ImportTabs({
   characters,
   zones,
   knownItems,
+  sessions,
+  wclConfigured,
   prefill = {},
 }: {
   characters: string[];
   zones: string[];
   knownItems: KnownItem[];
+  sessions: SessionOption[];
+  wclConfigured: boolean;
   prefill?: ImportPrefill;
 }) {
   const items = React.useMemo(() => makeItemResolver(knownItems), [knownItems]);
+  const defaultTab =
+    prefill.tab === "gargul" ? "gargul" : prefill.tab === "wcl" ? "wcl" : "sixtyupgrades";
   return (
-    <Tabs defaultValue={prefill.tab === "gargul" ? "gargul" : "sixtyupgrades"}>
+    <Tabs defaultValue={defaultTab}>
       <TabsList>
         <TabsTrigger value="sixtyupgrades">SixtyUpgrades sets</TabsTrigger>
         <TabsTrigger value="gargul">Gargul loot</TabsTrigger>
+        <TabsTrigger value="wcl">Warcraft Logs</TabsTrigger>
       </TabsList>
       <TabsContent value="sixtyupgrades">
         <SixtyUpgradesTab characters={characters} prefill={prefill} items={items} />
       </TabsContent>
       <TabsContent value="gargul">
         <GargulTab characters={characters} zones={zones} items={items} />
+      </TabsContent>
+      <TabsContent value="wcl">
+        <WclTab sessions={sessions} configured={wclConfigured} />
       </TabsContent>
     </Tabs>
   );
