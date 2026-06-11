@@ -1,0 +1,33 @@
+[
+  {
+    "id": "rs-2026-04-16-kara",
+    "guildId": "g-sunwell-or-bust",
+    "date": "2026-04-16",
+    "zones": ["Karazhan"],
+    "note": "Full clear",
+    "source": "seed"
+  },
+  {
+    "id": "rs-2026-04-23-kara",
+    "guildId": "g-sunwell-or-bust",
+    "date": "2026-04-23",
+    "zones": ["Karazhan"],
+    "source": "seed"
+  },
+  {
+    "id": "rs-2026-05-07-gruul-mag",
+    "guildId": "g-sunwell-or-bust",
+    "date": "2026-05-07",
+    "zones": ["Gruul's Lair", "Magtheridon's Lair"],
+    "note": "First Magtheridon kill",
+    "source": "seed"
+  },
+  {
+    "id": "rs-2026-06-04-ssc",
+    "guildId": "g-sunwell-or-bust",
+    "date": "2026-06-04",
+    "zones": ["Serpentshrine Cavern"],
+    "note": "Progress night — Hydross, Lurker, Leotheras down",
+    "source": "seed"
+  }
+]

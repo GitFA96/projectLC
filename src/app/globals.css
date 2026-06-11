@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Light theme only (by design): minimal dashboard, WoW flavor via class/quality accents. */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.918 0 0);
+  --input: oklch(0.918 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@theme {
+  /* Canonical WoW class colors — for chips, bars, accents (backgrounds/borders). */
+  --color-class-druid: #ff7c0a;
+  --color-class-hunter: #aad372;
+  --color-class-mage: #3fc7eb;
+  --color-class-paladin: #f48cba;
+  --color-class-priest: #ffffff;
+  --color-class-rogue: #fff468;
+  --color-class-shaman: #0070dd;
+  --color-class-warlock: #8788ee;
+  --color-class-warrior: #c69b6d;
+
+  /* Item quality — canonical, for icon rings and accents. */
+  --color-quality-poor: #9d9d9d;
+  --color-quality-common: #ffffff;
+  --color-quality-uncommon: #1eff00;
+  --color-quality-rare: #0070dd;
+  --color-quality-epic: #a335ee;
+  --color-quality-legendary: #ff8000;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
+}
+
+/* Wowhead tooltip layering above sticky nav */
+.wowhead-tooltip {
+  z-index: 100;
+}
