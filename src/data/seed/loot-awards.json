@@ -1,0 +1,372 @@
+[
+  {
+    "id": "la-001",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-kazrak",
+    "rawWinnerName": "Kazrak",
+    "itemId": 28773,
+    "itemName": "Gorehowl",
+    "awardedAt": "2026-04-16T22:41:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-002",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-velora",
+    "rawWinnerName": "Velora",
+    "itemId": 29761,
+    "itemName": "Helm of the Fallen Defender",
+    "awardedAt": "2026-04-16T22:41:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-003",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-velora",
+    "rawWinnerName": "Velora",
+    "itemId": 28770,
+    "itemName": "Nathrezim Mindblade",
+    "awardedAt": "2026-04-16T22:43:00Z",
+    "offspec": false,
+    "note": "Second item same night — council approved"
+  },
+  {
+    "id": "la-004",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-thrainn",
+    "rawWinnerName": "Thrainn",
+    "itemId": 28749,
+    "itemName": "King's Defender",
+    "awardedAt": "2026-04-16T21:55:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-005",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-thrainn",
+    "rawWinnerName": "Thrainn",
+    "itemId": 28528,
+    "itemName": "Moroes' Lucky Pocket Watch",
+    "awardedAt": "2026-04-16T20:32:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-006",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-shivven",
+    "rawWinnerName": "Shivven",
+    "itemId": 28545,
+    "itemName": "Edgewalker Longboots",
+    "awardedAt": "2026-04-16T20:33:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-007",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-shivven",
+    "rawWinnerName": "Shivven",
+    "itemId": 28579,
+    "itemName": "Romulo's Poison Vial",
+    "awardedAt": "2026-04-16T21:12:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-008",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 28573,
+    "itemName": "Despair",
+    "awardedAt": "2026-04-16T21:13:00Z",
+    "offspec": false,
+    "note": "Melee stat stick"
+  },
+  {
+    "id": "la-009",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-aldric",
+    "rawWinnerName": "Aldric",
+    "itemId": 28771,
+    "itemName": "Light's Justice",
+    "awardedAt": "2026-04-16T22:44:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-010",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 28772,
+    "itemName": "Sunfury Bow of the Phoenix",
+    "awardedAt": "2026-04-16T22:46:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-011",
+    "raidSessionId": "rs-2026-04-16-kara",
+    "characterId": null,
+    "rawWinnerName": "_disenchanted",
+    "itemId": 28585,
+    "itemName": "Ruby Slippers",
+    "awardedAt": "2026-04-16T21:40:00Z",
+    "offspec": false,
+    "note": "No takers"
+  },
+  {
+    "id": "la-012",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-aldric",
+    "rawWinnerName": "Aldric",
+    "itemId": 29760,
+    "itemName": "Helm of the Fallen Champion",
+    "awardedAt": "2026-04-23T22:38:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-013",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-morgrave",
+    "rawWinnerName": "Morgrave",
+    "itemId": 29759,
+    "itemName": "Helm of the Fallen Hero",
+    "awardedAt": "2026-04-23T22:38:00Z",
+    "offspec": false,
+    "note": "No wishlist on file"
+  },
+  {
+    "id": "la-014",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-pyrelia",
+    "rawWinnerName": "Pyrelia",
+    "itemId": 28586,
+    "itemName": "Wicked Witch's Hat",
+    "awardedAt": "2026-04-23T21:05:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-015",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-shivven",
+    "rawWinnerName": "Shivven",
+    "itemId": 28581,
+    "itemName": "Wolfslayer Sniper Rifle",
+    "awardedAt": "2026-04-23T21:06:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-016",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-aldric",
+    "rawWinnerName": "Aldric",
+    "itemId": 28590,
+    "itemName": "Ribbon of Sacrifice",
+    "awardedAt": "2026-04-23T21:07:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-017",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-velora",
+    "rawWinnerName": "Velora",
+    "itemId": 28570,
+    "itemName": "Shadow-Cloak of Dalaran",
+    "awardedAt": "2026-04-23T20:31:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-018",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": null,
+    "rawWinnerName": "_disenchanted",
+    "itemId": 28573,
+    "itemName": "Despair",
+    "awardedAt": "2026-04-23T21:30:00Z",
+    "offspec": false,
+    "note": "Dropped again, no takers"
+  },
+  {
+    "id": "la-019",
+    "raidSessionId": "rs-2026-04-23-kara",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 28506,
+    "itemName": "Gloves of Dexterous Manipulation",
+    "awardedAt": "2026-04-23T20:15:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-020",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 28830,
+    "itemName": "Dragonspine Trophy",
+    "awardedAt": "2026-05-07T21:18:00Z",
+    "offspec": false,
+    "note": "Council: BM hunter highest value; Shivven next in line"
+  },
+  {
+    "id": "la-021",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-thrainn",
+    "rawWinnerName": "Thrainn",
+    "itemId": 29764,
+    "itemName": "Pauldrons of the Fallen Defender",
+    "awardedAt": "2026-05-07T20:42:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-022",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-morgrave",
+    "rawWinnerName": "Morgrave",
+    "itemId": 29765,
+    "itemName": "Leggings of the Fallen Hero",
+    "awardedAt": "2026-05-07T21:19:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-023",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-lunara",
+    "rawWinnerName": "Lunara",
+    "itemId": 29754,
+    "itemName": "Chestguard of the Fallen Defender",
+    "awardedAt": "2026-05-07T22:50:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-024",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-aldric",
+    "rawWinnerName": "Aldric",
+    "itemId": 28823,
+    "itemName": "Eye of Gruul",
+    "awardedAt": "2026-05-07T21:20:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-025",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-thrainn",
+    "rawWinnerName": "Thrainn",
+    "itemId": 28825,
+    "itemName": "Aldori Legacy Defender",
+    "awardedAt": "2026-05-07T21:21:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-026",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-tidemar",
+    "rawWinnerName": "Tidemar",
+    "itemId": 28799,
+    "itemName": "Hammer of the Naaru",
+    "awardedAt": "2026-05-07T20:43:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-027",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-pyrelia",
+    "rawWinnerName": "Pyrelia",
+    "itemId": 28789,
+    "itemName": "Eye of Magtheridon",
+    "awardedAt": "2026-05-07T22:51:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-028",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-pyrelia",
+    "rawWinnerName": "Pyrelia",
+    "itemId": 28802,
+    "itemName": "Bloodmaw Magus-Blade",
+    "awardedAt": "2026-05-07T20:44:00Z",
+    "offspec": false,
+    "note": "Second item same night"
+  },
+  {
+    "id": "la-029",
+    "raidSessionId": "rs-2026-05-07-gruul-mag",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 28828,
+    "itemName": "Girdle of the Prowler",
+    "awardedAt": "2026-05-07T20:45:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-030",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-thrainn",
+    "rawWinnerName": "Thrainn",
+    "itemId": 30243,
+    "itemName": "Helm of the Vanquished Defender",
+    "awardedAt": "2026-06-04T22:55:00Z",
+    "offspec": false,
+    "note": "MT priority; Velora next"
+  },
+  {
+    "id": "la-031",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-velora",
+    "rawWinnerName": "Velora",
+    "itemId": 30056,
+    "itemName": "Robe of Hateful Echoes",
+    "awardedAt": "2026-06-04T20:35:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-032",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-sylvaria",
+    "rawWinnerName": "Sylvaria",
+    "itemId": 30724,
+    "itemName": "Serpent Spine Longbow",
+    "awardedAt": "2026-06-04T22:56:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-033",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-shivven",
+    "rawWinnerName": "Shivven",
+    "itemId": 30627,
+    "itemName": "Tsunami Talisman",
+    "awardedAt": "2026-06-04T21:48:00Z",
+    "offspec": false,
+    "note": "No P2 wishlist on file yet"
+  },
+  {
+    "id": "la-034",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-pyrelia",
+    "rawWinnerName": "Pyrelia",
+    "itemId": 30067,
+    "itemName": "Velvet Boots of the Guardian",
+    "awardedAt": "2026-06-04T21:49:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-035",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-aldric",
+    "rawWinnerName": "Aldric",
+    "itemId": 30447,
+    "itemName": "Tome of Fiery Redemption",
+    "awardedAt": "2026-06-04T22:10:00Z",
+    "offspec": false
+  },
+  {
+    "id": "la-036",
+    "raidSessionId": "rs-2026-06-04-ssc",
+    "characterId": "c-morgrave",
+    "rawWinnerName": "Morgrave",
+    "itemId": 30247,
+    "itemName": "Leggings of the Vanquished Hero",
+    "awardedAt": "2026-06-04T22:57:00Z",
+    "offspec": true,
+    "note": "Off-spec — destro lock taking demo set legs"
+  }
+]

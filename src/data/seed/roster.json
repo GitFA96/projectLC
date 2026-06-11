@@ -1,0 +1,136 @@
+[
+  {
+    "id": "c-thrainn",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Thrainn",
+    "class": "Warrior",
+    "spec": "Protection",
+    "role": "Tank",
+    "race": "Orc",
+    "status": "main",
+    "note": "Main tank, raid leader"
+  },
+  {
+    "id": "c-kazrak",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Kazrak",
+    "class": "Warrior",
+    "spec": "Arms",
+    "role": "Melee DPS",
+    "race": "Orc",
+    "status": "main"
+  },
+  {
+    "id": "c-lunara",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Lunara",
+    "class": "Druid",
+    "spec": "Restoration",
+    "role": "Healer",
+    "race": "Tauren",
+    "status": "main"
+  },
+  {
+    "id": "c-bjornskar",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Bjornskar",
+    "class": "Druid",
+    "spec": "Feral",
+    "role": "Tank",
+    "race": "Tauren",
+    "status": "main",
+    "note": "Off-tank"
+  },
+  {
+    "id": "c-sylvaria",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Sylvaria",
+    "class": "Hunter",
+    "spec": "Beast Mastery",
+    "role": "Ranged DPS",
+    "race": "Blood Elf",
+    "status": "main"
+  },
+  {
+    "id": "c-pyrelia",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Pyrelia",
+    "class": "Mage",
+    "spec": "Fire",
+    "role": "Ranged DPS",
+    "race": "Blood Elf",
+    "status": "main"
+  },
+  {
+    "id": "c-aldric",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Aldric",
+    "class": "Paladin",
+    "spec": "Holy",
+    "role": "Healer",
+    "race": "Blood Elf",
+    "status": "main",
+    "note": "Loot council officer"
+  },
+  {
+    "id": "c-velora",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Velora",
+    "class": "Priest",
+    "spec": "Shadow",
+    "role": "Ranged DPS",
+    "race": "Undead",
+    "status": "main"
+  },
+  {
+    "id": "c-mirelle",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Mirelle",
+    "class": "Priest",
+    "spec": "Holy",
+    "role": "Healer",
+    "race": "Blood Elf",
+    "status": "main"
+  },
+  {
+    "id": "c-shivven",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Shivven",
+    "class": "Rogue",
+    "spec": "Combat",
+    "role": "Melee DPS",
+    "race": "Undead",
+    "status": "main"
+  },
+  {
+    "id": "c-tidemar",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Tidemar",
+    "class": "Shaman",
+    "spec": "Restoration",
+    "role": "Healer",
+    "race": "Troll",
+    "status": "main"
+  },
+  {
+    "id": "c-morgrave",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Morgrave",
+    "class": "Warlock",
+    "spec": "Destruction",
+    "role": "Ranged DPS",
+    "race": "Undead",
+    "status": "main"
+  },
+  {
+    "id": "c-skarn",
+    "guildId": "g-sunwell-or-bust",
+    "name": "Skarn",
+    "class": "Hunter",
+    "spec": "Marksmanship",
+    "role": "Ranged DPS",
+    "race": "Orc",
+    "status": "alt",
+    "note": "Alt of Kazrak"
+  }
+]
