@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS loot_awards (
   item_name       TEXT NOT NULL,
   awarded_at      TEXT NOT NULL,
   offspec         INTEGER NOT NULL,
+  external        INTEGER NOT NULL DEFAULT 0,
   note            TEXT
 );
 CREATE INDEX IF NOT EXISTS loot_awards_dedupe
@@ -114,9 +115,23 @@ export function getDb(): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
+  migrate(db);
   seedIfEmpty(db);
   globalDbs.__projectlcDbs.set(file, db);
   return db;
+}
+
+/** Additive migrations for databases created by earlier versions of the schema. */
+function migrate(db: DatabaseSync): void {
+  const awardCols = db.prepare("PRAGMA table_info(loot_awards)").all() as { name: string }[];
+  if (!awardCols.some((c) => c.name === "external")) {
+    try {
+      db.exec("ALTER TABLE loot_awards ADD COLUMN external INTEGER NOT NULL DEFAULT 0");
+    } catch (e) {
+      // Parallel build workers can race the same migration; losing is fine.
+      if (!/duplicate column/i.test(String(e))) throw e;
+    }
+  }
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -193,9 +208,12 @@ export function insertRaidSession(db: DatabaseSync, s: RaidSession): void {
 
 export function insertLootAward(db: DatabaseSync, a: LootAward): void {
   db.prepare(
-    `INSERT INTO loot_awards (id, raid_session_id, character_id, raw_winner_name, item_id, item_name, awarded_at, offspec, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(a.id, a.raidSessionId, a.characterId, a.rawWinnerName, a.itemId, a.itemName, a.awardedAt, a.offspec ? 1 : 0, a.note ?? null);
+    `INSERT INTO loot_awards (id, raid_session_id, character_id, raw_winner_name, item_id, item_name, awarded_at, offspec, external, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    a.id, a.raidSessionId, a.characterId, a.rawWinnerName, a.itemId, a.itemName,
+    a.awardedAt, a.offspec ? 1 : 0, a.external ? 1 : 0, a.note ?? null,
+  );
 }
 
 function rowToGuild(r: Row): unknown {
@@ -235,7 +253,7 @@ function rowToRaidSession(r: Row): unknown {
 function rowToLootAward(r: Row): unknown {
   return {
     id: r.id, raidSessionId: r.raid_session_id, characterId: (r.character_id as string | null) ?? null,
-    rawWinnerName: r.raw_winner_name, itemId: r.item_id, itemName: r.item_name,
+    external: r.external === 1, rawWinnerName: r.raw_winner_name, itemId: r.item_id, itemName: r.item_name,
     awardedAt: r.awarded_at, offspec: r.offspec === 1, note: opt(r.note),
   };
 }

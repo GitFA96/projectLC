@@ -8,6 +8,8 @@ import type {
   Guild,
   Item,
   ItemContention,
+  ItemDemand,
+  LootAward,
   RaidSession,
 } from "@/lib/types";
 
@@ -27,6 +29,8 @@ export interface Repo {
   getItem(id: number): Promise<Item | undefined>;
   listItems(): Promise<Item[]>;
   getItemContention(itemId: number): Promise<ItemContention | null>;
+  /** Every known item (cache ∪ wishlists ∪ awards) with demand counts, most contested first. */
+  listItemDemand(): Promise<ItemDemand[]>;
   getDashboard(): Promise<DashboardData>;
 }
 
@@ -64,6 +68,19 @@ export interface GargulCommitResult {
   unresolved: string[];
 }
 
+/** How the council settles an award whose winner didn't auto-match the roster. */
+export type AwardResolution =
+  /** Link the award to a roster character (typo / rename / late roster add). */
+  | { kind: "character"; characterId: string }
+  /** The winner is deliberately off-roster: disenchanted, banked, or a PUG. */
+  | { kind: "external" }
+  /** Undo — put the award back in the needs-attention queue. */
+  | { kind: "unresolved" };
+
+export type ResolveAwardResult =
+  | { ok: true; award: LootAward }
+  | { ok: false; error: string };
+
 export interface WriteRepo extends Repo {
   findCharacterByName(name: string): Promise<Character | undefined>;
   /** The set an import would overwrite, if any (kind "current", or wishlist for the given phase). */
@@ -80,6 +97,8 @@ export interface WriteRepo extends Repo {
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
   /** Commit one Gargul paste: resolves winners by name, skips already-recorded awards. */
   createRaidSessionWithAwards(session: RaidSessionDraft, awards: AwardDraft[]): Promise<GargulCommitResult>;
+  /** Settle (or reopen) the winner of one award — see AwardResolution. */
+  resolveAward(awardId: string, resolution: AwardResolution): Promise<ResolveAwardResult>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
 }

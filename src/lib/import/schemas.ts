@@ -113,6 +113,11 @@ export const lootAwardSchema = z.object({
   raidSessionId: z.string().min(1),
   /** null = winner not resolved to a roster character (e.g. disenchanted, pug). */
   characterId: z.string().nullable(),
+  /**
+   * True when the winner deliberately isn't a roster character (disenchanted,
+   * banked, PUG). characterId null + external false = awaiting resolution.
+   */
+  external: z.boolean().default(false),
   /** Always keep exactly what Gargul said. */
   rawWinnerName: z.string().min(1),
   itemId: z.number().int().positive(),

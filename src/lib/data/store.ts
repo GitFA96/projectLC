@@ -12,10 +12,13 @@ import type {
   Character,
   CharacterBundle,
   CharacterSummary,
+  FairnessGroup,
   GearSet,
   Guild,
   Item,
+  ItemDemand,
   LootAward,
+  Phase,
   PhaseWishlistView,
   RaidSession,
 } from "@/lib/types";
@@ -140,6 +143,11 @@ export function createRepoFromStore(store: EntityStore): Repo {
     });
   }
 
+  /** Winner is neither a roster character nor deliberately off-roster. */
+  function unresolvedAwards(): LootAward[] {
+    return lootAwards.filter((a) => a.characterId === null && !a.external);
+  }
+
   return {
     async getGuild() {
       return guild;
@@ -197,6 +205,46 @@ export function createRepoFromStore(store: EntityStore): Repo {
       return contention;
     },
 
+    async listItemDemand(): Promise<ItemDemand[]> {
+      // Names for wishlisted items missing from the cache (denormalized on slots).
+      const wishlistNames = new Map<number, string>();
+      const ids = new Set<number>(itemsById.keys());
+      for (const set of gearSets) {
+        if (set.kind !== "wishlist") continue;
+        for (const slot of set.slots) {
+          ids.add(slot.itemId);
+          if (!wishlistNames.has(slot.itemId)) wishlistNames.set(slot.itemId, slot.itemName);
+        }
+      }
+      for (const award of lootAwards) ids.add(award.itemId);
+
+      return [...ids]
+        .map((itemId): ItemDemand => {
+          const item = itemsById.get(itemId);
+          const c = contentionFor(itemId);
+          return {
+            itemId,
+            name: item?.name ?? c.awards[0]?.award.itemName ?? wishlistNames.get(itemId) ?? `Item #${itemId}`,
+            quality: item?.quality,
+            icon: item?.icon,
+            slot: item?.slot,
+            source: item?.source,
+            phase: item?.phase,
+            wisherCount: c.wishers.length,
+            openCount: c.openCount,
+            awardCount: c.awards.length,
+            lastAwardedAt: c.awards[0]?.award.awardedAt,
+          };
+        })
+        .sort(
+          (a, b) =>
+            b.openCount - a.openCount ||
+            b.wisherCount - a.wisherCount ||
+            b.awardCount - a.awardCount ||
+            a.name.localeCompare(b.name),
+        );
+    },
+
     async getDashboard() {
       const sessions = [...raidSessions].sort((a, b) => b.date.localeCompare(a.date));
       const summaries = roster.map(summarize);
@@ -209,6 +257,18 @@ export function createRepoFromStore(store: EntityStore): Repo {
         .filter((c) => c.wishers.length >= 2)
         .sort((a, b) => b.openCount - a.openCount || b.wishers.length - a.wishers.length)
         .slice(0, 5);
+
+      // "All raids" plus one tab per phase that actually has awards.
+      const phasesWithAwards = [...new Set(
+        awardsWithContext.map((a) => a.sessionPhase).filter((p): p is Phase => p !== undefined),
+      )].sort((a, b) => a - b);
+      const fairness: FairnessGroup[] = [
+        { phase: "all", entries: computeFairness(roster, awardsWithContext) },
+        ...phasesWithAwards.map((phase) => ({
+          phase,
+          entries: computeFairness(roster, awardsWithContext, phase),
+        })),
+      ];
 
       return {
         guild,
@@ -224,7 +284,8 @@ export function createRepoFromStore(store: EntityStore): Repo {
           awardCount: lootAwards.filter((a) => a.raidSessionId === session.id).length,
         })),
         contestedItems: contested,
-        fairness: computeFairness(roster, awardsWithContext),
+        fairness,
+        unresolvedCount: unresolvedAwards().length,
       };
     },
   };

@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSqliteRepo } from "@/lib/data/sqlite-repo";
 import { loadSeedStore } from "@/lib/data/seed-data";
@@ -195,6 +196,136 @@ describe("sqlite repo", () => {
       const sessions = await repo.listRaidSessions();
       expect(sessions.filter((s) => s.date === "2026-06-12")).toHaveLength(0);
     });
+  });
+
+  describe("winner resolution", () => {
+    const award = (itemId: number, winner: string) => ({
+      rawWinnerName: winner,
+      itemId,
+      itemName: `Item ${itemId}`,
+      awardedAt: "2026-06-11T21:00:00",
+      offspec: false,
+    });
+
+    it("seeded disenchants count as off-roster, not unresolved", async () => {
+      const repo = getSqliteRepo();
+      expect((await repo.getDashboard()).unresolvedCount).toBe(0);
+      const de = (await repo.listLootAwards()).find((a) => a.award.rawWinnerName === "_disenchanted")!;
+      expect(de.award.external).toBe(true);
+      expect(de.award.characterId).toBeNull();
+    });
+
+    it("assigns an unresolved award to a roster character", async () => {
+      const repo = getSqliteRepo();
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [award(99910, "Pugmage")],
+      );
+      expect((await repo.getDashboard()).unresolvedCount).toBe(1);
+
+      const velora = (await repo.findCharacterByName("Velora"))!;
+      const pug = (await repo.listLootAwards()).find((a) => a.award.itemId === 99910)!;
+      const result = await repo.resolveAward(pug.award.id, { kind: "character", characterId: velora.id });
+      expect(result.ok).toBe(true);
+
+      const after = (await repo.listLootAwards()).find((a) => a.award.itemId === 99910)!;
+      expect(after.character?.name).toBe("Velora");
+      expect(after.award.external).toBe(false);
+      expect((await repo.getDashboard()).unresolvedCount).toBe(0);
+      // rawWinnerName stays exactly what Gargul said.
+      expect(after.award.rawWinnerName).toBe("Pugmage");
+    });
+
+    it("marks an award off-roster and can reopen it", async () => {
+      const repo = getSqliteRepo();
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [award(99911, "Banker")],
+      );
+      const banked = (await repo.listLootAwards()).find((a) => a.award.itemId === 99911)!;
+
+      const settled = await repo.resolveAward(banked.award.id, { kind: "external" });
+      expect(settled.ok).toBe(true);
+      expect((await repo.getDashboard()).unresolvedCount).toBe(0);
+      const externalNow = (await repo.listLootAwards()).find((a) => a.award.itemId === 99911)!;
+      expect(externalNow.award.external).toBe(true);
+      expect(externalNow.character).toBeUndefined();
+
+      const reopened = await repo.resolveAward(banked.award.id, { kind: "unresolved" });
+      expect(reopened.ok).toBe(true);
+      expect((await repo.getDashboard()).unresolvedCount).toBe(1);
+    });
+
+    it("re-assigning clears a previous character link", async () => {
+      const repo = getSqliteRepo();
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [award(99912, "Thrainn")],
+      );
+      const auto = (await repo.listLootAwards()).find((a) => a.award.itemId === 99912)!;
+      expect(auto.character?.name).toBe("Thrainn");
+
+      // Council corrects the entry: this actually went to the bank.
+      await repo.resolveAward(auto.award.id, { kind: "external" });
+      const fixed = (await repo.listLootAwards()).find((a) => a.award.itemId === 99912)!;
+      expect(fixed.character).toBeUndefined();
+      expect(fixed.award.external).toBe(true);
+    });
+
+    it("rejects unknown awards and unknown characters", async () => {
+      const repo = getSqliteRepo();
+      expect((await repo.resolveAward("la_missing", { kind: "external" })).ok).toBe(false);
+
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [award(99913, "Pugmage")],
+      );
+      const pug = (await repo.listLootAwards()).find((a) => a.award.itemId === 99913)!;
+      const result = await repo.resolveAward(pug.award.id, { kind: "character", characterId: "chr_missing" });
+      expect(result.ok).toBe(false);
+      expect((await repo.getDashboard()).unresolvedCount).toBe(1); // untouched
+    });
+  });
+
+  describe("item demand index", () => {
+    it("lists contested items first with demand counts", async () => {
+      const repo = getSqliteRepo();
+      const demand = await repo.listItemDemand();
+
+      const gorehowl = demand.find((d) => d.itemId === 28773)!;
+      expect(gorehowl).toBeDefined();
+      expect(gorehowl.name).toBe("Gorehowl");
+      expect(gorehowl.wisherCount).toBeGreaterThanOrEqual(2);
+      expect(gorehowl.awardCount).toBeGreaterThanOrEqual(1);
+
+      // Sorted by open demand; no duplicate ids; award-only items still appear.
+      expect(demand[0].openCount).toBeGreaterThanOrEqual(demand[demand.length - 1].openCount);
+      expect(new Set(demand.map((d) => d.itemId)).size).toBe(demand.length);
+
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [{ rawWinnerName: "Thrainn", itemId: 99920, itemName: "Uncached Blade", awardedAt: "2026-06-11T21:00:00", offspec: false }],
+      );
+      const fresh = (await repo.listItemDemand()).find((d) => d.itemId === 99920)!;
+      expect(fresh.name).toBe("Uncached Blade"); // denormalized name survives a cache miss
+      expect(fresh.awardCount).toBe(1);
+    });
+  });
+
+  it("migrates a database created before the external column existed", async () => {
+    // Pre-create loot_awards with the M2 schema; opening the repo must ALTER it.
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE loot_awards (
+      id TEXT PRIMARY KEY, raid_session_id TEXT NOT NULL, character_id TEXT,
+      raw_winner_name TEXT NOT NULL, item_id INTEGER NOT NULL, item_name TEXT NOT NULL,
+      awarded_at TEXT NOT NULL, offspec INTEGER NOT NULL, note TEXT
+    )`);
+    old.close();
+
+    const repo = getSqliteRepo();
+    const awards = await repo.listLootAwards(); // seeds + re-reads through zod (external required)
+    expect(awards.length).toBeGreaterThan(0);
+    expect(awards.every((a) => typeof a.award.external === "boolean")).toBe(true);
   });
 
   it("addItemsIfMissing never overwrites existing cache entries", async () => {

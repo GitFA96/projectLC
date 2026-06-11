@@ -7,6 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
+import { ResolveAwardControl } from "@/components/resolve-award";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,7 +30,8 @@ export interface LootRow {
   item: ItemRef;
   winnerName: string;
   winnerClass?: WowClass;
-  unresolved: boolean;
+  /** roster = matched character; unresolved = needs attention; external = settled off-roster. */
+  winnerStatus: "roster" | "unresolved" | "external";
   offspec: boolean;
   matched: boolean;
   matchPhases: Phase[];
@@ -50,7 +52,7 @@ export function LootView({
 }: {
   rows: LootRow[];
   sessions: SessionOption[];
-  characters: { name: string; wowClass: WowClass }[];
+  characters: { id: string; name: string; wowClass: WowClass }[];
 }) {
   const searchParams = useSearchParams();
   const [search, setSearch] = React.useState("");
@@ -62,6 +64,7 @@ export function LootView({
   const [sessionFilter, setSessionFilter] = React.useState(searchParams.get("session") ?? "all");
   const [typeFilter, setTypeFilter] = React.useState("all");
   const [matchFilter, setMatchFilter] = React.useState("all");
+  const [winnerFilter, setWinnerFilter] = React.useState(searchParams.get("winner") ?? "all");
 
   const filtered = React.useMemo(
     () =>
@@ -75,9 +78,10 @@ export function LootView({
         if (typeFilter === "offspec" && !r.offspec) return false;
         if (matchFilter === "matched" && !r.matched) return false;
         if (matchFilter === "unmatched" && r.matched) return false;
+        if (winnerFilter !== "all" && r.winnerStatus !== winnerFilter) return false;
         return true;
       }),
-    [rows, search, characterFilter, classFilter, phaseFilter, sessionFilter, typeFilter, matchFilter],
+    [rows, search, characterFilter, classFilter, phaseFilter, sessionFilter, typeFilter, matchFilter, winnerFilter],
   );
 
   const columns = React.useMemo<ColumnDef<LootRow, unknown>[]>(
@@ -102,17 +106,27 @@ export function LootView({
         id: "winner",
         accessorKey: "winnerName",
         header: "Winner",
-        cell: ({ row }) =>
-          row.original.unresolved ? (
-            <Badge variant="warning" title="Not matched to a roster character">
-              {row.original.winnerName}
-            </Badge>
-          ) : (
-            <CharacterLink
-              name={row.original.winnerName}
-              wowClass={row.original.winnerClass ?? "Warrior"}
-            />
-          ),
+        cell: ({ row }) => {
+          const r = row.original;
+          if (r.winnerStatus === "roster") {
+            return <CharacterLink name={r.winnerName} wowClass={r.winnerClass ?? "Warrior"} />;
+          }
+          return (
+            <span className="flex items-center gap-1.5">
+              <Badge
+                variant={r.winnerStatus === "unresolved" ? "warning" : "muted"}
+                title={
+                  r.winnerStatus === "unresolved"
+                    ? "Not matched to a roster character — resolve it"
+                    : "Off roster (disenchanted / bank / PUG)"
+                }
+              >
+                {r.winnerName}
+              </Badge>
+              <ResolveAwardControl awardId={r.id} mode={r.winnerStatus} roster={characters} />
+            </span>
+          );
+        },
       },
       {
         id: "session",
@@ -163,7 +177,7 @@ export function LootView({
         ),
       },
     ],
-    [],
+    [characters],
   );
 
   return (
@@ -267,6 +281,17 @@ export function LootView({
               <SelectItem value="all">Wishlist: any</SelectItem>
               <SelectItem value="matched">On wishlist</SelectItem>
               <SelectItem value="unmatched">Not on wishlist</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={winnerFilter} onValueChange={setWinnerFilter}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="Winner" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Winner: any</SelectItem>
+              <SelectItem value="roster">On roster</SelectItem>
+              <SelectItem value="unresolved">Unresolved</SelectItem>
+              <SelectItem value="external">Off roster</SelectItem>
             </SelectContent>
           </Select>
           <span className="ml-auto text-xs tabular-nums text-muted-foreground">
