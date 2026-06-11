@@ -6,6 +6,7 @@ import { resolveAwardAction, type ResolveAwardInput } from "@/app/loot/actions";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectLabel,
   SelectTrigger,
@@ -58,12 +59,14 @@ export function ResolveAwardControl({
           ) : (
             <SelectItem value="external">Off roster (DE / bank / PUG)</SelectItem>
           )}
-          <SelectLabel>Assign to</SelectLabel>
-          {roster.map((c) => (
-            <SelectItem key={c.id} value={`chr:${c.id}`}>
-              {c.name}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Assign to</SelectLabel>
+            {roster.map((c) => (
+              <SelectItem key={c.id} value={`chr:${c.id}`}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
       {error && (
