@@ -172,7 +172,16 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
                       {a.character ? (
                         <CharacterLink name={a.character.name} wowClass={a.character.class} />
                       ) : (
-                        <Badge variant="warning">{a.award.rawWinnerName}</Badge>
+                        <Badge
+                          variant={a.award.external ? "muted" : "warning"}
+                          title={
+                            a.award.external
+                              ? "Off roster (disenchanted / bank / PUG)"
+                              : "Not matched to a roster character — resolve it in the loot ledger"
+                          }
+                        >
+                          {a.award.rawWinnerName}
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">

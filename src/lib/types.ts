@@ -117,6 +117,27 @@ export interface FairnessEntry {
   offSpec: number;
 }
 
+/** Award distribution for one scope: a single phase, or "all" raids tracked. */
+export interface FairnessGroup {
+  phase: Phase | "all";
+  entries: FairnessEntry[];
+}
+
+/** One row of the /items index: cached + wishlisted + awarded items with demand counts. */
+export interface ItemDemand {
+  itemId: number;
+  name: string;
+  quality?: Quality;
+  icon?: string;
+  slot?: SlotId | null;
+  source?: { zone: string; boss?: string };
+  phase?: Phase;
+  wisherCount: number;
+  openCount: number;
+  awardCount: number;
+  lastAwardedAt?: string;
+}
+
 export interface DashboardData {
   guild: Guild;
   rosterSize: number;
@@ -125,5 +146,8 @@ export interface DashboardData {
   lastRaid?: RaidSession;
   recentSessions: { session: RaidSession; awardCount: number }[];
   contestedItems: ItemContention[];
-  fairness: FairnessEntry[];
+  /** "All raids" first, then one group per phase that has awards. */
+  fairness: FairnessGroup[];
+  /** Awards whose winner is neither a roster character nor marked off-roster. */
+  unresolvedCount: number;
 }

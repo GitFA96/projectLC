@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
+import { TriangleAlert } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { ItemLink } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
-import { FairnessBars } from "@/components/fairness-bars";
+import { FairnessPanel } from "@/components/fairness-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PHASES } from "@/lib/constants/wow";
@@ -42,6 +43,21 @@ export default async function DashboardPage() {
         />
       </div>
 
+      {data.unresolvedCount > 0 && (
+        <Link
+          href="/loot?winner=unresolved"
+          className="flex items-center gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 transition-colors hover:bg-amber-100"
+        >
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-medium">
+              {data.unresolvedCount} award{data.unresolvedCount === 1 ? "" : "s"} without a roster winner
+            </span>{" "}
+            — assign a character or mark them off-roster in the ledger.
+          </span>
+        </Link>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
@@ -72,7 +88,12 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Most contested items</CardTitle>
-            <p className="text-xs text-muted-foreground">Wishlisted by 2+ raiders, open demand first</p>
+            <p className="text-xs text-muted-foreground">
+              Wishlisted by 2+ raiders, open demand first ·{" "}
+              <Link href="/items" className="font-medium text-foreground hover:underline">
+                all items
+              </Link>
+            </p>
           </CardHeader>
           <CardContent className="space-y-2">
             {data.contestedItems.map((c) => (
@@ -96,16 +117,20 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle>Loot distribution</CardTitle>
             <p className="text-xs text-muted-foreground">
-              On-spec awards per raider, all raids tracked (off-spec faded)
+              On-spec awards per raider, scoped by phase (off-spec faded)
             </p>
           </CardHeader>
           <CardContent>
-            <FairnessBars
-              entries={data.fairness.map((f) => ({
-                name: f.character.name,
-                wowClass: f.character.class,
-                onSpec: f.onSpec,
-                offSpec: f.offSpec,
+            <FairnessPanel
+              defaultPhase={data.guild.activePhase}
+              groups={data.fairness.map((g) => ({
+                phase: g.phase,
+                entries: g.entries.map((f) => ({
+                  name: f.character.name,
+                  wowClass: f.character.class,
+                  onSpec: f.onSpec,
+                  offSpec: f.offSpec,
+                })),
               }))}
             />
           </CardContent>

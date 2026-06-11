@@ -10,7 +10,8 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/roster` | All characters: class/spec/role, per-phase wishlist completion, items won, add raiders |
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
-| `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec |
+| `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
+| `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
 | `/admin/import` | Commit SixtyUpgrades JSON sets and Gargul award pastes, with preview and validation |
 
@@ -44,6 +45,10 @@ Gear sets are **one per character for current gear, one per character+phase for 
 
 Each paste becomes one raid session. Winners are matched to roster characters by name (realm suffixes stripped); unmatched winners are kept by name and flagged. **Already-recorded awards are skipped** (same item + winner + timestamp), so re-pasting an overlapping export is safe — if everything is a duplicate, no session is created. Item links in the paste teach the item cache new items (name + quality from the link color).
 
+### Resolving winners
+
+Awards whose winner didn't auto-match the roster show up amber in the ledger (and as a dashboard banner). Each one can be **assigned to a roster character** (typo, rename, late roster add — wishlist matching re-derives instantly) or **marked off-roster** (disenchanted, banked, PUG), which settles it without inventing a character. Both are reversible; `rawWinnerName` always keeps exactly what Gargul said.
+
 ### Model decisions
 
 - A **wishlist is a whole gear set** (`kind: "wishlist"` + phase), exactly like a SixtyUpgrades export. Stat comparison is a pure diff of the two sets' computed stat blocks — the app never computes WoW stats itself.
@@ -59,8 +64,8 @@ Each paste becomes one raid session. Winners are matched to roster characters by
 ## Roadmap
 
 - **M1** — UI draft on realistic seed data ✓
-- **M2 (this)** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
-- **M3** — LC decision support: contention ranking, fairness upgrades, manual winner resolution, item-cache backfill; **TODO: validate the Gargul parser against a real export** (+ column mapping if needed)
+- **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
+- **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
 - **M4** — Warcraft Logs integration: performance, enchant/gem/consumable audits per raid
 
 ## License

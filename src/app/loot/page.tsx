@@ -28,7 +28,7 @@ export default async function LootPage() {
     },
     winnerName: a.character?.name ?? a.award.rawWinnerName,
     winnerClass: a.character?.class,
-    unresolved: a.character === undefined,
+    winnerStatus: a.character ? ("roster" as const) : a.award.external ? ("external" as const) : ("unresolved" as const),
     offspec: a.award.offspec,
     matched: a.wishlist.matched,
     matchPhases: a.wishlist.phases,
@@ -52,7 +52,11 @@ export default async function LootPage() {
         <LootView
           rows={rows}
           sessions={sessionOptions}
-          characters={characters.map((c) => ({ name: c.character.name, wowClass: c.character.class }))}
+          characters={characters.map((c) => ({
+            id: c.character.id,
+            name: c.character.name,
+            wowClass: c.character.class,
+          }))}
         />
       </Suspense>
     </div>

@@ -15,12 +15,14 @@ import { createRepoFromStore } from "@/lib/data/store";
 import { characterSchema, gearSetSchema } from "@/lib/import/schemas";
 import type {
   AwardDraft,
+  AwardResolution,
   CharacterDraft,
   CharacterWriteResult,
   GargulCommitResult,
   GearSetDraft,
   Repo,
   RaidSessionDraft,
+  ResolveAwardResult,
   UpsertGearSetResult,
   WriteRepo,
 } from "@/lib/data/repo";
@@ -181,6 +183,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
         id: `la_${randomUUID()}`,
         raidSessionId: session.id,
         characterId: character?.id ?? null,
+        external: false,
         rawWinnerName: draft.rawWinnerName,
         itemId: draft.itemId,
         itemName: draft.itemName,
@@ -207,6 +210,30 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     };
   },
 
+  async resolveAward(awardId: string, resolution: AwardResolution): Promise<ResolveAwardResult> {
+    const award = readModel().store.lootAwards.find((a) => a.id === awardId);
+    if (!award) return { ok: false, error: "Award not found — it may have been removed." };
+
+    let characterId: string | null = null;
+    let external = false;
+    if (resolution.kind === "character") {
+      const character = readModel().store.roster.find((c) => c.id === resolution.characterId);
+      if (!character) return { ok: false, error: "That character no longer exists." };
+      characterId = character.id;
+    } else if (resolution.kind === "external") {
+      external = true;
+    }
+
+    const db = getDb();
+    withTx(db, () => {
+      db.prepare("UPDATE loot_awards SET character_id = ?, external = ? WHERE id = ?").run(
+        characterId, external ? 1 : 0, awardId,
+      );
+      bumpDataVersion(db);
+    });
+    return { ok: true, award: { ...award, characterId, external } };
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     const db = getDb();
     const known = new Set(readModel().store.items.map((i) => i.id));
@@ -231,6 +258,7 @@ export function getSqliteRepo(): WriteRepo {
     getItem: (id) => readModel().repo.getItem(id),
     listItems: () => readModel().repo.listItems(),
     getItemContention: (itemId) => readModel().repo.getItemContention(itemId),
+    listItemDemand: () => readModel().repo.listItemDemand(),
     getDashboard: () => readModel().repo.getDashboard(),
   };
   return { ...readDelegate, ...writeMethods };
