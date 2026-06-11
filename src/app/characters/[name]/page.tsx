@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
@@ -104,10 +105,17 @@ export default async function CharacterPage({ params }: { params: Promise<Params
         }
       >
         <div className="flex flex-col items-end gap-1.5">
-          <PhasePills
-            items={summary.completionByPhase.map((c) => ({ phase: c.phase, pct: c.completion.pct }))}
-            activePhase={guild.activePhase}
-          />
+          <div className="flex items-center gap-2">
+            <PhasePills
+              items={summary.completionByPhase.map((c) => ({ phase: c.phase, pct: c.completion.pct }))}
+              activePhase={guild.activePhase}
+            />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/characters/${encodeURIComponent(character.name.toLowerCase())}/edit`}>
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Link>
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
             {summary.totalAwards} items won
             {summary.offspecAwards > 0 && ` (${summary.offspecAwards} off-spec)`}
@@ -123,7 +131,9 @@ export default async function CharacterPage({ params }: { params: Promise<Params
           description="Import a SixtyUpgrades set as current gear or a phase wishlist to populate this profile."
           action={
             <Button asChild size="sm">
-              <Link href="/admin/import">Go to import</Link>
+              <Link href={`/admin/import?character=${encodeURIComponent(character.name)}`}>
+                Import for {character.name}
+              </Link>
             </Button>
           }
         />
@@ -147,12 +157,28 @@ export default async function CharacterPage({ params }: { params: Promise<Params
                         </a>
                       </>
                     )}
+                    {" · "}
+                    <Link
+                      href={`/admin/import?character=${encodeURIComponent(character.name)}&kind=current`}
+                      className="font-medium text-foreground underline-offset-2 hover:underline"
+                    >
+                      Update current gear
+                    </Link>
                   </p>
                 </>
               ) : (
                 <EmptyState
                   title="No current gear imported"
                   description="Import a SixtyUpgrades set marked as “current” to enable stat comparisons and equipped-status tracking."
+                  action={
+                    <Button asChild size="sm" variant="outline">
+                      <Link
+                        href={`/admin/import?character=${encodeURIComponent(character.name)}&kind=current`}
+                      >
+                        Import current gear
+                      </Link>
+                    </Button>
+                  }
                 />
               )}
             </CardContent>
@@ -163,6 +189,7 @@ export default async function CharacterPage({ params }: { params: Promise<Params
               tabs={tabs}
               activePhase={guild.activePhase}
               hasCurrent={current !== undefined}
+              characterName={character.name}
             />
           </div>
         </div>

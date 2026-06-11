@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { WishlistTable, type WishlistRowView } from "@/components/wishlist-table";
 import { StatDeltaPanel } from "@/components/stat-delta-panel";
 import { EmptyState } from "@/components/empty-state";
@@ -20,19 +22,27 @@ export interface PhaseTabView {
   statDeltas: StatDeltaRow[];
 }
 
+function importHref(characterName: string, phase?: Phase): string {
+  const base = `/admin/import?character=${encodeURIComponent(characterName)}&kind=wishlist`;
+  return phase ? `${base}&phase=${phase}` : base;
+}
+
 /**
  * P1–P5 wishlist tabs: per phase a wishlist table (with acquired status) and
  * the "upcoming stats" delta panel. Phases without an imported set are
- * disabled but visible — the roadmap is part of the picture.
+ * disabled but visible — the roadmap is part of the picture. Every tab links
+ * back to the prefilled import so updating a wishlist is one click away.
  */
 export function CharacterPhaseTabs({
   tabs,
   activePhase,
   hasCurrent,
+  characterName,
 }: {
   tabs: PhaseTabView[];
   activePhase: Phase;
   hasCurrent: boolean;
+  characterName: string;
 }) {
   const byPhase = new Map(tabs.map((t) => [t.phase, t]));
   if (tabs.length === 0) {
@@ -40,6 +50,11 @@ export function CharacterPhaseTabs({
       <EmptyState
         title="No wishlists imported"
         description="Import this character's SixtyUpgrades phase sets to track wanted items, acquisition status and the stat upgrades they represent."
+        action={
+          <Button asChild size="sm">
+            <Link href={importHref(characterName)}>Import a wishlist</Link>
+          </Button>
+        }
       />
     );
   }
@@ -86,7 +101,13 @@ export function CharacterPhaseTabs({
               <CardContent>
                 <WishlistTable rows={openRows} />
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Imported {format(parseISO(tab.importedAt), "d MMM yyyy")} · source: {tab.source}
+                  Imported {format(parseISO(tab.importedAt), "d MMM yyyy")} · source: {tab.source} ·{" "}
+                  <Link
+                    href={importHref(characterName, tab.phase)}
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    Update this wishlist
+                  </Link>
                 </p>
               </CardContent>
             </Card>

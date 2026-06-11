@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# local sqlite database (seeded from src/data/seed on first boot)
+/data/
+
 # next.js
 /.next/
 /out/
