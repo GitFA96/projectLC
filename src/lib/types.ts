@@ -72,6 +72,31 @@ export interface AwardWithContext {
   wishlist: AwardWishlistMatch;
 }
 
+/**
+ * Raid attendance derived from imported Warcraft Logs reports (one report =
+ * one raid night). The fair denominator is "raids since their first logged
+ * appearance" — reports from before someone joined don't count against them.
+ * Pull coverage measures presence within attended nights (late join / early
+ * leave); the recent window is the last 10 tracked raids.
+ */
+export interface AttendanceSummary {
+  /** All imported reports, for context ("never in any of N logged raids"). */
+  raidsTotal: number;
+  raidsAttended: number;
+  /** Reports since (and including) their first appearance — the denominator. */
+  raidsTracked: number;
+  raidPct: number;
+  /** Report start of their first logged appearance; undefined when never seen. */
+  firstSeenAt?: string;
+  recentAttended: number;
+  recentTotal: number;
+  recentPct: number;
+  pullsAttended: number;
+  /** Total boss pulls of the reports they attended. */
+  pullsTotal: number;
+  pullPct: number;
+}
+
 export interface CharacterSummary {
   character: Character;
   /** Wishlist completion per phase that has an imported wishlist. */
@@ -81,6 +106,8 @@ export interface CharacterSummary {
   offspecAwards: number;
   lastAwardAt?: string;
   hasCurrentGear: boolean;
+  /** Undefined until at least one Warcraft Logs report is imported. */
+  attendance?: AttendanceSummary;
 }
 
 export interface PhaseWishlistView {
@@ -179,6 +206,8 @@ export interface PerformanceReportView {
   session?: RaidSession;
   rows: WclPlayerFight[];
   summary: PerformanceSummary;
+  /** Total boss pulls in the report (all players) — rows.length of them attended. */
+  reportPulls: number;
 }
 
 export interface CharacterPerformance {
@@ -187,6 +216,8 @@ export interface CharacterPerformance {
   reports: PerformanceReportView[];
   /** Rollup across every report the character appears in (undefined when none). */
   career?: PerformanceSummary;
+  /** Undefined until at least one report is imported. */
+  attendance?: AttendanceSummary;
 }
 
 export interface WclReportView {

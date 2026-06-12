@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
+import { attendanceTitle } from "@/lib/analysis/performance";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { PerformanceReportView, WclPlayerFight } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
@@ -73,7 +74,7 @@ export default async function PerformancePage({
   const repo = await getRepo();
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
-  const { character, reports, career } = perf;
+  const { character, reports, career, attendance } = perf;
 
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const active: PerformanceReportView | undefined =
@@ -98,6 +99,14 @@ export default async function PerformancePage({
                 career median parse <ParseBadge pct={career.medianParse} /> · best{" "}
                 <ParseBadge pct={career.bestParse} />
               </span>
+            )}
+            {attendance && attendance.raidsAttended > 0 && (
+              <Badge
+                variant={attendance.raidPct < 50 ? "warning" : "secondary"}
+                title={attendanceTitle(attendance)}
+              >
+                {attendance.raidPct}% attendance
+              </Badge>
             )}
           </span>
         }
@@ -233,6 +242,15 @@ export default async function PerformancePage({
               </CardTitle>
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                 {format(parseISO(active.report.startTime), "d MMM yyyy")}
+                <span
+                  title={
+                    active.rows.length < active.reportPulls
+                      ? "Missing pulls usually mean a late join or early leave"
+                      : undefined
+                  }
+                >
+                  · present for {active.rows.length} of {active.reportPulls} boss pulls
+                </span>
                 {active.session && (
                   <>
                     · linked to the{" "}

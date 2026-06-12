@@ -8,6 +8,8 @@ import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
 import { PhasePills } from "@/components/phase-pills";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -15,10 +17,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ActionResultLine,
+  DangerButton,
+  useRosterAction,
+  useSelection,
+} from "@/components/roster-actions";
+import { deleteCharacters, setCharactersStatus } from "@/app/roster/actions";
+import { attendanceTitle } from "@/lib/analysis/performance";
 import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
-import type { Phase, Role, WowClass } from "@/lib/types";
+import type { AttendanceSummary, Phase, Role, WowClass } from "@/lib/types";
 
 export interface RosterRow {
+  id: string;
   name: string;
   wowClass: WowClass;
   spec: string;
@@ -30,11 +41,15 @@ export interface RosterRow {
   offspecAwards: number;
   lastAwardAt?: string;
   hasCurrentGear: boolean;
+  /** From imported Warcraft Logs reports; undefined until one exists. */
+  attendance?: AttendanceSummary;
 }
 
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
   const [classFilter, setClassFilter] = React.useState<string>("all");
   const [roleFilter, setRoleFilter] = React.useState<string>("all");
+  const { selected, toggle, setAll, clear } = useSelection();
+  const { pending, result, run } = useRosterAction(clear);
 
   const filtered = React.useMemo(
     () =>
@@ -45,9 +60,29 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
       ),
     [rows, classFilter, roleFilter],
   );
+  const filteredIds = React.useMemo(() => filtered.map((r) => r.id), [filtered]);
+  const selectedIds = [...selected];
 
   const columns = React.useMemo<ColumnDef<RosterRow, unknown>[]>(
     () => [
+      {
+        id: "select",
+        enableSorting: false,
+        header: () => (
+          <Checkbox
+            checked={filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))}
+            onChange={(e) => setAll(filteredIds, e.target.checked)}
+            aria-label="Select all visible characters"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selected.has(row.original.id)}
+            onChange={(e) => toggle(row.original.id, e.target.checked)}
+            aria-label={`Select ${row.original.name}`}
+          />
+        ),
+      },
       {
         id: "name",
         accessorKey: "name",
@@ -85,6 +120,38 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         ),
       },
       {
+        id: "attendance",
+        // Never-seen sorts below 0% so it can't hide between real percentages.
+        accessorFn: (row) =>
+          row.attendance === undefined || row.attendance.raidsAttended === 0
+            ? -1
+            : row.attendance.raidPct,
+        header: "Attendance",
+        cell: ({ row }) => {
+          const a = row.original.attendance;
+          if (!a) return <span className="text-xs text-muted-foreground/50">—</span>;
+          if (a.raidsAttended === 0) {
+            return (
+              <span
+                className="text-xs text-muted-foreground/60"
+                title={`Not in any of the ${a.raidsTotal} imported raid log${a.raidsTotal === 1 ? "" : "s"}`}
+              >
+                never logged
+              </span>
+            );
+          }
+          return (
+            <span
+              className={`tabular-nums ${a.raidPct < 50 ? "text-amber-600" : ""}`}
+              title={attendanceTitle(a)}
+            >
+              {a.raidPct}%
+              <span className="text-xs text-muted-foreground"> ({a.raidsAttended}/{a.raidsTracked})</span>
+            </span>
+          );
+        },
+      },
+      {
         id: "awards",
         accessorKey: "totalAwards",
         header: "Items won",
@@ -113,7 +180,7 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
           ),
       },
     ],
-    [activePhase],
+    [activePhase, selected, filteredIds, toggle, setAll],
   );
 
   return (
@@ -149,6 +216,40 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
           {filtered.length} of {rows.length} characters
         </span>
       </div>
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5">
+          <span className="text-xs tabular-nums text-muted-foreground">{selected.size} selected</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            disabled={pending}
+            onClick={() => run(() => setCharactersStatus({ characterIds: selectedIds, status: "pug" }))}
+          >
+            Move to puggers
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            disabled={pending}
+            onClick={() => run(() => setCharactersStatus({ characterIds: selectedIds, status: "inactive" }))}
+          >
+            Set inactive
+          </Button>
+          <DangerButton
+            disabled={pending}
+            confirmLabel={`Delete ${selected.size} — confirm`}
+            onConfirm={() => run(() => deleteCharacters({ characterIds: selectedIds }))}
+          >
+            Delete
+          </DangerButton>
+          <span className="text-[11px] text-muted-foreground">
+            Deleting unlinks history: awards reopen under the raw name, log pulls go back to untracked.
+          </span>
+        </div>
+      )}
+      <ActionResultLine result={result} />
       <div className="rounded-xl border bg-card">
         <DataTable
           columns={columns}

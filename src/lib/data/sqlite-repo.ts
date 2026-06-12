@@ -20,6 +20,7 @@ import type {
   AwardResolution,
   CharacterDraft,
   CharacterWriteResult,
+  DeleteCharacterResult,
   GargulCommitResult,
   GearSetDraft,
   PurgeDemoResult,
@@ -154,6 +155,27 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
     return { ok: true, character: parsed.data };
+  },
+
+  async deleteCharacter(id: string): Promise<DeleteCharacterResult> {
+    const character = readModel().store.roster.find((c) => c.id === id);
+    if (!character) return { ok: false, error: "Character not found." };
+    const db = getDb();
+    const result = { ok: true as const, unlinkedAwards: 0, unlinkedLogRows: 0, deletedGearSets: 0 };
+    withTx(db, () => {
+      result.unlinkedAwards = Number(
+        db.prepare("UPDATE loot_awards SET character_id = NULL, external = 0 WHERE character_id = ?").run(id).changes,
+      );
+      result.unlinkedLogRows = Number(
+        db.prepare("UPDATE wcl_player_fights SET character_id = NULL WHERE character_id = ?").run(id).changes,
+      );
+      result.deletedGearSets = Number(
+        db.prepare("DELETE FROM gear_sets WHERE character_id = ?").run(id).changes,
+      );
+      db.prepare("DELETE FROM characters WHERE id = ?").run(id);
+      bumpDataVersion(db);
+    });
+    return result;
   },
 
   async createRaidSessionWithAwards(
@@ -316,6 +338,19 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
     return removed;
+  },
+
+  async deleteWclReport(code: string) {
+    const exists = readModel().store.wclReports.some((r) => r.code === code);
+    if (!exists) return { ok: false as const, error: "Report not found — maybe already removed." };
+    const db = getDb();
+    let rowsRemoved = 0;
+    withTx(db, () => {
+      rowsRemoved = Number(db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(code).changes);
+      db.prepare("DELETE FROM wcl_reports WHERE code = ?").run(code);
+      bumpDataVersion(db);
+    });
+    return { ok: true as const, rowsRemoved };
   },
 
   async addItemsIfMissing(items: Item[]): Promise<number> {

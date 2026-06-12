@@ -1,4 +1,20 @@
-import type { PerformanceSummary, WclPlayerFight, WclRole } from "@/lib/types";
+import { format, parseISO } from "date-fns";
+import type { AttendanceSummary, PerformanceSummary, WclPlayerFight, WclRole } from "@/lib/types";
+
+/** One tooltip string explaining exactly how an attendance % was counted. */
+export function attendanceTitle(a: AttendanceSummary): string {
+  const parts = [
+    a.firstSeenAt
+      ? `Counted since their first logged raid (${format(parseISO(a.firstSeenAt), "d MMM yyyy")}): ${a.raidsAttended} of ${a.raidsTracked}`
+      : `${a.raidsAttended} of ${a.raidsTracked} logged raids`,
+    `last ${a.recentTotal} raid${a.recentTotal === 1 ? "" : "s"}: ${a.recentAttended}/${a.recentTotal}`,
+    `in ${a.pullPct}% of boss pulls when present`,
+  ];
+  if (a.raidsTracked < a.raidsTotal) {
+    parts.push(`${a.raidsTotal - a.raidsTracked} earlier log(s) from before they joined don't count`);
+  }
+  return parts.join(" · ");
+}
 
 /**
  * Rollups over player-fight rows. Parses use the median (a raid night with one

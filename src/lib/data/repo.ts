@@ -70,6 +70,17 @@ export type CharacterWriteResult =
   | { ok: true; character: Character }
   | { ok: false; error: string };
 
+export type DeleteCharacterResult =
+  | {
+      ok: true;
+      /** Awards reopened as unresolved (raw winner name kept). */
+      unlinkedAwards: number;
+      /** Log rows detached — the name reappears under untracked log players. */
+      unlinkedLogRows: number;
+      deletedGearSets: number;
+    }
+  | { ok: false; error: string };
+
 export interface GargulCommitResult {
   /** Undefined when every award was a duplicate — no empty sessions are created. */
   session?: RaidSession;
@@ -134,6 +145,13 @@ export interface WriteRepo extends Repo {
   deleteGearSet(setId: string): Promise<boolean>;
   createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult>;
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
+  /**
+   * Delete a character outright. Loot stays in the ledger under the raw
+   * Gargul name (reopened as unresolved) and log rows go back to untracked —
+   * history is unlinked, never destroyed. Prefer status "pug"/"inactive"
+   * unless the entry really shouldn't exist.
+   */
+  deleteCharacter(id: string): Promise<DeleteCharacterResult>;
   /** Commit one Gargul paste: resolves winners by name, skips already-recorded awards. */
   createRaidSessionWithAwards(session: RaidSessionDraft, awards: AwardDraft[]): Promise<GargulCommitResult>;
   /** Settle (or reopen) the winner of one award — see AwardResolution. */
@@ -144,6 +162,8 @@ export interface WriteRepo extends Repo {
    * replaces it wholesale, so refetching is the update flow.
    */
   saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
+  /** Remove one fetched report and all its per-player rows (wrongful import). */
+  deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
   /**

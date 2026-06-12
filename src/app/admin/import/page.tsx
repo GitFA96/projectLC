@@ -26,10 +26,11 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items, sessions] = await Promise.all([
+  const [characters, items, sessions, wclReports] = await Promise.all([
     repo.listCharacters(),
     repo.listItems(),
     repo.listRaidSessions(),
+    repo.listWclReports(),
   ]);
 
   return (
@@ -47,6 +48,18 @@ export default async function ImportPage({
           label: `${format(parseISO(s.date), "d MMM yyyy")} — ${s.zones.join(" + ")}`,
         }))}
         wclConfigured={hasWclCredentials()}
+        wclReports={wclReports.map((r) => ({
+          code: r.report.code,
+          title: r.report.title,
+          zone: r.report.zone,
+          startTime: r.report.startTime,
+          playerCount: r.playerCount,
+          encounterCount: r.encounterCount,
+          killCount: r.killCount,
+          sessionLabel: r.session
+            ? `${format(parseISO(r.session.date), "d MMM yyyy")} — ${r.session.zones.join(" + ")}`
+            : undefined,
+        }))}
         prefill={prefill}
       />
     </div>

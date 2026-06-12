@@ -7,7 +7,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | Page | Purpose |
 | --- | --- |
 | `/` Dashboard | Guild KPIs, recent raids, most contested wishlist items, loot distribution bars |
-| `/roster` | Guild roster (class/spec/role, wishlist completion, items won) plus **known puggers** and **untracked log names** with one-click tracking; remove-demo-data action |
+| `/roster` | Guild roster (class/spec/role, wishlist completion, **log attendance**, items won) plus **known puggers** and **untracked log names** — checkbox bulk actions move/track/delete across the lists; remove-demo-data action |
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, enchant audit, per-report + career rollups |
@@ -72,7 +72,11 @@ Players are matched to tracked characters by name, exactly like Gargul winners; 
 
 Characters have a status: `main` / `alt` / `inactive` (the guild roster) or **`pug`** — a known off-roster player (PUG, friend's alt). Pugs get full profiles, loot history and performance pages, but stay **out of roster KPIs and loot-fairness stats**. Moving someone between the lists is just a status change (edit page, or the one-click buttons on `/roster`).
 
-Names seen in imported logs that match nobody appear on the roster page under **“Seen in logs, not tracked”** with class/spec prefilled from the log — track them as a pugger (or add to the roster) and their already-imported log history attaches instantly: log↔character matching is re-derived at read time, no re-fetch needed.
+Names seen in imported logs that match nobody appear on the roster page under **“Seen in logs, not tracked”** with class/spec prefilled from the log — track them as puggers (or add to the roster) and their already-imported log history attaches instantly: log↔character matching is re-derived at read time, no re-fetch needed.
+
+All three lists support **checkbox bulk actions** (select-all included): move roster members to puggers or inactive, promote puggers back, track many log names at once — or **delete characters outright**. Deleting never destroys history: awards reopen in the ledger under the raw Gargul name and log pulls return to the untracked list.
+
+Imported reports also drive **attendance**: raids attended / logged raids (plus pull coverage within attended nights, which exposes late joins/early leaves). It shows as a roster column, on profile headers, and on the performance page.
 
 ### Removing the demo data
 

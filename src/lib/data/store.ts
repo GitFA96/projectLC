@@ -9,6 +9,7 @@ import { computeFairness } from "@/lib/analysis/fairness";
 import { summarizePerformance } from "@/lib/analysis/performance";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
+  AttendanceSummary,
   AwardWithContext,
   Character,
   CharacterBundle,
@@ -142,6 +143,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
       offspecAwards: myAwards.filter((a) => a.award.offspec).length,
       lastAwardAt: last,
       hasCurrentGear: current !== undefined,
+      attendance: computeAttendance(character.id),
     };
   }
 
@@ -179,6 +181,47 @@ export function createRepoFromStore(store: EntityStore): Repo {
   function wclRowCharacterId(row: WclPlayerFight): string | null {
     if (row.characterId !== null) return row.characterId;
     return charactersBySlug.get(row.actorName.toLowerCase())?.id ?? null;
+  }
+
+  /** Boss pulls per report (across all players) — the attendance denominator. */
+  function pullsByReport(): Map<string, number> {
+    const pulls = new Map<string, Set<number>>();
+    for (const row of wclPlayerFights) {
+      const set = pulls.get(row.reportCode) ?? new Set<number>();
+      set.add(row.fightId);
+      pulls.set(row.reportCode, set);
+    }
+    return new Map([...pulls].map(([code, set]) => [code, set.size]));
+  }
+
+  function computeAttendance(characterId: string): AttendanceSummary | undefined {
+    if (wclReports.length === 0) return undefined;
+    const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
+    const attended = new Set(myRows.map((r) => r.reportCode));
+    const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
+
+    // Fair denominator: only raids since their first logged appearance count.
+    const chronological = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const firstIdx = chronological.findIndex((r) => attended.has(r.code));
+    const tracked = firstIdx === -1 ? [] : chronological.slice(firstIdx);
+    const recent = tracked.slice(-10);
+    const recentAttended = recent.filter((r) => attended.has(r.code)).length;
+
+    const reportPulls = pullsByReport();
+    const pullsTotal = [...attended].reduce((sum, code) => sum + (reportPulls.get(code) ?? 0), 0);
+    return {
+      raidsTotal: wclReports.length,
+      raidsAttended: attended.size,
+      raidsTracked: tracked.length,
+      raidPct: pct(attended.size, tracked.length),
+      firstSeenAt: firstIdx === -1 ? undefined : chronological[firstIdx].startTime,
+      recentAttended,
+      recentTotal: recent.length,
+      recentPct: pct(recentAttended, recent.length),
+      pullsAttended: myRows.length,
+      pullsTotal,
+      pullPct: pct(myRows.length, pullsTotal),
+    };
   }
 
   return {
@@ -297,6 +340,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
       const character = charactersBySlug.get(slug.toLowerCase());
       if (!character) return null;
       const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === character.id);
+      const reportPulls = pullsByReport();
       const reports: PerformanceReportView[] = [...wclReports]
         .sort((a, b) => b.startTime.localeCompare(a.startTime))
         .map((report): PerformanceReportView | undefined => {
@@ -310,6 +354,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
                 session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
                 rows,
                 summary,
+                reportPulls: reportPulls.get(report.code) ?? rows.length,
               }
             : undefined;
         })
@@ -317,7 +362,12 @@ export function createRepoFromStore(store: EntityStore): Repo {
       // Career rollup in chronological order (oldest report first) so
       // "latest pull" facts like the enchant audit come from the newest data.
       const chronological = [...reports].reverse().flatMap((r) => r.rows);
-      return { character, reports, career: summarizePerformance(chronological) };
+      return {
+        character,
+        reports,
+        career: summarizePerformance(chronological),
+        attendance: computeAttendance(character.id),
+      };
     },
 
     async listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]> {

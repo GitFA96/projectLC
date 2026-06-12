@@ -36,7 +36,12 @@ import {
   type GargulCommitActionResult,
   type SixtyCommitResult,
 } from "@/app/admin/import/actions";
-import { importWclReport, type WclImportActionResult } from "@/app/admin/import/wcl-actions";
+import {
+  deleteWclReportAction,
+  importWclReport,
+  type WclImportActionResult,
+} from "@/app/admin/import/wcl-actions";
+import { ActionResultLine, DangerButton, useRosterAction } from "@/components/roster-actions";
 
 /** Mirrors the real SixtyUpgrades export shape (see src/lib/import/__fixtures__). */
 const SU_EXAMPLE = JSON.stringify(
@@ -708,7 +713,90 @@ export interface SessionOption {
   label: string;
 }
 
-function WclTab({ sessions, configured }: { sessions: SessionOption[]; configured: boolean }) {
+export interface ImportedReport {
+  code: string;
+  title: string;
+  zone?: string;
+  /** ISO report start — shown as the raid date. */
+  startTime: string;
+  playerCount: number;
+  encounterCount: number;
+  killCount: number;
+  sessionLabel?: string;
+}
+
+function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
+  const { pending, result, run } = useRosterAction();
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle>Imported reports</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Re-importing the same URL refreshes a report in place. Removing one deletes its pulls,
+          parses and consumable data — attendance recounts immediately. The same report can always
+          be imported again.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {reports.length === 0 ? (
+          <p className="py-1 text-sm text-muted-foreground">No reports imported yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-28">Date</TableHead>
+                <TableHead>Report</TableHead>
+                <TableHead className="text-right">Bosses (kills)</TableHead>
+                <TableHead className="text-right">Players</TableHead>
+                <TableHead>Linked session</TableHead>
+                <TableHead className="w-36"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {reports.map((r) => (
+                <TableRow key={r.code}>
+                  <TableCell className="tabular-nums text-muted-foreground">
+                    {r.startTime.slice(0, 10)}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm font-medium">{r.title}</span>
+                    {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
+                    <span className="ml-2 font-mono text-[11px] text-muted-foreground/60">{r.code}</span>
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {r.encounterCount} ({r.killCount})
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">{r.playerCount}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.sessionLabel ?? "—"}</TableCell>
+                  <TableCell className="text-right">
+                    <DangerButton
+                      disabled={pending}
+                      confirmLabel="Confirm remove"
+                      onConfirm={() => run(() => deleteWclReportAction({ code: r.code }))}
+                    >
+                      Remove
+                    </DangerButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <ActionResultLine result={result} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function WclTab({
+  sessions,
+  configured,
+  reports,
+}: {
+  sessions: SessionOption[];
+  configured: boolean;
+  reports: ImportedReport[];
+}) {
   const [report, setReport] = React.useState("");
   const [sessionId, setSessionId] = React.useState("none");
   const [result, setResult] = React.useState<WclImportActionResult | null>(null);
@@ -862,6 +950,8 @@ function WclTab({ sessions, configured }: { sessions: SessionOption[]; configure
           </p>
         </CardContent>
       </Card>
+
+      <ImportedReportsCard reports={reports} />
     </div>
   );
 }
@@ -872,6 +962,7 @@ export function ImportTabs({
   knownItems,
   sessions,
   wclConfigured,
+  wclReports,
   prefill = {},
 }: {
   characters: string[];
@@ -879,6 +970,7 @@ export function ImportTabs({
   knownItems: KnownItem[];
   sessions: SessionOption[];
   wclConfigured: boolean;
+  wclReports: ImportedReport[];
   prefill?: ImportPrefill;
 }) {
   const items = React.useMemo(() => makeItemResolver(knownItems), [knownItems]);
@@ -898,7 +990,7 @@ export function ImportTabs({
         <GargulTab characters={characters} zones={zones} items={items} />
       </TabsContent>
       <TabsContent value="wcl">
-        <WclTab sessions={sessions} configured={wclConfigured} />
+        <WclTab sessions={sessions} configured={wclConfigured} reports={wclReports} />
       </TabsContent>
     </Tabs>
   );
