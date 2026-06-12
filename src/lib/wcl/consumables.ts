@@ -12,7 +12,15 @@
  *    consumable type; it never breaks an import.
  */
 
-export type AuraCategory = "flask" | "battleElixir" | "guardianElixir" | "food" | "potion" | "scroll";
+export type AuraCategory =
+  | "flask"
+  | "battleElixir"
+  | "guardianElixir"
+  | "food"
+  | "potion"
+  | "scroll"
+  /** Consumables outside the standard slots (alcohol, Bogling Root, …). */
+  | "misc";
 
 export interface ClassifiedAura {
   category: AuraCategory;
@@ -63,6 +71,9 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Fortitude", category: "guardianElixir", buffNames: ["Health II"] },
   { label: "Gift of Arthas", category: "guardianElixir" },
   { label: "Major Troll's Blood Elixir", category: "guardianElixir", buffNames: ["Regeneration"] },
+  /* Off-slot consumables (stack with everything — sweaty-raider tells) */
+  { label: "Bogling Root", category: "misc", ids: [5665], buffNames: ["Fury of the Bogling"] },
+  { label: "Kreeg's Stout Beatdown", category: "misc", ids: [22790] },
 ];
 
 const AURA_BY_ID = new Map<number, AuraDef>();
@@ -95,6 +106,53 @@ const SCROLL_BUFF_NAMES: Record<string, string> = {
 
 /** Some logs do keep the scroll's own name, rank included. */
 const SCROLL_PATTERN = /^scroll of (agility|intellect|protection|spirit|stamina|strength)\b/i;
+
+/**
+ * Known NON-consumable auras (class buffs, stances, racials) curated from real
+ * log dumps — filtered out of the curation dump so it only surfaces genuine
+ * unknowns. Deliberately conservative: only auras verified non-consumable get
+ * listed; anything new still lands in the dump for review.
+ */
+const NONCONSUMABLE_AURA_IDS = new Set<number>([
+  25898, 27127, 25895, 27141, 27143, 20218, 2048, 24932, 27142, 24907, 27149,
+  2458, 27125, 27168, 469, 25780, 9634, 25433, 27144, 20217, 6346, 71,
+]);
+
+const NONCONSUMABLE_AURA_NAMES = new Set<string>(
+  [
+    "Arcane Brilliance", "Arcane Intellect", "Battle Shout", "Commanding Shout",
+    "Power Word: Fortitude", "Divine Spirit", "Shadow Protection", "Fear Ward",
+    "Inner Fire", "Mark of the Wild", "Gift of the Wild", "Thorns",
+    "Leader of the Pack", "Righteous Fury", "Mage Armor", "Ice Armor",
+    "Frost Armor", "Fel Armor", "Demon Armor", "Demon Skin", "Blood Pact",
+    "Water Shield", "Lightning Shield", "Earth Shield", "Unending Breath",
+    "Detect Invisibility", "Amplify Magic", "Dampen Magic", "Vanguard",
+    "Trueshot Aura", "Heroic Presence", "Inspiring Presence",
+  ].map((n) => n.toLowerCase()),
+);
+
+/** Buff families that are never consumables (auras, stances, forms, blessings…). */
+const NONCONSUMABLE_AURA_PATTERNS: RegExp[] = [
+  /^(greater )?blessing of /,
+  /^prayer of /,
+  /^seal of /,
+  /^aspect of the /,
+  / aura$/,
+  / form$/,
+  / stance$/,
+  / presence$/,
+];
+
+/**
+ * True for auras known NOT to be consumables — used only to de-noise the
+ * curation dump. Runs AFTER classifyAura, so it can never eat a tracked item.
+ */
+export function isNonConsumableAura(name: string, abilityId?: number): boolean {
+  if (abilityId !== undefined && NONCONSUMABLE_AURA_IDS.has(abilityId)) return true;
+  const lower = name.trim().toLowerCase();
+  if (NONCONSUMABLE_AURA_NAMES.has(lower)) return true;
+  return NONCONSUMABLE_AURA_PATTERNS.some((p) => p.test(lower));
+}
 
 /**
  * Classify one aura present at pull. Returns undefined for everything that

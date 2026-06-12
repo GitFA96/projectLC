@@ -10,7 +10,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/roster` | Guild roster (class/spec/role, wishlist completion, **log attendance**, items won) plus **known puggers** and **untracked log names** — checkbox bulk actions move/track/delete across the lists; remove-demo-data action |
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
-| `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, enchant audit, per-report + career rollups |
+| `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, class cooldowns + debuff/shout upkeep (expand any boss row), enchant audit, per-report + career rollups |
 | `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
@@ -59,14 +59,17 @@ WCL_CLIENT_ID=…
 WCL_CLIENT_SECRET=…
 ```
 
-Then paste a report URL on the import page's **Warcraft Logs** tab (optionally linking it to the night's Gargul session). One import costs ~5 API calls (the free tier allows thousands/hour) and records, per raider per boss pull:
+Then paste a report URL on the import page's **Warcraft Logs** tab (optionally linking it to the night's Gargul session). One import costs ~7 API calls (the free tier allows thousands/hour) and records, per raider per boss pull:
 
 - **parse percentile** (DPS; HPS for healers; tanks in their bracket) plus the **ilvl-bracket percentile** — high parse + low bracket reads "carried by gear", the reverse reads "outplaying their gear"
 - **deaths**, bucketed per pull
-- **preparation**: flask/elixirs, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones used in-fight (from cast events)
+- **preparation**: flask/elixirs/scrolls, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones/mana gems/seeds used in-fight (from cast events)
+- **class toolkit**: major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) and the **uptime of maintained debuffs/buffs** — warlock curse assignments, Thunder Clap, Demoralizing Shout, shouts, judgements, Faerie Fire, Earth Shield. Uptime is computed per player on their best enemy target (≈ the boss) and matched by aura *name*, so every spell rank counts
 - **enchant audit**: expected-to-be-enchanted slots missing a permanent enchant — freshly awarded loot shows up here until it's enchanted
 
-Players are matched to tracked characters by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup.
+Players are matched to tracked characters by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup — each boss row expands into the pull's items used, cooldowns and upkeep.
+
+The import result includes a **consumable-tuning dump**: every aura at a boss pull the tables didn't recognize (known class buffs pre-filtered), copy-pastable for curation when a consumable goes untracked.
 
 ### Guild roster vs known puggers
 
@@ -99,7 +102,7 @@ A fresh database is seeded with fictional demo content so the UI isn't empty. On
 - **M1** — UI draft on realistic seed data ✓
 - **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
 - **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
-- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓, per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓; **remaining: validate against a real report fetch** (the GraphQL JSON blobs are built tolerant but unverified against live data), curated class-specific buff-uptime metrics, raid-wide preparation overview
+- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it), raid-wide preparation overview
 
 ## License
 
