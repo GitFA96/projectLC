@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ROLES, WOW_CLASSES } from "@/lib/constants/wow";
+import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
 import type { Phase, Role, WowClass } from "@/lib/types";
 
 export interface RosterRow {
@@ -23,7 +23,7 @@ export interface RosterRow {
   wowClass: WowClass;
   spec: string;
   role: Role;
-  status: "main" | "alt" | "inactive";
+  status: CharacterStatus;
   completions: { phase: Phase; pct: number }[];
   totalAwards: number;
   activePhaseAwards: number;

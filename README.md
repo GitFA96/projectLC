@@ -7,7 +7,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | Page | Purpose |
 | --- | --- |
 | `/` Dashboard | Guild KPIs, recent raids, most contested wishlist items, loot distribution bars |
-| `/roster` | All characters: class/spec/role, per-phase wishlist completion, items won, add raiders |
+| `/roster` | Guild roster (class/spec/role, wishlist completion, items won) plus **known puggers** and **untracked log names** with one-click tracking; remove-demo-data action |
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, enchant audit, per-report + career rollups |
@@ -66,7 +66,17 @@ Then paste a report URL on the import page's **Warcraft Logs** tab (optionally l
 - **preparation**: flask/elixirs, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones used in-fight (from cast events)
 - **enchant audit**: expected-to-be-enchanted slots missing a permanent enchant — freshly awarded loot shows up here until it's enchanted
 
-Players are matched to the roster by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup.
+Players are matched to tracked characters by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup.
+
+### Guild roster vs known puggers
+
+Characters have a status: `main` / `alt` / `inactive` (the guild roster) or **`pug`** — a known off-roster player (PUG, friend's alt). Pugs get full profiles, loot history and performance pages, but stay **out of roster KPIs and loot-fairness stats**. Moving someone between the lists is just a status change (edit page, or the one-click buttons on `/roster`).
+
+Names seen in imported logs that match nobody appear on the roster page under **“Seen in logs, not tracked”** with class/spec prefilled from the log — track them as a pugger (or add to the roster) and their already-imported log history attaches instantly: log↔character matching is re-derived at read time, no re-fetch needed.
+
+### Removing the demo data
+
+A fresh database is seeded with fictional demo content so the UI isn't empty. Once real imports are in, the roster page shows a **“Remove demo data”** banner: it deletes the demo characters, their sessions/awards/gear sets and the seed log report, keeps the item cache (real TBC entries) and everything you imported, and unlinks (never deletes) real rows that pointed at demo ones.
 
 ### Model decisions
 

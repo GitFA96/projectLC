@@ -12,6 +12,7 @@ import type {
   ItemDemand,
   LootAward,
   RaidSession,
+  UntrackedLogPlayer,
   WclPlayerFight,
   WclReport,
   WclReportView,
@@ -40,6 +41,8 @@ export interface Repo {
   listWclReports(): Promise<WclReportView[]>;
   /** Per-report performance + career rollup for one character (null = unknown character). */
   getCharacterPerformance(slug: string): Promise<CharacterPerformance | null>;
+  /** Names seen in imported logs that match no tracked character, most pulls first. */
+  listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -108,6 +111,15 @@ export type WclSaveResult =
     }
   | { ok: false; error: string };
 
+/** What "Remove demo data" deleted, for the confirmation message. */
+export interface PurgeDemoResult {
+  characters: number;
+  raidSessions: number;
+  lootAwards: number;
+  gearSets: number;
+  wclReports: number;
+}
+
 export interface WriteRepo extends Repo {
   findCharacterByName(name: string): Promise<Character | undefined>;
   /** The set an import would overwrite, if any (kind "current", or wishlist for the given phase). */
@@ -134,6 +146,13 @@ export interface WriteRepo extends Repo {
   saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
+  /**
+   * Remove the demo content a fresh database was seeded with (fictional
+   * characters, their sessions/awards/gear sets and the seed WCL report),
+   * keeping everything imported since. The item cache stays — it's real TBC
+   * data. Anything real that pointed at demo rows is unlinked, not deleted.
+   */
+  purgeDemoData(): Promise<PurgeDemoResult>;
 }
 
 function backend(): "seed" | "sqlite" {

@@ -24,6 +24,7 @@ import type {
   Phase,
   PhaseWishlistView,
   RaidSession,
+  UntrackedLogPlayer,
   WclPlayerFight,
   WclReport,
   WclReportView,
@@ -170,6 +171,16 @@ export function createRepoFromStore(store: EntityStore): Repo {
     return lootAwards.filter((a) => a.characterId === null && !a.external);
   }
 
+  /**
+   * Effective character for a log row: the persisted match, with a read-time
+   * name fallback — so characters added AFTER a report was fetched (a tracked
+   * pug, a renamed raider) pick up their log history without a re-fetch.
+   */
+  function wclRowCharacterId(row: WclPlayerFight): string | null {
+    if (row.characterId !== null) return row.characterId;
+    return charactersBySlug.get(row.actorName.toLowerCase())?.id ?? null;
+  }
+
   return {
     async getGuild() {
       return guild;
@@ -285,7 +296,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
     async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {
       const character = charactersBySlug.get(slug.toLowerCase());
       if (!character) return null;
-      const myRows = wclPlayerFights.filter((r) => r.characterId === character.id);
+      const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === character.id);
       const reports: PerformanceReportView[] = [...wclReports]
         .sort((a, b) => b.startTime.localeCompare(a.startTime))
         .map((report): PerformanceReportView | undefined => {
@@ -309,9 +320,45 @@ export function createRepoFromStore(store: EntityStore): Repo {
       return { character, reports, career: summarizePerformance(chronological) };
     },
 
+    async listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]> {
+      const reportStart = new Map(wclReports.map((r) => [r.code, r.startTime]));
+      const byName = new Map<string, UntrackedLogPlayer>();
+      const codesByName = new Map<string, Set<string>>();
+      for (const row of wclPlayerFights) {
+        if (wclRowCharacterId(row) !== null) continue;
+        const key = row.actorName.toLowerCase();
+        const seen = reportStart.get(row.reportCode) ?? "";
+        const codes = codesByName.get(key) ?? new Set<string>();
+        codes.add(row.reportCode);
+        codesByName.set(key, codes);
+        const entry = byName.get(key);
+        if (!entry) {
+          byName.set(key, {
+            name: row.actorName,
+            className: row.className,
+            spec: row.spec,
+            role: row.role,
+            appearances: 1,
+            reportCount: codes.size,
+            lastSeen: seen,
+          });
+        } else {
+          entry.appearances++;
+          entry.reportCount = codes.size;
+          entry.className ??= row.className;
+          entry.spec ??= row.spec;
+          if (seen > entry.lastSeen) entry.lastSeen = seen;
+        }
+      }
+      return [...byName.values()].sort(
+        (a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name),
+      );
+    },
+
     async getDashboard() {
       const sessions = [...raidSessions].sort((a, b) => b.date.localeCompare(a.date));
-      const summaries = roster.map(summarize);
+      // Guild KPIs describe the guild — known pugs stay out of all of them.
+      const summaries = roster.filter((c) => c.status !== "pug").map(summarize);
       const activeCompletions = summaries
         .map((s) => s.completionByPhase.find((c) => c.phase === guild.activePhase)?.completion.pct)
         .filter((p): p is number => p !== undefined);
@@ -336,7 +383,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
 
       return {
         guild,
-        rosterSize: roster.filter((c) => c.status !== "inactive").length,
+        rosterSize: roster.filter((c) => c.status !== "inactive" && c.status !== "pug").length,
         activePhaseAwards: awardsWithContext.filter((a) => a.sessionPhase === guild.activePhase).length,
         avgActivePhaseCompletion:
           activeCompletions.length > 0

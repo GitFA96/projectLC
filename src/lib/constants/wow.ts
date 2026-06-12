@@ -219,8 +219,21 @@ export const STAT_LABELS: Map<string, string> = new Map(
 export const FACTIONS = ["Horde", "Alliance"] as const;
 export type Faction = (typeof FACTIONS)[number];
 
-export const CHARACTER_STATUSES = ["main", "alt", "inactive"] as const;
+export const CHARACTER_STATUSES = ["main", "alt", "inactive", "pug"] as const;
 export type CharacterStatus = (typeof CHARACTER_STATUSES)[number];
+
+/** Form/display labels for character statuses. */
+export const STATUS_LABELS: Record<CharacterStatus, string> = {
+  main: "main — guild roster",
+  alt: "alt — guild roster",
+  inactive: "inactive — left the roster",
+  pug: "pug — known off-roster player",
+};
+
+/** Statuses that count as the guild's own roster (vs known off-roster players). */
+export function isGuildMember(status: CharacterStatus): boolean {
+  return status !== "pug";
+}
 
 export const GEAR_SET_KINDS = ["current", "wishlist"] as const;
 export const GEAR_SET_SOURCES = ["sixtyupgrades", "seed", "manual"] as const;

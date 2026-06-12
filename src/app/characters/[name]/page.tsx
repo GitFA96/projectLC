@@ -100,6 +100,12 @@ export default async function CharacterPage({ params }: { params: Promise<Params
             <ClassBadge wowClass={character.class} spec={character.spec} />
             <RoleBadge role={character.role} />
             {character.status === "alt" && <Badge variant="muted">alt</Badge>}
+            {character.status === "pug" && (
+              <Badge variant="muted" title="Known off-roster player — excluded from roster KPIs and fairness stats">
+                pug
+              </Badge>
+            )}
+            {character.status === "inactive" && <Badge variant="muted">inactive</Badge>}
             {character.note && <span className="text-xs">· {character.note}</span>}
           </span>
         }

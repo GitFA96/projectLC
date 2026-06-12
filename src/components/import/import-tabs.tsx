@@ -810,9 +810,16 @@ function WclTab({ sessions, configured }: { sessions: SessionOption[]; configure
                 {result.fightCount === 1 ? "" : "s"})
               </p>
               <p className="text-xs">
-                {result.matched.length} raider(s) matched to the roster
-                {result.unmatched.length > 0 &&
-                  ` · not on the roster (ignored on profiles): ${result.unmatched.join(", ")}`}
+                {result.matched.length} raider(s) matched to tracked characters
+                {result.unmatched.length > 0 && (
+                  <>
+                    {" "}
+                    · untracked: {result.unmatched.join(", ")} — add them as puggers on the{" "}
+                    <Link href="/roster" className="font-medium underline-offset-2 hover:underline">
+                      roster page
+                    </Link>
+                  </>
+                )}
               </p>
               <Warnings warnings={result.warnings} />
               {result.matched.length > 0 && (
