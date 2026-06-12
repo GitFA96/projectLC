@@ -31,14 +31,30 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const repo = await getRepo();
-  const guild = await repo.getGuild();
+  const [guild, demand] = await Promise.all([repo.getGuild(), repo.listItemDemand()]);
+  // Slim copy for the nav's instant item lookup (guild scale: a few hundred rows).
+  const searchItems = demand.map((d) => ({
+    itemId: d.itemId,
+    name: d.name,
+    quality: d.quality,
+    icon: d.icon,
+    slot: d.slot,
+    wisherCount: d.wisherCount,
+    openCount: d.openCount,
+    awardCount: d.awardCount,
+  }));
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col font-sans">
         <WowheadScripts />
         <WowheadRefresher />
         <TooltipProvider delayDuration={200}>
-          <Nav guildName={guild.name} realm={guild.realm} activePhase={guild.activePhase} />
+          <Nav
+            guildName={guild.name}
+            realm={guild.realm}
+            activePhase={guild.activePhase}
+            searchItems={searchItems}
+          />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
           <footer className="border-t py-4 text-center text-xs text-muted-foreground">
             projectLC · loot council tracker for TBC · wishlists via SixtyUpgrades · loot via Gargul

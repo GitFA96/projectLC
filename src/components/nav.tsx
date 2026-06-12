@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Swords } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { QuickSearch } from "@/components/quick-search";
+import type { QuickSearchItem } from "@/lib/analysis/quick-search";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -18,10 +20,12 @@ export function Nav({
   guildName,
   realm,
   activePhase,
+  searchItems,
 }: {
   guildName: string;
   realm: string;
   activePhase: number;
+  searchItems: QuickSearchItem[];
 }) {
   const pathname = usePathname();
   return (
@@ -54,7 +58,8 @@ export function Nav({
             );
           })}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <QuickSearch items={searchItems} />
           <Badge variant="outline" className="gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             Phase {activePhase} active
