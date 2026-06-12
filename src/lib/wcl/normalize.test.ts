@@ -93,7 +93,9 @@ const combatantInfo = [
       { name: "Well Fed", ability: 33263 },
       // Pre-pot recognized by spell id even under a buff-style name.
       { name: "Haste", ability: 28507 },
-      { name: "Scroll of Spirit V", ability: 33080 },
+      // Scroll buffs are bare stat names in logs: rank from the id when known.
+      { name: "Agility", ability: 33077 },
+      { name: "Strength", ability: 999002 },
     ],
     gear: gear({ 4: { permanentEnchant: null } }),
   },
@@ -139,6 +141,9 @@ const casts = [
   { timestamp: 50000, type: "cast", sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
   // Timestamp outside every window, but the fight field routes it to Moroes.
   { timestamp: 50, type: "cast", fight: 9, sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
+  // Mana gems share the "Replenish Mana" use spell — the id names the gem.
+  { timestamp: 650500, type: "cast", sourceID: 3, ability: { name: "Replenish Mana", guid: 27103 } },
+  { timestamp: 651000, type: "cast", sourceID: 1, ability: { name: "Nightmare Seed", guid: 28726 } },
 ];
 
 describe("normalizeWclReport", () => {
@@ -194,7 +199,7 @@ describe("normalizeWclReport", () => {
     expect(mage.flask).toBeUndefined();
     // Buff-style aura names resolve to the canonical item names.
     expect(mage.elixirs).toEqual(["Elixir of Major Firepower", "Elixir of Draenic Wisdom"]);
-    expect(mage.scrolls).toEqual(["Scroll of Spirit V"]);
+    expect(mage.scrolls).toEqual(["Scroll of Agility V", "Scroll of Strength"]);
     expect(mage.prepot).toBe(true);
     expect(mage.weaponBuff).toBe(false);
     expect(mage.missingEnchants).toEqual(["Chest"]);
@@ -208,8 +213,21 @@ describe("normalizeWclReport", () => {
     expect(row(7, "Pyrelia").deaths).toBe(0);
     expect(row(7, "Pyrelia").potions).toEqual(["Haste Potion"]);
     expect(row(7, "Pyrelia").drums).toBe(1);
+    expect(row(7, "Pyrelia").otherCasts).toEqual(["Drums of Battle"]);
     expect(row(7, "Thrainn").potions).toEqual(["Ironshield Potion"]);
     expect(row(9, "Lunara").potions).toEqual(["Super Mana Potion"]);
+  });
+
+  it("labels non-potion in-fight items by spell id (gems, seeds)", () => {
+    expect(row(9, "Lunara").otherCasts).toEqual(["Mana Emerald"]);
+    expect(row(9, "Thrainn").otherCasts).toEqual(["Nightmare Seed"]);
+  });
+
+  it("dumps unrecognized aura names for curation", () => {
+    const shout = result.unclassifiedAuras.find((a) => a.name === "Commanding Shout");
+    expect(shout).toMatchObject({ abilityId: 469, count: 1 });
+    // Recognized consumables never land in the dump.
+    expect(result.unclassifiedAuras.some((a) => a.name === "Agility")).toBe(false);
   });
 
   it("warns about combatant info outside boss pulls", () => {
@@ -258,12 +276,22 @@ describe("consumable classification", () => {
     expect(classifyAura("Elixir of Future Patch")?.category).toBe("battleElixir");
   });
 
-  it("classifies scrolls of every rank", () => {
-    expect(classifyAura("Scroll of Agility V")?.category).toBe("scroll");
+  it("classifies scrolls from bare-stat buff names and rank-V ids", () => {
+    // Logs name scroll buffs after the bare stat.
+    expect(classifyAura("Agility", 33077)).toEqual({ category: "scroll", label: "Scroll of Agility V" });
+    expect(classifyAura("Strength")).toEqual({ category: "scroll", label: "Scroll of Strength" });
+    expect(classifyAura("Armor")?.label).toBe("Scroll of Protection");
+    expect(classifyAura("Spirit")?.category).toBe("scroll");
+    // Scroll-style names still work, rank preserved.
     expect(classifyAura("Scroll of Agility V")?.label).toBe("Scroll of Agility V");
     expect(classifyAura("Scroll of Strength IV")?.category).toBe("scroll");
-    expect(classifyAura("Scroll of Protection")?.category).toBe("scroll");
     expect(classifyAura("Scroll of Recall")).toBeUndefined();
+  });
+
+  it("labels mana gems and seeds from cast ids", () => {
+    expect(classifyCast(27103, "Replenish Mana")?.name).toBe("Mana Emerald");
+    expect(classifyCast(10058, "Replenish Mana")?.name).toBe("Mana Ruby");
+    expect(classifyCast(28726)?.category).toBe("other");
   });
 
   it("detects pre-pots by buff spell id even under buff-style names", () => {

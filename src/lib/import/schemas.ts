@@ -180,6 +180,8 @@ export const wclPlayerFightSchema = z.object({
   /** A combat-potion aura was already up at pull (pre-pot). */
   prepot: z.boolean().default(false),
   potions: z.array(z.string()).default([]),
+  /** Non-potion in-fight consumables (healthstones, runes, mana gems, seeds, drums). */
+  otherCasts: z.array(z.string()).default([]),
   drums: z.number().int().nonnegative().default(0),
   runes: z.number().int().nonnegative().default(0),
   healthstones: z.number().int().nonnegative().default(0),
