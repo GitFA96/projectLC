@@ -143,6 +143,8 @@ export interface NormalizedPlayerFight {
   weaponBuff: boolean;
   prepot: boolean;
   potions: string[];
+  /** Non-potion in-fight consumable casts (healthstones, runes, gems, seeds, drums). */
+  otherCasts: string[];
   drums: number;
   runes: number;
   healthstones: number;
@@ -158,6 +160,14 @@ export interface IgnoredCombatantInfo {
   auras: string[];
 }
 
+/** An aura at a boss pull the consumable tables don't recognize. */
+export interface UnclassifiedAura {
+  name: string;
+  abilityId?: number;
+  /** Player×pull occurrences across the report. */
+  count: number;
+}
+
 export interface NormalizedReport {
   title: string;
   zone?: string;
@@ -169,6 +179,12 @@ export interface NormalizedReport {
   warnings: string[];
   /** Combatant-info events outside boss pulls (trash combat), inspectable. */
   ignoredCombatantInfo: { total: number; players: number; sample: IgnoredCombatantInfo[] };
+  /**
+   * The curation data dump: every aura name+id seen at boss pulls that the
+   * consumable tables didn't recognize, most frequent first. Pasting this back
+   * into development is how the tables get tuned against real logs.
+   */
+  unclassifiedAuras: UnclassifiedAura[];
 }
 
 export interface RawEventInputs {
@@ -229,6 +245,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         weaponBuff: false,
         prepot: false,
         potions: [],
+        otherCasts: [],
         drums: 0,
         runes: 0,
         healthstones: 0,
@@ -270,6 +287,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   /* 2. Combatant info at pull: consumable auras + gear audit. */
   const ignoredSample: IgnoredCombatantInfo[] = [];
   const ignoredPlayers = new Set<string>();
+  const unclassified = new Map<string, UnclassifiedAura>();
   let orphanCombatantInfo = 0;
   for (const rawEvent of events.combatantInfo) {
     const parsed = rawCombatantInfoEventSchema.safeParse(rawEvent);
@@ -300,7 +318,13 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     for (const aura of event.auras ?? []) {
       if (!aura.name) continue;
       const hit = classifyAura(aura.name, aura.ability);
-      if (!hit) continue;
+      if (!hit) {
+        const key = `${aura.name.toLowerCase()}|${aura.ability ?? ""}`;
+        const entry = unclassified.get(key);
+        if (entry) entry.count++;
+        else unclassified.set(key, { name: aura.name, abilityId: aura.ability, count: 1 });
+        continue;
+      }
       if (hit.category === "flask") row.flask = hit.label;
       else if (hit.category === "food") row.food = true;
       else if (hit.category === "potion") row.prepot = true;
@@ -349,10 +373,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (!row) continue;
     const hit = classifyCast(event.ability?.guid ?? event.abilityGameID, event.ability?.name);
     if (!hit) continue;
-    if (hit.category === "potion") row.potions.push(hit.name);
-    else if (hit.category === "drums") row.drums++;
+    if (hit.category === "potion") {
+      row.potions.push(hit.name);
+      continue;
+    }
+    row.otherCasts.push(hit.name);
+    if (hit.category === "drums") row.drums++;
     else if (hit.category === "rune") row.runes++;
-    else row.healthstones++;
+    else if (hit.category === "healthstone") row.healthstones++;
   }
 
   // Stable order: pull order, then name.
@@ -372,5 +400,8 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       players: ignoredPlayers.size,
       sample: ignoredSample,
     },
+    unclassifiedAuras: [...unclassified.values()]
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 80),
   };
 }

@@ -63,6 +63,17 @@ function coverage(rows: WclPlayerFight[], pick: (r: WclPlayerFight) => string[])
   return new Map([...counts].sort((a, b) => b[1] - a[1]));
 }
 
+/** Total uses per label (a pot can be used twice on a long pull). */
+function usesOf(rows: WclPlayerFight[], pick: (r: WclPlayerFight) => string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    for (const label of pick(row)) {
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 export default async function PerformancePage({
   params,
   searchParams,
@@ -287,7 +298,9 @@ export default async function PerformancePage({
                     <TableHead className="w-16 text-right">Deaths</TableHead>
                     <TableHead className="w-14" title="Flask or two elixirs at pull">Flask</TableHead>
                     <TableHead className="w-14" title="Well Fed at pull">Food</TableHead>
-                    <TableHead className="w-14" title="Potions used (pre-pot included as +)">Pots</TableHead>
+                    <TableHead className="w-16" title="Consumables used during the pull — potions, healthstones, runes, mana gems, seeds, drums (pre-pot shown as +)">
+                      Used
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -332,9 +345,11 @@ export default async function PerformancePage({
                         <Mark ok={row.food} />
                       </TableCell>
                       <TableCell className="text-sm tabular-nums">
-                        {row.potions.length > 0 || row.prepot ? (
-                          <span title={[...(row.prepot ? ["pre-pot"] : []), ...row.potions].join(", ")}>
-                            {row.potions.length}
+                        {row.potions.length + row.otherCasts.length > 0 || row.prepot ? (
+                          <span
+                            title={[...(row.prepot ? ["pre-pot"] : []), ...row.potions, ...row.otherCasts].join(", ")}
+                          >
+                            {row.potions.length + row.otherCasts.length}
                             {row.prepot && <span className="text-emerald-600">+</span>}
                           </span>
                         ) : (
@@ -381,28 +396,18 @@ export default async function PerformancePage({
                         {active.rows.filter((r) => r.weaponBuff).length}/{active.rows.length} pulls
                       </TableCell>
                     </TableRow>
-                    <ConsumableRows label="Potions" entries={coverage(active.rows, (r) => r.potions)} total={active.rows.length} mode="uses" rows={active.rows} />
-                    {active.summary.drums > 0 && (
-                      <TableRow>
-                        <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Drums</TableCell>
-                        <TableCell className="text-sm">Drums cast for the group</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">×{active.summary.drums}</TableCell>
-                      </TableRow>
-                    )}
-                    {active.summary.runes > 0 && (
-                      <TableRow>
-                        <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Runes</TableCell>
-                        <TableCell className="text-sm">Dark / Demonic Rune</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">×{active.summary.runes}</TableCell>
-                      </TableRow>
-                    )}
-                    {active.summary.healthstones > 0 && (
-                      <TableRow>
-                        <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Healthstone</TableCell>
-                        <TableCell className="text-sm">Used in combat</TableCell>
-                        <TableCell className="text-right text-sm tabular-nums">×{active.summary.healthstones}</TableCell>
-                      </TableRow>
-                    )}
+                    <ConsumableRows
+                      label="Potions"
+                      entries={coverage(active.rows, (r) => r.potions)}
+                      total={active.rows.length}
+                      uses={usesOf(active.rows, (r) => r.potions)}
+                    />
+                    <ConsumableRows
+                      label="In-fight items"
+                      entries={coverage(active.rows, (r) => r.otherCasts)}
+                      total={active.rows.length}
+                      uses={usesOf(active.rows, (r) => r.otherCasts)}
+                    />
                   </TableBody>
                 </Table>
               </CardContent>
@@ -445,14 +450,13 @@ function ConsumableRows({
   label,
   entries,
   total,
-  mode = "pulls",
-  rows,
+  uses,
 }: {
   label: string;
   entries: Map<string, number>;
   total: number;
-  mode?: "pulls" | "uses";
-  rows?: WclPlayerFight[];
+  /** When given, rows show total uses (×n) instead of pull coverage. */
+  uses?: Map<string, number>;
 }) {
   if (entries.size === 0) {
     return (
@@ -463,16 +467,6 @@ function ConsumableRows({
       </TableRow>
     );
   }
-  // "uses" counts every cast (a pot can be used twice on long fights).
-  const useCounts =
-    mode === "uses" && rows
-      ? new Map(
-          [...entries.keys()].map((name) => [
-            name,
-            rows.reduce((sum, r) => sum + r.potions.filter((p) => p === name).length, 0),
-          ]),
-        )
-      : undefined;
   return (
     <>
       {[...entries].map(([name, count], i) => (
@@ -482,7 +476,7 @@ function ConsumableRows({
           </TableCell>
           <TableCell className="text-sm">{name}</TableCell>
           <TableCell className="text-right text-sm tabular-nums">
-            {useCounts ? `×${useCounts.get(name)}` : `${count}/${total} pulls`}
+            {uses ? `×${uses.get(name) ?? count}` : `${count}/${total} pulls`}
           </TableCell>
         </TableRow>
       ))}

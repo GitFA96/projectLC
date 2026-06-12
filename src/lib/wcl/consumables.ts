@@ -73,7 +73,27 @@ for (const def of AURA_DEFS) {
   for (const name of def.buffNames ?? []) AURA_BY_NAME.set(name.toLowerCase(), def);
 }
 
-/** Scroll buffs keep the scroll's name (rank included): "Scroll of Agility V". */
+/** Scroll buffs are named after the bare stat in logs ("Agility", "Armor"). */
+const SCROLL_RANK_V_IDS: Record<number, string> = {
+  33077: "Scroll of Agility V",
+  33078: "Scroll of Intellect V",
+  33079: "Scroll of Protection V",
+  33080: "Scroll of Spirit V",
+  33081: "Scroll of Stamina V",
+  33082: "Scroll of Strength V",
+};
+
+/** Bare-stat buff name → generic scroll label (rank unknown without the id). */
+const SCROLL_BUFF_NAMES: Record<string, string> = {
+  agility: "Scroll of Agility",
+  strength: "Scroll of Strength",
+  stamina: "Scroll of Stamina",
+  intellect: "Scroll of Intellect",
+  spirit: "Scroll of Spirit",
+  armor: "Scroll of Protection",
+};
+
+/** Some logs do keep the scroll's own name, rank included. */
 const SCROLL_PATTERN = /^scroll of (agility|intellect|protection|spirit|stamina|strength)\b/i;
 
 /**
@@ -87,10 +107,14 @@ export function classifyAura(name: string, abilityId?: number): ClassifiedAura |
   if (abilityId !== undefined) {
     const byId = AURA_BY_ID.get(abilityId);
     if (byId) return { category: byId.category, label: byId.label };
+    const scrollV = SCROLL_RANK_V_IDS[abilityId];
+    if (scrollV) return { category: "scroll", label: scrollV };
     if (PREPOT_AURA_IDS.has(abilityId)) return { category: "potion", label: trimmed };
   }
   const byName = AURA_BY_NAME.get(lower);
   if (byName) return { category: byName.category, label: byName.label };
+  const scrollByStat = SCROLL_BUFF_NAMES[lower];
+  if (scrollByStat) return { category: "scroll", label: scrollByStat };
 
   if (lower.includes("flask of")) return { category: "flask", label: trimmed };
   if (lower.startsWith("well fed")) return { category: "food", label: "Well Fed" };
@@ -107,7 +131,7 @@ export function classifyAura(name: string, abilityId?: number): ClassifiedAura |
   return undefined;
 }
 
-export type CastCategory = "potion" | "drums" | "rune" | "healthstone";
+export type CastCategory = "potion" | "drums" | "rune" | "healthstone" | "gem" | "other";
 
 export interface TrackedCast {
   id: number;
@@ -148,6 +172,13 @@ export const TRACKED_CASTS: TrackedCast[] = [
   { id: 27875, name: "Master Healthstone", category: "healthstone" },
   { id: 27876, name: "Master Healthstone", category: "healthstone" },
   { id: 27877, name: "Master Healthstone", category: "healthstone" },
+  // Mana gems all cast "Replenish Mana" — the spell rank tells the gem apart.
+  { id: 27103, name: "Mana Emerald", category: "gem" },
+  { id: 10058, name: "Mana Ruby", category: "gem" },
+  { id: 10057, name: "Mana Citrine", category: "gem" },
+  { id: 10052, name: "Mana Jade", category: "gem" },
+  { id: 5405, name: "Mana Agate", category: "gem" },
+  { id: 28726, name: "Nightmare Seed", category: "other" },
 ];
 
 export const TRACKED_CAST_IDS = TRACKED_CASTS.map((c) => c.id);
@@ -160,11 +191,13 @@ const PREPOT_AURA_IDS = new Set(
   TRACKED_CASTS.filter((c) => c.category === "potion").map((c) => c.id),
 );
 
-/** Classify a cast event by spell id, with the inline ability name as label fallback. */
+/** Classify a cast event by spell id, with the inline ability name as fallback. */
 export function classifyCast(abilityId: number | undefined, abilityName?: string): TrackedCast | undefined {
   if (abilityId !== undefined) {
+    // Curated names win: mana gems all cast "Replenish Mana" — the id alone
+    // tells a Mana Emerald from a Mana Ruby.
     const known = CASTS_BY_ID.get(abilityId);
-    if (known) return abilityName ? { ...known, name: abilityName } : known;
+    if (known) return known;
   }
   if (!abilityName) return undefined;
   const lower = abilityName.trim().toLowerCase();

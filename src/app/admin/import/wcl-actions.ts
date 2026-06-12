@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { WclError, extractReportCode, hasWclCredentials } from "@/lib/wcl/client";
 import { fetchWclReport } from "@/lib/wcl/fetch-report";
-import type { IgnoredCombatantInfo } from "@/lib/wcl/normalize";
+import type { IgnoredCombatantInfo, UnclassifiedAura } from "@/lib/wcl/normalize";
 
 const importInputSchema = z.object({
   /** A report URL or bare report code. */
@@ -28,6 +28,8 @@ export type WclImportActionResult =
       warnings: string[];
       /** Combatant-info events outside boss pulls (trash), inspectable in the UI. */
       ignored: { total: number; players: number; sample: IgnoredCombatantInfo[] };
+      /** Aura names at pulls the consumable tables didn't recognize — the curation dump. */
+      auraDump: UnclassifiedAura[];
     }
   | { status: "not-configured" }
   | { status: "error"; message: string };
@@ -95,6 +97,7 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
       unmatched: saved.unmatched,
       warnings: normalized.warnings,
       ignored: normalized.ignoredCombatantInfo,
+      auraDump: normalized.unclassifiedAuras,
     };
   } catch (e) {
     if (e instanceof WclError) return { status: "error", message: e.message };

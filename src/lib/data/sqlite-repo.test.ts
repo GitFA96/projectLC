@@ -378,6 +378,7 @@ describe("sqlite repo", () => {
         weaponBuff: true,
         prepot: false,
         potions: [],
+        otherCasts: [],
         drums: 0,
         runes: 0,
         healthstones: 0,

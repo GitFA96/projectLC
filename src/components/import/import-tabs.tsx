@@ -950,6 +950,24 @@ function WclTab({
                   </p>
                 </details>
               )}
+              {result.auraDump.length > 0 && (
+                <details className="rounded-md border border-emerald-200/60 bg-white/50 p-2 text-xs">
+                  <summary className="cursor-pointer font-medium">
+                    Consumable-tuning dump: {result.auraDump.length} unrecognized aura name(s) at pulls
+                  </summary>
+                  <p className="mt-1.5 text-muted-foreground">
+                    Auras seen at boss pulls that the consumable tables don&apos;t classify (mostly
+                    class buffs — that&apos;s normal). If a consumable is missing from someone&apos;s
+                    tracking, it&apos;s in this list: copy the block and paste it into development to
+                    tune the tables.
+                  </p>
+                  <pre className="mt-1.5 max-h-56 select-all overflow-y-auto whitespace-pre-wrap rounded bg-muted/60 p-2 font-mono text-[11px] leading-4">
+                    {result.auraDump
+                      .map((a) => `${String(a.abilityId ?? "?").padStart(6)}  ${a.name}  ×${a.count}`)
+                      .join("\n")}
+                  </pre>
+                </details>
+              )}
               {result.matched.length > 0 && (
                 <Button asChild size="sm" variant="outline">
                   <Link
