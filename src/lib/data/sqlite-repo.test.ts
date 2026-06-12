@@ -328,6 +328,27 @@ describe("sqlite repo", () => {
     expect(awards.every((a) => typeof a.award.external === "boolean")).toBe(true);
   });
 
+  it("migrates wcl_player_fights tables created before scroll tracking", async () => {
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE wcl_player_fights (
+      id TEXT PRIMARY KEY, report_code TEXT NOT NULL, fight_id INTEGER NOT NULL,
+      encounter_id INTEGER NOT NULL, encounter_name TEXT NOT NULL, kill INTEGER NOT NULL,
+      fight_percentage REAL, duration_ms INTEGER NOT NULL, actor_name TEXT NOT NULL,
+      character_id TEXT, class_name TEXT, spec TEXT, role TEXT NOT NULL,
+      parse_percent REAL, bracket_percent REAL, amount REAL, deaths INTEGER NOT NULL DEFAULT 0,
+      flask TEXT, elixirs_json TEXT NOT NULL DEFAULT '[]', food INTEGER NOT NULL DEFAULT 0,
+      weapon_buff INTEGER NOT NULL DEFAULT 0, prepot INTEGER NOT NULL DEFAULT 0,
+      potions_json TEXT NOT NULL DEFAULT '[]', drums INTEGER NOT NULL DEFAULT 0,
+      runes INTEGER NOT NULL DEFAULT 0, healthstones INTEGER NOT NULL DEFAULT 0,
+      missing_enchants_json TEXT NOT NULL DEFAULT '[]'
+    )`);
+    old.close();
+
+    const repo = getSqliteRepo(); // boots, runs migrate(), seeds
+    const perf = (await repo.getCharacterPerformance("kazrak"))!;
+    expect(perf.reports[0].rows.every((r) => Array.isArray(r.scrolls))).toBe(true);
+  });
+
   it("addItemsIfMissing never overwrites existing cache entries", async () => {
     const repo = getSqliteRepo();
     const dst = (await repo.getItem(28830))!; // Dragonspine Trophy from seed
@@ -352,6 +373,7 @@ describe("sqlite repo", () => {
         role: "dps",
         deaths: 0,
         elixirs: [],
+        scrolls: [],
         food: true,
         weaponBuff: true,
         prepot: false,

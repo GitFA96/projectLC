@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   deaths                INTEGER NOT NULL DEFAULT 0,
   flask                 TEXT,
   elixirs_json          TEXT NOT NULL DEFAULT '[]',
+  scrolls_json          TEXT NOT NULL DEFAULT '[]',
   food                  INTEGER NOT NULL DEFAULT 0,
   weapon_buff           INTEGER NOT NULL DEFAULT 0,
   prepot                INTEGER NOT NULL DEFAULT 0,
@@ -174,15 +175,18 @@ export function getDb(): DatabaseSync {
 
 /** Additive migrations for databases created by earlier versions of the schema. */
 function migrate(db: DatabaseSync): void {
-  const awardCols = db.prepare("PRAGMA table_info(loot_awards)").all() as { name: string }[];
-  if (!awardCols.some((c) => c.name === "external")) {
+  const addColumn = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (cols.length === 0 || cols.some((c) => c.name === column)) return;
     try {
-      db.exec("ALTER TABLE loot_awards ADD COLUMN external INTEGER NOT NULL DEFAULT 0");
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
     } catch (e) {
       // Parallel build workers can race the same migration; losing is fine.
       if (!/duplicate column/i.test(String(e))) throw e;
     }
-  }
+  };
+  addColumn("loot_awards", "external", "external INTEGER NOT NULL DEFAULT 0");
+  addColumn("wcl_player_fights", "scrolls_json", "scrolls_json TEXT NOT NULL DEFAULT '[]'");
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -279,16 +283,16 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     `INSERT INTO wcl_player_fights (
        id, report_code, fight_id, encounter_id, encounter_name, kill, fight_percentage,
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
-       bracket_percent, amount, deaths, flask, elixirs_json, food, weapon_buff, prepot,
-       potions_json, drums, runes, healthstones, missing_enchants_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
+       prepot, potions_json, drums, runes, healthstones, missing_enchants_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
     f.spec ?? null, f.role, f.parsePercent ?? null, f.bracketPercent ?? null, f.amount ?? null,
-    f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), f.food ? 1 : 0, f.weaponBuff ? 1 : 0,
-    f.prepot ? 1 : 0, JSON.stringify(f.potions), f.drums, f.runes, f.healthstones,
-    JSON.stringify(f.missingEnchants),
+    f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
+    f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), f.drums, f.runes,
+    f.healthstones, JSON.stringify(f.missingEnchants),
   );
 }
 
@@ -351,7 +355,8 @@ function rowToWclPlayerFight(r: Row): unknown {
     className: opt(r.class_name), spec: opt(r.spec), role: r.role,
     parsePercent: opt(r.parse_percent), bracketPercent: opt(r.bracket_percent),
     amount: opt(r.amount), deaths: r.deaths, flask: opt(r.flask),
-    elixirs: JSON.parse(r.elixirs_json as string), food: r.food === 1,
+    elixirs: JSON.parse(r.elixirs_json as string),
+    scrolls: JSON.parse((r.scrolls_json as string | null) ?? "[]"), food: r.food === 1,
     weaponBuff: r.weapon_buff === 1, prepot: r.prepot === 1,
     potions: JSON.parse(r.potions_json as string), drums: r.drums, runes: r.runes,
     healthstones: r.healthstones, missingEnchants: JSON.parse(r.missing_enchants_json as string),

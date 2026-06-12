@@ -138,6 +138,7 @@ export interface NormalizedPlayerFight {
   deaths: number;
   flask?: string;
   elixirs: string[];
+  scrolls: string[];
   food: boolean;
   weaponBuff: boolean;
   prepot: boolean;
@@ -223,6 +224,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         role: "dps",
         deaths: 0,
         elixirs: [],
+        scrolls: [],
         food: false,
         weaponBuff: false,
         prepot: false,
@@ -285,8 +287,8 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           player,
           atMs: event.timestamp,
           auras: (event.auras ?? [])
-            .map((a) => a.name)
-            .filter((n): n is string => Boolean(n) && classifyAura(n!) !== undefined)
+            .filter((a) => a.name !== undefined && classifyAura(a.name, a.ability) !== undefined)
+            .map((a) => a.name as string)
             .slice(0, 8),
         });
       }
@@ -297,12 +299,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
 
     for (const aura of event.auras ?? []) {
       if (!aura.name) continue;
-      const hit = classifyAura(aura.name);
+      const hit = classifyAura(aura.name, aura.ability);
       if (!hit) continue;
       if (hit.category === "flask") row.flask = hit.label;
       else if (hit.category === "food") row.food = true;
       else if (hit.category === "potion") row.prepot = true;
-      else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
+      else if (hit.category === "scroll") {
+        if (!row.scrolls.includes(hit.label)) row.scrolls.push(hit.label);
+      } else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
     }
 
     const gear = (event.gear ?? []).map((g) => rawGearItemSchema.parse(g));
