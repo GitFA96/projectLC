@@ -197,6 +197,19 @@ export interface WclReportView {
   killCount: number;
 }
 
+/** A name seen in imported logs that matches no tracked character. */
+export interface UntrackedLogPlayer {
+  name: string;
+  /** WCL class/spec strings from the log, for prefilling a new character. */
+  className?: string;
+  spec?: string;
+  role: WclRole;
+  /** Boss pulls they appear in, across all imported reports. */
+  appearances: number;
+  reportCount: number;
+  lastSeen: string;
+}
+
 export interface DashboardData {
   guild: Guild;
   rosterSize: number;

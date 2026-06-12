@@ -433,6 +433,90 @@ describe("sqlite repo", () => {
       expect(await repo.listWclReports()).toHaveLength(2);
     });
 
+    it("moves a character to pug and back, excluding them from guild stats", async () => {
+      const repo = getSqliteRepo();
+      const velora = (await repo.findCharacterByName("Velora"))!;
+      const before = await repo.getDashboard();
+
+      await repo.updateCharacter(velora.id, { ...velora, status: "pug" });
+      const asPug = await repo.getDashboard();
+      expect(asPug.rosterSize).toBe(before.rosterSize - 1);
+      const allFairness = asPug.fairness.find((g) => g.phase === "all")!;
+      expect(allFairness.entries.some((e) => e.character.id === velora.id)).toBe(false);
+      // Their loot and log history still resolve to the profile.
+      expect((await repo.getCharacterBundle("velora"))!.awards.length).toBeGreaterThan(0);
+      expect((await repo.getCharacterPerformance("velora"))!.reports).toHaveLength(1);
+
+      await repo.updateCharacter(velora.id, { ...velora, status: "main" });
+      const restored = await repo.getDashboard();
+      expect(restored.rosterSize).toBe(before.rosterSize);
+    });
+
+    it("attaches log history at read time when an untracked player gets tracked", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Newpug", parsePercent: 42 }),
+        fightDraft({ fightId: 2, actorName: "Newpug", encounterName: "Moroes" }),
+      ]);
+
+      const untracked = await repo.listUntrackedLogPlayers();
+      const pug = untracked.find((p) => p.name === "Newpug")!;
+      expect(pug.appearances).toBe(2);
+      expect(pug.reportCount).toBe(1);
+
+      const created = await repo.createCharacter({
+        name: "Newpug",
+        class: "Mage",
+        spec: "Fire",
+        role: "Ranged DPS",
+        status: "pug",
+      });
+      expect(created.ok).toBe(true);
+
+      // No re-fetch needed: name matching is derived at read time.
+      expect((await repo.listUntrackedLogPlayers()).some((p) => p.name === "Newpug")).toBe(false);
+      const perf = (await repo.getCharacterPerformance("newpug"))!;
+      expect(perf.reports).toHaveLength(1);
+      expect(perf.reports[0].rows).toHaveLength(2);
+      expect(perf.reports[0].rows[0].parsePercent).toBe(42);
+      // And they stay out of the guild roster KPIs (13 seeded, Newpug excluded).
+      expect((await repo.getDashboard()).rosterSize).toBe(13);
+    });
+
+    it("purges demo data while keeping everything imported", async () => {
+      const repo = getSqliteRepo();
+      // Real content on top of the seed: a character, a session+award, a report
+      // linked to a DEMO session (the link must survive as unlinked).
+      await repo.createCharacter({ name: "Realguy", class: "Rogue", spec: "Combat", role: "Melee DPS", status: "main" });
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-12", zones: ["Karazhan"], source: "gargul" },
+        [{ rawWinnerName: "Realguy", itemId: 28773, itemName: "Gorehowl", awardedAt: "2026-06-12T21:00:00", offspec: false }],
+      );
+      await repo.saveWclReport(
+        { ...reportDraft, raidSessionId: "rs-2026-06-04-ssc" },
+        [fightDraft({ fightId: 1, actorName: "Realguy" })],
+      );
+
+      const removed = await repo.purgeDemoData();
+      expect(removed.characters).toBe(13);
+      expect(removed.raidSessions).toBe(4);
+      expect(removed.wclReports).toBe(1);
+      expect(removed.lootAwards).toBeGreaterThan(0);
+
+      const characters = await repo.listCharacters();
+      expect(characters.map((c) => c.character.name)).toEqual(["Realguy"]);
+      expect(await repo.listRaidSessions()).toHaveLength(1);
+      expect(await repo.listLootAwards()).toHaveLength(1);
+      const reports = await repo.listWclReports();
+      expect(reports).toHaveLength(1);
+      expect(reports[0].report.code).toBe(reportDraft.code);
+      expect(reports[0].session).toBeUndefined(); // demo-session link removed, report kept
+      expect((await repo.getCharacterPerformance("realguy"))!.reports).toHaveLength(1);
+      // The item cache is real TBC data — it stays.
+      expect(await repo.getItem(28830)).toBeDefined();
+      expect((await repo.getDashboard()).rosterSize).toBe(1);
+    });
+
     it("rejects an unknown raid session link and empty reports", async () => {
       const repo = getSqliteRepo();
       const badSession = await repo.saveWclReport(

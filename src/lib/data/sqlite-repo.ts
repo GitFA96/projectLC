@@ -22,6 +22,7 @@ import type {
   CharacterWriteResult,
   GargulCommitResult,
   GearSetDraft,
+  PurgeDemoResult,
   Repo,
   RaidSessionDraft,
   ResolveAwardResult,
@@ -289,6 +290,34 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     };
   },
 
+  async purgeDemoData(): Promise<PurgeDemoResult> {
+    const db = getDb();
+    // Seed-origin ids are recognizable: hyphenated prefixes (c-, rs-, la-) and
+    // the SEED report code; everything created at runtime uses chr_/rs_/la_
+    // UUID ids and real WCL codes. '%' after a literal hyphen is safe in LIKE.
+    const removed: PurgeDemoResult = { characters: 0, raidSessions: 0, lootAwards: 0, gearSets: 0, wclReports: 0 };
+    withTx(db, () => {
+      // Seed WCL report (and its rows) go entirely.
+      db.prepare("DELETE FROM wcl_player_fights WHERE report_code = 'SEEDsscProgress1'").run();
+      removed.wclReports = Number(db.prepare("DELETE FROM wcl_reports WHERE code = 'SEEDsscProgress1'").run().changes);
+      // Real reports/rows that point at demo rows get unlinked, never deleted.
+      db.prepare("UPDATE wcl_player_fights SET character_id = NULL WHERE character_id LIKE 'c-%'").run();
+      db.prepare("UPDATE wcl_reports SET raid_session_id = NULL WHERE raid_session_id LIKE 'rs-%'").run();
+      // Demo awards: the seeded ones and anything inside a demo session.
+      removed.lootAwards = Number(
+        db.prepare("DELETE FROM loot_awards WHERE id LIKE 'la-%' OR raid_session_id LIKE 'rs-%'").run().changes,
+      );
+      // Real awards manually resolved to a demo character reopen as unresolved.
+      db.prepare("UPDATE loot_awards SET character_id = NULL, external = 0 WHERE character_id LIKE 'c-%'").run();
+      // Gear sets follow their character — covers seeded sets and test imports onto demo characters.
+      removed.gearSets = Number(db.prepare("DELETE FROM gear_sets WHERE character_id LIKE 'c-%'").run().changes);
+      removed.raidSessions = Number(db.prepare("DELETE FROM raid_sessions WHERE id LIKE 'rs-%'").run().changes);
+      removed.characters = Number(db.prepare("DELETE FROM characters WHERE id LIKE 'c-%'").run().changes);
+      bumpDataVersion(db);
+    });
+    return removed;
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     const db = getDb();
     const known = new Set(readModel().store.items.map((i) => i.id));
@@ -317,6 +346,7 @@ export function getSqliteRepo(): WriteRepo {
     getDashboard: () => readModel().repo.getDashboard(),
     listWclReports: () => readModel().repo.listWclReports(),
     getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
+    listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
   };
   return { ...readDelegate, ...writeMethods };
 }

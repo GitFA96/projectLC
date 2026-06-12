@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CHARACTER_STATUSES, ROLES, WOW_CLASSES } from "@/lib/constants/wow";
+import { CHARACTER_STATUSES, ROLES, STATUS_LABELS, WOW_CLASSES } from "@/lib/constants/wow";
 import { saveCharacter, type CharacterFormState } from "@/app/characters/actions";
 import type { Character } from "@/lib/types";
 
@@ -51,8 +51,8 @@ export function CharacterForm({ character }: { character?: Character }) {
         <CardTitle>{isEdit ? `Edit ${character.name}` : "New character"}</CardTitle>
         <p className="text-xs text-muted-foreground">
           {isEdit
-            ? "Gear sets and loot history follow the character — renaming keeps both. Raiders who left the roster are set to “inactive”, never deleted, so past loot decisions stay explainable."
-            : "Add a raider so imports can target them and Gargul winners resolve to a profile."}
+            ? "Gear sets, loot and log history follow the character — renaming keeps everything. Raiders who left are set to “inactive”, never deleted; off-roster regulars are “pug”. Past loot decisions stay explainable."
+            : "Add a raider so imports can target them and Gargul winners resolve to a profile. Use status “pug” for off-roster regulars (PUGs, friends' alts)."}
         </p>
       </CardHeader>
       <CardContent>
@@ -101,7 +101,7 @@ export function CharacterForm({ character }: { character?: Character }) {
               <FormSelect name="status" defaultValue={v("status", character?.status ?? "main")}>
                 {CHARACTER_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {STATUS_LABELS[s]}
                   </option>
                 ))}
               </FormSelect>
