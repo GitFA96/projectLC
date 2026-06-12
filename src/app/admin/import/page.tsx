@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
+import { hasWclCredentials } from "@/lib/wcl/client";
 import { PageHeader } from "@/components/page-header";
 import { ImportTabs, type ImportPrefill } from "@/components/import/import-tabs";
 import { PHASES } from "@/lib/constants/wow";
@@ -24,18 +26,27 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items] = await Promise.all([repo.listCharacters(), repo.listItems()]);
+  const [characters, items, sessions] = await Promise.all([
+    repo.listCharacters(),
+    repo.listItems(),
+    repo.listRaidSessions(),
+  ]);
 
   return (
     <div>
       <PageHeader
         title="Import"
-        description="Bring in SixtyUpgrades sets (current gear & phase wishlists) and Gargul loot exports. Committing writes to the local database; re-imports update the existing set after you confirm."
+        description="Bring in SixtyUpgrades sets (current gear & phase wishlists), Gargul loot exports and Warcraft Logs reports. Committing writes to the local database; re-imports update the existing data after you confirm."
       />
       <ImportTabs
         characters={characters.map((c) => c.character.name)}
         zones={PHASES.flatMap((p) => p.zones)}
         knownItems={items.map((i) => ({ id: i.id, name: i.name, quality: i.quality, icon: i.icon }))}
+        sessions={sessions.map((s) => ({
+          id: s.id,
+          label: `${format(parseISO(s.date), "d MMM yyyy")} — ${s.zones.join(" + ")}`,
+        }))}
+        wclConfigured={hasWclCredentials()}
         prefill={prefill}
       />
     </div>

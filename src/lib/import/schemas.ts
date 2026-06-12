@@ -127,6 +127,64 @@ export const lootAwardSchema = z.object({
   note: z.string().optional(),
 });
 
+/* Warcraft Logs performance entities (M4) */
+
+export const wclRoleSchema = z.enum(["tank", "healer", "dps"]);
+
+/** One fetched Warcraft Logs report (refetching replaces it wholesale). */
+export const wclReportSchema = z.object({
+  /** The WCL report code — primary key, straight from the URL. */
+  code: z.string().min(1),
+  title: z.string().min(1),
+  zone: z.string().optional(),
+  startTime: z.string().min(1),
+  endTime: z.string().min(1),
+  fetchedAt: z.string().min(1),
+  /** Optional link to the Gargul raid session covering the same night. */
+  raidSessionId: z.string().nullable().default(null),
+});
+
+/** One player × one boss pull, as extracted from a report. */
+export const wclPlayerFightSchema = z.object({
+  id: z.string().min(1),
+  reportCode: z.string().min(1),
+  fightId: z.number().int().nonnegative(),
+  encounterId: z.number().int().nonnegative(),
+  encounterName: z.string().min(1),
+  kill: z.boolean(),
+  /** Boss health % remaining — only meaningful on wipes. */
+  fightPercentage: z.number().optional(),
+  durationMs: z.number().nonnegative(),
+  /** Player name exactly as logged (no realm — WCL keeps server separate). */
+  actorName: z.string().min(1),
+  /** Roster match by name, like Gargul winners; null = not on the roster. */
+  characterId: z.string().nullable().default(null),
+  /** WCL's class/spec strings — display-only, never forced into our enums. */
+  className: z.string().optional(),
+  spec: z.string().optional(),
+  role: wclRoleSchema,
+  /** Parse percentile (dps for tanks/dps, hps for healers). */
+  parsePercent: z.number().min(0).max(100).optional(),
+  /** Percentile within the item-level bracket — gear-adjusted skill signal. */
+  bracketPercent: z.number().min(0).max(100).optional(),
+  /** The metric value itself (dps or hps). */
+  amount: z.number().optional(),
+  deaths: z.number().int().nonnegative().default(0),
+  flask: z.string().optional(),
+  elixirs: z.array(z.string()).default([]),
+  food: z.boolean().default(false),
+  /** Temporary weapon enchant at pull (oil / stone / poison / imbue). */
+  weaponBuff: z.boolean().default(false),
+  /** A combat-potion aura was already up at pull (pre-pot). */
+  prepot: z.boolean().default(false),
+  potions: z.array(z.string()).default([]),
+  drums: z.number().int().nonnegative().default(0),
+  runes: z.number().int().nonnegative().default(0),
+  healthstones: z.number().int().nonnegative().default(0),
+  /** Expected-to-be-enchanted gear slots missing a permanent enchant at pull. */
+  missingEnchants: z.array(z.string()).default([]),
+});
+
 /* Seed file schemas */
 export const seedGuildSchema = guildSchema;
 export const seedRosterSchema = z.array(characterSchema);
@@ -134,6 +192,8 @@ export const seedItemsSchema = z.array(itemSchema);
 export const seedGearSetsSchema = z.array(gearSetSchema);
 export const seedRaidSessionsSchema = z.array(raidSessionSchema);
 export const seedLootAwardsSchema = z.array(lootAwardSchema);
+export const seedWclReportsSchema = z.array(wclReportSchema);
+export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
 
 /* Parser output contracts (used by the M1 import preview; M2 parsers emit these) */
 

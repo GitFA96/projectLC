@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSqliteRepo } from "@/lib/data/sqlite-repo";
 import { loadSeedStore } from "@/lib/data/seed-data";
-import type { GearSetDraft } from "@/lib/data/repo";
+import type { GearSetDraft, WclPlayerFightDraft } from "@/lib/data/repo";
 
 /** Each test gets a fresh database file; the repo re-opens per path. */
 beforeEach(() => {
@@ -338,5 +338,111 @@ describe("sqlite repo", () => {
     expect(added).toBe(1);
     expect((await repo.getItem(28830))!.name).toBe(dst.name);
     expect((await repo.getItem(99950))!.name).toBe("Brand New");
+  });
+
+  describe("warcraft logs performance", () => {
+    function fightDraft(
+      over: Partial<WclPlayerFightDraft> & { fightId: number; actorName: string },
+    ): WclPlayerFightDraft {
+      return {
+        encounterId: 700,
+        encounterName: "Attumen the Huntsman",
+        kill: true,
+        durationMs: 200000,
+        role: "dps",
+        deaths: 0,
+        elixirs: [],
+        food: true,
+        weaponBuff: true,
+        prepot: false,
+        potions: [],
+        drums: 0,
+        runes: 0,
+        healthstones: 0,
+        missingEnchants: [],
+        ...over,
+      };
+    }
+
+    const reportDraft = {
+      code: "TESTreport000001",
+      title: "Kara split",
+      zone: "Karazhan",
+      startTime: "2026-06-10T19:00:00.000Z",
+      endTime: "2026-06-10T22:30:00.000Z",
+    };
+
+    it("rolls up the seeded report per character", async () => {
+      const repo = getSqliteRepo();
+      const perf = (await repo.getCharacterPerformance("kazrak"))!;
+      expect(perf.reports).toHaveLength(1);
+      const view = perf.reports[0];
+      expect(view.report.zone).toBe("Serpentshrine Cavern");
+      expect(view.session?.id).toBe("rs-2026-06-04-ssc");
+      expect(view.summary.fights).toBe(5);
+      expect(view.summary.kills).toBe(3);
+      expect(view.summary.role).toBe("dps");
+      expect(view.summary.medianParse).toBeDefined();
+      expect(view.summary.flaskOrElixirsPct).toBe(100);
+      expect(perf.career?.bestParse).toBe(96);
+
+      // A roster character with no rows still resolves, with no reports.
+      const none = (await repo.getCharacterPerformance("skarn"))!;
+      expect(none.reports).toHaveLength(0);
+      expect(none.career).toBeUndefined();
+    });
+
+    it("saves a fetched report, matching players to the roster by name", async () => {
+      const repo = getSqliteRepo();
+      const saved = await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia", parsePercent: 88 }),
+        fightDraft({ fightId: 1, actorName: "Randompug" }),
+      ]);
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) throw new Error("unreachable");
+      expect(saved.matched).toEqual(["Pyrelia"]);
+      expect(saved.unmatched).toEqual(["Randompug"]);
+      expect(saved.replaced).toBe(false);
+
+      const perf = (await repo.getCharacterPerformance("pyrelia"))!;
+      expect(perf.reports).toHaveLength(1);
+      expect(perf.reports[0].rows[0].parsePercent).toBe(88);
+
+      // Seed report + this one, newest (June 10) first.
+      const reports = await repo.listWclReports();
+      expect(reports.map((r) => r.report.code)).toEqual(["TESTreport000001", "SEEDsscProgress1"]);
+    });
+
+    it("replaces a report wholesale on refetch", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+        fightDraft({ fightId: 2, actorName: "Pyrelia", encounterName: "Moroes", kill: false }),
+      ]);
+      const again = await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia", parsePercent: 99 }),
+      ]);
+      expect(again.ok).toBe(true);
+      if (!again.ok) throw new Error("unreachable");
+      expect(again.replaced).toBe(true);
+
+      const perf = (await repo.getCharacterPerformance("pyrelia"))!;
+      const rows = perf.reports.find((r) => r.report.code === reportDraft.code)!.rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0].parsePercent).toBe(99);
+      expect(await repo.listWclReports()).toHaveLength(2);
+    });
+
+    it("rejects an unknown raid session link and empty reports", async () => {
+      const repo = getSqliteRepo();
+      const badSession = await repo.saveWclReport(
+        { ...reportDraft, raidSessionId: "rs-nope" },
+        [fightDraft({ fightId: 1, actorName: "Pyrelia" })],
+      );
+      expect(badSession.ok).toBe(false);
+      const empty = await repo.saveWclReport(reportDraft, []);
+      expect(empty.ok).toBe(false);
+      expect(await repo.listWclReports()).toHaveLength(1); // only the seed report
+    });
   });
 });
