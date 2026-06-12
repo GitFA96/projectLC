@@ -996,8 +996,9 @@ function WclTab({
             weapon buff at the pull, pre-pots, and potions/drums/runes used during the fight.
           </p>
           <p>
-            Gear seen at each pull also feeds an <span className="text-foreground">enchant audit</span>{" "}
-            (expected-to-be-enchanted slots missing a permanent enchant).
+            Gear seen at each pull is captured in full — every worn item with its enchant and
+            gems feeds the <span className="text-foreground">gear panel and enchant audit</span>{" "}
+            on the performance page (weapon enchant + temp buff get special attention).
           </p>
           <p>
             Per pull it also tracks the <span className="text-foreground">class toolkit</span>:

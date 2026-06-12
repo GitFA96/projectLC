@@ -27,6 +27,7 @@ export type RaidSession = z.infer<typeof raidSessionSchema>;
 export type LootAward = z.infer<typeof lootAwardSchema>;
 export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
+export type WclGearItem = WclPlayerFight["gear"][number];
 export type WclRole = z.infer<typeof wclRoleSchema>;
 
 /* Derived view models (computed, never stored) */
@@ -95,6 +96,22 @@ export interface AttendanceSummary {
   /** Total boss pulls of the reports they attended. */
   pullsTotal: number;
   pullPct: number;
+  /**
+   * Per-reset check ("did they raid that week with this character?"): the most
+   * recent raid weeks (EU reset, Wednesday) in which the guild has at least one
+   * imported log, since the character's first appearance — newest last, max 8.
+   */
+  weeks: AttendanceWeek[];
+  weeksAttended: number;
+  weeksTracked: number;
+}
+
+export interface AttendanceWeek {
+  /** ISO date of the reset Wednesday opening the week. */
+  start: string;
+  attended: boolean;
+  /** Imported guild reports in that week. */
+  reports: number;
 }
 
 export interface CharacterSummary {
@@ -108,6 +125,8 @@ export interface CharacterSummary {
   hasCurrentGear: boolean;
   /** Undefined until at least one Warcraft Logs report is imported. */
   attendance?: AttendanceSummary;
+  /** Spec from their most recent logged pulls — may disagree with the roster entry. */
+  loggedSpec?: string;
 }
 
 export interface PhaseWishlistView {

@@ -46,6 +46,7 @@ export default async function RosterPage() {
     lastAwardAt: s.lastAwardAt,
     hasCurrentGear: s.hasCurrentGear,
     attendance: s.attendance,
+    loggedSpec: s.loggedSpec,
   }));
 
   const puggers: PuggerRow[] = summaries

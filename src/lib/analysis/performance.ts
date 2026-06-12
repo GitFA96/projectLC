@@ -1,12 +1,27 @@
 import { format, parseISO } from "date-fns";
 import type { AttendanceSummary, PerformanceSummary, WclPlayerFight, WclRole } from "@/lib/types";
 
+/**
+ * Raid weeks follow the EU reset: Wednesday. Returns the ISO date (UTC) of the
+ * Wednesday opening the week containing `iso`. A Tuesday-night raid belongs to
+ * the closing week; a Wednesday-night raid opens the new one. (The true reset
+ * is Wednesday morning — the midnight-UTC boundary only misclassifies raids
+ * logged between 00:00 and ~07:00 UTC on Wednesday, which don't happen.)
+ */
+export function resetWeekStart(iso: string): string {
+  const date = parseISO(iso);
+  const daysSinceWednesday = (date.getUTCDay() - 3 + 7) % 7;
+  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceWednesday));
+  return start.toISOString().slice(0, 10);
+}
+
 /** One tooltip string explaining exactly how an attendance % was counted. */
 export function attendanceTitle(a: AttendanceSummary): string {
   const parts = [
     a.firstSeenAt
       ? `Counted since their first logged raid (${format(parseISO(a.firstSeenAt), "d MMM yyyy")}): ${a.raidsAttended} of ${a.raidsTracked}`
       : `${a.raidsAttended} of ${a.raidsTracked} logged raids`,
+    `raided in ${a.weeksAttended} of the last ${a.weeksTracked} reset week${a.weeksTracked === 1 ? "" : "s"} the guild logged`,
     `last ${a.recentTotal} raid${a.recentTotal === 1 ? "" : "s"}: ${a.recentAttended}/${a.recentTotal}`,
     `in ${a.pullPct}% of boss pulls when present`,
   ];

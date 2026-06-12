@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   extras_json           TEXT NOT NULL DEFAULT '[]',
   cooldowns_json        TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
+  gear_json             TEXT NOT NULL DEFAULT '[]',
   drums                 INTEGER NOT NULL DEFAULT 0,
   runes                 INTEGER NOT NULL DEFAULT 0,
   healthstones          INTEGER NOT NULL DEFAULT 0,
@@ -195,6 +196,7 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "extras_json", "extras_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "cooldowns_json", "cooldowns_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -293,8 +295,8 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, potions_json, other_casts_json, extras_json, cooldowns_json, upkeep_json,
-       drums, runes, healthstones, missing_enchants_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       gear_json, drums, runes, healthstones, missing_enchants_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -302,7 +304,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.upkeep),
-    f.drums, f.runes, f.healthstones, JSON.stringify(f.missingEnchants),
+    JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, JSON.stringify(f.missingEnchants),
   );
 }
 
@@ -373,6 +375,7 @@ function rowToWclPlayerFight(r: Row): unknown {
     extras: JSON.parse((r.extras_json as string | null) ?? "[]"),
     cooldowns: JSON.parse((r.cooldowns_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
+    gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     drums: r.drums, runes: r.runes,
     healthstones: r.healthstones, missingEnchants: JSON.parse(r.missing_enchants_json as string),
   };

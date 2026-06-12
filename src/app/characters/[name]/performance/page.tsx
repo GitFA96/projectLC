@@ -6,10 +6,21 @@ import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
+import { ENCHANTABLE_GEAR_SLOTS } from "@/lib/wcl/consumables";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
-import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
-import type { PerformanceReportView, WclPlayerFight } from "@/lib/types";
+import {
+  ENCHANT_NAMES,
+  GEAR_SLOT_LABELS,
+  P2_ENCHANT_GUIDE,
+  wowheadEnchantUrl,
+  wowheadItemUrl,
+} from "@/lib/wcl/enchants";
+import { CLASS_TEXT_COLORS, QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
+import type { Item, PerformanceReportView, WclPlayerFight } from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
+import { ItemIcon } from "@/components/item-icon";
+import { SpecBadge } from "@/components/spec-badge";
+import { WeekDots } from "@/components/week-dots";
 import { PageHeader } from "@/components/page-header";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
@@ -89,6 +100,7 @@ export default async function PerformancePage({
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
   const { character, reports, career, attendance } = perf;
+  const itemsById = new Map((await repo.listItems()).map((i) => [i.id, i] as const));
 
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const active: PerformanceReportView | undefined =
@@ -105,7 +117,13 @@ export default async function PerformancePage({
         }
         description={
           <span className="flex flex-wrap items-center gap-2">
-            <ClassBadge wowClass={character.class} spec={character.spec} />
+            <ClassBadge wowClass={character.class} />
+            <SpecBadge
+              spec={career?.spec ?? character.spec}
+              wowClass={character.class}
+              title={career?.spec ? "Spec from their logged pulls" : "Roster spec (no logged spec yet)"}
+              className="text-sm"
+            />
             <RoleBadge role={character.role} />
             {career && (
               <span className="text-xs">
@@ -115,12 +133,15 @@ export default async function PerformancePage({
               </span>
             )}
             {attendance && attendance.raidsAttended > 0 && (
-              <Badge
-                variant={attendance.raidPct < 50 ? "warning" : "secondary"}
-                title={attendanceTitle(attendance)}
-              >
-                {attendance.raidPct}% attendance
-              </Badge>
+              <>
+                <Badge
+                  variant={attendance.raidPct < 50 ? "warning" : "secondary"}
+                  title={attendanceTitle(attendance)}
+                >
+                  raided {attendance.weeksAttended}/{attendance.weeksTracked} reset weeks
+                </Badge>
+                <WeekDots weeks={attendance.weeks} />
+              </>
             )}
           </span>
         }
@@ -253,6 +274,16 @@ export default async function PerformancePage({
               <CardTitle className="flex flex-wrap items-center gap-2">
                 {active.report.title}
                 {active.report.zone && <Badge variant="secondary">{active.report.zone}</Badge>}
+                {active.summary.spec && (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    played as{" "}
+                    <SpecBadge
+                      spec={active.summary.spec}
+                      wowClass={character.class}
+                      title="Spec in this report's pulls"
+                    />
+                  </span>
+                )}
               </CardTitle>
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                 {format(parseISO(active.report.startTime), "d MMM yyyy")}
@@ -320,6 +351,14 @@ export default async function PerformancePage({
                             <span className="ml-2 text-xs tabular-nums text-muted-foreground">
                               {fmtDuration(row.durationMs)}
                             </span>
+                            {row.spec && row.spec !== active.summary.spec && (
+                              <SpecBadge
+                                spec={row.spec}
+                                wowClass={character.class}
+                                title="Played a different spec on this pull"
+                                className="ml-2"
+                              />
+                            )}
                           </TableCell>
                           <TableCell>
                             {row.kill ? (
@@ -433,34 +472,13 @@ export default async function PerformancePage({
             </Card>
 
             <ToolkitCard rows={active.rows} />
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Gear audit</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  From combatant info at the latest pull of this report.
-                </p>
-              </CardHeader>
-              <CardContent>
-                {active.summary.missingEnchants.length === 0 ? (
-                  <p className="flex items-center gap-1.5 py-2 text-sm text-emerald-700">
-                    <Check className="h-4 w-4" /> Every expected slot is enchanted.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm">
-                      Missing permanent enchants on{" "}
-                      <span className="font-medium">{active.summary.missingEnchants.join(", ")}</span>.
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Freshly awarded items show up here until they&apos;re enchanted — worth a
-                      nudge before the next raid.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
+
+          <GearPanel
+            rows={active.rows}
+            missingEnchants={active.summary.missingEnchants}
+            itemsById={itemsById}
+          />
         </>
       )}
     </div>
@@ -613,6 +631,186 @@ function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
             </TableBody>
           </Table>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** External Wowhead-linked item (worn gear / gems live outside the item pages). */
+function WornItemLink({
+  gearItem,
+  cached,
+  size = 20,
+}: {
+  gearItem: { id: number; name?: string; icon?: string };
+  cached?: Item;
+  size?: number;
+}) {
+  const name = gearItem.name ?? cached?.name ?? `Item #${gearItem.id}`;
+  return (
+    <a
+      href={wowheadItemUrl(gearItem.id)}
+      target="_blank"
+      rel="noreferrer"
+      data-wowhead={`item=${gearItem.id}&domain=tbc`}
+      className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
+    >
+      <ItemIcon icon={gearItem.icon ?? cached?.icon} quality={cached?.quality ?? "common"} size={size} />
+      <span
+        className="truncate text-sm font-medium"
+        style={cached ? { color: QUALITY_TEXT_COLORS[cached.quality] } : undefined}
+      >
+        {name}
+      </span>
+    </a>
+  );
+}
+
+function GearPanel({
+  rows,
+  missingEnchants,
+  itemsById,
+}: {
+  rows: WclPlayerFight[];
+  missingEnchants: string[];
+  itemsById: Map<number, Item>;
+}) {
+  // Rows are in pull order; the last snapshot is what they currently wear.
+  const latest = [...rows].reverse().find((r) => r.gear.length > 0);
+  const expectedEnchant = new Set(ENCHANTABLE_GEAR_SLOTS.map((s) => s.index));
+  const bySlot = new Map((latest?.gear ?? []).map((g) => [g.slot, g] as const));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Gear worn{latest ? ` on ${latest.encounterName}` : ""}</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {missingEnchants.length === 0 ? (
+            <span className="inline-flex items-center gap-1 text-emerald-700">
+              <Check className="h-3.5 w-3.5" /> Every expected slot carries a permanent enchant.
+            </span>
+          ) : (
+            <>
+              Missing permanent enchants on{" "}
+              <span className="font-medium text-foreground">{missingEnchants.join(", ")}</span> —
+              worth a nudge before next raid (freshly awarded items show here until enchanted).
+            </>
+          )}
+        </p>
+      </CardHeader>
+      <CardContent>
+        {!latest ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            No gear snapshot stored for this report — imports from before gear tracking only kept
+            the enchant audit. Re-import the report to capture items, enchants and gems.
+          </p>
+        ) : (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-24">Slot</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="w-16 text-right">ilvl</TableHead>
+                  <TableHead className="w-56">Enchant</TableHead>
+                  <TableHead>Gems</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {GEAR_SLOT_LABELS.flatMap(({ index, label }) => {
+                  const g = bySlot.get(index);
+                  if (!g) return [];
+                  const isWeapon = index === 15;
+                  const expectsEnchant = expectedEnchant.has(index);
+                  return [
+                    <TableRow key={index}>
+                      <TableCell
+                        className={cn(
+                          "text-xs uppercase tracking-wide text-muted-foreground",
+                          isWeapon && "font-semibold text-foreground",
+                        )}
+                      >
+                        {label}
+                      </TableCell>
+                      <TableCell>
+                        <WornItemLink gearItem={g} cached={itemsById.get(g.id)} />
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                        {g.ilvl ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {g.enchant !== undefined ? (
+                          <a
+                            href={wowheadEnchantUrl(g.enchant)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-emerald-700 underline-offset-2 hover:underline"
+                            title="Open the enchant on Wowhead"
+                          >
+                            {ENCHANT_NAMES[g.enchant] ?? `enchant #${g.enchant}`}
+                          </a>
+                        ) : expectsEnchant ? (
+                          <span className="font-medium text-destructive">missing</span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
+                        {isWeapon && (
+                          <span
+                            className={cn(
+                              "ml-2 text-xs",
+                              g.temp !== undefined ? "text-emerald-700" : "font-medium text-amber-600",
+                            )}
+                          >
+                            {g.temp !== undefined ? "· temp buff up" : "· no temp buff at last pull"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {g.gems.length > 0 ? (
+                          <span className="inline-flex items-center gap-1">
+                            {g.gems.map((gemId, i) => (
+                              <a
+                                key={`${gemId}-${i}`}
+                                href={wowheadItemUrl(gemId)}
+                                target="_blank"
+                                rel="noreferrer"
+                                data-wowhead={`item=${gemId}&domain=tbc`}
+                                title={itemsById.get(gemId)?.name ?? `Gem #${gemId}`}
+                              >
+                                <ItemIcon icon={itemsById.get(gemId)?.icon} size={16} />
+                              </a>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/50">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>,
+                  ];
+                })}
+              </TableBody>
+            </Table>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Hover any item or gem for the Wowhead tooltip; enchants link to Wowhead (unnamed ones
+              show their id — the link is the ground truth). The log doesn&apos;t carry socket
+              counts, so an empty socket is invisible here: compare the gems column against the
+              tooltip&apos;s sockets.
+            </p>
+          </>
+        )}
+        <details className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs">
+          <summary className="cursor-pointer font-medium">
+            Phase 2 enchant reference — what good looks like right now
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {P2_ENCHANT_GUIDE.map((row) => (
+              <li key={row.slot}>
+                <span className="font-medium">{row.slot}:</span>{" "}
+                <span className="text-muted-foreground">{row.picks}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       </CardContent>
     </Card>
   );

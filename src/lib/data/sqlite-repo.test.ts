@@ -387,6 +387,7 @@ describe("sqlite repo", () => {
         extras: [],
         cooldowns: [],
         upkeep: [],
+        gear: [],
         drums: 0,
         runes: 0,
         healthstones: 0,
@@ -558,6 +559,16 @@ describe("sqlite repo", () => {
         raidsTotal: 2, raidsAttended: 1, raidsTracked: 2, raidPct: 50,
         recentAttended: 1, recentTotal: 2, pullPct: 100,
       });
+      // Per-reset check: seed raid (Thu 4 Jun → week of Wed 3 Jun) attended,
+      // the new raid week (Wed 10 Jun) missed.
+      expect(kazrak.weeks).toEqual([
+        { start: "2026-06-03", attended: true, reports: 1 },
+        { start: "2026-06-10", attended: false, reports: 1 },
+      ]);
+      expect(kazrak.weeksAttended).toBe(1);
+      expect(kazrak.weeksTracked).toBe(2);
+      // Spec from the most recent logged pulls rides along on the summary.
+      expect(summaries.find((s) => s.character.name === "Kazrak")!.loggedSpec).toBe("Arms");
       // Pyrelia first appears in the SECOND report — the first one is from
       // before she joined and must not count against her: 1/1, not 1/2.
       const pyrelia = summaries.find((s) => s.character.name === "Pyrelia")!.attendance!;
@@ -566,6 +577,8 @@ describe("sqlite repo", () => {
         pullsAttended: 1, pullsTotal: 2, pullPct: 50,
       });
       expect(pyrelia.firstSeenAt).toBe("2026-06-10T19:00:00.000Z");
+      // Weeks from before she joined don't appear in her per-reset row either.
+      expect(pyrelia.weeks).toEqual([{ start: "2026-06-10", attended: true, reports: 1 }]);
       // Aldric never appears in any log: no percentage, just the context count.
       const aldric = summaries.find((s) => s.character.name === "Aldric")!.attendance!;
       expect(aldric).toMatchObject({ raidsTotal: 2, raidsAttended: 0, raidsTracked: 0 });
