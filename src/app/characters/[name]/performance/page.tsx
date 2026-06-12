@@ -366,6 +366,7 @@ export default async function PerformancePage({
                   <TableBody>
                     <ConsumableRows label="Flask" entries={coverage(active.rows, (r) => (r.flask ? [r.flask] : []))} total={active.rows.length} />
                     <ConsumableRows label="Elixirs" entries={coverage(active.rows, (r) => r.elixirs)} total={active.rows.length} />
+                    <ConsumableRows label="Scrolls" entries={coverage(active.rows, (r) => r.scrolls)} total={active.rows.length} />
                     <TableRow>
                       <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food</TableCell>
                       <TableCell className="text-sm">Well Fed</TableCell>

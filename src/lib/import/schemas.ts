@@ -172,6 +172,8 @@ export const wclPlayerFightSchema = z.object({
   deaths: z.number().int().nonnegative().default(0),
   flask: z.string().optional(),
   elixirs: z.array(z.string()).default([]),
+  /** Scroll buffs at pull, rank included ("Scroll of Agility V"). */
+  scrolls: z.array(z.string()).default([]),
   food: z.boolean().default(false),
   /** Temporary weapon enchant at pull (oil / stone / poison / imbue). */
   weaponBuff: z.boolean().default(false),

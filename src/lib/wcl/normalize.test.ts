@@ -87,10 +87,13 @@ const combatantInfo = [
     type: "combatantinfo",
     sourceID: 2,
     auras: [
-      { name: "Elixir of Major Firepower", ability: 28501 },
+      // Buff-style name (the log drops "Elixir of"), unknown id.
+      { name: "Major Firepower", ability: 999001 },
       { name: "Elixir of Draenic Wisdom", ability: 39627 },
       { name: "Well Fed", ability: 33263 },
-      { name: "Haste Potion", ability: 28507 },
+      // Pre-pot recognized by spell id even under a buff-style name.
+      { name: "Haste", ability: 28507 },
+      { name: "Scroll of Spirit V", ability: 33080 },
     ],
     gear: gear({ 4: { permanentEnchant: null } }),
   },
@@ -103,6 +106,16 @@ const combatantInfo = [
   },
   // During trash — boss fights only, must be ignored (with a warning).
   { timestamp: 460000, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+  // Trash by WCL's own fight index, even though the timestamp sits inside
+  // Attumen's window — the fight field is authoritative.
+  {
+    timestamp: 150000,
+    type: "combatantinfo",
+    fight: 8,
+    sourceID: 2,
+    auras: [{ name: "Flask of Pure Death", ability: 28540 }],
+    gear: [],
+  },
   { timestamp: 600100, type: "combatantinfo", sourceID: 1, auras: [{ name: "Flask of Fortification", ability: 28518 }, { name: "Well Fed", ability: 33257 }], gear: gear({ 15: { temporaryEnchant: 2713 } }) },
   { timestamp: 600110, type: "combatantinfo", sourceID: 2, auras: [{ name: "Well Fed", ability: 33263 }], gear: gear({ 4: { permanentEnchant: null } }) },
   { timestamp: 600120, type: "combatantinfo", sourceID: 3, auras: [], gear: gear() },
@@ -124,6 +137,8 @@ const casts = [
   { timestamp: 650000, type: "cast", sourceID: 3, ability: { name: "Super Mana Potion", guid: 28499 } },
   // Outside any boss pull.
   { timestamp: 50000, type: "cast", sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
+  // Timestamp outside every window, but the fight field routes it to Moroes.
+  { timestamp: 50, type: "cast", fight: 9, sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
 ];
 
 describe("normalizeWclReport", () => {
@@ -177,7 +192,9 @@ describe("normalizeWclReport", () => {
 
     const mage = row(7, "Pyrelia");
     expect(mage.flask).toBeUndefined();
+    // Buff-style aura names resolve to the canonical item names.
     expect(mage.elixirs).toEqual(["Elixir of Major Firepower", "Elixir of Draenic Wisdom"]);
+    expect(mage.scrolls).toEqual(["Scroll of Spirit V"]);
     expect(mage.prepot).toBe(true);
     expect(mage.weaponBuff).toBe(false);
     expect(mage.missingEnchants).toEqual(["Chest"]);
@@ -198,6 +215,21 @@ describe("normalizeWclReport", () => {
   it("warns about combatant info outside boss pulls", () => {
     expect(result.warnings.some((w) => w.includes("combatant-info"))).toBe(true);
   });
+
+  it("prefers WCL's fight field over timestamps and exposes ignored events", () => {
+    // Two ignored combatant-infos: timestamp-orphan (Thrainn) + trash-field (Pyrelia).
+    expect(result.ignoredCombatantInfo.total).toBe(2);
+    expect(result.ignoredCombatantInfo.players).toBe(2);
+    expect(
+      result.ignoredCombatantInfo.sample.some(
+        (e) => e.player === "Pyrelia" && e.auras.includes("Flask of Pure Death"),
+      ),
+    ).toBe(true);
+    // The trash event did NOT leak its flask into the Attumen pull…
+    expect(row(7, "Pyrelia").flask).toBeUndefined();
+    // …and a cast stamped outside every window still lands via its fight field.
+    expect(row(9, "Pyrelia").potions).toEqual(["Haste Potion"]);
+  });
 });
 
 describe("consumable classification", () => {
@@ -210,6 +242,35 @@ describe("consumable classification", () => {
     expect(classifyAura("Destruction Potion")?.category).toBe("potion");
     expect(classifyAura("Arcane Intellect")).toBeUndefined();
     expect(classifyAura("Power Word: Fortitude")).toBeUndefined();
+  });
+
+  it("recognizes buff-style elixir names and normalizes them to item names", () => {
+    // The Elixir of Major Agility buff is literally named "Major Agility".
+    expect(classifyAura("Major Agility")).toEqual({
+      category: "battleElixir",
+      label: "Elixir of Major Agility",
+    });
+    expect(classifyAura("anything", 28497)?.label).toBe("Elixir of Major Agility");
+    expect(classifyAura("Major Fortitude")?.category).toBe("guardianElixir");
+    expect(classifyAura("Draenic Wisdom")?.label).toBe("Elixir of Draenic Wisdom");
+    expect(classifyAura("Fel Strength")?.category).toBe("battleElixir");
+    // Unknown elixir-looking buffs still count as elixirs.
+    expect(classifyAura("Elixir of Future Patch")?.category).toBe("battleElixir");
+  });
+
+  it("classifies scrolls of every rank", () => {
+    expect(classifyAura("Scroll of Agility V")?.category).toBe("scroll");
+    expect(classifyAura("Scroll of Agility V")?.label).toBe("Scroll of Agility V");
+    expect(classifyAura("Scroll of Strength IV")?.category).toBe("scroll");
+    expect(classifyAura("Scroll of Protection")?.category).toBe("scroll");
+    expect(classifyAura("Scroll of Recall")).toBeUndefined();
+  });
+
+  it("detects pre-pots by buff spell id even under buff-style names", () => {
+    expect(classifyAura("Haste", 28507)?.category).toBe("potion");
+    expect(classifyAura("Destruction", 28508)?.category).toBe("potion");
+    // The bare word without a known id is NOT assumed to be a potion.
+    expect(classifyAura("Haste")).toBeUndefined();
   });
 
   it("classifies casts by id with name fallback", () => {

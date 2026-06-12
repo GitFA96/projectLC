@@ -89,6 +89,8 @@ const rawGearItemSchema = z.looseObject({
 const rawCombatantInfoEventSchema = z.looseObject({
   timestamp: z.number(),
   type: z.string(),
+  /** WCL's own fight index — preferred over timestamp windows when present. */
+  fight: z.number().optional(),
   sourceID: z.number().optional(),
   gear: z.array(rawGearItemSchema).nullish(),
   auras: z
@@ -99,6 +101,7 @@ const rawCombatantInfoEventSchema = z.looseObject({
 const rawCastEventSchema = z.looseObject({
   timestamp: z.number(),
   type: z.string(),
+  fight: z.number().optional(),
   sourceID: z.number().optional(),
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
@@ -107,6 +110,7 @@ const rawCastEventSchema = z.looseObject({
 const rawDeathEventSchema = z.looseObject({
   timestamp: z.number(),
   type: z.string().optional(),
+  fight: z.number().optional(),
   targetID: z.number().optional(),
 });
 
@@ -134,6 +138,7 @@ export interface NormalizedPlayerFight {
   deaths: number;
   flask?: string;
   elixirs: string[];
+  scrolls: string[];
   food: boolean;
   weaponBuff: boolean;
   prepot: boolean;
@@ -142,6 +147,15 @@ export interface NormalizedPlayerFight {
   runes: number;
   healthstones: number;
   missingEnchants: string[];
+}
+
+/** One skipped combatant-info event, for the "inspect ignored" panel. */
+export interface IgnoredCombatantInfo {
+  player: string;
+  /** ms into the report. */
+  atMs: number;
+  /** The consumable-relevant auras the event carried (capped). */
+  auras: string[];
 }
 
 export interface NormalizedReport {
@@ -153,6 +167,8 @@ export interface NormalizedReport {
   rows: NormalizedPlayerFight[];
   /** Diagnostics for the import result panel. */
   warnings: string[];
+  /** Combatant-info events outside boss pulls (trash combat), inspectable. */
+  ignoredCombatantInfo: { total: number; players: number; sample: IgnoredCombatantInfo[] };
 }
 
 export interface RawEventInputs {
@@ -175,10 +191,19 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
 
   // Boss pulls only; trash fights have no encounterID.
   const fights = (raw.fights ?? []).filter((f) => (f.encounterID ?? 0) > 0);
+  const fightsById = new Map(fights.map((f) => [f.id, f]));
   if (fights.length === 0) warnings.push("The report contains no boss encounters (only trash?).");
 
   const fightOf = (timestamp: number) =>
     fights.find((f) => timestamp >= f.startTime && timestamp <= f.endTime);
+
+  /**
+   * Bucket an event into a boss pull: WCL's own fight index when the event
+   * carries one (authoritative — a trash fight id simply matches no boss
+   * pull), timestamp windows otherwise.
+   */
+  const bossFightOf = (event: { timestamp: number; fight?: number }) =>
+    event.fight !== undefined ? fightsById.get(event.fight) : fightOf(event.timestamp);
 
   /* 1. Rows from rankings — they define who was in each pull and their role. */
   const rows = new Map<string, NormalizedPlayerFight>();
@@ -199,6 +224,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         role: "dps",
         deaths: 0,
         elixirs: [],
+        scrolls: [],
         food: false,
         weaponBuff: false,
         prepot: false,
@@ -213,7 +239,6 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     return row;
   };
 
-  const fightsById = new Map(fights.map((f) => [f.id, f]));
   const applyRankings = (
     rankings: z.infer<typeof rawRankingsSchema> | null | undefined,
     pick: ("tanks" | "healers" | "dps")[],
@@ -243,16 +268,30 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   }
 
   /* 2. Combatant info at pull: consumable auras + gear audit. */
+  const ignoredSample: IgnoredCombatantInfo[] = [];
+  const ignoredPlayers = new Set<string>();
   let orphanCombatantInfo = 0;
   for (const rawEvent of events.combatantInfo) {
     const parsed = rawCombatantInfoEventSchema.safeParse(rawEvent);
     if (!parsed.success) continue;
     const event = parsed.data;
     if (event.type !== "combatantinfo" || event.sourceID === undefined) continue;
-    const fight = fightOf(event.timestamp);
+    const fight = bossFightOf(event);
     const actor = actorById.get(event.sourceID);
     if (!fight || !actor) {
       orphanCombatantInfo++;
+      const player = actor?.name ?? `actor #${event.sourceID}`;
+      ignoredPlayers.add(player);
+      if (ignoredSample.length < 12) {
+        ignoredSample.push({
+          player,
+          atMs: event.timestamp,
+          auras: (event.auras ?? [])
+            .filter((a) => a.name !== undefined && classifyAura(a.name, a.ability) !== undefined)
+            .map((a) => a.name as string)
+            .slice(0, 8),
+        });
+      }
       continue;
     }
     const row = rows.get(keyOf(fight.id, actor.name)) ?? ensureRow(fight, actor.name);
@@ -260,12 +299,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
 
     for (const aura of event.auras ?? []) {
       if (!aura.name) continue;
-      const hit = classifyAura(aura.name);
+      const hit = classifyAura(aura.name, aura.ability);
       if (!hit) continue;
       if (hit.category === "flask") row.flask = hit.label;
       else if (hit.category === "food") row.food = true;
       else if (hit.category === "potion") row.prepot = true;
-      else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
+      else if (hit.category === "scroll") {
+        if (!row.scrolls.includes(hit.label)) row.scrolls.push(hit.label);
+      } else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
     }
 
     const gear = (event.gear ?? []).map((g) => rawGearItemSchema.parse(g));
@@ -279,14 +320,16 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     }
   }
   if (orphanCombatantInfo > 0) {
-    warnings.push(`${orphanCombatantInfo} combatant-info event(s) fell outside boss pulls and were ignored.`);
+    warnings.push(
+      `${orphanCombatantInfo} combatant-info event(s) were outside boss pulls — that's trash combat (WCL fires one per player per combat segment); only boss pulls feed the tracker. Inspect them below.`,
+    );
   }
 
-  /* 3. Friendly deaths, bucketed into pulls by timestamp. */
+  /* 3. Friendly deaths, bucketed into pulls. */
   for (const rawEvent of events.deaths) {
     const parsed = rawDeathEventSchema.safeParse(rawEvent);
     if (!parsed.success || parsed.data.targetID === undefined) continue;
-    const fight = fightOf(parsed.data.timestamp);
+    const fight = bossFightOf(parsed.data);
     const actor = actorById.get(parsed.data.targetID);
     if (!fight || !actor) continue;
     const row = rows.get(keyOf(fight.id, actor.name));
@@ -299,7 +342,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (!parsed.success) continue;
     const event = parsed.data;
     if (event.type === "begincast" || event.sourceID === undefined) continue;
-    const fight = fightOf(event.timestamp);
+    const fight = bossFightOf(event);
     const actor = actorById.get(event.sourceID);
     if (!fight || !actor) continue;
     const row = rows.get(keyOf(fight.id, actor.name));
@@ -324,5 +367,10 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     endTime: new Date(raw.endTime).toISOString(),
     rows: allRows,
     warnings,
+    ignoredCombatantInfo: {
+      total: orphanCombatantInfo,
+      players: ignoredPlayers.size,
+      sample: ignoredSample,
+    },
   };
 }
