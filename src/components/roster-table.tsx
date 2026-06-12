@@ -24,8 +24,9 @@ import {
   useSelection,
 } from "@/components/roster-actions";
 import { deleteCharacters, setCharactersStatus } from "@/app/roster/actions";
+import { attendanceTitle } from "@/lib/analysis/performance";
 import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
-import type { Phase, Role, WowClass } from "@/lib/types";
+import type { AttendanceSummary, Phase, Role, WowClass } from "@/lib/types";
 
 export interface RosterRow {
   id: string;
@@ -41,7 +42,7 @@ export interface RosterRow {
   lastAwardAt?: string;
   hasCurrentGear: boolean;
   /** From imported Warcraft Logs reports; undefined until one exists. */
-  attendance?: { raidsAttended: number; raidsTotal: number; raidPct: number; pullPct: number };
+  attendance?: AttendanceSummary;
 }
 
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
@@ -120,20 +121,32 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
       },
       {
         id: "attendance",
-        accessorFn: (row) => row.attendance?.raidPct ?? -1,
+        // Never-seen sorts below 0% so it can't hide between real percentages.
+        accessorFn: (row) =>
+          row.attendance === undefined || row.attendance.raidsAttended === 0
+            ? -1
+            : row.attendance.raidPct,
         header: "Attendance",
         cell: ({ row }) => {
           const a = row.original.attendance;
-          if (!a || a.raidsTotal === 0) {
-            return <span className="text-xs text-muted-foreground/50">—</span>;
+          if (!a) return <span className="text-xs text-muted-foreground/50">—</span>;
+          if (a.raidsAttended === 0) {
+            return (
+              <span
+                className="text-xs text-muted-foreground/60"
+                title={`Not in any of the ${a.raidsTotal} imported raid log${a.raidsTotal === 1 ? "" : "s"}`}
+              >
+                never logged
+              </span>
+            );
           }
           return (
             <span
               className={`tabular-nums ${a.raidPct < 50 ? "text-amber-600" : ""}`}
-              title={`${a.raidsAttended} of ${a.raidsTotal} logged raids · in ${a.pullPct}% of boss pulls when present`}
+              title={attendanceTitle(a)}
             >
               {a.raidPct}%
-              <span className="text-xs text-muted-foreground"> ({a.raidsAttended}/{a.raidsTotal})</span>
+              <span className="text-xs text-muted-foreground"> ({a.raidsAttended}/{a.raidsTracked})</span>
             </span>
           );
         },

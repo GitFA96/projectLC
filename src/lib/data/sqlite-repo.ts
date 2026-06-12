@@ -340,6 +340,19 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return removed;
   },
 
+  async deleteWclReport(code: string) {
+    const exists = readModel().store.wclReports.some((r) => r.code === code);
+    if (!exists) return { ok: false as const, error: "Report not found — maybe already removed." };
+    const db = getDb();
+    let rowsRemoved = 0;
+    withTx(db, () => {
+      rowsRemoved = Number(db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(code).changes);
+      db.prepare("DELETE FROM wcl_reports WHERE code = ?").run(code);
+      bumpDataVersion(db);
+    });
+    return { ok: true as const, rowsRemoved };
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     const db = getDb();
     const known = new Set(readModel().store.items.map((i) => i.id));

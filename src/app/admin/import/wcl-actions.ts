@@ -29,6 +29,26 @@ export type WclImportActionResult =
   | { status: "not-configured" }
   | { status: "error"; message: string };
 
+const deleteInputSchema = z.object({ code: z.string().min(1) });
+
+/** Remove a wrongfully imported report (and all its per-player rows). */
+export async function deleteWclReportAction(input: { code: string }): Promise<{ ok: boolean; message: string }> {
+  const parsed = deleteInputSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Invalid report code." };
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.deleteWclReport(parsed.data.code);
+    if (!result.ok) return { ok: false, message: result.error };
+    revalidatePath("/", "layout");
+    return {
+      ok: true,
+      message: `Report removed (${result.rowsRemoved} player-pull rows). Attendance and performance pages updated.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Delete failed." };
+  }
+}
+
 export async function importWclReport(input: WclImportInput): Promise<WclImportActionResult> {
   const parsed = importInputSchema.safeParse(input);
   if (!parsed.success) {

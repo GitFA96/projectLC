@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Activity, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
+import { attendanceTitle } from "@/lib/analysis/performance";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { Repo } from "@/lib/data/repo";
 import type { SlotItem } from "@/lib/types";
@@ -134,14 +135,12 @@ export default async function CharacterPage({ params }: { params: Promise<Params
             {summary.offspecAwards > 0 && ` (${summary.offspecAwards} off-spec)`}
             {summary.lastAwardAt &&
               ` · last ${format(parseISO(summary.lastAwardAt), "d MMM yyyy")}`}
-            {summary.attendance && summary.attendance.raidsTotal > 0 && (
+            {summary.attendance && summary.attendance.raidsAttended > 0 && (
               <>
                 {" · "}
-                <span
-                  title={`In ${summary.attendance.pullPct}% of boss pulls on the nights they attended`}
-                >
+                <span title={attendanceTitle(summary.attendance)}>
                   {summary.attendance.raidPct}% attendance ({summary.attendance.raidsAttended}/
-                  {summary.attendance.raidsTotal} logged raids)
+                  {summary.attendance.raidsTracked} since first logged)
                 </span>
               </>
             )}

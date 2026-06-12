@@ -162,6 +162,8 @@ export interface WriteRepo extends Repo {
    * replaces it wholesale, so refetching is the update flow.
    */
   saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
+  /** Remove one fetched report and all its per-player rows (wrongful import). */
+  deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
   /**

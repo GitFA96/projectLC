@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
+import { attendanceTitle } from "@/lib/analysis/performance";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { PerformanceReportView, WclPlayerFight } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
@@ -99,10 +100,10 @@ export default async function PerformancePage({
                 <ParseBadge pct={career.bestParse} />
               </span>
             )}
-            {attendance && attendance.raidsTotal > 0 && (
+            {attendance && attendance.raidsAttended > 0 && (
               <Badge
                 variant={attendance.raidPct < 50 ? "warning" : "secondary"}
-                title={`${attendance.raidsAttended} of ${attendance.raidsTotal} logged raids · in ${attendance.pullPct}% of boss pulls when present`}
+                title={attendanceTitle(attendance)}
               >
                 {attendance.raidPct}% attendance
               </Badge>

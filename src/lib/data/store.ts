@@ -9,6 +9,7 @@ import { computeFairness } from "@/lib/analysis/fairness";
 import { summarizePerformance } from "@/lib/analysis/performance";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
+  AttendanceSummary,
   AwardWithContext,
   Character,
   CharacterBundle,
@@ -193,17 +194,30 @@ export function createRepoFromStore(store: EntityStore): Repo {
     return new Map([...pulls].map(([code, set]) => [code, set.size]));
   }
 
-  function computeAttendance(characterId: string) {
+  function computeAttendance(characterId: string): AttendanceSummary | undefined {
     if (wclReports.length === 0) return undefined;
     const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
-    const attendedCodes = new Set(myRows.map((r) => r.reportCode));
-    const reportPulls = pullsByReport();
-    const pullsTotal = [...attendedCodes].reduce((sum, code) => sum + (reportPulls.get(code) ?? 0), 0);
+    const attended = new Set(myRows.map((r) => r.reportCode));
     const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
+
+    // Fair denominator: only raids since their first logged appearance count.
+    const chronological = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const firstIdx = chronological.findIndex((r) => attended.has(r.code));
+    const tracked = firstIdx === -1 ? [] : chronological.slice(firstIdx);
+    const recent = tracked.slice(-10);
+    const recentAttended = recent.filter((r) => attended.has(r.code)).length;
+
+    const reportPulls = pullsByReport();
+    const pullsTotal = [...attended].reduce((sum, code) => sum + (reportPulls.get(code) ?? 0), 0);
     return {
-      raidsAttended: attendedCodes.size,
       raidsTotal: wclReports.length,
-      raidPct: pct(attendedCodes.size, wclReports.length),
+      raidsAttended: attended.size,
+      raidsTracked: tracked.length,
+      raidPct: pct(attended.size, tracked.length),
+      firstSeenAt: firstIdx === -1 ? undefined : chronological[firstIdx].startTime,
+      recentAttended,
+      recentTotal: recent.length,
+      recentPct: pct(recentAttended, recent.length),
       pullsAttended: myRows.length,
       pullsTotal,
       pullPct: pct(myRows.length, pullsTotal),
