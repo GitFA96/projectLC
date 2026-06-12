@@ -127,6 +127,15 @@ function ErrorPanel({ message }: { message: string }) {
   return <p className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{message}</p>;
 }
 
+/** ms into the report → "1:23:45" / "23:45". */
+function fmtOffset(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
 function CommitButton({ pending, onClick, disabled, children }: {
   pending: boolean;
   onClick: () => void;
@@ -910,6 +919,37 @@ function WclTab({
                 )}
               </p>
               <Warnings warnings={result.warnings} />
+              {result.ignored.total > 0 && (
+                <details className="rounded-md border border-emerald-200/60 bg-white/50 p-2 text-xs">
+                  <summary className="cursor-pointer font-medium">
+                    Inspect the {result.ignored.total} ignored combatant-info event(s) (
+                    {result.ignored.players} player{result.ignored.players === 1 ? "" : "s"})
+                  </summary>
+                  <p className="mt-1.5 text-muted-foreground">
+                    WCL fires one combatant-info per player for <em>every</em> combat segment —
+                    trash included. Only boss pulls feed parses, consumables and attendance, so
+                    these were skipped. Sample (first {result.ignored.sample.length}):
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {result.ignored.sample.map((e, i) => (
+                      <li key={i} className="tabular-nums">
+                        <span className="font-medium">{e.player}</span>
+                        <span className="text-muted-foreground"> at {fmtOffset(e.atMs)}</span>
+                        <span className="text-muted-foreground">
+                          {" — "}
+                          {e.auras.length > 0
+                            ? `consumables up: ${e.auras.join(", ")}`
+                            : "no consumables visible"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-muted-foreground">
+                    If a whole boss kill seems missing instead, check the report on Warcraft Logs —
+                    a broken/split log segment looks exactly like this.
+                  </p>
+                </details>
+              )}
               {result.matched.length > 0 && (
                 <Button asChild size="sm" variant="outline">
                   <Link

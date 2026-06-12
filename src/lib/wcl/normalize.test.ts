@@ -103,6 +103,16 @@ const combatantInfo = [
   },
   // During trash — boss fights only, must be ignored (with a warning).
   { timestamp: 460000, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+  // Trash by WCL's own fight index, even though the timestamp sits inside
+  // Attumen's window — the fight field is authoritative.
+  {
+    timestamp: 150000,
+    type: "combatantinfo",
+    fight: 8,
+    sourceID: 2,
+    auras: [{ name: "Flask of Pure Death", ability: 28540 }],
+    gear: [],
+  },
   { timestamp: 600100, type: "combatantinfo", sourceID: 1, auras: [{ name: "Flask of Fortification", ability: 28518 }, { name: "Well Fed", ability: 33257 }], gear: gear({ 15: { temporaryEnchant: 2713 } }) },
   { timestamp: 600110, type: "combatantinfo", sourceID: 2, auras: [{ name: "Well Fed", ability: 33263 }], gear: gear({ 4: { permanentEnchant: null } }) },
   { timestamp: 600120, type: "combatantinfo", sourceID: 3, auras: [], gear: gear() },
@@ -124,6 +134,8 @@ const casts = [
   { timestamp: 650000, type: "cast", sourceID: 3, ability: { name: "Super Mana Potion", guid: 28499 } },
   // Outside any boss pull.
   { timestamp: 50000, type: "cast", sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
+  // Timestamp outside every window, but the fight field routes it to Moroes.
+  { timestamp: 50, type: "cast", fight: 9, sourceID: 2, ability: { name: "Haste Potion", guid: 28507 } },
 ];
 
 describe("normalizeWclReport", () => {
@@ -197,6 +209,21 @@ describe("normalizeWclReport", () => {
 
   it("warns about combatant info outside boss pulls", () => {
     expect(result.warnings.some((w) => w.includes("combatant-info"))).toBe(true);
+  });
+
+  it("prefers WCL's fight field over timestamps and exposes ignored events", () => {
+    // Two ignored combatant-infos: timestamp-orphan (Thrainn) + trash-field (Pyrelia).
+    expect(result.ignoredCombatantInfo.total).toBe(2);
+    expect(result.ignoredCombatantInfo.players).toBe(2);
+    expect(
+      result.ignoredCombatantInfo.sample.some(
+        (e) => e.player === "Pyrelia" && e.auras.includes("Flask of Pure Death"),
+      ),
+    ).toBe(true);
+    // The trash event did NOT leak its flask into the Attumen pull…
+    expect(row(7, "Pyrelia").flask).toBeUndefined();
+    // …and a cast stamped outside every window still lands via its fight field.
+    expect(row(9, "Pyrelia").potions).toEqual(["Haste Potion"]);
   });
 });
 
