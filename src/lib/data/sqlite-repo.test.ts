@@ -347,6 +347,11 @@ describe("sqlite repo", () => {
     const repo = getSqliteRepo(); // boots, runs migrate(), seeds
     const perf = (await repo.getCharacterPerformance("kazrak"))!;
     expect(perf.reports[0].rows.every((r) => Array.isArray(r.scrolls))).toBe(true);
+    // Later additive columns join the same migration path.
+    expect(perf.reports[0].rows.every((r) => Array.isArray(r.cooldowns) && Array.isArray(r.upkeep))).toBe(true);
+    // Seeded toolkit data round-trips through its JSON columns.
+    expect(perf.reports[0].rows.some((r) => r.cooldowns.includes("Death Wish"))).toBe(true);
+    expect(perf.reports[0].rows.some((r) => r.upkeep.some((u) => u.name === "Battle Shout" && u.pct > 0))).toBe(true);
   });
 
   it("addItemsIfMissing never overwrites existing cache entries", async () => {
@@ -379,6 +384,9 @@ describe("sqlite repo", () => {
         prepot: false,
         potions: [],
         otherCasts: [],
+        extras: [],
+        cooldowns: [],
+        upkeep: [],
         drums: 0,
         runes: 0,
         healthstones: 0,

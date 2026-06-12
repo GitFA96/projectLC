@@ -1,14 +1,18 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
 import { TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
+import { BUFF_TRACK_NAMES, COOLDOWN_CAST_IDS, DEBUFF_TRACK_NAMES } from "@/lib/wcl/class-tracks";
 import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 
 /**
  * Fetch everything one report import needs — deliberately few requests so a
- * whole night costs ~5 API calls (the free tier allows thousands/hour):
+ * whole night costs ~7 API calls (the free tier allows thousands/hour):
  *   1. overview: meta + boss fights + actors + dps/hps parse rankings
- *   2. combatantinfo events (gear + auras at pull)        — paginated
- *   3. friendly death events                              — paginated
- *   4. consumable cast events (tracked spell ids only)    — paginated
+ *   2. combatantinfo events (gear + auras at pull)            — paginated
+ *   3. friendly death events                                  — paginated
+ *   4. consumable + class-cooldown casts (tracked spell ids)  — paginated
+ *   5. tracked debuffs on enemies (upkeep uptime)             — paginated, soft
+ *   6. tracked buffs on friendlies (shouts, Earth Shield)     — paginated, soft
+ * "Soft" fetches degrade to a warning instead of failing the import.
  */
 
 const OVERVIEW_QUERY = `
@@ -30,7 +34,7 @@ query ReportOverview($code: String!) {
 }`;
 
 const EVENTS_QUERY = `
-query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $filter: String) {
+query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $filter: String, $hostility: HostilityType) {
   reportData {
     report(code: $code) {
       events(
@@ -38,7 +42,7 @@ query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!
         startTime: $startTime
         endTime: $endTime
         filterExpression: $filter
-        hostilityType: Friendlies
+        hostilityType: $hostility
         useAbilityIDs: false
         limit: 10000
       ) {
@@ -61,9 +65,10 @@ interface EventsResponse {
 
 async function fetchAllEvents(
   code: string,
-  dataType: "CombatantInfo" | "Deaths" | "Casts",
+  dataType: "CombatantInfo" | "Deaths" | "Casts" | "Debuffs" | "Buffs",
   endTime: number,
   filter?: string,
+  hostility: "Friendlies" | "Enemies" = "Friendlies",
 ): Promise<unknown[]> {
   const all: unknown[] = [];
   let cursor = 0;
@@ -74,6 +79,7 @@ async function fetchAllEvents(
       startTime: cursor,
       endTime,
       filter: filter ?? null,
+      hostility,
     });
     const events = res.reportData?.report?.events;
     all.push(...(events?.data ?? []));
@@ -97,11 +103,35 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
   }
   const reportDuration = endTime - startTime;
 
-  const [combatantInfo, deaths, casts] = await Promise.all([
+  // Upkeep tracks match by ability NAME so one entry covers every spell rank.
+  const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
+  const softWarnings: string[] = [];
+  const soft = (label: string, p: Promise<unknown[]>): Promise<unknown[]> =>
+    p.catch((e) => {
+      softWarnings.push(`${label} skipped: ${e instanceof Error ? e.message : String(e)}`);
+      return [];
+    });
+
+  const [combatantInfo, deaths, casts, debuffs, buffs] = await Promise.all([
     fetchAllEvents(code, "CombatantInfo", reportDuration),
     fetchAllEvents(code, "Deaths", reportDuration),
-    fetchAllEvents(code, "Casts", reportDuration, `ability.id IN (${TRACKED_CAST_IDS.join(", ")})`),
+    fetchAllEvents(
+      code,
+      "Casts",
+      reportDuration,
+      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")})`,
+    ),
+    soft(
+      "Debuff-uptime tracking (curses, Thunder Clap…)",
+      fetchAllEvents(code, "Debuffs", reportDuration, `ability.name IN (${quoted(DEBUFF_TRACK_NAMES)})`, "Enemies"),
+    ),
+    soft(
+      "Buff-uptime tracking (shouts, Earth Shield)",
+      fetchAllEvents(code, "Buffs", reportDuration, `ability.name IN (${quoted(BUFF_TRACK_NAMES)})`),
+    ),
   ]);
 
-  return normalizeWclReport(rawReport, { combatantInfo, deaths, casts });
+  const normalized = normalizeWclReport(rawReport, { combatantInfo, deaths, casts, debuffs, buffs });
+  normalized.warnings.push(...softWarnings);
+  return normalized;
 }

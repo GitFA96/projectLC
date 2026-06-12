@@ -1,3 +1,4 @@
+import type * as React from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -5,8 +6,10 @@ import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
+import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { PerformanceReportView, WclPlayerFight } from "@/lib/types";
+import { FightRows } from "@/components/performance/fight-rows";
 import { PageHeader } from "@/components/page-header";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
@@ -288,6 +291,7 @@ export default async function PerformancePage({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-6" />
                     <TableHead>Boss</TableHead>
                     <TableHead className="w-24">Result</TableHead>
                     <TableHead className="w-20 text-right">Parse</TableHead>
@@ -304,66 +308,74 @@ export default async function PerformancePage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {active.rows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>
-                        <span className="text-sm font-medium">{row.encounterName}</span>
-                        <span className="ml-2 text-xs tabular-nums text-muted-foreground">
-                          {fmtDuration(row.durationMs)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {row.kill ? (
-                          <Badge variant="success">Kill</Badge>
-                        ) : (
-                          <Badge variant="warning">
-                            Wipe{row.fightPercentage !== undefined && ` ${Math.round(row.fightPercentage)}%`}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <ParseBadge pct={row.parsePercent} />
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                        {row.bracketPercent !== undefined ? Math.round(row.bracketPercent) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">{fmtAmount(row)}</TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {row.deaths > 0 ? (
-                          <span className="font-medium text-destructive">{row.deaths}</span>
-                        ) : (
-                          <span className="text-muted-foreground/50">0</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Mark
-                          ok={row.flask !== undefined || row.elixirs.length >= 2}
-                          title={row.flask ?? (row.elixirs.length > 0 ? row.elixirs.join(" + ") : "no flask or elixirs")}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Mark ok={row.food} />
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums">
-                        {row.potions.length + row.otherCasts.length > 0 || row.prepot ? (
-                          <span
-                            title={[...(row.prepot ? ["pre-pot"] : []), ...row.potions, ...row.otherCasts].join(", ")}
-                          >
-                            {row.potions.length + row.otherCasts.length}
-                            {row.prepot && <span className="text-emerald-600">+</span>}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">0</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  <FightRows
+                    colSpan={10}
+                    rows={active.rows.map((row) => ({
+                      id: row.id,
+                      detail: fightDetail(row),
+                      cells: (
+                        <>
+                          <TableCell>
+                            <span className="text-sm font-medium">{row.encounterName}</span>
+                            <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                              {fmtDuration(row.durationMs)}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {row.kill ? (
+                              <Badge variant="success">Kill</Badge>
+                            ) : (
+                              <Badge variant="warning">
+                                Wipe{row.fightPercentage !== undefined && ` ${Math.round(row.fightPercentage)}%`}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <ParseBadge pct={row.parsePercent} />
+                          </TableCell>
+                          <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                            {row.bracketPercent !== undefined ? Math.round(row.bracketPercent) : "—"}
+                          </TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">{fmtAmount(row)}</TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">
+                            {row.deaths > 0 ? (
+                              <span className="font-medium text-destructive">{row.deaths}</span>
+                            ) : (
+                              <span className="text-muted-foreground/50">0</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Mark
+                              ok={row.flask !== undefined || row.elixirs.length >= 2}
+                              title={row.flask ?? (row.elixirs.length > 0 ? row.elixirs.join(" + ") : "no flask or elixirs")}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Mark ok={row.food} />
+                          </TableCell>
+                          <TableCell className="text-sm tabular-nums">
+                            {row.potions.length + row.otherCasts.length > 0 || row.prepot ? (
+                              <span
+                                title={[...(row.prepot ? ["pre-pot"] : []), ...row.potions, ...row.otherCasts].join(", ")}
+                              >
+                                {row.potions.length + row.otherCasts.length}
+                                {row.prepot && <span className="text-emerald-600">+</span>}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/50">0</span>
+                            )}
+                          </TableCell>
+                        </>
+                      ),
+                    }))}
+                  />
                 </TableBody>
               </Table>
               <p className="mt-2 text-[11px] text-muted-foreground">
                 Parses are Warcraft Logs percentiles (healers on HPS, tanks within the tank
                 bracket); wipes don&apos;t parse. A <span className="text-emerald-600">+</span> in
-                Pots means a pre-pot was already running at the pull.
+                Used means a pre-pot was already running at the pull. Click a row for the
+                pull&apos;s items, cooldowns and upkeep.
               </p>
             </CardContent>
           </Card>
@@ -408,10 +420,19 @@ export default async function PerformancePage({
                       total={active.rows.length}
                       uses={usesOf(active.rows, (r) => r.otherCasts)}
                     />
+                    {active.rows.some((r) => r.extras.length > 0) && (
+                      <ConsumableRows
+                        label="Other buffs"
+                        entries={coverage(active.rows, (r) => r.extras)}
+                        total={active.rows.length}
+                      />
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
+
+            <ToolkitCard rows={active.rows} />
 
             <Card>
               <CardHeader>
@@ -443,6 +464,157 @@ export default async function PerformancePage({
         </>
       )}
     </div>
+  );
+}
+
+/** "Haste Potion ×2 · Master Healthstone" from a list with repeats. */
+function countedList(values: string[]): string {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
+    .join(" · ");
+}
+
+function UpkeepPct({ pct }: { pct: number }) {
+  return (
+    <span
+      className={cn(
+        "font-medium tabular-nums",
+        pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : undefined,
+      )}
+    >
+      {pct}%
+    </span>
+  );
+}
+
+/** Expanded per-pull detail: items used, cooldowns cast, maintained uptime. */
+function fightDetail(row: WclPlayerFight): React.ReactNode {
+  const items = [...row.potions, ...row.otherCasts];
+  const trackedCds = cooldownsForClass(row.className);
+  const trackedUptime = uptimeTracksForClass(row.className);
+  const hasAnything =
+    items.length > 0 || row.prepot || row.cooldowns.length > 0 || row.upkeep.length > 0 ||
+    trackedCds.length > 0 || trackedUptime.length > 0;
+  if (!hasAnything) return null;
+
+  return (
+    <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-3">
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Items used
+        </p>
+        <p className="mt-0.5">
+          {row.prepot && <span className="text-emerald-700">pre-pot · </span>}
+          {items.length > 0 ? (
+            countedList(items)
+          ) : row.prepot ? null : (
+            <span className="text-muted-foreground/60">none</span>
+          )}
+        </p>
+      </div>
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Cooldowns
+        </p>
+        <p className="mt-0.5">
+          {row.cooldowns.length > 0 ? (
+            countedList(row.cooldowns)
+          ) : (
+            <span className="text-muted-foreground/60">
+              {trackedCds.length > 0 ? "none of the tracked cooldowns used" : "—"}
+            </span>
+          )}
+        </p>
+      </div>
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Upkeep
+        </p>
+        {row.upkeep.length > 0 ? (
+          <p className="mt-0.5 space-x-2">
+            {row.upkeep.map((u) => (
+              <span key={u.name} className="inline-block whitespace-nowrap">
+                {u.name} <UpkeepPct pct={u.pct} />
+              </span>
+            ))}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-muted-foreground/60">
+            {trackedUptime.length > 0 ? "no tracked debuff/buff upkeep detected" : "—"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Pull-length-weighted average upkeep per label across the report's pulls. */
+function upkeepAverages(rows: WclPlayerFight[]): Map<string, number> {
+  const labels = [...new Set(rows.flatMap((r) => r.upkeep.map((u) => u.name)))];
+  const totalDur = rows.reduce((s, r) => s + r.durationMs, 0);
+  return new Map(
+    labels
+      .map((label): [string, number] => {
+        const weighted = rows.reduce(
+          (s, r) => s + (r.upkeep.find((u) => u.name === label)?.pct ?? 0) * r.durationMs,
+          0,
+        );
+        return [label, Math.round(weighted / Math.max(1, totalDur))];
+      })
+      .sort((a, b) => b[1] - a[1]),
+  );
+}
+
+function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
+  const cooldownTotals = usesOf(rows, (r) => r.cooldowns);
+  const upkeep = upkeepAverages(rows);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cooldowns &amp; upkeep this report</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          The class toolkit: major cooldowns cast, and the debuffs/buffs this player kept
+          running. Pulls missing an upkeep drag its average down.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {cooldownTotals.size === 0 && upkeep.size === 0 ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Nothing tracked in this report. Reports imported before cooldown/upkeep tracking
+            existed need a re-import to backfill.
+          </p>
+        ) : (
+          <Table>
+            <TableBody>
+              {[...cooldownTotals].map(([name, count], i) => (
+                <TableRow key={name}>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {i === 0 ? "Cooldowns" : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{name}</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">×{count}</TableCell>
+                </TableRow>
+              ))}
+              {[...upkeep].map(([name, pct], i) => (
+                <TableRow key={name}>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {i === 0 ? "Upkeep" : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{name}</TableCell>
+                  <TableCell className="text-right text-sm">
+                    <UpkeepPct pct={pct} /> <span className="text-xs text-muted-foreground">avg</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

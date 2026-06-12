@@ -956,10 +956,11 @@ function WclTab({
                     Consumable-tuning dump: {result.auraDump.length} unrecognized aura name(s) at pulls
                   </summary>
                   <p className="mt-1.5 text-muted-foreground">
-                    Auras seen at boss pulls that the consumable tables don&apos;t classify (mostly
-                    class buffs — that&apos;s normal). If a consumable is missing from someone&apos;s
-                    tracking, it&apos;s in this list: copy the block and paste it into development to
-                    tune the tables.
+                    Auras seen at boss pulls that the consumable tables don&apos;t classify. Known
+                    class buffs (blessings, auras, shouts, stances…) are already filtered out, so
+                    what&apos;s left is genuinely unknown. If a consumable is missing from
+                    someone&apos;s tracking, it&apos;s in this list: copy the block and paste it
+                    into development to tune the tables.
                   </p>
                   <pre className="mt-1.5 max-h-56 select-all overflow-y-auto whitespace-pre-wrap rounded bg-muted/60 p-2 font-mono text-[11px] leading-4">
                     {result.auraDump
@@ -999,12 +1000,18 @@ function WclTab({
             (expected-to-be-enchanted slots missing a permanent enchant).
           </p>
           <p>
+            Per pull it also tracks the <span className="text-foreground">class toolkit</span>:
+            major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) and the uptime of
+            maintained debuffs/buffs — warlock curse assignments, Thunder Clap, Demoralizing Shout,
+            shouts, judgements, Faerie Fire, Earth Shield and friends.
+          </p>
+          <p>
             Everything lands on each character&apos;s <span className="text-foreground">Performance</span>{" "}
             page (linked from their profile), per report and as a career rollup. Linking a report to
             a Gargul session ties the night&apos;s performance to its loot decisions.
           </p>
           <p className="text-xs">
-            Costs ~5 API calls per report — the free Warcraft Logs tier allows thousands per hour.
+            Costs ~7 API calls per report — the free Warcraft Logs tier allows thousands per hour.
           </p>
         </CardContent>
       </Card>

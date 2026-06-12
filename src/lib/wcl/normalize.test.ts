@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeWclReport } from "@/lib/wcl/normalize";
-import { classifyAura, classifyCast } from "@/lib/wcl/consumables";
+import { classifyAura, classifyCast, isNonConsumableAura } from "@/lib/wcl/consumables";
 
 /**
  * Fixture shaped like the v2 API responses: report overview (with dps/hps
@@ -96,6 +96,9 @@ const combatantInfo = [
       // Scroll buffs are bare stat names in logs: rank from the id when known.
       { name: "Agility", ability: 33077 },
       { name: "Strength", ability: 999002 },
+      // Class buffs are filtered from the dump; genuine unknowns stay in it.
+      { name: "Greater Blessing of Kings", ability: 25898 },
+      { name: "Mystery Brew", ability: 424242 },
     ],
     gear: gear({ 4: { permanentEnchant: null } }),
   },
@@ -103,7 +106,11 @@ const combatantInfo = [
     timestamp: 100070,
     type: "combatantinfo",
     sourceID: 3,
-    auras: [{ name: "Flask of Mighty Restoration", ability: 28519 }],
+    auras: [
+      { name: "Flask of Mighty Restoration", ability: 28519 },
+      // Off-slot consumable → extras.
+      { name: "Kreeg's Stout Beatdown", ability: 22790 },
+    ],
     gear: gear({ 15: { temporaryEnchant: 2629 } }),
   },
   // During trash — boss fights only, must be ignored (with a warning).
@@ -144,10 +151,40 @@ const casts = [
   // Mana gems share the "Replenish Mana" use spell — the id names the gem.
   { timestamp: 650500, type: "cast", sourceID: 3, ability: { name: "Replenish Mana", guid: 27103 } },
   { timestamp: 651000, type: "cast", sourceID: 1, ability: { name: "Nightmare Seed", guid: 28726 } },
+  // Class cooldowns ride the same cast stream (server-filtered by id).
+  { timestamp: 175000, type: "cast", sourceID: 1, ability: { name: "Death Wish", guid: 12292 } },
+];
+
+const debuffs = [
+  // Thunder Clap on the boss (target 50) by Thrainn during Attumen
+  // (100000–400000): 110000→200000 (90s) + 230000→fight end (170s) = 260s of
+  // 300s ⇒ 87%.
+  { timestamp: 110000, type: "applydebuff", sourceID: 1, targetID: 50, ability: { name: "Thunder Clap", guid: 25264 } },
+  { timestamp: 200000, type: "removedebuff", sourceID: 1, targetID: 50, ability: { name: "Thunder Clap", guid: 25264 } },
+  { timestamp: 230000, type: "applydebuff", sourceID: 1, targetID: 50, ability: { name: "Thunder Clap", guid: 25264 } },
+  // A brief Thunder Clap on an add (target 51) must not win best-target.
+  { timestamp: 120000, type: "applydebuff", sourceID: 1, targetID: 51, ability: { name: "Thunder Clap" } },
+  { timestamp: 130000, type: "removedebuff", sourceID: 1, targetID: 51, ability: { name: "Thunder Clap" } },
+  // First sighting is a removal — credited from the pull start
+  // (Moroes 600000–850000): 600000→690000 = 90s of 250s ⇒ 36%.
+  { timestamp: 690000, type: "removedebuff", sourceID: 1, targetID: 60, ability: { name: "Demoralizing Shout" } },
+  // Untracked debuffs are ignored.
+  { timestamp: 615000, type: "applydebuff", sourceID: 2, targetID: 60, ability: { name: "Mystery Hex" } },
+];
+
+const buffs = [
+  // Battle Shout on SELF during Moroes: 650000→fight end = 200s of 250s ⇒ 80%.
+  { timestamp: 650000, type: "applybuff", sourceID: 1, targetID: 1, ability: { name: "Battle Shout", guid: 2048 } },
+  // The same shout landing on someone else never counts as self-upkeep.
+  { timestamp: 650000, type: "applybuff", sourceID: 1, targetID: 3, ability: { name: "Battle Shout", guid: 2048 } },
+  // Earth Shield is friendly-target upkeep, attributed to the SOURCE:
+  // 620000→720000 = 100s of 250s ⇒ 40% for Lunara.
+  { timestamp: 620000, type: "applybuff", sourceID: 3, targetID: 1, ability: { name: "Earth Shield", guid: 32594 } },
+  { timestamp: 720000, type: "removebuff", sourceID: 3, targetID: 1, ability: { name: "Earth Shield", guid: 32594 } },
 ];
 
 describe("normalizeWclReport", () => {
-  const result = normalizeWclReport(rawReport, { combatantInfo, deaths, casts });
+  const result = normalizeWclReport(rawReport, { combatantInfo, deaths, casts, debuffs, buffs });
   const row = (fightId: number, name: string) =>
     result.rows.find((r) => r.fightId === fightId && r.actorName === name)!;
 
@@ -223,11 +260,48 @@ describe("normalizeWclReport", () => {
     expect(row(9, "Thrainn").otherCasts).toEqual(["Nightmare Seed"]);
   });
 
-  it("dumps unrecognized aura names for curation", () => {
-    const shout = result.unclassifiedAuras.find((a) => a.name === "Commanding Shout");
-    expect(shout).toMatchObject({ abilityId: 469, count: 1 });
-    // Recognized consumables never land in the dump.
+  it("dumps unrecognized aura names for curation, minus known class buffs", () => {
+    const brew = result.unclassifiedAuras.find((a) => a.name === "Mystery Brew");
+    expect(brew).toMatchObject({ abilityId: 424242, count: 1 });
+    // Recognized consumables never land in the dump…
     expect(result.unclassifiedAuras.some((a) => a.name === "Agility")).toBe(false);
+    // …and neither do curated class buffs or tracked upkeep auras.
+    expect(result.unclassifiedAuras.some((a) => a.name === "Greater Blessing of Kings")).toBe(false);
+    expect(result.unclassifiedAuras.some((a) => a.name === "Commanding Shout")).toBe(false);
+  });
+
+  it("collects off-slot consumable buffs as extras", () => {
+    expect(row(7, "Lunara").extras).toEqual(["Kreeg's Stout Beatdown"]);
+    expect(row(7, "Thrainn").extras).toEqual([]);
+  });
+
+  it("counts class cooldown casts per pull", () => {
+    expect(row(7, "Thrainn").cooldowns).toEqual(["Death Wish"]);
+    expect(row(9, "Thrainn").cooldowns).toEqual([]);
+  });
+
+  it("computes maintained-debuff uptime on the player's best target", () => {
+    const upkeep = row(7, "Thrainn").upkeep;
+    // 260s of 300s on the boss — the add's brief 10s never wins best-target.
+    expect(upkeep).toContainEqual({ name: "Thunder Clap", pct: 87 });
+  });
+
+  it("credits a remove-without-apply from the pull start", () => {
+    expect(row(9, "Thrainn").upkeep).toContainEqual({ name: "Demoralizing Shout", pct: 36 });
+  });
+
+  it("tracks shout upkeep from self-applications only", () => {
+    expect(row(9, "Thrainn").upkeep).toContainEqual({ name: "Battle Shout", pct: 80 });
+    // The shout landing on Lunara is not her upkeep…
+    expect(row(9, "Lunara").upkeep.some((u) => u.name === "Battle Shout")).toBe(false);
+    // …but the Earth Shield she SOURCED is, wherever it sits.
+    expect(row(9, "Lunara").upkeep).toContainEqual({ name: "Earth Shield", pct: 40 });
+  });
+
+  it("opens self-buff upkeep at the pull when the aura is already up", () => {
+    // Commanding Shout sat in Thrainn's pull auras with zero buff events in
+    // the fight — that's 100% uptime, not 0%.
+    expect(row(7, "Thrainn").upkeep).toContainEqual({ name: "Commanding Shout", pct: 100 });
   });
 
   it("warns about combatant info outside boss pulls", () => {
@@ -299,6 +373,23 @@ describe("consumable classification", () => {
     expect(classifyAura("Destruction", 28508)?.category).toBe("potion");
     // The bare word without a known id is NOT assumed to be a potion.
     expect(classifyAura("Haste")).toBeUndefined();
+  });
+
+  it("classifies off-slot consumables as misc", () => {
+    // The Bogling Root buff is named after the effect, not the item.
+    expect(classifyAura("Fury of the Bogling", 5665)).toEqual({ category: "misc", label: "Bogling Root" });
+    expect(classifyAura("Kreeg's Stout Beatdown")?.category).toBe("misc");
+  });
+
+  it("recognizes known non-consumable auras for dump filtering", () => {
+    expect(isNonConsumableAura("Greater Blessing of Kings", 25898)).toBe(true);
+    expect(isNonConsumableAura("Sanctity Aura")).toBe(true);
+    expect(isNonConsumableAura("Dire Bear Form")).toBe(true);
+    expect(isNonConsumableAura("Berserker Stance")).toBe(true);
+    expect(isNonConsumableAura("Vanguard", 71)).toBe(true);
+    // Unknowns stay dumpable — the list must never eat a real consumable.
+    expect(isNonConsumableAura("Mystery Brew")).toBe(false);
+    expect(isNonConsumableAura("Kreeg's Stout Beatdown")).toBe(false);
   });
 
   it("classifies casts by id with name fallback", () => {

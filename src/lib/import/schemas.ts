@@ -182,6 +182,12 @@ export const wclPlayerFightSchema = z.object({
   potions: z.array(z.string()).default([]),
   /** Non-potion in-fight consumables (healthstones, runes, mana gems, seeds, drums). */
   otherCasts: z.array(z.string()).default([]),
+  /** Off-slot consumable buffs at pull (alcohol, Bogling Root, …). */
+  extras: z.array(z.string()).default([]),
+  /** Major class cooldowns cast during the pull, one entry per use. */
+  cooldowns: z.array(z.string()).default([]),
+  /** Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…), % of the pull. */
+  upkeep: z.array(z.object({ name: z.string().min(1), pct: z.number().min(0).max(100) })).default([]),
   drums: z.number().int().nonnegative().default(0),
   runes: z.number().int().nonnegative().default(0),
   healthstones: z.number().int().nonnegative().default(0),

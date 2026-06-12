@@ -4,7 +4,14 @@ import {
   WEAPON_GEAR_SLOTS,
   classifyAura,
   classifyCast,
+  isNonConsumableAura,
 } from "@/lib/wcl/consumables";
+import {
+  COOLDOWN_BY_ID,
+  UPTIME_TRACK_BY_NAME,
+  trackLabel,
+  type UptimeTrack,
+} from "@/lib/wcl/class-tracks";
 
 /**
  * Pure normalization of raw Warcraft Logs v2 responses into the rows we
@@ -114,6 +121,17 @@ const rawDeathEventSchema = z.looseObject({
   targetID: z.number().optional(),
 });
 
+/** Buff/debuff apply/refresh/remove events feeding the upkeep computation. */
+const rawAuraEventSchema = z.looseObject({
+  timestamp: z.number(),
+  type: z.string(),
+  fight: z.number().optional(),
+  sourceID: z.number().optional(),
+  targetID: z.number().optional(),
+  abilityGameID: z.number().optional(),
+  ability: rawAbilitySchema.nullish(),
+});
+
 export const rawEventsSchema = z.array(z.unknown());
 
 /* Normalized output */
@@ -145,6 +163,12 @@ export interface NormalizedPlayerFight {
   potions: string[];
   /** Non-potion in-fight consumable casts (healthstones, runes, gems, seeds, drums). */
   otherCasts: string[];
+  /** Off-slot consumable buffs at pull (alcohol, Bogling Root, …). */
+  extras: string[];
+  /** Major class cooldowns cast during the pull, one entry per use. */
+  cooldowns: string[];
+  /** Maintained debuff/buff uptimes, % of the pull, best target. */
+  upkeep: { name: string; pct: number }[];
   drums: number;
   runes: number;
   healthstones: number;
@@ -191,6 +215,10 @@ export interface RawEventInputs {
   combatantInfo: unknown[];
   deaths: unknown[];
   casts: unknown[];
+  /** Tracked debuffs on enemies (uptime). Absent on older fetches. */
+  debuffs?: unknown[];
+  /** Tracked buffs on friendlies (shouts, Earth Shield). Absent on older fetches. */
+  buffs?: unknown[];
 }
 
 function clampPct(v: number | null | undefined): number | undefined {
@@ -246,6 +274,9 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         prepot: false,
         potions: [],
         otherCasts: [],
+        extras: [],
+        cooldowns: [],
+        upkeep: [],
         drums: 0,
         runes: 0,
         healthstones: 0,
@@ -284,6 +315,35 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     warnings.push("No per-player rankings in the report yet — parses can lag a fresh upload; re-fetch later.");
   }
 
+  /*
+   * Upkeep accumulators: one per (fight, source, track, target). Intervals
+   * open on apply/refresh and close on remove; whatever is still open at the
+   * end of the fight counts to the end. A remove with nothing open means the
+   * aura predates our first event — credited from the pull start.
+   */
+  interface UptimeAcc {
+    fight: (typeof fights)[number];
+    actorName: string;
+    track: UptimeTrack;
+    totalMs: number;
+    openAt?: number;
+  }
+  const uptimeAccs = new Map<string, UptimeAcc>();
+  const uptimeAcc = (
+    fight: (typeof fights)[number],
+    actorName: string,
+    track: UptimeTrack,
+    targetId: number,
+  ): UptimeAcc => {
+    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${targetId}`;
+    let acc = uptimeAccs.get(key);
+    if (!acc) {
+      acc = { fight, actorName, track, totalMs: 0 };
+      uptimeAccs.set(key, acc);
+    }
+    return acc;
+  };
+
   /* 2. Combatant info at pull: consumable auras + gear audit. */
   const ignoredSample: IgnoredCombatantInfo[] = [];
   const ignoredPlayers = new Set<string>();
@@ -319,6 +379,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (!aura.name) continue;
       const hit = classifyAura(aura.name, aura.ability);
       if (!hit) {
+        // A maintained self-buff already up at the pull (shouts): open its
+        // uptime interval at the pull start — without this, a long-lasting
+        // shout with no events inside a short fight would read as 0%.
+        const track = UPTIME_TRACK_BY_NAME.get(aura.name.toLowerCase());
+        if (track?.kind === "selfbuff") {
+          uptimeAcc(fight, actor.name, track, event.sourceID).openAt ??= fight.startTime;
+        }
+        if (track || isNonConsumableAura(aura.name, aura.ability)) continue;
         const key = `${aura.name.toLowerCase()}|${aura.ability ?? ""}`;
         const entry = unclassified.get(key);
         if (entry) entry.count++;
@@ -330,6 +398,8 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       else if (hit.category === "potion") row.prepot = true;
       else if (hit.category === "scroll") {
         if (!row.scrolls.includes(hit.label)) row.scrolls.push(hit.label);
+      } else if (hit.category === "misc") {
+        if (!row.extras.includes(hit.label)) row.extras.push(hit.label);
       } else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
     }
 
@@ -371,8 +441,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (!fight || !actor) continue;
     const row = rows.get(keyOf(fight.id, actor.name));
     if (!row) continue;
-    const hit = classifyCast(event.ability?.guid ?? event.abilityGameID, event.ability?.name);
-    if (!hit) continue;
+    const abilityId = event.ability?.guid ?? event.abilityGameID;
+    const hit = classifyCast(abilityId, event.ability?.name);
+    if (!hit) {
+      // Not a consumable — maybe one of the tracked class cooldowns.
+      const cooldown = abilityId !== undefined ? COOLDOWN_BY_ID.get(abilityId) : undefined;
+      if (cooldown) row.cooldowns.push(cooldown.name);
+      continue;
+    }
     if (hit.category === "potion") {
       row.potions.push(hit.name);
       continue;
@@ -381,6 +457,63 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (hit.category === "drums") row.drums++;
     else if (hit.category === "rune") row.runes++;
     else if (hit.category === "healthstone") row.healthstones++;
+  }
+
+  /* 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events. */
+  const ingestUptime = (rawEvents: unknown[]) => {
+    for (const rawEvent of rawEvents) {
+      const parsed = rawAuraEventSchema.safeParse(rawEvent);
+      if (!parsed.success) continue;
+      const event = parsed.data;
+      if (event.sourceID === undefined || event.targetID === undefined) continue;
+      const name = event.ability?.name;
+      if (!name) continue;
+      const track = UPTIME_TRACK_BY_NAME.get(name.toLowerCase());
+      if (!track) continue;
+      if (track.kind === "selfbuff" && event.targetID !== event.sourceID) continue;
+      const fight = bossFightOf(event);
+      const source = actorById.get(event.sourceID);
+      if (!fight || !source) continue;
+
+      const ts = Math.min(Math.max(event.timestamp, fight.startTime), fight.endTime);
+      const acc = uptimeAcc(fight, source.name, track, event.targetID);
+      if (event.type === "removedebuff" || event.type === "removebuff") {
+        if (acc.openAt !== undefined) {
+          acc.totalMs += ts - acc.openAt;
+          acc.openAt = undefined;
+        } else if (acc.totalMs === 0) {
+          // First sighting is a removal: the aura was up since the pull.
+          acc.totalMs = ts - fight.startTime;
+        }
+      } else if (event.type.startsWith("apply") || event.type.startsWith("refresh")) {
+        // Stack events imply the aura is active; they never close an interval.
+        acc.openAt ??= ts;
+      }
+    }
+  };
+  ingestUptime(events.debuffs ?? []);
+  ingestUptime(events.buffs ?? []);
+
+  // Close intervals still open at the fight end, then keep each player's best
+  // target per track (≈ the boss — adds with brief uptime never win).
+  const bestUptime = new Map<string, { row: NormalizedPlayerFight; track: UptimeTrack; totalMs: number }>();
+  for (const acc of uptimeAccs.values()) {
+    if (acc.openAt !== undefined) {
+      acc.totalMs += acc.fight.endTime - acc.openAt;
+      acc.openAt = undefined;
+    }
+    const row = rows.get(keyOf(acc.fight.id, acc.actorName));
+    if (!row) continue;
+    const key = `${acc.fight.id}|${acc.actorName.toLowerCase()}|${acc.track.name.toLowerCase()}`;
+    const best = bestUptime.get(key);
+    if (!best || acc.totalMs > best.totalMs) bestUptime.set(key, { row, track: acc.track, totalMs: acc.totalMs });
+  }
+  for (const { row, track, totalMs } of bestUptime.values()) {
+    const pct = Math.round(Math.min(100, (totalMs / Math.max(1, row.durationMs)) * 100));
+    if (pct >= 1) row.upkeep.push({ name: trackLabel(track), pct });
+  }
+  for (const row of rows.values()) {
+    row.upkeep.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
   }
 
   // Stable order: pull order, then name.

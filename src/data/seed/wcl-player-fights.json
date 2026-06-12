@@ -21,10 +21,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Ironshield Potion"],
+    "potions": [
+      "Ironshield Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Thunder Clap",
+        "pct": 81
+      },
+      {
+        "name": "Demoralizing Shout",
+        "pct": 73
+      },
+      {
+        "name": "Commanding Shout",
+        "pct": 93
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -49,10 +67,25 @@
     "food": true,
     "weaponBuff": true,
     "prepot": true,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 1,
     "runes": 0,
     "healthstones": 0,
+    "extras": [
+      "Bogling Root"
+    ],
+    "cooldowns": [
+      "Death Wish",
+      "Recklessness"
+    ],
+    "upkeep": [
+      {
+        "name": "Battle Shout",
+        "pct": 87
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -72,14 +105,30 @@
     "bracketPercent": 72,
     "amount": 731,
     "deaths": 0,
-    "elixirs": ["Elixir of Major Agility"],
+    "elixirs": [
+      "Elixir of Major Agility"
+    ],
     "food": true,
     "weaponBuff": false,
     "prepot": false,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Bestial Wrath",
+      "Rapid Fire",
+      "Misdirection"
+    ],
+    "upkeep": [
+      {
+        "name": "Hunter's Mark",
+        "pct": 96
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -104,10 +153,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Vampiric Touch",
+        "pct": 89
+      },
+      {
+        "name": "Shadow Weaving",
+        "pct": 94
+      },
+      {
+        "name": "Misery",
+        "pct": 91
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -132,11 +199,23 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Destruction Potion"],
+    "potions": [
+      "Destruction Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
-    "missingEnchants": ["Wrist"]
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Curse of the Elements",
+        "pct": 91
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:1:lunara",
@@ -160,10 +239,17 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Innervate"
+    ],
+    "upkeep": [],
     "missingEnchants": []
   },
   {
@@ -183,14 +269,31 @@
     "bracketPercent": 63,
     "amount": 918,
     "deaths": 0,
-    "elixirs": ["Elixir of Draenic Wisdom", "Elixir of Healing Power"],
+    "elixirs": [
+      "Elixir of Draenic Wisdom",
+      "Elixir of Healing Power"
+    ],
     "food": false,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion", "Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion",
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Mana Tide Totem",
+      "Bloodlust"
+    ],
+    "upkeep": [
+      {
+        "name": "Earth Shield",
+        "pct": 65
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -215,10 +318,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Ironshield Potion"],
+    "potions": [
+      "Ironshield Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Thunder Clap",
+        "pct": 84
+      },
+      {
+        "name": "Demoralizing Shout",
+        "pct": 76
+      },
+      {
+        "name": "Commanding Shout",
+        "pct": 96
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -243,10 +364,26 @@
     "food": true,
     "weaponBuff": true,
     "prepot": true,
-    "potions": ["Haste Potion", "Haste Potion"],
+    "potions": [
+      "Haste Potion",
+      "Haste Potion"
+    ],
     "drums": 1,
     "runes": 0,
     "healthstones": 0,
+    "extras": [
+      "Bogling Root"
+    ],
+    "cooldowns": [
+      "Death Wish",
+      "Recklessness"
+    ],
+    "upkeep": [
+      {
+        "name": "Battle Shout",
+        "pct": 90
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -271,10 +408,23 @@
     "food": true,
     "weaponBuff": false,
     "prepot": true,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Bestial Wrath",
+      "Rapid Fire"
+    ],
+    "upkeep": [
+      {
+        "name": "Hunter's Mark",
+        "pct": 99
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -299,10 +449,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Vampiric Touch",
+        "pct": 92
+      },
+      {
+        "name": "Shadow Weaving",
+        "pct": 97
+      },
+      {
+        "name": "Misery",
+        "pct": 94
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -327,11 +495,23 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Destruction Potion"],
+    "potions": [
+      "Destruction Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
-    "missingEnchants": ["Wrist"]
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Curse of the Elements",
+        "pct": 94
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:2:lunara",
@@ -355,10 +535,17 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Innervate"
+    ],
+    "upkeep": [],
     "missingEnchants": []
   },
   {
@@ -378,14 +565,30 @@
     "bracketPercent": 69,
     "amount": 947,
     "deaths": 0,
-    "elixirs": ["Elixir of Draenic Wisdom", "Elixir of Healing Power"],
+    "elixirs": [
+      "Elixir of Draenic Wisdom",
+      "Elixir of Healing Power"
+    ],
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Mana Tide Totem",
+      "Bloodlust"
+    ],
+    "upkeep": [
+      {
+        "name": "Earth Shield",
+        "pct": 68
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -413,6 +616,22 @@
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Thunder Clap",
+        "pct": 80
+      },
+      {
+        "name": "Demoralizing Shout",
+        "pct": 72
+      },
+      {
+        "name": "Commanding Shout",
+        "pct": 92
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -436,10 +655,22 @@
     "food": true,
     "weaponBuff": true,
     "prepot": true,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Death Wish"
+    ],
+    "upkeep": [
+      {
+        "name": "Battle Shout",
+        "pct": 86
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -467,6 +698,17 @@
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Bestial Wrath",
+      "Rapid Fire"
+    ],
+    "upkeep": [
+      {
+        "name": "Hunter's Mark",
+        "pct": 95
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -494,6 +736,22 @@
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Vampiric Touch",
+        "pct": 88
+      },
+      {
+        "name": "Shadow Weaving",
+        "pct": 93
+      },
+      {
+        "name": "Misery",
+        "pct": 90
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -521,7 +779,17 @@
     "drums": 0,
     "runes": 0,
     "healthstones": 1,
-    "missingEnchants": ["Wrist"]
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Curse of the Elements",
+        "pct": 90
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:3:lunara",
@@ -544,10 +812,15 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [],
     "missingEnchants": []
   },
   {
@@ -566,14 +839,29 @@
     "role": "healer",
     "amount": 894,
     "deaths": 0,
-    "elixirs": ["Elixir of Draenic Wisdom", "Elixir of Healing Power"],
+    "elixirs": [
+      "Elixir of Draenic Wisdom",
+      "Elixir of Healing Power"
+    ],
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Mana Tide Totem"
+    ],
+    "upkeep": [
+      {
+        "name": "Earth Shield",
+        "pct": 64
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -597,10 +885,30 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Ironshield Potion"],
+    "potions": [
+      "Ironshield Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Shield Wall"
+    ],
+    "upkeep": [
+      {
+        "name": "Thunder Clap",
+        "pct": 83
+      },
+      {
+        "name": "Demoralizing Shout",
+        "pct": 75
+      },
+      {
+        "name": "Commanding Shout",
+        "pct": 95
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -624,10 +932,22 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Death Wish"
+    ],
+    "upkeep": [
+      {
+        "name": "Battle Shout",
+        "pct": 89
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -651,10 +971,23 @@
     "food": true,
     "weaponBuff": false,
     "prepot": false,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Bestial Wrath",
+      "Rapid Fire"
+    ],
+    "upkeep": [
+      {
+        "name": "Hunter's Mark",
+        "pct": 98
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -678,10 +1011,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Vampiric Touch",
+        "pct": 91
+      },
+      {
+        "name": "Shadow Weaving",
+        "pct": 96
+      },
+      {
+        "name": "Misery",
+        "pct": 93
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -705,11 +1056,23 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Destruction Potion"],
+    "potions": [
+      "Destruction Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
-    "missingEnchants": ["Wrist"]
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Curse of the Elements",
+        "pct": 93
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:4:lunara",
@@ -732,10 +1095,18 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Innervate",
+      "Rebirth"
+    ],
+    "upkeep": [],
     "missingEnchants": []
   },
   {
@@ -754,14 +1125,30 @@
     "role": "healer",
     "amount": 921,
     "deaths": 1,
-    "elixirs": ["Elixir of Draenic Wisdom", "Elixir of Healing Power"],
+    "elixirs": [
+      "Elixir of Draenic Wisdom",
+      "Elixir of Healing Power"
+    ],
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion", "Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion",
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Mana Tide Totem"
+    ],
+    "upkeep": [
+      {
+        "name": "Earth Shield",
+        "pct": 67
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -786,10 +1173,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Ironshield Potion"],
+    "potions": [
+      "Ironshield Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Thunder Clap",
+        "pct": 79
+      },
+      {
+        "name": "Demoralizing Shout",
+        "pct": 71
+      },
+      {
+        "name": "Commanding Shout",
+        "pct": 91
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -814,10 +1219,24 @@
     "food": true,
     "weaponBuff": true,
     "prepot": true,
-    "potions": ["Haste Potion", "Haste Potion"],
+    "potions": [
+      "Haste Potion",
+      "Haste Potion"
+    ],
     "drums": 1,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Death Wish",
+      "Recklessness"
+    ],
+    "upkeep": [
+      {
+        "name": "Battle Shout",
+        "pct": 85
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -842,10 +1261,23 @@
     "food": true,
     "weaponBuff": false,
     "prepot": true,
-    "potions": ["Haste Potion"],
+    "potions": [
+      "Haste Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Bestial Wrath",
+      "Rapid Fire"
+    ],
+    "upkeep": [
+      {
+        "name": "Hunter's Mark",
+        "pct": 94
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -870,10 +1302,28 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Vampiric Touch",
+        "pct": 87
+      },
+      {
+        "name": "Shadow Weaving",
+        "pct": 92
+      },
+      {
+        "name": "Misery",
+        "pct": 89
+      }
+    ],
     "missingEnchants": []
   },
   {
@@ -898,11 +1348,23 @@
     "food": true,
     "weaponBuff": true,
     "prepot": true,
-    "potions": ["Destruction Potion"],
+    "potions": [
+      "Destruction Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
-    "missingEnchants": ["Wrist"]
+    "extras": [],
+    "cooldowns": [],
+    "upkeep": [
+      {
+        "name": "Curse of the Elements",
+        "pct": 89
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:5:lunara",
@@ -926,10 +1388,18 @@
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion", "Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion",
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 1,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Innervate"
+    ],
+    "upkeep": [],
     "missingEnchants": []
   },
   {
@@ -949,14 +1419,30 @@
     "bracketPercent": 73,
     "amount": 968,
     "deaths": 0,
-    "elixirs": ["Elixir of Draenic Wisdom", "Elixir of Healing Power"],
+    "elixirs": [
+      "Elixir of Draenic Wisdom",
+      "Elixir of Healing Power"
+    ],
     "food": true,
     "weaponBuff": true,
     "prepot": false,
-    "potions": ["Super Mana Potion"],
+    "potions": [
+      "Super Mana Potion"
+    ],
     "drums": 0,
     "runes": 0,
     "healthstones": 0,
+    "extras": [],
+    "cooldowns": [
+      "Mana Tide Totem",
+      "Bloodlust"
+    ],
+    "upkeep": [
+      {
+        "name": "Earth Shield",
+        "pct": 63
+      }
+    ],
     "missingEnchants": []
   }
 ]
