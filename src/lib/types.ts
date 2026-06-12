@@ -72,6 +72,21 @@ export interface AwardWithContext {
   wishlist: AwardWishlistMatch;
 }
 
+/**
+ * Raid attendance derived from imported Warcraft Logs reports: every report
+ * counts as one raid night; pull coverage measures presence within the nights
+ * they attended (late joins / early leaves).
+ */
+export interface AttendanceSummary {
+  raidsAttended: number;
+  raidsTotal: number;
+  raidPct: number;
+  pullsAttended: number;
+  /** Total boss pulls of the reports they attended. */
+  pullsTotal: number;
+  pullPct: number;
+}
+
 export interface CharacterSummary {
   character: Character;
   /** Wishlist completion per phase that has an imported wishlist. */
@@ -81,6 +96,8 @@ export interface CharacterSummary {
   offspecAwards: number;
   lastAwardAt?: string;
   hasCurrentGear: boolean;
+  /** Undefined until at least one Warcraft Logs report is imported. */
+  attendance?: AttendanceSummary;
 }
 
 export interface PhaseWishlistView {
@@ -179,6 +196,8 @@ export interface PerformanceReportView {
   session?: RaidSession;
   rows: WclPlayerFight[];
   summary: PerformanceSummary;
+  /** Total boss pulls in the report (all players) — rows.length of them attended. */
+  reportPulls: number;
 }
 
 export interface CharacterPerformance {
@@ -187,6 +206,8 @@ export interface CharacterPerformance {
   reports: PerformanceReportView[];
   /** Rollup across every report the character appears in (undefined when none). */
   career?: PerformanceSummary;
+  /** Undefined until at least one report is imported. */
+  attendance?: AttendanceSummary;
 }
 
 export interface WclReportView {

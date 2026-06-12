@@ -73,7 +73,7 @@ export default async function PerformancePage({
   const repo = await getRepo();
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
-  const { character, reports, career } = perf;
+  const { character, reports, career, attendance } = perf;
 
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const active: PerformanceReportView | undefined =
@@ -98,6 +98,14 @@ export default async function PerformancePage({
                 career median parse <ParseBadge pct={career.medianParse} /> · best{" "}
                 <ParseBadge pct={career.bestParse} />
               </span>
+            )}
+            {attendance && attendance.raidsTotal > 0 && (
+              <Badge
+                variant={attendance.raidPct < 50 ? "warning" : "secondary"}
+                title={`${attendance.raidsAttended} of ${attendance.raidsTotal} logged raids · in ${attendance.pullPct}% of boss pulls when present`}
+              >
+                {attendance.raidPct}% attendance
+              </Badge>
             )}
           </span>
         }
@@ -233,6 +241,15 @@ export default async function PerformancePage({
               </CardTitle>
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                 {format(parseISO(active.report.startTime), "d MMM yyyy")}
+                <span
+                  title={
+                    active.rows.length < active.reportPulls
+                      ? "Missing pulls usually mean a late join or early leave"
+                      : undefined
+                  }
+                >
+                  · present for {active.rows.length} of {active.reportPulls} boss pulls
+                </span>
                 {active.session && (
                   <>
                     · linked to the{" "}

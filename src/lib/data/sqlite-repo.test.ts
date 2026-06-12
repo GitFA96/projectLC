@@ -483,6 +483,56 @@ describe("sqlite repo", () => {
       expect((await repo.getDashboard()).rosterSize).toBe(13);
     });
 
+    it("deletes a character, unlinking awards and log history instead of destroying them", async () => {
+      const repo = getSqliteRepo();
+      const velora = (await repo.findCharacterByName("Velora"))!;
+      const awardsBefore = (await repo.listLootAwards()).length;
+
+      const result = await repo.deleteCharacter(velora.id);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("unreachable");
+      expect(result.unlinkedAwards).toBeGreaterThan(0);
+      expect(result.unlinkedLogRows).toBe(5); // her 5 seeded SSC pulls
+
+      expect(await repo.findCharacterByName("Velora")).toBeUndefined();
+      expect(await repo.getCharacterBundle("velora")).toBeNull();
+      // The ledger keeps every award, reopened under the raw Gargul name.
+      const awards = await repo.listLootAwards();
+      expect(awards).toHaveLength(awardsBefore);
+      const hers = awards.filter((a) => a.award.rawWinnerName === "Velora");
+      expect(hers.length).toBeGreaterThan(0);
+      expect(hers.every((a) => a.character === undefined && !a.award.external)).toBe(true);
+      // Log pulls resurface as an untracked name.
+      const untracked = await repo.listUntrackedLogPlayers();
+      expect(untracked.find((p) => p.name === "Velora")?.appearances).toBe(5);
+    });
+
+    it("computes attendance from imported reports", async () => {
+      const repo = getSqliteRepo();
+      // Baseline: one seed report, full presence.
+      const kazrakBefore = (await repo.listCharacters()).find((s) => s.character.name === "Kazrak")!;
+      expect(kazrakBefore.attendance).toMatchObject({ raidsTotal: 1, raidsAttended: 1, raidPct: 100, pullPct: 100 });
+
+      // Second report: Pyrelia present for 1 of 2 pulls, Kazrak absent.
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+        fightDraft({ fightId: 1, actorName: "Thrainn" }),
+        fightDraft({ fightId: 2, actorName: "Thrainn", encounterName: "Moroes" }),
+      ]);
+
+      const summaries = await repo.listCharacters();
+      const kazrak = summaries.find((s) => s.character.name === "Kazrak")!.attendance!;
+      expect(kazrak).toMatchObject({ raidsTotal: 2, raidsAttended: 1, raidPct: 50, pullPct: 100 });
+      const pyrelia = summaries.find((s) => s.character.name === "Pyrelia")!.attendance!;
+      // Pull coverage counts only the nights she attended: 1 of that report's 2 pulls.
+      expect(pyrelia).toMatchObject({ raidsTotal: 2, raidsAttended: 1, pullsAttended: 1, pullsTotal: 2, pullPct: 50 });
+
+      const perf = (await repo.getCharacterPerformance("pyrelia"))!;
+      expect(perf.attendance?.raidPct).toBe(50);
+      expect(perf.reports[0].reportPulls).toBe(2);
+      expect(perf.reports[0].rows).toHaveLength(1);
+    });
+
     it("purges demo data while keeping everything imported", async () => {
       const repo = getSqliteRepo();
       // Real content on top of the seed: a character, a session+award, a report

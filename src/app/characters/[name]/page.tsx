@@ -134,6 +134,17 @@ export default async function CharacterPage({ params }: { params: Promise<Params
             {summary.offspecAwards > 0 && ` (${summary.offspecAwards} off-spec)`}
             {summary.lastAwardAt &&
               ` · last ${format(parseISO(summary.lastAwardAt), "d MMM yyyy")}`}
+            {summary.attendance && summary.attendance.raidsTotal > 0 && (
+              <>
+                {" · "}
+                <span
+                  title={`In ${summary.attendance.pullPct}% of boss pulls on the nights they attended`}
+                >
+                  {summary.attendance.raidPct}% attendance ({summary.attendance.raidsAttended}/
+                  {summary.attendance.raidsTotal} logged raids)
+                </span>
+              </>
+            )}
           </p>
         </div>
       </PageHeader>
