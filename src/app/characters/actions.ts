@@ -26,6 +26,8 @@ const characterFormSchema = z.object({
   role: z.enum(ROLES, "Pick a role."),
   race: z.string().trim().optional(),
   status: z.enum(CHARACTER_STATUSES),
+  /** Selected main when status is "alt" (a character id); empty otherwise. */
+  mainCharacterId: z.string().trim().optional(),
   note: z.string().trim().optional(),
 });
 
@@ -40,7 +42,7 @@ export async function saveCharacter(
   formData: FormData,
 ): Promise<CharacterFormState> {
   const raw = Object.fromEntries(
-    ["id", "name", "class", "spec", "role", "race", "status", "note"].map((k) => [
+    ["id", "name", "class", "spec", "role", "race", "status", "mainCharacterId", "note"].map((k) => [
       k,
       (formData.get(k) ?? "").toString(),
     ]),
@@ -49,10 +51,17 @@ export async function saveCharacter(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid character.", values: raw };
   }
-  const { id, ...fields } = parsed.data;
+  const { id, mainCharacterId, ...fields } = parsed.data;
+  // The main link only applies to alts; clear it for any other status. An alt
+  // can't be its own main.
+  const main = fields.status === "alt" ? (mainCharacterId || null) : null;
+  if (main !== null && main === id) {
+    return { error: "A character can't be its own main.", values: raw };
+  }
   const draft = {
     ...fields,
     race: fields.race || undefined,
+    mainCharacterId: main,
     note: fields.note || undefined,
   };
 

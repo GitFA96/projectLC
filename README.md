@@ -76,11 +76,15 @@ The import result includes a **consumable-tuning dump**: every aura at a boss pu
 
 Characters have a status: `main` / `alt` / `inactive` (the guild roster) or **`pug`** — a known off-roster player (PUG, friend's alt). Pugs get full profiles, loot history and performance pages, but stay **out of roster KPIs and loot-fairness stats**. Moving someone between the lists is just a status change (edit page, or the one-click buttons on `/roster`).
 
+An **alt can be linked to its main**: pick the main on the edit page (the picker appears when status is `alt`). The roster and profile then show “alt of \<Main\>”, and the main's profile lists its known alts — both directions link through. The link survives status changes, so moving an alt to inactive and back keeps it.
+
 Names seen in imported logs that match nobody appear on the roster page under **“Seen in logs, not tracked”** with class/spec prefilled from the log — track them as puggers (or add to the roster) and their already-imported log history attaches instantly: log↔character matching is re-derived at read time, no re-fetch needed.
 
 All three lists support **checkbox bulk actions** (select-all included): move roster members to puggers or inactive, promote puggers back, track many log names at once — or **delete characters outright**. Deleting never destroys history: awards reopen in the ledger under the raw Gargul name and log pulls return to the untracked list.
 
 Imported reports also drive **attendance**, led by a **per-reset check** (EU reset, Wednesday): one dot per raid week the guild logged — filled if the character raided that week, hollow if not. Weeks where the guild didn't log don't exist, and weeks before a character's first appearance don't count against them. The classic raids-attended % and pull coverage (late joins/early leaves) stay in the tooltip and as secondary numbers. Shows as a roster column (with a one-click jump to each character's performance page), on profile headers, and on the performance page.
+
+**Excused absences:** an officer can mark any reset week as excused for a character (the “Attendance by reset” card on the performance page). An excused week stops counting toward that character's markup — both the weekly check and the raids %, so a pre-cleared week off never reads as absence — but stays visible as a distinct dashed dot so the gap isn't hidden. Toggle it back to count again anytime.
 
 ### Removing the demo data
 

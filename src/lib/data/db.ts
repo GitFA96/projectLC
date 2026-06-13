@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import {
+  attendanceExemptionSchema,
   characterSchema,
   gearSetSchema,
   guildSchema,
@@ -14,6 +15,7 @@ import {
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
 import type {
+  AttendanceExemption,
   Character,
   GearSet,
   Guild,
@@ -47,15 +49,16 @@ CREATE TABLE IF NOT EXISTS guild (
   active_phase INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS characters (
-  id       TEXT PRIMARY KEY,
-  guild_id TEXT NOT NULL,
-  name     TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  class    TEXT NOT NULL,
-  spec     TEXT NOT NULL,
-  role     TEXT NOT NULL,
-  race     TEXT,
-  status   TEXT NOT NULL,
-  note     TEXT
+  id                TEXT PRIMARY KEY,
+  guild_id          TEXT NOT NULL,
+  name              TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  class             TEXT NOT NULL,
+  spec              TEXT NOT NULL,
+  role              TEXT NOT NULL,
+  race              TEXT,
+  status            TEXT NOT NULL,
+  main_character_id TEXT,
+  note              TEXT
 );
 CREATE TABLE IF NOT EXISTS items (
   id          INTEGER PRIMARY KEY,
@@ -152,6 +155,13 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
 );
 CREATE INDEX IF NOT EXISTS wcl_player_fights_by_report ON wcl_player_fights(report_code);
 CREATE INDEX IF NOT EXISTS wcl_player_fights_by_character ON wcl_player_fights(character_id);
+-- Excused absences: one row per character × reset week that shouldn't count.
+CREATE TABLE IF NOT EXISTS attendance_exemptions (
+  character_id TEXT NOT NULL REFERENCES characters(id),
+  week_start   TEXT NOT NULL,
+  note         TEXT,
+  PRIMARY KEY (character_id, week_start)
+);
 `;
 
 export function defaultDbPath(): string {
@@ -197,6 +207,7 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "cooldowns_json", "cooldowns_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("characters", "main_character_id", "main_character_id TEXT");
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -243,9 +254,15 @@ export function insertGuild(db: DatabaseSync, g: Guild): void {
 
 export function insertCharacter(db: DatabaseSync, c: Character): void {
   db.prepare(
-    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, race, status, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(c.id, c.guildId, c.name, c.class, c.spec, c.role, c.race ?? null, c.status, c.note ?? null);
+    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, race, status, main_character_id, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.guildId, c.name, c.class, c.spec, c.role, c.race ?? null, c.status, c.mainCharacterId ?? null, c.note ?? null);
+}
+
+export function insertAttendanceExemption(db: DatabaseSync, e: AttendanceExemption): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO attendance_exemptions (character_id, week_start, note) VALUES (?, ?, ?)`,
+  ).run(e.characterId, e.weekStart, e.note ?? null);
 }
 
 export function insertItem(db: DatabaseSync, i: Item): void {
@@ -315,8 +332,13 @@ function rowToGuild(r: Row): unknown {
 function rowToCharacter(r: Row): unknown {
   return {
     id: r.id, guildId: r.guild_id, name: r.name, class: r.class, spec: r.spec,
-    role: r.role, race: opt(r.race), status: r.status, note: opt(r.note),
+    role: r.role, race: opt(r.race), status: r.status,
+    mainCharacterId: (r.main_character_id as string | null) ?? null, note: opt(r.note),
   };
+}
+
+function rowToAttendanceExemption(r: Row): unknown {
+  return { characterId: r.character_id, weekStart: r.week_start, note: opt(r.note) };
 }
 
 function rowToItem(r: Row): unknown {
@@ -403,6 +425,7 @@ export function loadStore(db: DatabaseSync): EntityStore {
     lootAwards: parseAll("loot_awards", lootAwardSchema, (db.prepare("SELECT * FROM loot_awards").all() as Row[]).map(rowToLootAward)),
     wclReports: parseAll("wcl_reports", wclReportSchema, (db.prepare("SELECT * FROM wcl_reports").all() as Row[]).map(rowToWclReport)),
     wclPlayerFights: parseAll("wcl_player_fights", wclPlayerFightSchema, (db.prepare("SELECT * FROM wcl_player_fights").all() as Row[]).map(rowToWclPlayerFight)),
+    attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
   };
   validateStore(store, "sqlite database");
   return store;
@@ -422,6 +445,7 @@ function seedIfEmpty(db: DatabaseSync): void {
       for (const a of seed.lootAwards) insertLootAward(db, a);
       for (const r of seed.wclReports) insertWclReport(db, r);
       for (const f of seed.wclPlayerFights) insertWclPlayerFight(db, f);
+      for (const e of seed.attendanceExemptions) insertAttendanceExemption(db, e);
       bumpDataVersion(db);
     });
   } catch (e) {

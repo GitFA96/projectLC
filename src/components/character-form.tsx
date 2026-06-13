@@ -37,13 +37,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function CharacterForm({ character }: { character?: Character }) {
+/** Slim main-candidate option (any other guild character). */
+export interface MainOption {
+  id: string;
+  name: string;
+  wowClass: string;
+}
+
+export function CharacterForm({
+  character,
+  mains = [],
+}: {
+  character?: Character;
+  /** Guild characters this one could be an alt of (excludes self / pugs). */
+  mains?: MainOption[];
+}) {
   const [state, formAction, pending] = React.useActionState<CharacterFormState, FormData>(
     saveCharacter,
     {},
   );
   const v = (key: string, fallback?: string) => state.values?.[key] ?? fallback ?? "";
   const isEdit = character !== undefined;
+  const [status, setStatus] = React.useState<string>(v("status", character?.status ?? "main"));
 
   return (
     <Card className="max-w-2xl">
@@ -98,7 +113,11 @@ export function CharacterForm({ character }: { character?: Character }) {
               </FormSelect>
             </Field>
             <Field label="Status">
-              <FormSelect name="status" defaultValue={v("status", character?.status ?? "main")}>
+              <FormSelect
+                name="status"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
                 {CHARACTER_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABELS[s]}
@@ -106,6 +125,21 @@ export function CharacterForm({ character }: { character?: Character }) {
                 ))}
               </FormSelect>
             </Field>
+            {status === "alt" && (
+              <Field label="Alt of (main)">
+                <FormSelect
+                  name="mainCharacterId"
+                  defaultValue={v("mainCharacterId", character?.mainCharacterId ?? "")}
+                >
+                  <option value="">— no main set —</option>
+                  {mains.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.wowClass})
+                    </option>
+                  ))}
+                </FormSelect>
+              </Field>
+            )}
           </div>
           <Field label="Note (optional)">
             <Input

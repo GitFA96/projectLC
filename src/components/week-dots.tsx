@@ -14,11 +14,15 @@ export function WeekDots({ weeks, className }: { weeks: AttendanceWeek[]; classN
         <span
           key={w.start}
           title={`Reset week of ${format(parseISO(w.start), "d MMM")}: ${
-            w.attended ? "raided" : "did not raid"
+            w.excused ? "excused — doesn't count" : w.attended ? "raided" : "did not raid"
           } (${w.reports} log${w.reports === 1 ? "" : "s"} that week)`}
           className={cn(
             "inline-block h-2 w-2 rounded-full",
-            w.attended ? "bg-emerald-500" : "border border-amber-500/70 bg-transparent",
+            w.excused
+              ? "border border-dashed border-slate-400 bg-slate-200"
+              : w.attended
+                ? "bg-emerald-500"
+                : "border border-amber-500/70 bg-transparent",
           )}
         />
       ))}

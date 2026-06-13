@@ -18,6 +18,7 @@ import {
 import { CLASS_TEXT_COLORS, QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
 import type { Item, PerformanceReportView, WclPlayerFight } from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
+import { AttendanceWeeks } from "@/components/performance/attendance-weeks";
 import { ItemIcon } from "@/components/item-icon";
 import { SpecBadge } from "@/components/spec-badge";
 import { WeekDots } from "@/components/week-dots";
@@ -418,6 +419,10 @@ export default async function PerformancePage({
               </p>
             </CardContent>
           </Card>
+
+          {attendance && attendance.weeks.length > 0 && (
+            <AttendanceWeeks characterId={character.id} attendance={attendance} />
+          )}
 
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <Card>

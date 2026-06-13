@@ -9,6 +9,7 @@ import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
+  AttendanceExemption,
   AttendanceSummary,
   AwardWithContext,
   Character,
@@ -46,6 +47,7 @@ export interface EntityStore {
   lootAwards: LootAward[];
   wclReports: WclReport[];
   wclPlayerFights: WclPlayerFight[];
+  attendanceExemptions: AttendanceExemption[];
 }
 
 /** Referential integrity — hard errors; these always indicate a broken data source. */
@@ -79,14 +81,45 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: WCL player fight ${row.id} references unknown characterId ${row.characterId}`);
     }
   }
+  for (const exemption of store.attendanceExemptions) {
+    if (!charIds.has(exemption.characterId)) {
+      throw new Error(`${sourceLabel}: attendance exemption references unknown characterId ${exemption.characterId}`);
+    }
+  }
+  // A main link must resolve to another character (a real, non-self target).
+  for (const character of store.roster) {
+    if (character.mainCharacterId !== null) {
+      if (character.mainCharacterId === character.id) {
+        throw new Error(`${sourceLabel}: character ${character.id} lists itself as its main`);
+      }
+      if (!charIds.has(character.mainCharacterId)) {
+        throw new Error(`${sourceLabel}: character ${character.id} lists unknown main ${character.mainCharacterId}`);
+      }
+    }
+  }
 }
 
 export function createRepoFromStore(store: EntityStore): Repo {
-  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights } = store;
+  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
   const charactersBySlug = new Map(roster.map((c) => [c.name.toLowerCase(), c]));
+  // Reverse main→alts: only links that resolve to a real other character.
+  const altNamesByMain = new Map<string, string[]>();
+  for (const c of roster) {
+    if (c.mainCharacterId && c.mainCharacterId !== c.id && charactersById.has(c.mainCharacterId)) {
+      const list = altNamesByMain.get(c.mainCharacterId) ?? [];
+      list.push(c.name);
+      altNamesByMain.set(c.mainCharacterId, list);
+    }
+  }
+  const exemptWeeksByCharacter = new Map<string, Set<string>>();
+  for (const e of attendanceExemptions) {
+    const set = exemptWeeksByCharacter.get(e.characterId) ?? new Set<string>();
+    set.add(e.weekStart);
+    exemptWeeksByCharacter.set(e.characterId, set);
+  }
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
   const gearSetsByCharacter = new Map<string, GearSet[]>();
@@ -135,6 +168,12 @@ export function createRepoFromStore(store: EntityStore): Repo {
       completion: computeCompletion(computeWishlistRows(set, current, awardsOf(character.id))),
     }));
     const last = myAwards[0]?.award.awardedAt;
+    // Resolve the alt→main link to a display name (only when it's a valid link).
+    const main =
+      character.mainCharacterId && character.mainCharacterId !== character.id
+        ? charactersById.get(character.mainCharacterId)
+        : undefined;
+    const altNames = altNamesByMain.get(character.id);
     return {
       character,
       completionByPhase,
@@ -145,6 +184,8 @@ export function createRepoFromStore(store: EntityStore): Repo {
       hasCurrentGear: current !== undefined,
       attendance: computeAttendance(character.id),
       loggedSpec: loggedSpecOf(character.id),
+      mainCharacterName: character.status === "alt" ? main?.name : undefined,
+      altNames: altNames && altNames.length > 0 ? [...altNames].sort() : undefined,
     };
   }
 
@@ -199,19 +240,25 @@ export function createRepoFromStore(store: EntityStore): Repo {
     if (wclReports.length === 0) return undefined;
     const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
     const attended = new Set(myRows.map((r) => r.reportCode));
+    const exemptWeeks = exemptWeeksByCharacter.get(characterId) ?? new Set<string>();
     const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
 
     // Fair denominator: only raids since their first logged appearance count.
     const chronological = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
     const firstIdx = chronological.findIndex((r) => attended.has(r.code));
-    const tracked = firstIdx === -1 ? [] : chronological.slice(firstIdx);
+    const since = firstIdx === -1 ? [] : chronological.slice(firstIdx);
+    // Excused weeks drop out of the raid-level markup entirely (not counted as
+    // missed); they still surface in the weekly dots so officers see the gap.
+    const tracked = since.filter((r) => !exemptWeeks.has(resetWeekStart(r.startTime)));
     const recent = tracked.slice(-10);
     const recentAttended = recent.filter((r) => attended.has(r.code)).length;
+    const attendedTracked = tracked.filter((r) => attended.has(r.code)).length;
 
-    // Per-reset check: bucket their tracked raids into reset weeks (only weeks
-    // where the guild logged at all exist — a guild break is nobody's absence).
+    // Per-reset check: bucket raids since first-seen into reset weeks (only
+    // weeks where the guild logged at all exist — a guild break is nobody's
+    // absence). Excused weeks are shown but excluded from the markup.
     const weekBuckets = new Map<string, { reports: number; attended: boolean }>();
-    for (const report of tracked) {
+    for (const report of since) {
       const start = resetWeekStart(report.startTime);
       const bucket = weekBuckets.get(start) ?? { reports: 0, attended: false };
       bucket.reports++;
@@ -220,16 +267,17 @@ export function createRepoFromStore(store: EntityStore): Repo {
     }
     const weeks = [...weekBuckets]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports }))
+      .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports, excused: exemptWeeks.has(start) }))
       .slice(-8);
+    const countedWeeks = weeks.filter((w) => !w.excused);
 
     const reportPulls = pullsByReport();
     const pullsTotal = [...attended].reduce((sum, code) => sum + (reportPulls.get(code) ?? 0), 0);
     return {
       raidsTotal: wclReports.length,
-      raidsAttended: attended.size,
+      raidsAttended: attendedTracked,
       raidsTracked: tracked.length,
-      raidPct: pct(attended.size, tracked.length),
+      raidPct: pct(attendedTracked, tracked.length),
       firstSeenAt: firstIdx === -1 ? undefined : chronological[firstIdx].startTime,
       recentAttended,
       recentTotal: recent.length,
@@ -238,8 +286,9 @@ export function createRepoFromStore(store: EntityStore): Repo {
       pullsTotal,
       pullPct: pct(myRows.length, pullsTotal),
       weeks,
-      weeksAttended: weeks.filter((w) => w.attended).length,
-      weeksTracked: weeks.length,
+      weeksAttended: countedWeeks.filter((w) => w.attended).length,
+      weeksTracked: countedWeeks.length,
+      weeksExcused: weeks.length - countedWeeks.length,
     };
   }
 
