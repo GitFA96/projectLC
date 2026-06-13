@@ -39,6 +39,7 @@ export async function setCharactersStatus(input: SetStatusInput): Promise<Roster
         role: c.role,
         race: c.race,
         status: parsed.data.status,
+        mainCharacterId: c.mainCharacterId, // preserve the alt→main link across moves
         note: c.note,
       });
       if (result.ok) moved++;

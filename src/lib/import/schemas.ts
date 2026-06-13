@@ -41,6 +41,12 @@ export const characterSchema = z.object({
   role: z.enum(ROLES),
   race: z.string().optional(),
   status: z.enum(CHARACTER_STATUSES),
+  /**
+   * For an alt: the id of the character it belongs to (its main). Null for
+   * mains and unlinked alts. Stored regardless of status so toggling alt↔main
+   * doesn't lose the link, but only meaningful while status is "alt".
+   */
+  mainCharacterId: z.string().nullable().default(null),
   note: z.string().optional(),
 });
 
@@ -214,6 +220,18 @@ export const wclPlayerFightSchema = z.object({
   gear: z.array(wclGearItemSchema).default([]),
 });
 
+/**
+ * An excused absence: one character × one reset week (the EU-reset Wednesday
+ * ISO date) that should not count toward that character's attendance markup.
+ */
+export const attendanceExemptionSchema = z.object({
+  characterId: z.string().min(1),
+  /** Reset-week start (Wednesday), as produced by resetWeekStart(). */
+  weekStart: z.string().min(1),
+  /** Optional reason ("told us in advance", "holiday"). */
+  note: z.string().optional(),
+});
+
 /* Seed file schemas */
 export const seedGuildSchema = guildSchema;
 export const seedRosterSchema = z.array(characterSchema);
@@ -223,6 +241,7 @@ export const seedRaidSessionsSchema = z.array(raidSessionSchema);
 export const seedLootAwardsSchema = z.array(lootAwardSchema);
 export const seedWclReportsSchema = z.array(wclReportSchema);
 export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
+export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
 
 /* Parser output contracts (used by the M1 import preview; M2 parsers emit these) */
 

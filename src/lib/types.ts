@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type {
+  attendanceExemptionSchema,
   characterSchema,
   gearSetSchema,
   guildSchema,
@@ -29,6 +30,7 @@ export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
 export type WclGearItem = WclPlayerFight["gear"][number];
 export type WclRole = z.infer<typeof wclRoleSchema>;
+export type AttendanceExemption = z.infer<typeof attendanceExemptionSchema>;
 
 /* Derived view models (computed, never stored) */
 
@@ -102,8 +104,12 @@ export interface AttendanceSummary {
    * imported log, since the character's first appearance — newest last, max 8.
    */
   weeks: AttendanceWeek[];
+  /** Attended, non-excused weeks. */
   weeksAttended: number;
+  /** Non-excused weeks — the per-reset denominator. */
   weeksTracked: number;
+  /** Weeks marked as an excused absence (shown, but not counted either way). */
+  weeksExcused: number;
 }
 
 export interface AttendanceWeek {
@@ -112,6 +118,8 @@ export interface AttendanceWeek {
   attended: boolean;
   /** Imported guild reports in that week. */
   reports: number;
+  /** Officer-marked excused absence — neither attended nor missed for the markup. */
+  excused: boolean;
 }
 
 export interface CharacterSummary {
@@ -127,6 +135,10 @@ export interface CharacterSummary {
   attendance?: AttendanceSummary;
   /** Spec from their most recent logged pulls — may disagree with the roster entry. */
   loggedSpec?: string;
+  /** Resolved name of this alt's main (when status "alt" and the link is valid). */
+  mainCharacterName?: string;
+  /** Names of characters that list this one as their main (this char is a main). */
+  altNames?: string[];
 }
 
 export interface PhaseWishlistView {

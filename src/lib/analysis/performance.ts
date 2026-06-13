@@ -21,12 +21,15 @@ export function attendanceTitle(a: AttendanceSummary): string {
     a.firstSeenAt
       ? `Counted since their first logged raid (${format(parseISO(a.firstSeenAt), "d MMM yyyy")}): ${a.raidsAttended} of ${a.raidsTracked}`
       : `${a.raidsAttended} of ${a.raidsTracked} logged raids`,
-    `raided in ${a.weeksAttended} of the last ${a.weeksTracked} reset week${a.weeksTracked === 1 ? "" : "s"} the guild logged`,
+    `raided in ${a.weeksAttended} of the last ${a.weeksTracked} counted reset week${a.weeksTracked === 1 ? "" : "s"}`,
     `last ${a.recentTotal} raid${a.recentTotal === 1 ? "" : "s"}: ${a.recentAttended}/${a.recentTotal}`,
     `in ${a.pullPct}% of boss pulls when present`,
   ];
+  if (a.weeksExcused > 0) {
+    parts.push(`${a.weeksExcused} reset week${a.weeksExcused === 1 ? "" : "s"} excused (not counted)`);
+  }
   if (a.raidsTracked < a.raidsTotal) {
-    parts.push(`${a.raidsTotal - a.raidsTracked} earlier log(s) from before they joined don't count`);
+    parts.push(`${a.raidsTotal - a.raidsTracked} earlier log(s)/excused week(s) don't count`);
   }
   return parts.join(" · ");
 }

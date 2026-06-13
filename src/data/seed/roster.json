@@ -131,6 +131,7 @@
     "role": "Ranged DPS",
     "race": "Orc",
     "status": "alt",
-    "note": "Alt of Kazrak"
+    "note": "Alt of Kazrak",
+    "mainCharacterId": "c-sylvaria"
   }
 ]

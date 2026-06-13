@@ -113,13 +113,44 @@ export default async function CharacterPage({ params }: { params: Promise<Params
                   <SpecBadge spec={summary.loggedSpec} wowClass={character.class} className="ml-0.5" />
                 </Badge>
               )}
-            {character.status === "alt" && <Badge variant="muted">alt</Badge>}
+            {character.status === "alt" &&
+              (summary.mainCharacterName ? (
+                <Badge variant="muted">
+                  alt of{" "}
+                  <Link
+                    href={`/characters/${encodeURIComponent(summary.mainCharacterName.toLowerCase())}`}
+                    className="ml-0.5 font-medium underline-offset-2 hover:underline"
+                  >
+                    {summary.mainCharacterName}
+                  </Link>
+                </Badge>
+              ) : (
+                <Badge variant="muted" title="Marked as an alt, but no main is set — set one on the edit page">
+                  alt
+                </Badge>
+              ))}
             {character.status === "pug" && (
               <Badge variant="muted" title="Known off-roster player — excluded from roster KPIs and fairness stats">
                 pug
               </Badge>
             )}
             {character.status === "inactive" && <Badge variant="muted">inactive</Badge>}
+            {summary.altNames && summary.altNames.length > 0 && (
+              <span className="text-xs text-muted-foreground" title="Alts that list this character as their main">
+                alts:{" "}
+                {summary.altNames.map((alt, i) => (
+                  <span key={alt}>
+                    {i > 0 && ", "}
+                    <Link
+                      href={`/characters/${encodeURIComponent(alt.toLowerCase())}`}
+                      className="underline-offset-2 hover:underline"
+                    >
+                      {alt}
+                    </Link>
+                  </span>
+                ))}
+              </span>
+            )}
             {character.note && <span className="text-xs">· {character.note}</span>}
           </span>
         }

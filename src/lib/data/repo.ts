@@ -47,7 +47,10 @@ export interface Repo {
 
 /* Write-side inputs: entities minus the fields the repo generates. */
 export type GearSetDraft = Omit<GearSet, "id" | "importedAt">;
-export type CharacterDraft = Omit<Character, "id" | "guildId">;
+/** mainCharacterId is optional on input — omitting it defaults to no link. */
+export type CharacterDraft = Omit<Character, "id" | "guildId" | "mainCharacterId"> & {
+  mainCharacterId?: string | null;
+};
 export type RaidSessionDraft = Omit<RaidSession, "id" | "guildId">;
 export interface AwardDraft {
   rawWinnerName: string;
@@ -164,6 +167,17 @@ export interface WriteRepo extends Repo {
   saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
   /** Remove one fetched report and all its per-player rows (wrongful import). */
   deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
+  /**
+   * Mark (or clear) one reset week as an excused absence for a character, so it
+   * doesn't count toward their attendance markup. weekStart is the reset-week
+   * Wednesday (resetWeekStart). Idempotent.
+   */
+  setAttendanceExemption(
+    characterId: string,
+    weekStart: string,
+    excused: boolean,
+    note?: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
   /**

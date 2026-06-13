@@ -61,7 +61,7 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Greater Agility", category: "battleElixir", buffNames: ["Greater Agility"] },
   { label: "Winterfall Firewater", category: "battleElixir" },
   /* Guardian elixirs */
-  { label: "Elixir of Major Defense", category: "guardianElixir", buffNames: ["Major Defense"] },
+  { label: "Elixir of Major Defense", category: "guardianElixir", ids: [28502], buffNames: ["Major Defense", "Major Armor"] },
   { label: "Elixir of Major Fortitude", category: "guardianElixir", ids: [39625], buffNames: ["Major Fortitude"] },
   { label: "Elixir of Major Mageblood", category: "guardianElixir", buffNames: ["Major Mageblood"] },
   { label: "Elixir of Draenic Wisdom", category: "guardianElixir", ids: [39627], buffNames: ["Draenic Wisdom"] },
@@ -71,6 +71,10 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Fortitude", category: "guardianElixir", buffNames: ["Health II"] },
   { label: "Gift of Arthas", category: "guardianElixir" },
   { label: "Major Troll's Blood Elixir", category: "guardianElixir", buffNames: ["Regeneration"] },
+  /* Zanza buffs (Zandalar) — guardian-elixir slot, "one Zanza at a time". */
+  { label: "Swiftness of Zanza", category: "guardianElixir", ids: [24383] },
+  { label: "Spirit of Zanza", category: "guardianElixir" },
+  { label: "Sheen of Zanza", category: "guardianElixir" },
   /* Off-slot consumables (stack with everything — sweaty-raider tells) */
   { label: "Bogling Root", category: "misc", ids: [5665], buffNames: ["Fury of the Bogling"] },
   { label: "Kreeg's Stout Beatdown", category: "misc", ids: [22790] },
@@ -115,7 +119,7 @@ const SCROLL_PATTERN = /^scroll of (agility|intellect|protection|spirit|stamina|
  */
 const NONCONSUMABLE_AURA_IDS = new Set<number>([
   25898, 27127, 25895, 27141, 27143, 20218, 2048, 24932, 27142, 24907, 27149,
-  2458, 27125, 27168, 469, 25780, 9634, 25433, 27144, 20217, 6346, 71,
+  2458, 27125, 27168, 469, 25780, 9634, 25433, 27144, 20217, 6346, 71, 1038,
 ]);
 
 const NONCONSUMABLE_AURA_NAMES = new Set<string>(
@@ -127,13 +131,14 @@ const NONCONSUMABLE_AURA_NAMES = new Set<string>(
     "Frost Armor", "Fel Armor", "Demon Armor", "Demon Skin", "Blood Pact",
     "Water Shield", "Lightning Shield", "Earth Shield", "Unending Breath",
     "Detect Invisibility", "Amplify Magic", "Dampen Magic", "Vanguard",
-    "Trueshot Aura", "Heroic Presence", "Inspiring Presence",
+    "Trueshot Aura", "Heroic Presence", "Inspiring Presence", "Hand of Salvation",
   ].map((n) => n.toLowerCase()),
 );
 
 /** Buff families that are never consumables (auras, stances, forms, blessings…). */
 const NONCONSUMABLE_AURA_PATTERNS: RegExp[] = [
   /^(greater )?blessing of /,
+  /^hand of /,
   /^prayer of /,
   /^seal of /,
   /^aspect of the /,

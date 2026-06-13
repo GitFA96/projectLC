@@ -48,6 +48,8 @@ export interface RosterRow {
   attendance?: AttendanceSummary;
   /** Spec from their most recent logged pulls — flagged when it disagrees. */
   loggedSpec?: string;
+  /** Resolved main name when this row is an alt. */
+  mainCharacterName?: string;
 }
 
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
@@ -95,7 +97,18 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         cell: ({ row }) => (
           <span className="flex items-center gap-1.5">
             <CharacterLink name={row.original.name} wowClass={row.original.wowClass} />
-            {row.original.status === "alt" && <Badge variant="muted">alt</Badge>}
+            {row.original.status === "alt" && (
+              <Badge
+                variant="muted"
+                title={
+                  row.original.mainCharacterName
+                    ? `Alt of ${row.original.mainCharacterName}`
+                    : "Marked as an alt, but no main is set"
+                }
+              >
+                {row.original.mainCharacterName ? `alt of ${row.original.mainCharacterName}` : "alt"}
+              </Badge>
+            )}
             {!row.original.hasCurrentGear && (
               <Badge variant="warning" title="No current gear imported">
                 no gear

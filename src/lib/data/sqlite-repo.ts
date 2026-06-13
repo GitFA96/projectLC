@@ -3,6 +3,7 @@ import {
   bumpDataVersion,
   getDataVersion,
   getDb,
+  insertAttendanceExemption,
   insertCharacter,
   insertGearSet,
   insertItem,
@@ -130,6 +131,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     const guild = readModel().store.guild;
     const parsed = characterSchema.safeParse({
       ...draft,
+      mainCharacterId: draft.mainCharacterId ?? null,
       id: `chr_${randomUUID()}`,
       guildId: guild.id,
     } satisfies Character);
@@ -147,7 +149,12 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     if (nameTaken(draft.name, id)) {
       return { ok: false, error: `A character named “${draft.name.trim()}” already exists.` };
     }
-    const parsed = characterSchema.safeParse({ ...draft, id, guildId: current.guildId } satisfies Character);
+    const parsed = characterSchema.safeParse({
+      ...draft,
+      mainCharacterId: draft.mainCharacterId ?? null,
+      id,
+      guildId: current.guildId,
+    } satisfies Character);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid character." };
     const db = getDb();
     withTx(db, () => {
@@ -351,6 +358,28 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
     return { ok: true as const, rowsRemoved };
+  },
+
+  async setAttendanceExemption(characterId: string, weekStart: string, excused: boolean, note?: string) {
+    if (!readModel().store.roster.some((c) => c.id === characterId)) {
+      return { ok: false as const, error: "Character not found." };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+      return { ok: false as const, error: "Invalid reset-week date." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      if (excused) {
+        insertAttendanceExemption(db, { characterId, weekStart, note: note?.trim() || undefined });
+      } else {
+        db.prepare("DELETE FROM attendance_exemptions WHERE character_id = ? AND week_start = ?").run(
+          characterId,
+          weekStart,
+        );
+      }
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
   },
 
   async addItemsIfMissing(items: Item[]): Promise<number> {

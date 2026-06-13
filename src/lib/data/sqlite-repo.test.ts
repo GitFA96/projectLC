@@ -562,11 +562,12 @@ describe("sqlite repo", () => {
       // Per-reset check: seed raid (Thu 4 Jun → week of Wed 3 Jun) attended,
       // the new raid week (Wed 10 Jun) missed.
       expect(kazrak.weeks).toEqual([
-        { start: "2026-06-03", attended: true, reports: 1 },
-        { start: "2026-06-10", attended: false, reports: 1 },
+        { start: "2026-06-03", attended: true, reports: 1, excused: false },
+        { start: "2026-06-10", attended: false, reports: 1, excused: false },
       ]);
       expect(kazrak.weeksAttended).toBe(1);
       expect(kazrak.weeksTracked).toBe(2);
+      expect(kazrak.weeksExcused).toBe(0);
       // Spec from the most recent logged pulls rides along on the summary.
       expect(summaries.find((s) => s.character.name === "Kazrak")!.loggedSpec).toBe("Arms");
       // Pyrelia first appears in the SECOND report — the first one is from
@@ -578,7 +579,7 @@ describe("sqlite repo", () => {
       });
       expect(pyrelia.firstSeenAt).toBe("2026-06-10T19:00:00.000Z");
       // Weeks from before she joined don't appear in her per-reset row either.
-      expect(pyrelia.weeks).toEqual([{ start: "2026-06-10", attended: true, reports: 1 }]);
+      expect(pyrelia.weeks).toEqual([{ start: "2026-06-10", attended: true, reports: 1, excused: false }]);
       // Aldric never appears in any log: no percentage, just the context count.
       const aldric = summaries.find((s) => s.character.name === "Aldric")!.attendance!;
       expect(aldric).toMatchObject({ raidsTotal: 2, raidsAttended: 0, raidsTracked: 0 });
@@ -588,6 +589,43 @@ describe("sqlite repo", () => {
       expect(perf.attendance?.raidPct).toBe(100);
       expect(perf.reports[0].reportPulls).toBe(2);
       expect(perf.reports[0].rows).toHaveLength(1);
+    });
+
+    it("excuses a reset week so it stops counting against the markup", async () => {
+      const repo = getSqliteRepo();
+      // Second report in a NEW reset week (10 Jun) that Kazrak misses → 50%.
+      await repo.saveWclReport(reportDraft, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+      const before = (await repo.listCharacters()).find((s) => s.character.name === "Kazrak")!.attendance!;
+      expect(before).toMatchObject({ raidsTracked: 2, raidPct: 50, weeksAttended: 1, weeksTracked: 2 });
+
+      const kazrakId = (await repo.findCharacterByName("Kazrak"))!.id;
+      const set = await repo.setAttendanceExemption(kazrakId, "2026-06-10", true);
+      expect(set.ok).toBe(true);
+
+      const after = (await repo.listCharacters()).find((s) => s.character.name === "Kazrak")!.attendance!;
+      // The excused week drops out of both denominators; only the attended
+      // week (3 Jun) remains counted → back to 100%.
+      expect(after).toMatchObject({ raidsTracked: 1, raidPct: 100, weeksAttended: 1, weeksTracked: 1, weeksExcused: 1 });
+      expect(after.weeks.find((w) => w.start === "2026-06-10")!.excused).toBe(true);
+
+      // Toggling it back restores the miss.
+      await repo.setAttendanceExemption(kazrakId, "2026-06-10", false);
+      const restored = (await repo.listCharacters()).find((s) => s.character.name === "Kazrak")!.attendance!;
+      expect(restored).toMatchObject({ raidPct: 50, weeksTracked: 2, weeksExcused: 0 });
+    });
+
+    it("links an alt to its main and surfaces the relationship both ways", async () => {
+      const repo = getSqliteRepo();
+      const main = (await repo.findCharacterByName("Kazrak"))!;
+      const alt = await repo.createCharacter({
+        name: "Kazbank", class: "Warrior", spec: "Fury", role: "Melee DPS",
+        status: "alt", mainCharacterId: main.id,
+      });
+      expect(alt.ok).toBe(true);
+
+      const summaries = await repo.listCharacters();
+      expect(summaries.find((s) => s.character.name === "Kazbank")!.mainCharacterName).toBe("Kazrak");
+      expect(summaries.find((s) => s.character.name === "Kazrak")!.altNames).toContain("Kazbank");
     });
 
     it("deletes a wrongful report import, recounting everything", async () => {
