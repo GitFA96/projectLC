@@ -131,6 +131,23 @@ export const lootAwardSchema = z.object({
 
 export const wclRoleSchema = z.enum(["tank", "healer", "dps"]);
 
+/** One worn item from a combatant-info gear array (slim, JSON-persisted). */
+export const wclGearItemSchema = z.object({
+  /** Equipment-slot index in WCL's gear-array order. */
+  slot: z.number().int().nonnegative(),
+  id: z.number().int().positive(),
+  ilvl: z.number().int().optional(),
+  /** Permanent enchantment id (Wowhead /tbc/enchantment=…). */
+  enchant: z.number().int().optional(),
+  /** Temporary enchant id (oil / stone / poison / imbue). */
+  temp: z.number().int().optional(),
+  /** Socketed gem ITEM ids — socket counts aren't in the log, so empties are invisible. */
+  gems: z.array(z.number().int()).default([]),
+  /** Pass-throughs when WCL includes them. */
+  name: z.string().optional(),
+  icon: z.string().optional(),
+});
+
 /** One fetched Warcraft Logs report (refetching replaces it wholesale). */
 export const wclReportSchema = z.object({
   /** The WCL report code — primary key, straight from the URL. */
@@ -193,6 +210,8 @@ export const wclPlayerFightSchema = z.object({
   healthstones: z.number().int().nonnegative().default(0),
   /** Expected-to-be-enchanted gear slots missing a permanent enchant at pull. */
   missingEnchants: z.array(z.string()).default([]),
+  /** Full worn-gear snapshot at the pull (empty for pre-gear-tracking imports). */
+  gear: z.array(wclGearItemSchema).default([]),
 });
 
 /* Seed file schemas */

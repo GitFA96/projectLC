@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
+import { Activity } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
+import { WeekDots } from "@/components/week-dots";
 import { PhasePills } from "@/components/phase-pills";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +46,8 @@ export interface RosterRow {
   hasCurrentGear: boolean;
   /** From imported Warcraft Logs reports; undefined until one exists. */
   attendance?: AttendanceSummary;
+  /** Spec from their most recent logged pulls — flagged when it disagrees. */
+  loggedSpec?: string;
 }
 
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
@@ -103,7 +108,25 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         id: "class",
         accessorKey: "wowClass",
         header: "Class & spec",
-        cell: ({ row }) => <ClassBadge wowClass={row.original.wowClass} spec={row.original.spec} />,
+        cell: ({ row }) => {
+          const { wowClass, spec, loggedSpec } = row.original;
+          const mismatch =
+            loggedSpec !== undefined &&
+            loggedSpec.replace(/\s/g, "").toLowerCase() !== spec.replace(/\s/g, "").toLowerCase();
+          return (
+            <span className="flex items-center gap-1.5">
+              <ClassBadge wowClass={wowClass} spec={spec} />
+              {mismatch && (
+                <Badge
+                  variant="warning"
+                  title={`Recent logs show ${loggedSpec}, but the roster entry says ${spec} — worth updating (or they respecced).`}
+                >
+                  logs: {loggedSpec}
+                </Badge>
+              )}
+            </span>
+          );
+        },
       },
       {
         id: "role",
@@ -141,12 +164,13 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
             );
           }
           return (
-            <span
-              className={`tabular-nums ${a.raidPct < 50 ? "text-amber-600" : ""}`}
-              title={attendanceTitle(a)}
-            >
-              {a.raidPct}%
-              <span className="text-xs text-muted-foreground"> ({a.raidsAttended}/{a.raidsTracked})</span>
+            <span className="flex flex-col gap-0.5" title={attendanceTitle(a)}>
+              <WeekDots weeks={a.weeks} />
+              <span
+                className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-amber-600" : "text-muted-foreground"}`}
+              >
+                {a.weeksAttended}/{a.weeksTracked} wk · {a.raidPct}%
+              </span>
             </span>
           );
         },
@@ -178,6 +202,21 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
           ) : (
             <span className="text-xs text-muted-foreground/50">—</span>
           ),
+      },
+      {
+        id: "perf",
+        enableSorting: false,
+        header: "",
+        cell: ({ row }) => (
+          <Button asChild variant="ghost" size="sm" className="h-7 w-7 p-0">
+            <Link
+              href={`/characters/${encodeURIComponent(row.original.name.toLowerCase())}/performance`}
+              title={`${row.original.name}'s performance (Warcraft Logs)`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        ),
       },
     ],
     [activePhase, selected, filteredIds, toggle, setAll],

@@ -11,6 +11,8 @@ import type { SlotItem } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
+import { SpecBadge } from "@/components/spec-badge";
+import { WeekDots } from "@/components/week-dots";
 import { PhasePills } from "@/components/phase-pills";
 import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
@@ -100,6 +102,17 @@ export default async function CharacterPage({ params }: { params: Promise<Params
             {character.race && <span>{character.race}</span>}
             <ClassBadge wowClass={character.class} spec={character.spec} />
             <RoleBadge role={character.role} />
+            {summary.loggedSpec &&
+              summary.loggedSpec.replace(/\s/g, "").toLowerCase() !==
+                character.spec.replace(/\s/g, "").toLowerCase() && (
+                <Badge
+                  variant="warning"
+                  title="Spec seen in their most recent logs differs from the roster entry"
+                >
+                  logs:{" "}
+                  <SpecBadge spec={summary.loggedSpec} wowClass={character.class} className="ml-0.5" />
+                </Badge>
+              )}
             {character.status === "alt" && <Badge variant="muted">alt</Badge>}
             {character.status === "pug" && (
               <Badge variant="muted" title="Known off-roster player — excluded from roster KPIs and fairness stats">
@@ -139,8 +152,9 @@ export default async function CharacterPage({ params }: { params: Promise<Params
               <>
                 {" · "}
                 <span title={attendanceTitle(summary.attendance)}>
-                  {summary.attendance.raidPct}% attendance ({summary.attendance.raidsAttended}/
-                  {summary.attendance.raidsTracked} since first logged)
+                  raided {summary.attendance.weeksAttended}/{summary.attendance.weeksTracked} reset
+                  weeks <WeekDots weeks={summary.attendance.weeks} className="mx-1 align-middle" /> ·{" "}
+                  {summary.attendance.raidPct}% of logged raids
                 </span>
               </>
             )}

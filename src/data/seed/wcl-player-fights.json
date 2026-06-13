@@ -1237,7 +1237,54 @@
         "pct": 85
       }
     ],
-    "missingEnchants": []
+    "gear": [
+      {
+        "slot": 0,
+        "id": 28586,
+        "ilvl": 115,
+        "enchant": 3002,
+        "gems": [
+          24027
+        ]
+      },
+      {
+        "slot": 4,
+        "id": 28597,
+        "ilvl": 120,
+        "enchant": 2661,
+        "gems": []
+      },
+      {
+        "slot": 8,
+        "id": 28502,
+        "ilvl": 115,
+        "gems": []
+      },
+      {
+        "slot": 9,
+        "id": 28503,
+        "ilvl": 115,
+        "enchant": 2613,
+        "gems": []
+      },
+      {
+        "slot": 12,
+        "id": 28830,
+        "ilvl": 125,
+        "gems": []
+      },
+      {
+        "slot": 15,
+        "id": 28773,
+        "ilvl": 125,
+        "enchant": 2673,
+        "temp": 2713,
+        "gems": []
+      }
+    ],
+    "missingEnchants": [
+      "Wrist"
+    ]
   },
   {
     "id": "SEEDsscProgress1:5:sylvaria",

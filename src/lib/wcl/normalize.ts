@@ -89,8 +89,12 @@ const rawAbilitySchema = z.looseObject({
 
 const rawGearItemSchema = z.looseObject({
   id: z.number().optional(),
+  itemLevel: z.number().nullish(),
   permanentEnchant: z.number().nullish(),
   temporaryEnchant: z.number().nullish(),
+  gems: z.array(z.looseObject({ id: z.number().optional() })).nullish(),
+  name: z.string().nullish(),
+  icon: z.string().nullish(),
 });
 
 const rawCombatantInfoEventSchema = z.looseObject({
@@ -169,10 +173,24 @@ export interface NormalizedPlayerFight {
   cooldowns: string[];
   /** Maintained debuff/buff uptimes, % of the pull, best target. */
   upkeep: { name: string; pct: number }[];
+  /** Full worn-gear snapshot at the pull. */
+  gear: NormalizedGearItem[];
   drums: number;
   runes: number;
   healthstones: number;
   missingEnchants: string[];
+}
+
+/** One worn item, slimmed for persistence (slot = WCL gear-array index). */
+export interface NormalizedGearItem {
+  slot: number;
+  id: number;
+  ilvl?: number;
+  enchant?: number;
+  temp?: number;
+  gems: number[];
+  name?: string;
+  icon?: string;
 }
 
 /** One skipped combatant-info event, for the "inspect ignored" panel. */
@@ -277,6 +295,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         extras: [],
         cooldowns: [],
         upkeep: [],
+        gear: [],
         drums: 0,
         runes: 0,
         healthstones: 0,
@@ -411,6 +430,19 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         // Empty slot (id 0) = nothing equipped — not an enchant problem.
         return item !== undefined && (item.id ?? 0) > 0 && !item.permanentEnchant;
       }).map((s) => s.label);
+      row.gear = gear.flatMap((item, slot): NormalizedGearItem[] => {
+        if ((item.id ?? 0) <= 0) return [];
+        return [{
+          slot,
+          id: item.id as number,
+          ilvl: item.itemLevel ?? undefined,
+          enchant: item.permanentEnchant ?? undefined,
+          temp: item.temporaryEnchant ?? undefined,
+          gems: (item.gems ?? []).flatMap((g) => (g.id !== undefined && g.id > 0 ? [g.id] : [])),
+          name: item.name ?? undefined,
+          icon: item.icon ?? undefined,
+        }];
+      });
     }
   }
   if (orphanCombatantInfo > 0) {

@@ -65,7 +65,8 @@ Then paste a report URL on the import page's **Warcraft Logs** tab (optionally l
 - **deaths**, bucketed per pull
 - **preparation**: flask/elixirs/scrolls, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones/mana gems/seeds used in-fight (from cast events)
 - **class toolkit**: major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) and the **uptime of maintained debuffs/buffs** — warlock curse assignments, Thunder Clap, Demoralizing Shout, shouts, judgements, Faerie Fire, Earth Shield. Uptime is computed per player on their best enemy target (≈ the boss) and matched by aura *name*, so every spell rank counts
-- **enchant audit**: expected-to-be-enchanted slots missing a permanent enchant — freshly awarded loot shows up here until it's enchanted
+- **gear snapshot + enchant audit**: every worn item (Wowhead-linked, with ilvl, permanent enchant and socketed gems) from the latest pull, expected slots flagged when unenchanted, the weapon's temp buff called out, and a Phase-2 enchant reference list right next to it. Socket counts aren't in the log, so empty sockets are invisible — compare gems against the item tooltip
+- **spec as played**: the spec from rankings shows on the report ("played as Destruction"), per pull when someone respecs mid-night, and the roster flags characters whose logged spec disagrees with their roster entry
 
 Players are matched to tracked characters by name, exactly like Gargul winners; re-fetching a report replaces it wholesale. Everything lands on `/characters/[name]/performance` (linked from the profile), per report and as a career rollup — each boss row expands into the pull's items used, cooldowns and upkeep.
 
@@ -79,7 +80,7 @@ Names seen in imported logs that match nobody appear on the roster page under **
 
 All three lists support **checkbox bulk actions** (select-all included): move roster members to puggers or inactive, promote puggers back, track many log names at once — or **delete characters outright**. Deleting never destroys history: awards reopen in the ledger under the raw Gargul name and log pulls return to the untracked list.
 
-Imported reports also drive **attendance**: raids attended / logged raids (plus pull coverage within attended nights, which exposes late joins/early leaves). It shows as a roster column, on profile headers, and on the performance page.
+Imported reports also drive **attendance**, led by a **per-reset check** (EU reset, Wednesday): one dot per raid week the guild logged — filled if the character raided that week, hollow if not. Weeks where the guild didn't log don't exist, and weeks before a character's first appearance don't count against them. The classic raids-attended % and pull coverage (late joins/early leaves) stay in the tooltip and as secondary numbers. Shows as a roster column (with a one-click jump to each character's performance page), on profile headers, and on the performance page.
 
 ### Removing the demo data
 

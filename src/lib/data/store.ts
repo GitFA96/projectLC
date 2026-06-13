@@ -6,7 +6,7 @@ import {
 } from "@/lib/analysis/wishlist";
 import { computeItemContention } from "@/lib/analysis/contention";
 import { computeFairness } from "@/lib/analysis/fairness";
-import { summarizePerformance } from "@/lib/analysis/performance";
+import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
   AttendanceSummary,
@@ -144,6 +144,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
       lastAwardAt: last,
       hasCurrentGear: current !== undefined,
       attendance: computeAttendance(character.id),
+      loggedSpec: loggedSpecOf(character.id),
     };
   }
 
@@ -207,6 +208,21 @@ export function createRepoFromStore(store: EntityStore): Repo {
     const recent = tracked.slice(-10);
     const recentAttended = recent.filter((r) => attended.has(r.code)).length;
 
+    // Per-reset check: bucket their tracked raids into reset weeks (only weeks
+    // where the guild logged at all exist — a guild break is nobody's absence).
+    const weekBuckets = new Map<string, { reports: number; attended: boolean }>();
+    for (const report of tracked) {
+      const start = resetWeekStart(report.startTime);
+      const bucket = weekBuckets.get(start) ?? { reports: 0, attended: false };
+      bucket.reports++;
+      if (attended.has(report.code)) bucket.attended = true;
+      weekBuckets.set(start, bucket);
+    }
+    const weeks = [...weekBuckets]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports }))
+      .slice(-8);
+
     const reportPulls = pullsByReport();
     const pullsTotal = [...attended].reduce((sum, code) => sum + (reportPulls.get(code) ?? 0), 0);
     return {
@@ -221,7 +237,22 @@ export function createRepoFromStore(store: EntityStore): Repo {
       pullsAttended: myRows.length,
       pullsTotal,
       pullPct: pct(myRows.length, pullsTotal),
+      weeks,
+      weeksAttended: weeks.filter((w) => w.attended).length,
+      weeksTracked: weeks.length,
     };
+  }
+
+  /** Spec from the character's most recent logged pulls (newest report first). */
+  function loggedSpecOf(characterId: string): string | undefined {
+    const newestFirst = [...wclReports].sort((a, b) => b.startTime.localeCompare(a.startTime));
+    for (const report of newestFirst) {
+      for (const row of wclPlayerFights) {
+        if (row.reportCode !== report.code || wclRowCharacterId(row) !== characterId) continue;
+        if (row.spec) return row.spec;
+      }
+    }
+    return undefined;
   }
 
   return {

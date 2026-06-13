@@ -9,9 +9,15 @@ import { classifyAura, classifyCast, isNonConsumableAura } from "@/lib/wcl/consu
 
 const REPORT_START = 1765000000000;
 
-function gear(overrides: Record<number, { permanentEnchant?: number | null; temporaryEnchant?: number | null; id?: number }> = {}) {
+function gear(
+  overrides: Record<
+    number,
+    { permanentEnchant?: number | null; temporaryEnchant?: number | null; id?: number; gems?: { id?: number }[] }
+  > = {},
+) {
   return Array.from({ length: 17 }, (_, i) => ({
     id: 30000 + i,
+    itemLevel: 120 + i,
     permanentEnchant: 3001 as number | null,
     temporaryEnchant: null as number | null,
     ...overrides[i],
@@ -80,7 +86,7 @@ const combatantInfo = [
       { name: "Well Fed", ability: 33257 },
       { name: "Commanding Shout", ability: 469 },
     ],
-    gear: gear({ 15: { temporaryEnchant: 2713 } }),
+    gear: gear({ 15: { temporaryEnchant: 2713 }, 0: { gems: [{ id: 24027 }, {}] } }),
   },
   {
     timestamp: 100060,
@@ -268,6 +274,17 @@ describe("normalizeWclReport", () => {
     // …and neither do curated class buffs or tracked upkeep auras.
     expect(result.unclassifiedAuras.some((a) => a.name === "Greater Blessing of Kings")).toBe(false);
     expect(result.unclassifiedAuras.some((a) => a.name === "Commanding Shout")).toBe(false);
+  });
+
+  it("captures the worn-gear snapshot per pull", () => {
+    const tank = row(7, "Thrainn");
+    expect(tank.gear).toHaveLength(17);
+    const weapon = tank.gear.find((g) => g.slot === 15)!;
+    expect(weapon).toMatchObject({ id: 30015, ilvl: 135, enchant: 3001, temp: 2713 });
+    // Gem ids come through; gem entries without an id are dropped.
+    expect(tank.gear.find((g) => g.slot === 0)!.gems).toEqual([24027]);
+    // The mage's unenchanted chest carries no enchant id.
+    expect(row(7, "Pyrelia").gear.find((g) => g.slot === 4)!.enchant).toBeUndefined();
   });
 
   it("collects off-slot consumable buffs as extras", () => {
