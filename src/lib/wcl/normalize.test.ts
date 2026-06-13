@@ -398,15 +398,36 @@ describe("consumable classification", () => {
     expect(classifyAura("Kreeg's Stout Beatdown")?.category).toBe("misc");
   });
 
+  it("classifies the Major Defense elixir by its real buff name 'Major Armor'", () => {
+    // Elixir of Major Defense applies the buff "Major Armor" (spell 28502).
+    expect(classifyAura("Major Armor", 28502)).toEqual({
+      category: "guardianElixir",
+      label: "Elixir of Major Defense",
+    });
+    expect(classifyAura("Major Armor")?.label).toBe("Elixir of Major Defense");
+  });
+
+  it("classifies Zanza buffs as guardian elixirs", () => {
+    expect(classifyAura("Swiftness of Zanza", 24383)?.category).toBe("guardianElixir");
+    expect(classifyAura("Spirit of Zanza")?.category).toBe("guardianElixir");
+    expect(classifyAura("Sheen of Zanza")?.category).toBe("guardianElixir");
+  });
+
   it("recognizes known non-consumable auras for dump filtering", () => {
     expect(isNonConsumableAura("Greater Blessing of Kings", 25898)).toBe(true);
     expect(isNonConsumableAura("Sanctity Aura")).toBe(true);
     expect(isNonConsumableAura("Dire Bear Form")).toBe(true);
     expect(isNonConsumableAura("Berserker Stance")).toBe(true);
     expect(isNonConsumableAura("Vanguard", 71)).toBe(true);
+    // Paladin Hand of Salvation (and the Hand-of family) are class buffs.
+    expect(isNonConsumableAura("Hand of Salvation", 1038)).toBe(true);
+    expect(isNonConsumableAura("Hand of Protection")).toBe(true);
     // Unknowns stay dumpable — the list must never eat a real consumable.
     expect(isNonConsumableAura("Mystery Brew")).toBe(false);
     expect(isNonConsumableAura("Kreeg's Stout Beatdown")).toBe(false);
+    // Confirmed consumables must never be filtered out of tracking.
+    expect(isNonConsumableAura("Major Armor", 28502)).toBe(false);
+    expect(isNonConsumableAura("Swiftness of Zanza", 24383)).toBe(false);
   });
 
   it("classifies casts by id with name fallback", () => {
