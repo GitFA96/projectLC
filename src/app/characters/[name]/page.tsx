@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Activity, Pencil } from "lucide-react";
+import { Activity, GitCompareArrows, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
@@ -17,6 +17,7 @@ import { PhasePills } from "@/components/phase-pills";
 import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
 import { ItemLink, type ItemRef } from "@/components/item-link";
+import { CharacterComments } from "@/components/character-comments";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +57,7 @@ export default async function CharacterPage({ params }: { params: Promise<Params
     repo.getCharacterBundle(decodeURIComponent(name)),
   ]);
   if (!bundle) notFound();
-  const { character, current, wishlists, awards, summary } = bundle;
+  const { character, current, wishlists, awards, summary, comments } = bundle;
 
   const slotRows: SlotRowView[] = current
     ? await Promise.all(
@@ -169,6 +170,11 @@ export default async function CharacterPage({ params }: { params: Promise<Params
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
+              <Link href={`/compare?chars=${encodeURIComponent(character.name.toLowerCase())}`}>
+                <GitCompareArrows className="h-3.5 w-3.5" /> Compare
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
               <Link href={`/characters/${encodeURIComponent(character.name.toLowerCase())}/edit`}>
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </Link>
@@ -262,6 +268,12 @@ export default async function CharacterPage({ params }: { params: Promise<Params
           </div>
         </div>
       )}
+
+      <CharacterComments
+        characterId={character.id}
+        characterName={character.name}
+        comments={comments}
+      />
 
       <Card>
         <CardHeader>

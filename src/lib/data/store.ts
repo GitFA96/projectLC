@@ -8,6 +8,7 @@ import { computeItemContention } from "@/lib/analysis/contention";
 import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
+import { summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
   AttendanceExemption,
@@ -15,6 +16,8 @@ import type {
   AwardWithContext,
   Character,
   CharacterBundle,
+  CharacterComment,
+  CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
   FairnessGroup,
@@ -50,6 +53,7 @@ export interface EntityStore {
   wclReports: WclReport[];
   wclPlayerFights: WclPlayerFight[];
   attendanceExemptions: AttendanceExemption[];
+  characterComments: CharacterComment[];
 }
 
 /** Referential integrity — hard errors; these always indicate a broken data source. */
@@ -88,6 +92,11 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: attendance exemption references unknown characterId ${exemption.characterId}`);
     }
   }
+  for (const comment of store.characterComments) {
+    if (!charIds.has(comment.characterId)) {
+      throw new Error(`${sourceLabel}: character comment ${comment.id} references unknown characterId ${comment.characterId}`);
+    }
+  }
   // A main link must resolve to another character (a real, non-self target).
   for (const character of store.roster) {
     if (character.mainCharacterId !== null) {
@@ -102,7 +111,7 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
 }
 
 export function createRepoFromStore(store: EntityStore): Repo {
-  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions } = store;
+  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions, characterComments } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -122,6 +131,15 @@ export function createRepoFromStore(store: EntityStore): Repo {
     set.add(e.weekStart);
     exemptWeeksByCharacter.set(e.characterId, set);
   }
+  // Officer comments per character, newest first.
+  const commentsByCharacter = new Map<string, CharacterComment[]>();
+  for (const c of [...characterComments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    const list = commentsByCharacter.get(c.characterId) ?? [];
+    list.push(c);
+    commentsByCharacter.set(c.characterId, list);
+  }
+  const commentsOf = (characterId: string): CharacterComment[] =>
+    commentsByCharacter.get(characterId) ?? [];
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
   const gearSetsByCharacter = new Map<string, GearSet[]>();
@@ -294,6 +312,22 @@ export function createRepoFromStore(store: EntityStore): Repo {
     };
   }
 
+  /** Every logged pull for a character, oldest report first then by pull order. */
+  function careerRowsOf(characterId: string): WclPlayerFight[] {
+    const chronologicalReports = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const mine = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
+    return chronologicalReports.flatMap((report) =>
+      mine.filter((r) => r.reportCode === report.code).sort((a, b) => a.fightId - b.fightId),
+    );
+  }
+
+  /** The display name of a character's main, when it's a valid alt link. */
+  function mainNameOf(character: Character): string | undefined {
+    if (character.status !== "alt") return undefined;
+    if (!character.mainCharacterId || character.mainCharacterId === character.id) return undefined;
+    return charactersById.get(character.mainCharacterId)?.name;
+  }
+
   /** Spec from the character's most recent logged pulls (newest report first). */
   function loggedSpecOf(characterId: string): string | undefined {
     const newestFirst = [...wclReports].sort((a, b) => b.startTime.localeCompare(a.startTime));
@@ -336,6 +370,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
         wishlists,
         awards: awardsWithContext.filter((a) => a.award.characterId === character.id),
         summary: summarize(character),
+        comments: commentsOf(character.id),
       };
     },
 
@@ -472,6 +507,29 @@ export function createRepoFromStore(store: EntityStore): Repo {
         career: summarizePerformance(chronological),
         attendance: computeAttendance(character.id),
       };
+    },
+
+    async getComparison(slugs: string[]): Promise<CharacterComparisonView> {
+      // Resolve to known characters, dedupe, preserve the requested order, cap at 4.
+      const seen = new Set<string>();
+      const chosen: Character[] = [];
+      for (const slug of slugs) {
+        const character = charactersBySlug.get(slug.toLowerCase());
+        if (character && !seen.has(character.id)) {
+          seen.add(character.id);
+          chosen.push(character);
+        }
+        if (chosen.length >= 4) break;
+      }
+      const inputs: ComparisonInput[] = chosen.map((character) => ({
+        character,
+        rows: careerRowsOf(character.id),
+        attendance: computeAttendance(character.id),
+        comments: commentsOf(character.id),
+        loggedSpec: loggedSpecOf(character.id),
+        mainCharacterName: mainNameOf(character),
+      }));
+      return summarizeComparison(inputs);
     },
 
     async listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]> {

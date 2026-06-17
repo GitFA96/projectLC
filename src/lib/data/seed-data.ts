@@ -7,8 +7,10 @@ import lootAwardsJson from "@/data/seed/loot-awards.json";
 import wclReportsJson from "@/data/seed/wcl-reports.json";
 import wclPlayerFightsJson from "@/data/seed/wcl-player-fights.json";
 import attendanceExemptionsJson from "@/data/seed/attendance-exemptions.json";
+import characterCommentsJson from "@/data/seed/character-comments.json";
 import {
   seedAttendanceExemptionsSchema,
+  seedCharacterCommentsSchema,
   seedGearSetsSchema,
   seedGuildSchema,
   seedItemsSchema,
@@ -48,6 +50,7 @@ export function loadSeedStore(): EntityStore {
     wclReports: parse("wcl-reports.json", seedWclReportsSchema, wclReportsJson),
     wclPlayerFights: parse("wcl-player-fights.json", seedWclPlayerFightsSchema, wclPlayerFightsJson),
     attendanceExemptions: parse("attendance-exemptions.json", seedAttendanceExemptionsSchema, attendanceExemptionsJson),
+    characterComments: parse("character-comments.json", seedCharacterCommentsSchema, characterCommentsJson),
   };
   validateStore(store, "seed data");
   return store;

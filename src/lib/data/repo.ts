@@ -2,6 +2,8 @@ import type {
   AwardWithContext,
   Character,
   CharacterBundle,
+  CharacterComment,
+  CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
   DashboardData,
@@ -44,6 +46,11 @@ export interface Repo {
   getCharacterPerformance(slug: string): Promise<CharacterPerformance | null>;
   /** Raid-wide rollup of one report (defaults to the latest); null when no reports. */
   getRaidReport(code?: string): Promise<RaidReportView | null>;
+  /**
+   * Side-by-side comparison of up to 4 characters (by slug): contribution
+   * metrics + the comment log. Unknown slugs are dropped; order is preserved.
+   */
+  getComparison(slugs: string[]): Promise<CharacterComparisonView>;
   /** Names seen in imported logs that match no tracked character, most pulls first. */
   listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]>;
 }
@@ -128,6 +135,13 @@ export type WclSaveResult =
     }
   | { ok: false; error: string };
 
+/** A new officer comment: identity + timestamp are generated at save time. */
+export type CharacterCommentDraft = Omit<CharacterComment, "id" | "createdAt">;
+
+export type AddCommentResult =
+  | { ok: true; comment: CharacterComment }
+  | { ok: false; error: string };
+
 /** What "Remove demo data" deleted, for the confirmation message. */
 export interface PurgeDemoResult {
   characters: number;
@@ -181,6 +195,10 @@ export interface WriteRepo extends Repo {
     excused: boolean,
     note?: string,
   ): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Append one officer comment to a character's log. */
+  addCharacterComment(draft: CharacterCommentDraft): Promise<AddCommentResult>;
+  /** Remove one comment by id. Returns false when it didn't exist. */
+  deleteCharacterComment(id: string): Promise<boolean>;
   /** Cache items learned from imports (insert-only — never overwrites curated entries). */
   addItemsIfMissing(items: Item[]): Promise<number>;
   /**

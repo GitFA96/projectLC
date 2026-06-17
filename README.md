@@ -8,10 +8,11 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | --- | --- |
 | `/` Dashboard | Guild KPIs, recent raids, most contested wishlist items, loot distribution bars |
 | `/roster` | Guild roster (class/spec/role, wishlist completion, **log attendance**, items won) plus **known puggers** and **untracked log names** — checkbox bulk actions move/track/delete across the lists; remove-demo-data action |
-| `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
+| `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history, and an **officer comment log** (categorized, timestamped notes) |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, class cooldowns + debuff/shout upkeep (expand any boss row), enchant audit, per-report + career rollups |
 | `/logs` | **Raid-wide logs dashboard** — one raid night at a time: preparation coverage, raid debuff/buff uptime by provider, cooldown + potion/in-fight usage, and a worst-first **player-improvements** list (missing enchants, flask/food gaps, skipped potions) |
+| `/compare` | **Character comparison** — up to 4 characters side-by-side on the contribution that matters: median output, parses, attendance, consumable coverage, the buffs/debuffs they keep up, and each one's comment log. Leader highlighted per metric; shareable via the URL |
 | `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
@@ -87,6 +88,14 @@ Imported reports also drive **attendance**, led by a **per-reset check** (EU res
 
 **Excused absences:** an officer can mark any reset week as excused for a character (the “Attendance by reset” card on the performance page). An excused week stops counting toward that character's markup — both the weekly check and the raids %, so a pre-cleared week off never reads as absence — but stays visible as a distinct dashed dot so the gap isn't hidden. Toggle it back to count again anytime.
 
+### Comparing characters
+
+`/compare` lines up **two to four characters** side-by-side on the contribution that drives a council decision: median output (dps, hps for healers), parse + ilvl-bracket percentiles, attendance (reset weeks, raids %, pull coverage), consumable coverage (flask/elixirs, food, weapon buff, potions/pull), and the **uptime of every buff/debuff their spec maintains** (warlock curses, shouts, judgements, Earth Shield…). The leader is highlighted per metric. The selection lives in the URL (`?chars=a,b,c`), so a comparison is shareable; reach it from the nav or the **Compare** button on any profile.
+
+### Officer comments
+
+Beyond the one-line `note`, every character has a **comment log** on its profile: timestamped, optionally signed entries filed under a category (note / performance / attendance / conduct / loot) and shown as colored chips. It's the council's running record — "passed on the off-hand for a teammate", "third week without a weapon enchant", "cleared next reset in advance". The same comments surface in the comparison view so a side-by-side read carries its context.
+
 ### Removing the demo data
 
 A fresh database is seeded with fictional demo content so the UI isn't empty. Once real imports are in, the roster page shows a **“Remove demo data”** banner: it deletes the demo characters, their sessions/awards/gear sets and the seed log report, keeps the item cache (real TBC entries) and everything you imported, and unlinks (never deletes) real rows that pointed at demo ones.
@@ -108,7 +117,7 @@ A fresh database is seeded with fictional demo content so the UI isn't empty. On
 - **M1** — UI draft on realistic seed data ✓
 - **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
 - **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
-- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓, raid-wide logs dashboard with player-improvements list ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it)
+- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓, raid-wide logs dashboard with player-improvements list ✓, character-vs-character comparison + officer comment log ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it)
 
 ## License
 

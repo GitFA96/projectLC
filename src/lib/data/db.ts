@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import {
   attendanceExemptionSchema,
+  characterCommentSchema,
   characterSchema,
   gearSetSchema,
   guildSchema,
@@ -17,6 +18,7 @@ import { validateStore, type EntityStore } from "@/lib/data/store";
 import type {
   AttendanceExemption,
   Character,
+  CharacterComment,
   GearSet,
   Guild,
   Item,
@@ -162,6 +164,16 @@ CREATE TABLE IF NOT EXISTS attendance_exemptions (
   note         TEXT,
   PRIMARY KEY (character_id, week_start)
 );
+-- Officer comment log: many per character, richer than the inline note.
+CREATE TABLE IF NOT EXISTS character_comments (
+  id           TEXT PRIMARY KEY,
+  character_id TEXT NOT NULL REFERENCES characters(id),
+  category     TEXT NOT NULL DEFAULT 'note',
+  body         TEXT NOT NULL,
+  author       TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS character_comments_by_character ON character_comments(character_id);
 `;
 
 export function defaultDbPath(): string {
@@ -265,6 +277,13 @@ export function insertAttendanceExemption(db: DatabaseSync, e: AttendanceExempti
   ).run(e.characterId, e.weekStart, e.note ?? null);
 }
 
+export function insertCharacterComment(db: DatabaseSync, c: CharacterComment): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO character_comments (id, character_id, category, body, author, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.characterId, c.category, c.body, c.author ?? null, c.createdAt);
+}
+
 export function insertItem(db: DatabaseSync, i: Item): void {
   db.prepare(
     `INSERT OR REPLACE INTO items (id, name, quality, icon, slot, source_json, phase)
@@ -339,6 +358,13 @@ function rowToCharacter(r: Row): unknown {
 
 function rowToAttendanceExemption(r: Row): unknown {
   return { characterId: r.character_id, weekStart: r.week_start, note: opt(r.note) };
+}
+
+function rowToCharacterComment(r: Row): unknown {
+  return {
+    id: r.id, characterId: r.character_id, category: r.category, body: r.body,
+    author: opt(r.author), createdAt: r.created_at,
+  };
 }
 
 function rowToItem(r: Row): unknown {
@@ -426,6 +452,7 @@ export function loadStore(db: DatabaseSync): EntityStore {
     wclReports: parseAll("wcl_reports", wclReportSchema, (db.prepare("SELECT * FROM wcl_reports").all() as Row[]).map(rowToWclReport)),
     wclPlayerFights: parseAll("wcl_player_fights", wclPlayerFightSchema, (db.prepare("SELECT * FROM wcl_player_fights").all() as Row[]).map(rowToWclPlayerFight)),
     attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
+    characterComments: parseAll("character_comments", characterCommentSchema, (db.prepare("SELECT * FROM character_comments ORDER BY created_at DESC").all() as Row[]).map(rowToCharacterComment)),
   };
   validateStore(store, "sqlite database");
   return store;
@@ -446,6 +473,7 @@ function seedIfEmpty(db: DatabaseSync): void {
       for (const r of seed.wclReports) insertWclReport(db, r);
       for (const f of seed.wclPlayerFights) insertWclPlayerFight(db, f);
       for (const e of seed.attendanceExemptions) insertAttendanceExemption(db, e);
+      for (const c of seed.characterComments) insertCharacterComment(db, c);
       bumpDataVersion(db);
     });
   } catch (e) {

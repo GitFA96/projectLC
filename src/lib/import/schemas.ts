@@ -11,6 +11,7 @@ import {
   SLOT_IDS,
   WOW_CLASSES,
 } from "@/lib/constants/wow";
+import { COMMENT_CATEGORIES } from "@/lib/comments";
 
 /**
  * Canonical entity shapes — the single shape contract of the app.
@@ -221,6 +222,23 @@ export const wclPlayerFightSchema = z.object({
 });
 
 /**
+ * One officer comment on a character — a timestamped log entry, richer than the
+ * single inline `note`. Free-form body with an optional author and a category
+ * for filing/coloring. Multiple per character, newest first when rendered.
+ */
+export const characterCommentSchema = z.object({
+  id: z.string().min(1),
+  characterId: z.string().min(1),
+  /** What the comment is about — drives the colored chip. Defaults to a neutral note. */
+  category: z.enum(COMMENT_CATEGORIES).default("note"),
+  body: z.string().min(1),
+  /** Who wrote it (free text — there's no auth). Optional. */
+  author: z.string().optional(),
+  /** ISO timestamp the comment was created. */
+  createdAt: z.string().min(1),
+});
+
+/**
  * An excused absence: one character × one reset week (the EU-reset Wednesday
  * ISO date) that should not count toward that character's attendance markup.
  */
@@ -242,6 +260,7 @@ export const seedLootAwardsSchema = z.array(lootAwardSchema);
 export const seedWclReportsSchema = z.array(wclReportSchema);
 export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
 export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
+export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 
 /* Parser output contracts (used by the M1 import preview; M2 parsers emit these) */
 

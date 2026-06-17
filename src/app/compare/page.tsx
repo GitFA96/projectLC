@@ -1,0 +1,383 @@
+import type { Metadata } from "next";
+import type * as React from "react";
+import Link from "next/link";
+import { format, parseISO } from "date-fns";
+import { Activity, GitCompareArrows } from "lucide-react";
+import { getRepo } from "@/lib/data/repo";
+import { attendanceTitle } from "@/lib/analysis/performance";
+import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
+import {
+  COMMENT_CATEGORY_LABELS,
+  COMMENT_CATEGORY_VARIANT,
+} from "@/lib/comments";
+import type { CharacterComparisonView, ComparedCharacter } from "@/lib/types";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
+import { SpecBadge } from "@/components/spec-badge";
+import { WeekDots } from "@/components/week-dots";
+import { ParseBadge } from "@/components/parse-badge";
+import { ComparePicker, type PickerCharacter } from "@/components/compare/compare-picker";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = { title: "Compare characters" };
+
+type Search = Promise<Record<string, string | string[] | undefined>>;
+
+/** Indices of the leader(s) in a value set; empty when fewer than 2 have data. */
+function bestIndices(values: (number | undefined)[], dir: "high" | "low"): Set<number> {
+  const defined = values.filter((v): v is number => v !== undefined);
+  if (defined.length < 2) return new Set();
+  const target = dir === "high" ? Math.max(...defined) : Math.min(...defined);
+  const out = new Set<number>();
+  values.forEach((v, i) => {
+    if (v === target) out.add(i);
+  });
+  return out;
+}
+
+export default async function ComparePage({ searchParams }: { searchParams: Search }) {
+  const sp = await searchParams;
+  const raw = sp.chars;
+  const slugs = (Array.isArray(raw) ? raw : raw ? [raw] : [])
+    .flatMap((s) => s.split(","))
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const repo = await getRepo();
+  const [view, characters] = await Promise.all([repo.getComparison(slugs), repo.listCharacters()]);
+
+  const all: PickerCharacter[] = characters
+    .map((s) => ({
+      slug: s.character.name.toLowerCase(),
+      name: s.character.name,
+      wowClass: s.character.class,
+      spec: s.character.spec,
+      status: s.character.status,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Compare characters"
+        description="Up to four characters side-by-side: damage, performance, attendance, consumables, buff & debuff uptime, and the officer comment log."
+      />
+
+      <ComparePicker all={all} selected={view.characters.map((c) => c.character.name.toLowerCase())} />
+
+      {view.characters.length === 0 ? (
+        <EmptyState
+          title="Pick characters to compare"
+          description="Add two to four characters above to line up their raid contribution — output, parses, attendance, consumables and the buffs/debuffs they keep up."
+        />
+      ) : (
+        <>
+          <ComparisonMatrix view={view} />
+          <CommentsSection view={view} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The aligned metric matrix: one column per character, sections of metrics. */
+function ComparisonMatrix({ view }: { view: CharacterComparisonView }) {
+  const chars = view.characters;
+  const cols = `minmax(8.5rem, 1.3fr) repeat(${chars.length}, minmax(6.5rem, 1fr))`;
+
+  return (
+    <Card className="overflow-x-auto">
+      <div className="min-w-[36rem]">
+        {/* Identity header */}
+        <div style={{ gridTemplateColumns: cols }} className="grid items-end gap-x-2 px-3 pb-3 pt-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Metric
+          </div>
+          {chars.map((c) => (
+            <CharacterHead key={c.character.id} c={c} />
+          ))}
+        </div>
+
+        <SectionLabel cols={cols} label="Damage / output" />
+        <MetricRow
+          cols={cols}
+          label="Median output"
+          title="Median dps across logged pulls (hps for healers)"
+          values={chars.map((c) => c.output)}
+          dir="high"
+          format={(v, i) => `${Math.round(v).toLocaleString("en-US")} ${chars[i].outputUnit}`}
+        />
+
+        <SectionLabel cols={cols} label="Performance" />
+        <MetricRow
+          cols={cols}
+          label="Median parse"
+          title="Median Warcraft Logs percentile"
+          values={chars.map((c) => c.medianParse)}
+          dir="high"
+          format={(v) => <ParseBadge pct={v} />}
+        />
+        <MetricRow
+          cols={cols}
+          label="Best parse"
+          values={chars.map((c) => c.bestParse)}
+          dir="high"
+          format={(v) => <ParseBadge pct={v} />}
+        />
+        <MetricRow
+          cols={cols}
+          label="Ilvl-bracket median"
+          title="Percentile within the item-level bracket — gear-adjusted"
+          values={chars.map((c) => c.medianBracket)}
+          dir="high"
+          format={(v) => Math.round(v)}
+        />
+        <MetricRow
+          cols={cols}
+          label="Deaths"
+          title="Total deaths across logged pulls (lower is better)"
+          values={chars.map((c) => (c.hasLogs ? c.deaths : undefined))}
+          dir="low"
+          format={(v) => v}
+        />
+        <MetricRow
+          cols={cols}
+          label="Logged pulls"
+          values={chars.map((c) => (c.hasLogs ? c.fights : undefined))}
+          dir="high"
+          format={(v, i) => `${v} · ${chars[i].reports} report${chars[i].reports === 1 ? "" : "s"}`}
+          muteBest
+        />
+
+        <SectionLabel cols={cols} label="Attendance" />
+        <AttendanceRow cols={cols} chars={chars} />
+        <MetricRow
+          cols={cols}
+          label="Raids %"
+          title="Attended share of logged raids since first appearance"
+          values={chars.map((c) => c.attendance?.raidPct)}
+          dir="high"
+          format={(v) => `${v}%`}
+        />
+        <MetricRow
+          cols={cols}
+          label="Pull coverage"
+          title="Share of boss pulls present for, on attended nights"
+          values={chars.map((c) => c.attendance?.pullPct)}
+          dir="high"
+          format={(v) => `${v}%`}
+        />
+
+        <SectionLabel cols={cols} label="Consumables" />
+        <MetricRow cols={cols} label="Prepared" title="Flask/elixirs AND food at pull"
+          values={chars.map((c) => (c.hasLogs ? c.preparedPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Flask / elixirs"
+          values={chars.map((c) => (c.hasLogs ? c.flaskOrElixirsPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Food"
+          values={chars.map((c) => (c.hasLogs ? c.foodPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Weapon buff" title="Oil / stone / poison / imbue at pull"
+          values={chars.map((c) => (c.hasLogs ? c.weaponBuffPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Potions / pull"
+          values={chars.map((c) => (c.hasLogs ? c.potionsPerFight : undefined))} dir="high" format={(v) => v} muteBest />
+
+        {view.upkeepTracks.length > 0 && (
+          <>
+            <SectionLabel cols={cols} label="Buff & debuff uptime" />
+            {view.upkeepTracks.map((track) => (
+              <MetricRow
+                key={track.name}
+                cols={cols}
+                label={track.name}
+                title={track.kind === "debuff" ? "Maintained on the boss" : "Maintained on a friendly target"}
+                values={chars.map((c) => c.upkeep.find((u) => u.name === track.name)?.pct)}
+                dir="high"
+                format={(v) => `${v}%`}
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function CharacterHead({ c }: { c: ComparedCharacter }) {
+  const slug = c.character.name.toLowerCase();
+  const specMismatch =
+    c.loggedSpec &&
+    c.loggedSpec.replace(/\s/g, "").toLowerCase() !== c.character.spec.replace(/\s/g, "").toLowerCase();
+  return (
+    <div className="min-w-0 space-y-1 text-right">
+      <Link
+        href={`/characters/${encodeURIComponent(slug)}`}
+        className="block truncate font-semibold leading-tight hover:underline"
+        style={{ color: CLASS_TEXT_COLORS[c.character.class] }}
+      >
+        {c.character.name}
+      </Link>
+      <div className="flex justify-end">
+        <SpecBadge spec={c.loggedSpec ?? c.character.spec} wowClass={c.character.class} />
+      </div>
+      <p className="truncate text-[11px] text-muted-foreground">
+        {c.character.role}
+        {c.mainCharacterName && ` · alt of ${c.mainCharacterName}`}
+        {specMismatch && " · logs differ"}
+      </p>
+      <Link
+        href={`/characters/${encodeURIComponent(slug)}/performance`}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      >
+        <Activity className="h-3 w-3" /> logs
+      </Link>
+    </div>
+  );
+}
+
+function SectionLabel({ cols, label }: { cols: string; label: string }) {
+  return (
+    <div style={{ gridTemplateColumns: cols }} className="grid border-t bg-muted/40 px-3 py-1.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+/** A numeric metric row that highlights the leader (unless muteBest). */
+function MetricRow({
+  cols,
+  label,
+  title,
+  values,
+  dir,
+  format,
+  muteBest,
+}: {
+  cols: string;
+  label: string;
+  title?: string;
+  values: (number | undefined)[];
+  dir: "high" | "low";
+  format: (value: number, index: number) => React.ReactNode;
+  muteBest?: boolean;
+}) {
+  const best = muteBest ? new Set<number>() : bestIndices(values, dir);
+  return (
+    <div style={{ gridTemplateColumns: cols }} className="grid items-center gap-x-2 border-t px-3 py-1.5">
+      <div className="truncate text-xs text-muted-foreground" title={title}>
+        {label}
+      </div>
+      {values.map((v, i) => (
+        <div
+          key={i}
+          className={cn(
+            "text-right text-sm tabular-nums",
+            best.has(i) && "font-semibold text-emerald-700",
+          )}
+        >
+          {v === undefined ? <span className="text-muted-foreground/40">—</span> : format(v, i)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Attendance row: reset-weeks ratio + the week dots, leader by attended share. */
+function AttendanceRow({ cols, chars }: { cols: string; chars: ComparedCharacter[] }) {
+  const ratios = chars.map((c) =>
+    c.attendance && c.attendance.weeksTracked > 0
+      ? c.attendance.weeksAttended / c.attendance.weeksTracked
+      : undefined,
+  );
+  const best = bestIndices(ratios, "high");
+  return (
+    <div style={{ gridTemplateColumns: cols }} className="grid items-center gap-x-2 border-t px-3 py-1.5">
+      <div className="text-xs text-muted-foreground">Reset weeks</div>
+      {chars.map((c, i) => {
+        const a = c.attendance;
+        if (!a || a.weeksTracked === 0) {
+          return (
+            <div key={c.character.id} className="text-right text-muted-foreground/40">
+              —
+            </div>
+          );
+        }
+        return (
+          <div key={c.character.id} className="flex flex-col items-end gap-0.5" title={attendanceTitle(a)}>
+            <span className={cn("text-sm tabular-nums", best.has(i) && "font-semibold text-emerald-700")}>
+              {a.weeksAttended}/{a.weeksTracked}
+            </span>
+            <WeekDots weeks={a.weeks} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Per-character comment stacks — the detailed officer log, side by side. */
+function CommentsSection({ view }: { view: CharacterComparisonView }) {
+  const chars = view.characters;
+  const anyComments = chars.some((c) => c.comments.length > 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitCompareArrows className="h-4 w-4 text-muted-foreground" />
+          Comments
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          The officer log for each character — add and manage notes from their profile.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {!anyComments ? (
+          <p className="py-1 text-sm text-muted-foreground">
+            No comments on any of these characters yet. Add notes from a character&apos;s profile and
+            they show up here.
+          </p>
+        ) : (
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: `repeat(${chars.length}, minmax(0, 1fr))` }}
+          >
+            {chars.map((c) => {
+              const slug = c.character.name.toLowerCase();
+              return (
+                <div key={c.character.id} className="min-w-0 space-y-2">
+                  <Link
+                    href={`/characters/${encodeURIComponent(slug)}`}
+                    className="block truncate text-sm font-semibold hover:underline"
+                    style={{ color: CLASS_TEXT_COLORS[c.character.class] }}
+                  >
+                    {c.character.name}
+                  </Link>
+                  {c.comments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/60">No comments.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {c.comments.map((cm) => (
+                        <li key={cm.id} className="rounded-md border bg-muted/20 p-2">
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <Badge variant={COMMENT_CATEGORY_VARIANT[cm.category]} className="font-normal">
+                              {COMMENT_CATEGORY_LABELS[cm.category]}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">
+                              {format(parseISO(cm.createdAt), "d MMM")}
+                              {cm.author && ` · ${cm.author}`}
+                            </span>
+                          </div>
+                          <p className="whitespace-pre-wrap text-xs">{cm.body}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
