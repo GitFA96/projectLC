@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cm-seed-morgrave-1",
+    "characterId": "c-morgrave",
+    "category": "performance",
+    "body": "Curse of the Elements uptime is excellent — consistently 90%+ on the boss. Keep him on curse duty.",
+    "author": "Aldric",
+    "createdAt": "2026-06-11T09:10:00.000Z"
+  },
+  {
+    "id": "cm-seed-morgrave-2",
+    "characterId": "c-morgrave",
+    "category": "attendance",
+    "body": "Flagged he'll miss next reset (work trip) — told us a week ahead, excused.",
+    "author": "Aldric",
+    "createdAt": "2026-06-12T18:42:00.000Z"
+  },
+  {
+    "id": "cm-seed-kazrak-1",
+    "characterId": "c-kazrak",
+    "category": "loot",
+    "body": "Passed on the off-hand for Shivven on Leotheras — good council citizen, remember this next contested drop.",
+    "author": "Aldric",
+    "createdAt": "2026-06-11T09:15:00.000Z"
+  },
+  {
+    "id": "cm-seed-kazrak-2",
+    "characterId": "c-kazrak",
+    "category": "performance",
+    "body": "Death Wish usage is on point but Battle Shout drops below 85% on movement fights — nudge on Vashj.",
+    "author": "Thrainn",
+    "createdAt": "2026-06-11T20:05:00.000Z"
+  },
+  {
+    "id": "cm-seed-velora-1",
+    "characterId": "c-velora",
+    "category": "note",
+    "body": "Asked to be considered for the Tier chest token before the other casters — has it top of the P2 wishlist.",
+    "author": "Aldric",
+    "createdAt": "2026-06-10T22:30:00.000Z"
+  },
+  {
+    "id": "cm-seed-tidemar-1",
+    "characterId": "c-tidemar",
+    "category": "conduct",
+    "body": "Reminder: still raiding without a main-hand enchant. Third week running — follow up before invites.",
+    "author": "Thrainn",
+    "createdAt": "2026-06-12T19:50:00.000Z"
+  }
+]

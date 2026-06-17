@@ -698,4 +698,73 @@ describe("sqlite repo", () => {
       expect(await repo.listWclReports()).toHaveLength(1); // only the seed report
     });
   });
+
+  describe("comments + comparison", () => {
+    it("adds, lists newest-first and deletes character comments", async () => {
+      const repo = getSqliteRepo();
+      const kazrak = (await repo.findCharacterByName("Kazrak"))!;
+      const before = (await repo.getCharacterBundle("kazrak"))!.comments.length;
+
+      const added = await repo.addCharacterComment({
+        characterId: kazrak.id,
+        category: "attendance",
+        body: "Will miss next reset",
+        author: "Aldric",
+      });
+      expect(added.ok).toBe(true);
+      if (!added.ok) throw new Error("unreachable");
+
+      const bundle = (await repo.getCharacterBundle("kazrak"))!;
+      expect(bundle.comments.length).toBe(before + 1);
+      expect(bundle.comments[0].id).toBe(added.comment.id); // newest first
+      expect(bundle.comments[0].category).toBe("attendance");
+      expect(bundle.comments[0].author).toBe("Aldric");
+
+      expect(await repo.deleteCharacterComment(added.comment.id)).toBe(true);
+      expect(await repo.deleteCharacterComment(added.comment.id)).toBe(false); // already gone
+      expect((await repo.getCharacterBundle("kazrak"))!.comments.length).toBe(before);
+    });
+
+    it("rejects a comment on an unknown character", async () => {
+      const repo = getSqliteRepo();
+      const res = await repo.addCharacterComment({ characterId: "chr_missing", category: "note", body: "x" });
+      expect(res.ok).toBe(false);
+    });
+
+    it("removes a character's comments on delete so the store stays valid", async () => {
+      const repo = getSqliteRepo();
+      const velora = (await repo.findCharacterByName("Velora"))!;
+      await repo.addCharacterComment({ characterId: velora.id, category: "note", body: "test note" });
+      expect((await repo.deleteCharacter(velora.id)).ok).toBe(true);
+      // A dangling comment would make the next load throw — listing must succeed.
+      expect((await repo.listCharacters()).some((c) => c.character.name === "Velora")).toBe(false);
+    });
+
+    it("compares up to 4 characters, dropping unknowns and preserving order", async () => {
+      const repo = getSqliteRepo();
+      const view = await repo.getComparison([
+        "morgrave", "kazrak", "nope", "tidemar", "velora", "thrainn",
+      ]);
+      // Unknown "nope" dropped; capped at 4 before reaching Thrainn.
+      expect(view.characters.map((c) => c.character.name)).toEqual([
+        "Morgrave", "Kazrak", "Tidemar", "Velora",
+      ]);
+
+      const morgrave = view.characters[0];
+      expect(morgrave.hasLogs).toBe(true);
+      expect(morgrave.output).toBeGreaterThan(0);
+      expect(morgrave.outputUnit).toBe("dps");
+      // Morgrave keeps Curse of the Elements up in the seed; it rides along.
+      expect(morgrave.upkeep.some((u) => u.name === "Curse of the Elements")).toBe(true);
+      expect(morgrave.comments.length).toBeGreaterThan(0); // seeded officer notes
+      // Boss debuff sorts to the top of the unioned track list.
+      expect(view.upkeepTracks[0].kind).toBe("debuff");
+    });
+
+    it("dedupes repeated slugs in a comparison request", async () => {
+      const repo = getSqliteRepo();
+      const view = await repo.getComparison(["kazrak", "kazrak", "morgrave"]);
+      expect(view.characters.map((c) => c.character.name)).toEqual(["Kazrak", "Morgrave"]);
+    });
+  });
 });

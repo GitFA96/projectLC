@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   attendanceExemptionSchema,
+  characterCommentSchema,
   characterSchema,
   gearSetSchema,
   guildSchema,
@@ -31,6 +32,7 @@ export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
 export type WclGearItem = WclPlayerFight["gear"][number];
 export type WclRole = z.infer<typeof wclRoleSchema>;
 export type AttendanceExemption = z.infer<typeof attendanceExemptionSchema>;
+export type CharacterComment = z.infer<typeof characterCommentSchema>;
 
 /* Derived view models (computed, never stored) */
 
@@ -155,6 +157,8 @@ export interface CharacterBundle {
   wishlists: PhaseWishlistView[];
   awards: AwardWithContext[];
   summary: CharacterSummary;
+  /** Officer comment log, newest first. */
+  comments: CharacterComment[];
 }
 
 export interface ContentionWisher {
@@ -336,6 +340,56 @@ export interface RaidReportView {
   improvements: PlayerImprovements[];
 }
 
+
+/* Character-vs-character comparison (up to 4, the contribution side-by-side) */
+
+/** One maintained debuff/buff a compared character kept up, career-averaged. */
+export interface ComparedUpkeep {
+  name: string;
+  kind: "debuff" | "buff" | "selfbuff";
+  pct: number;
+}
+
+/** One character's column in the comparison: the contribution metrics side-by-side. */
+export interface ComparedCharacter {
+  character: Character;
+  /** Spec as actually played in logs (falls back to roster spec for display). */
+  loggedSpec?: string;
+  /** Resolved main name when this is a linked alt. */
+  mainCharacterName?: string;
+  /** True once at least one logged pull exists — gates the log-derived metrics. */
+  hasLogs: boolean;
+  reports: number;
+  fights: number;
+  /* Damage / output — median dps (hps for healers) across logged pulls. */
+  output?: number;
+  outputUnit: "dps" | "hps";
+  /* Performance */
+  medianParse?: number;
+  bestParse?: number;
+  medianBracket?: number;
+  deaths: number;
+  deathsPerFight: number;
+  /* Attendance */
+  attendance?: AttendanceSummary;
+  /* Consumables (coverage across logged pulls) */
+  preparedPct: number;
+  flaskOrElixirsPct: number;
+  foodPct: number;
+  weaponBuffPct: number;
+  potionsPerFight: number;
+  prepots: number;
+  /* Uptime of the buffs/debuffs their spec is responsible for, career-averaged. */
+  upkeep: ComparedUpkeep[];
+  /* Comments — the detailed officer log. */
+  comments: CharacterComment[];
+}
+
+export interface CharacterComparisonView {
+  characters: ComparedCharacter[];
+  /** Every upkeep track present on any compared character, debuffs first — the row set. */
+  upkeepTracks: { name: string; kind: "debuff" | "buff" | "selfbuff" }[];
+}
 
 /** A name seen in imported logs that matches no tracked character. */
 export interface UntrackedLogPlayer {

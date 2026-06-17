@@ -5,6 +5,7 @@ import {
   getDb,
   insertAttendanceExemption,
   insertCharacter,
+  insertCharacterComment,
   insertGearSet,
   insertItem,
   insertLootAward,
@@ -15,10 +16,18 @@ import {
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
-import { characterSchema, gearSetSchema, wclPlayerFightSchema, wclReportSchema } from "@/lib/import/schemas";
+import {
+  characterCommentSchema,
+  characterSchema,
+  gearSetSchema,
+  wclPlayerFightSchema,
+  wclReportSchema,
+} from "@/lib/import/schemas";
 import type {
+  AddCommentResult,
   AwardDraft,
   AwardResolution,
+  CharacterCommentDraft,
   CharacterDraft,
   CharacterWriteResult,
   DeleteCharacterResult,
@@ -34,7 +43,7 @@ import type {
   WclSaveResult,
   WriteRepo,
 } from "@/lib/data/repo";
-import type { Character, GearSet, Item, LootAward, RaidSession, WclPlayerFight } from "@/lib/types";
+import type { Character, CharacterComment, GearSet, Item, LootAward, RaidSession, WclPlayerFight } from "@/lib/types";
 
 /**
  * SQLite-backed repository. Reads go through the same derived read model as
@@ -179,6 +188,9 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       result.deletedGearSets = Number(
         db.prepare("DELETE FROM gear_sets WHERE character_id = ?").run(id).changes,
       );
+      // Comments and exemptions reference the character — they go with it.
+      db.prepare("DELETE FROM character_comments WHERE character_id = ?").run(id);
+      db.prepare("DELETE FROM attendance_exemptions WHERE character_id = ?").run(id);
       db.prepare("DELETE FROM characters WHERE id = ?").run(id);
       bumpDataVersion(db);
     });
@@ -340,6 +352,9 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       db.prepare("UPDATE loot_awards SET character_id = NULL, external = 0 WHERE character_id LIKE 'c-%'").run();
       // Gear sets follow their character — covers seeded sets and test imports onto demo characters.
       removed.gearSets = Number(db.prepare("DELETE FROM gear_sets WHERE character_id LIKE 'c-%'").run().changes);
+      // Comments and exemptions on demo characters go too (they'd dangle otherwise).
+      db.prepare("DELETE FROM character_comments WHERE character_id LIKE 'c-%'").run();
+      db.prepare("DELETE FROM attendance_exemptions WHERE character_id LIKE 'c-%'").run();
       removed.raidSessions = Number(db.prepare("DELETE FROM raid_sessions WHERE id LIKE 'rs-%'").run().changes);
       removed.characters = Number(db.prepare("DELETE FROM characters WHERE id LIKE 'c-%'").run().changes);
       bumpDataVersion(db);
@@ -382,6 +397,36 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true as const };
   },
 
+  async addCharacterComment(draft: CharacterCommentDraft): Promise<AddCommentResult> {
+    if (!readModel().store.roster.some((c) => c.id === draft.characterId)) {
+      return { ok: false, error: "Character not found." };
+    }
+    const parsed = characterCommentSchema.safeParse({
+      ...draft,
+      id: `cm_${randomUUID()}`,
+      createdAt: new Date().toISOString(),
+    } satisfies CharacterComment);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid comment." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      insertCharacterComment(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true, comment: parsed.data };
+  },
+
+  async deleteCharacterComment(id: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = Number(db.prepare("DELETE FROM character_comments WHERE id = ?").run(id).changes) > 0;
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     const db = getDb();
     const known = new Set(readModel().store.items.map((i) => i.id));
@@ -411,6 +456,7 @@ export function getSqliteRepo(): WriteRepo {
     listWclReports: () => readModel().repo.listWclReports(),
     getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
     getRaidReport: (code) => readModel().repo.getRaidReport(code),
+    getComparison: (slugs) => readModel().repo.getComparison(slugs),
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
   };
   return { ...readDelegate, ...writeMethods };
