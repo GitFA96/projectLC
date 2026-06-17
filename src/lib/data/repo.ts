@@ -49,8 +49,10 @@ export interface Repo {
   /**
    * Side-by-side comparison of up to 4 characters (by slug): contribution
    * metrics + the comment log. Unknown slugs are dropped; order is preserved.
+   * reportFilter (slug → report codes) scopes the log-derived metrics to chosen
+   * raid nights per character; omit it (or pass no codes) for all-time.
    */
-  getComparison(slugs: string[]): Promise<CharacterComparisonView>;
+  getComparison(slugs: string[], reportFilter?: Record<string, string[]>): Promise<CharacterComparisonView>;
   /** Names seen in imported logs that match no tracked character, most pulls first. */
   listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]>;
 }

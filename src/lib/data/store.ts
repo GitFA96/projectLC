@@ -509,7 +509,10 @@ export function createRepoFromStore(store: EntityStore): Repo {
       };
     },
 
-    async getComparison(slugs: string[]): Promise<CharacterComparisonView> {
+    async getComparison(
+      slugs: string[],
+      reportFilter?: Record<string, string[]>,
+    ): Promise<CharacterComparisonView> {
       // Resolve to known characters, dedupe, preserve the requested order, cap at 4.
       const seen = new Set<string>();
       const chosen: Character[] = [];
@@ -521,14 +524,34 @@ export function createRepoFromStore(store: EntityStore): Repo {
         }
         if (chosen.length >= 4) break;
       }
-      const inputs: ComparisonInput[] = chosen.map((character) => ({
-        character,
-        rows: careerRowsOf(character.id),
-        attendance: computeAttendance(character.id),
-        comments: commentsOf(character.id),
-        loggedSpec: loggedSpecOf(character.id),
-        mainCharacterName: mainNameOf(character),
-      }));
+      const inputs: ComparisonInput[] = chosen.map((character) => {
+        const careerRows = careerRowsOf(character.id);
+        // Reports the character appears in, newest first — the log-picker options.
+        const codesForChar = new Set(careerRows.map((r) => r.reportCode));
+        const availableReports = [...wclReports]
+          .filter((r) => codesForChar.has(r.code))
+          .sort((a, b) => b.startTime.localeCompare(a.startTime))
+          .map((r) => ({ code: r.code, title: r.title, zone: r.zone, startTime: r.startTime }));
+        // Apply the per-character log filter; an empty/unknown selection falls
+        // back to all logs so a column is never accidentally blank.
+        const allCodes = availableReports.map((r) => r.code);
+        const requested = reportFilter?.[character.name.toLowerCase()];
+        const picked = requested && requested.length > 0
+          ? allCodes.filter((c) => requested.includes(c))
+          : allCodes;
+        const selected = picked.length > 0 ? picked : allCodes;
+        const rows = careerRows.filter((r) => selected.includes(r.reportCode));
+        return {
+          character,
+          rows,
+          availableReports,
+          // Attendance is inherently cross-week — always all-time, never per-log.
+          attendance: computeAttendance(character.id),
+          comments: commentsOf(character.id),
+          loggedSpec: loggedSpecOf(character.id),
+          mainCharacterName: mainNameOf(character),
+        };
+      });
       return summarizeComparison(inputs);
     },
 

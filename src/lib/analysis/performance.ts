@@ -37,8 +37,9 @@ export function attendanceTitle(a: AttendanceSummary): string {
 /**
  * Rollups over player-fight rows. Parses use the median (a raid night with one
  * padded farm boss shouldn't define a player); preparation is coverage across
- * pulls. "Flask or two elixirs" mirrors how TBC raiders actually consume —
- * a flask occupies both elixir slots.
+ * pulls. "Flask or an elixir" counts as consumable coverage — many raiders
+ * (hunters especially) run a single battle elixir rather than a full flask, and
+ * that should register rather than read as "used nothing".
  */
 
 function median(values: number[]): number | undefined {
@@ -75,9 +76,9 @@ export function summarizePerformance(rows: WclPlayerFight[]): PerformanceSummary
 
   const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
   const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
-  const flaskOrElixirs = rows.filter((r) => r.flask !== undefined || r.elixirs.length >= 2).length;
+  const flaskOrElixirs = rows.filter((r) => r.flask !== undefined || r.elixirs.length >= 1).length;
   const fed = rows.filter((r) => r.food).length;
-  const prepared = rows.filter((r) => (r.flask !== undefined || r.elixirs.length >= 2) && r.food).length;
+  const prepared = rows.filter((r) => (r.flask !== undefined || r.elixirs.length >= 1) && r.food).length;
   const potionsTotal = rows.reduce((sum, r) => sum + r.potions.length, 0);
   // Callers pass rows in chronological order — the last row is the latest pull.
   const latest = rows.at(-1);

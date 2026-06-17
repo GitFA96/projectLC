@@ -220,7 +220,7 @@ export interface PerformanceSummary {
   /** Dominant role/spec across the rows. */
   role: WclRole;
   spec?: string;
-  /** % of pulls covered: flask or two elixirs / food / temp weapon buff. */
+  /** % of pulls covered: flask or at least one elixir / food / temp weapon buff. */
   flaskOrElixirsPct: number;
   foodPct: number;
   weaponBuffPct: number;
@@ -343,11 +343,19 @@ export interface RaidReportView {
 
 /* Character-vs-character comparison (up to 4, the contribution side-by-side) */
 
-/** One maintained debuff/buff a compared character kept up, career-averaged. */
+/** One maintained debuff/buff a compared character kept up, averaged over the selected logs. */
 export interface ComparedUpkeep {
   name: string;
   kind: "debuff" | "buff" | "selfbuff";
   pct: number;
+}
+
+/** A report a compared character appears in — the options for the per-column log picker. */
+export interface ComparedReportRef {
+  code: string;
+  title: string;
+  zone?: string;
+  startTime: string;
 }
 
 /** One character's column in the comparison: the contribution metrics side-by-side. */
@@ -357,10 +365,14 @@ export interface ComparedCharacter {
   loggedSpec?: string;
   /** Resolved main name when this is a linked alt. */
   mainCharacterName?: string;
-  /** True once at least one logged pull exists — gates the log-derived metrics. */
+  /** True once at least one logged pull (within the selected logs) exists. */
   hasLogs: boolean;
   reports: number;
   fights: number;
+  /** Every report this character appears in (newest first) — the log-picker options. */
+  availableReports: ComparedReportRef[];
+  /** The report codes currently feeding the log-derived metrics (a subset, or all). */
+  selectedReportCodes: string[];
   /* Damage / output — median dps (hps for healers) across logged pulls. */
   output?: number;
   outputUnit: "dps" | "hps";

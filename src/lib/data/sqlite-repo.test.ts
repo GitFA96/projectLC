@@ -697,6 +697,33 @@ describe("sqlite repo", () => {
       expect(empty.ok).toBe(false);
       expect(await repo.listWclReports()).toHaveLength(1); // only the seed report
     });
+
+    it("scopes a comparison column to the selected logs", async () => {
+      const repo = getSqliteRepo();
+      // Kazrak is in the seed report; give him a second one (newer).
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Kazrak", parsePercent: 10, amount: 100 }),
+      ]);
+
+      const all = await repo.getComparison(["kazrak"]);
+      const kAll = all.characters[0];
+      // Picker options: both reports, newest first.
+      expect(kAll.availableReports.map((r) => r.code)).toEqual(["TESTreport000001", "SEEDsscProgress1"]);
+      expect(kAll.reports).toBe(2);
+
+      // Filter to just the new report — only its pull feeds the column.
+      const filtered = await repo.getComparison(["kazrak"], { kazrak: ["TESTreport000001"] });
+      const kFilt = filtered.characters[0];
+      expect(kFilt.reports).toBe(1);
+      expect(kFilt.selectedReportCodes).toEqual(["TESTreport000001"]);
+      expect(kFilt.fights).toBe(1);
+      // The picker options don't shrink when a subset is active.
+      expect(kFilt.availableReports).toHaveLength(2);
+
+      // An unknown code in the filter falls back to all logs (never blank).
+      const bogus = await repo.getComparison(["kazrak"], { kazrak: ["does-not-exist"] });
+      expect(bogus.characters[0].reports).toBe(2);
+    });
   });
 
   describe("comments + comparison", () => {

@@ -17,6 +17,7 @@ import { SpecBadge } from "@/components/spec-badge";
 import { WeekDots } from "@/components/week-dots";
 import { ParseBadge } from "@/components/parse-badge";
 import { ComparePicker, type PickerCharacter } from "@/components/compare/compare-picker";
+import { CompareLogPicker } from "@/components/compare/compare-log-picker";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -45,8 +46,23 @@ export default async function ComparePage({ searchParams }: { searchParams: Sear
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+  // Per-character log filters: r_<slug>=code,code (preserved verbatim through edits).
+  const reportFilter: Record<string, string[]> = {};
+  for (const [key, val] of Object.entries(sp)) {
+    if (!key.startsWith("r_")) continue;
+    const codes = (Array.isArray(val) ? val : val ? [val] : [])
+      .flatMap((v) => v.split(","))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (codes.length > 0) reportFilter[key.slice(2).toLowerCase()] = codes;
+  }
+
   const repo = await getRepo();
-  const [view, characters] = await Promise.all([repo.getComparison(slugs), repo.listCharacters()]);
+  const [view, characters] = await Promise.all([
+    repo.getComparison(slugs, reportFilter),
+    repo.listCharacters(),
+  ]);
+  const chars = view.characters.map((c) => c.character.name.toLowerCase());
 
   const all: PickerCharacter[] = characters
     .map((s) => ({
@@ -74,7 +90,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Sear
         />
       ) : (
         <>
-          <ComparisonMatrix view={view} />
+          <ComparisonMatrix view={view} chars={chars} explicitFilter={reportFilter} />
           <CommentsSection view={view} />
         </>
       )}
@@ -83,7 +99,17 @@ export default async function ComparePage({ searchParams }: { searchParams: Sear
 }
 
 /** The aligned metric matrix: one column per character, sections of metrics. */
-function ComparisonMatrix({ view }: { view: CharacterComparisonView }) {
+function ComparisonMatrix({
+  view,
+  chars: charSlugs,
+  explicitFilter,
+}: {
+  view: CharacterComparisonView;
+  /** All compared slugs in order — for the log pickers' URL rebuild. */
+  chars: string[];
+  /** Current r_<slug> filters in the URL — preserved across picker edits. */
+  explicitFilter: Record<string, string[]>;
+}) {
   const chars = view.characters;
   const cols = `minmax(8.5rem, 1.3fr) repeat(${chars.length}, minmax(6.5rem, 1fr))`;
 
@@ -96,7 +122,7 @@ function ComparisonMatrix({ view }: { view: CharacterComparisonView }) {
             Metric
           </div>
           {chars.map((c) => (
-            <CharacterHead key={c.character.id} c={c} />
+            <CharacterHead key={c.character.id} c={c} chars={charSlugs} explicitFilter={explicitFilter} />
           ))}
         </div>
 
@@ -198,39 +224,58 @@ function ComparisonMatrix({ view }: { view: CharacterComparisonView }) {
             ))}
           </>
         )}
+        <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
+          Output, parses, deaths, consumables and uptime reflect each column&apos;s selected logs
+          (pick them under a name). Attendance and comments are always all-time.
+        </p>
       </div>
     </Card>
   );
 }
 
-function CharacterHead({ c }: { c: ComparedCharacter }) {
+function CharacterHead({
+  c,
+  chars,
+  explicitFilter,
+}: {
+  c: ComparedCharacter;
+  chars: string[];
+  explicitFilter: Record<string, string[]>;
+}) {
   const slug = c.character.name.toLowerCase();
   const specMismatch =
     c.loggedSpec &&
     c.loggedSpec.replace(/\s/g, "").toLowerCase() !== c.character.spec.replace(/\s/g, "").toLowerCase();
   return (
-    <div className="min-w-0 space-y-1 text-right">
+    <div className="flex min-w-0 flex-col items-end space-y-1 text-right">
       <Link
         href={`/characters/${encodeURIComponent(slug)}`}
-        className="block truncate font-semibold leading-tight hover:underline"
+        className="block w-full truncate font-semibold leading-tight hover:underline"
         style={{ color: CLASS_TEXT_COLORS[c.character.class] }}
       >
         {c.character.name}
       </Link>
-      <div className="flex justify-end">
-        <SpecBadge spec={c.loggedSpec ?? c.character.spec} wowClass={c.character.class} />
-      </div>
-      <p className="truncate text-[11px] text-muted-foreground">
+      <SpecBadge spec={c.loggedSpec ?? c.character.spec} wowClass={c.character.class} />
+      <p className="w-full truncate text-[11px] text-muted-foreground">
         {c.character.role}
         {c.mainCharacterName && ` · alt of ${c.mainCharacterName}`}
         {specMismatch && " · logs differ"}
       </p>
-      <Link
-        href={`/characters/${encodeURIComponent(slug)}/performance`}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-      >
-        <Activity className="h-3 w-3" /> logs
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link
+          href={`/characters/${encodeURIComponent(slug)}/performance`}
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          <Activity className="h-3 w-3" /> profile
+        </Link>
+        <CompareLogPicker
+          slug={slug}
+          chars={chars}
+          explicitFilter={explicitFilter}
+          reports={c.availableReports}
+          selected={c.selectedReportCodes}
+        />
+      </div>
     </div>
   );
 }

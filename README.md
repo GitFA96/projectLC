@@ -12,7 +12,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, class cooldowns + debuff/shout upkeep (expand any boss row), enchant audit, per-report + career rollups |
 | `/logs` | **Raid-wide logs dashboard** — one raid night at a time: preparation coverage, raid debuff/buff uptime by provider, cooldown + potion/in-fight usage, and a worst-first **player-improvements** list (missing enchants, flask/food gaps, skipped potions) |
-| `/compare` | **Character comparison** — up to 4 characters side-by-side on the contribution that matters: median output, parses, attendance, consumable coverage, the buffs/debuffs they keep up, and each one's comment log. Leader highlighted per metric; shareable via the URL |
+| `/compare` | **Character comparison** — up to 4 characters side-by-side on the contribution that matters: median output, parses, attendance, consumable coverage, the buffs/debuffs they keep up, and each one's comment log. Leader highlighted per metric; **per-column log picker** scopes the log-derived metrics to chosen raid nights; shareable via the URL |
 | `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
@@ -91,6 +91,8 @@ Imported reports also drive **attendance**, led by a **per-reset check** (EU res
 ### Comparing characters
 
 `/compare` lines up **two to four characters** side-by-side on the contribution that drives a council decision: median output (dps, hps for healers), parse + ilvl-bracket percentiles, attendance (reset weeks, raids %, pull coverage), consumable coverage (flask/elixirs, food, weapon buff, potions/pull), and the **uptime of every buff/debuff their spec maintains** (warlock curses, shouts, judgements, Earth Shield…). The leader is highlighted per metric. The selection lives in the URL (`?chars=a,b,c`), so a comparison is shareable; reach it from the nav or the **Compare** button on any profile.
+
+Under each name a **log picker** scopes that column's log-derived metrics (output, parses, deaths, consumables, uptime) to chosen raid night(s) — compare everyone on the same night, or each player's best — while attendance and comments stay all-time. Consumable coverage counts a flask **or at least one elixir**: a hunter running a single battle elixir reads as covered, not as "used nothing".
 
 ### Officer comments
 

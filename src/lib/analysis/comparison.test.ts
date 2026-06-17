@@ -59,6 +59,7 @@ describe("summarizeComparison", () => {
   const inputs: ComparisonInput[] = [
     {
       character: character({ id: "c-kaz", name: "Kazrak" }),
+      availableReports: [],
       rows: [
         row({ fightId: 1, actorName: "Kazrak", className: "Warrior", amount: 1000, parsePercent: 60,
           bracketPercent: 55, flask: "Flask of Relentless Assault", deaths: 1,
@@ -71,6 +72,7 @@ describe("summarizeComparison", () => {
     },
     {
       character: character({ id: "c-mor", name: "Morgrave", class: "Warlock", spec: "Destruction", role: "Ranged DPS" }),
+      availableReports: [],
       rows: [
         row({ fightId: 1, actorName: "Morgrave", className: "Warlock", amount: 1800, parsePercent: 95,
           bracketPercent: 90, flask: undefined, elixirs: [], food: false,
@@ -81,6 +83,7 @@ describe("summarizeComparison", () => {
     {
       // Healer with two unequal-length pulls — verifies hps unit + weighted upkeep.
       character: character({ id: "c-tid", name: "Tidemar", class: "Shaman", spec: "Restoration", role: "Healer" }),
+      availableReports: [],
       rows: [
         row({ fightId: 1, actorName: "Tidemar", className: "Shaman", role: "healer", amount: 2000,
           durationMs: 100000, upkeep: [{ name: "Earth Shield", pct: 100 }] }),
@@ -92,6 +95,7 @@ describe("summarizeComparison", () => {
     {
       // No logged pulls — log-derived metrics stay empty.
       character: character({ id: "c-new", name: "Newbie" }),
+      availableReports: [],
       rows: [],
       comments: [],
     },
@@ -137,5 +141,22 @@ describe("summarizeComparison", () => {
     expect(newbie.output).toBeUndefined();
     expect(newbie.preparedPct).toBe(0);
     expect(view.characters[0].comments).toHaveLength(1);
+  });
+
+  it("counts a single elixir as flask/elixir coverage (the hunter case)", () => {
+    const v = summarizeComparison([
+      {
+        character: character({ id: "c-syl", name: "Sylvaria", class: "Hunter", spec: "Beast Mastery", role: "Ranged DPS" }),
+        availableReports: [],
+        rows: [
+          row({ fightId: 1, actorName: "Sylvaria", className: "Hunter", flask: undefined, elixirs: ["Elixir of Major Agility"], food: true }),
+          row({ fightId: 2, actorName: "Sylvaria", className: "Hunter", flask: undefined, elixirs: ["Elixir of Major Agility"], food: true }),
+        ],
+        comments: [],
+      },
+    ]);
+    // One battle elixir is coverage — not 0% — and with food it's "prepared".
+    expect(v.characters[0].flaskOrElixirsPct).toBe(100);
+    expect(v.characters[0].preparedPct).toBe(100);
   });
 });
