@@ -363,6 +363,14 @@ describe("consumable classification", () => {
     expect(classifyAura("Major Fortitude")?.category).toBe("guardianElixir");
     expect(classifyAura("Draenic Wisdom")?.label).toBe("Elixir of Draenic Wisdom");
     expect(classifyAura("Fel Strength")?.category).toBe("battleElixir");
+    // Lesser caster elixirs report a bare buff name with no "elixir" in it
+    // (Elixir of Shadow Power → "Shadow Power", spell 11474) — curated by id+name.
+    expect(classifyAura("Shadow Power", 11474)).toEqual({
+      category: "battleElixir",
+      label: "Elixir of Shadow Power",
+    });
+    expect(classifyAura("Fire Power")?.label).toBe("Elixir of Firepower");
+    expect(classifyAura("Frost Power")?.category).toBe("battleElixir");
     // Unknown elixir-looking buffs still count as elixirs.
     expect(classifyAura("Elixir of Future Patch")?.category).toBe("battleElixir");
   });

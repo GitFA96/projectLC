@@ -509,11 +509,16 @@ function GargulTab({
         <CardHeader>
           <CardTitle>Gargul award export</CardTitle>
           <p className="text-xs text-muted-foreground">
-            In Gargul: Award history → Export. Recommended custom format:{" "}
+            In Gargul: Award history → Export. The standard CSV export (it leads with a{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+              dateTime,character,itemID,offspec,id
+            </code>{" "}
+            header) works pasted as-is — the header is detected and the award id ignored. A custom
+            format like{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               @DATE;@TIME;@ID;@ITEM;@WINNER;@OS
             </code>{" "}
-            — semicolon, comma or tab separated all work, and item links (@LINK) are understood too.
+            works too — semicolon, comma or tab separated, and item links (@LINK) are understood.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">

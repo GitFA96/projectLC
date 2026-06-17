@@ -77,4 +77,71 @@ describe("parseGargulExport", () => {
     expect(lines).toHaveLength(1);
     expect(warnings).toHaveLength(1);
   });
+
+  it("reads Gargul's standard CSV export by header — winner is the character, the id column is ignored", () => {
+    const { lines, warnings } = parseGargulExport(
+      "dateTime,character,itemID,offspec,id\n" +
+        "2026-06-17,Sylvaria,28830,0,10036338451993911234\n" +
+        "2026-06-17,Morgrave,28773,1,11032160261916129712",
+    );
+    // The header is consumed silently — no "Line 1 skipped" warning.
+    expect(warnings).toEqual([]);
+    expect(lines).toEqual([
+      {
+        awardedAt: "2026-06-17T00:00:00",
+        itemId: 28830,
+        itemName: undefined,
+        rawWinnerName: "Sylvaria",
+        offspec: false,
+        quality: undefined,
+      },
+      {
+        awardedAt: "2026-06-17T00:00:00",
+        itemId: 28773,
+        itemName: undefined,
+        rawWinnerName: "Morgrave",
+        offspec: true,
+        quality: undefined,
+      },
+    ]);
+  });
+
+  it("reads a header dateTime that carries the time too", () => {
+    const { lines } = parseGargulExport(
+      "dateTime,character,itemID,offspec,id\n2026-06-17 22:55:01,Thrainn,30243,0,99",
+    );
+    expect(lines[0].awardedAt).toBe("2026-06-17T22:55:00");
+  });
+
+  it("honors header order and an itemName column, link or realm-suffixed name", () => {
+    const link = "|cffa335ee|Hitem:28830:0:0:0:0:0:0:0:70|h[Dragonspine Trophy]|h|r";
+    const { lines, warnings } = parseGargulExport(
+      "id,winner,date,item,itemName,os\n" +
+        `987654321098765,Shivven-Firemaw,2026-06-17,${link},ignored name,os`,
+    );
+    expect(warnings).toEqual([]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      itemId: 28830,
+      itemName: "Dragonspine Trophy",
+      rawWinnerName: "Shivven",
+      offspec: true,
+      quality: "epic",
+    });
+  });
+
+  it("warns when only the header row was pasted", () => {
+    const { lines, warnings } = parseGargulExport("dateTime,character,itemID,offspec,id");
+    expect(lines).toHaveLength(0);
+    expect(warnings.some((w) => w.includes("header"))).toBe(true);
+  });
+
+  it("drops a trailing award-id number in a header-less paste instead of reading it as the winner", () => {
+    const { lines } = parseGargulExport(
+      "2026-06-04;22:55;30243;Helm of the Vanquished Defender;Thrainn;0;10036338451993911234",
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].rawWinnerName).toBe("Thrainn");
+    expect(lines[0].itemId).toBe(30243);
+  });
 });

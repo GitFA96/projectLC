@@ -47,6 +47,11 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Major Agility", category: "battleElixir", ids: [28497], buffNames: ["Major Agility"] },
   { label: "Elixir of Major Strength", category: "battleElixir", buffNames: ["Major Strength"] },
   { label: "Elixir of Major Shadow Power", category: "battleElixir", buffNames: ["Major Shadow Power"] },
+  // Lesser caster damage elixirs: the buff is the bare stat ("Shadow Power"),
+  // which the generic "…elixir" fallback never catches — curate them by name.
+  { label: "Elixir of Shadow Power", category: "battleElixir", ids: [11474], buffNames: ["Shadow Power"] },
+  { label: "Elixir of Firepower", category: "battleElixir", ids: [7844], buffNames: ["Fire Power"] },
+  { label: "Elixir of Frost Power", category: "battleElixir", ids: [21920], buffNames: ["Frost Power"] },
   { label: "Elixir of Major Firepower", category: "battleElixir", buffNames: ["Major Firepower"] },
   { label: "Elixir of Major Frost Power", category: "battleElixir", buffNames: ["Major Frost Power"] },
   { label: "Elixir of Healing Power", category: "battleElixir", buffNames: ["Healing Power"] },
