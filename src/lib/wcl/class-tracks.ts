@@ -128,6 +128,11 @@ export const UPTIME_TRACK_BY_NAME = new Map<string, UptimeTrack>(
   UPTIME_TRACKS.map((t) => [t.name.toLowerCase(), t]),
 );
 
+/** Reverse lookup from the stored display label back to the track. */
+export const UPTIME_TRACK_BY_LABEL = new Map<string, UptimeTrack>(
+  UPTIME_TRACKS.map((t) => [(t.label ?? t.name).toLowerCase(), t]),
+);
+
 /** Names for the server-side debuff-events filter (uptime on enemies). */
 export const DEBUFF_TRACK_NAMES = UPTIME_TRACKS.filter((t) => t.kind === "debuff").map((t) => t.name);
 /** Names for the server-side buff-events filter (uptime on friendlies). */

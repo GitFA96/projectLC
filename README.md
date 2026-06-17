@@ -11,6 +11,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/characters/[name]` | **The centerpiece** — current gear paper-doll, P1–P5 wishlist tabs with awarded/equipped/open status, "upcoming stats" (current vs wishlist stat diff), loot history |
 | `/characters/[name]/edit` | Edit character details; manage imported sets (update via re-import, delete stale ones) |
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, class cooldowns + debuff/shout upkeep (expand any boss row), enchant audit, per-report + career rollups |
+| `/logs` | **Raid-wide logs dashboard** — one raid night at a time: preparation coverage, raid debuff/buff uptime by provider, cooldown + potion/in-fight usage, and a worst-first **player-improvements** list (missing enchants, flask/food gaps, skipped potions) |
 | `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
@@ -107,7 +108,7 @@ A fresh database is seeded with fictional demo content so the UI isn't empty. On
 - **M1** — UI draft on realistic seed data ✓
 - **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
 - **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
-- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it), raid-wide preparation overview
+- **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓, raid-wide logs dashboard with player-improvements list ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it)
 
 ## License
 

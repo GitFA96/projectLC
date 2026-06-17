@@ -259,6 +259,84 @@ export interface WclReportView {
   killCount: number;
 }
 
+/* Raid-wide logs dashboard (one report = one raid night) */
+
+export interface RaidFight {
+  fightId: number;
+  encounterName: string;
+  kill: boolean;
+  fightPercentage?: number;
+  durationMs: number;
+}
+
+/** One maintained debuff/buff, with who kept it up and how well across the night. */
+export interface RaidUpkeepRow {
+  name: string;
+  /** WCL class string of the providers (for coloring) — the dominant one. */
+  className?: string;
+  /** debuff = on the boss; buff/selfbuff = on a friendly target. */
+  kind: "debuff" | "buff" | "selfbuff";
+  providers: { name: string; slug?: string; pct: number }[];
+  /** Best single-provider average uptime across the night. */
+  bestPct: number;
+}
+
+/** Raid-wide preparation + in-fight consumable totals. */
+export interface RaidPrepStats {
+  /** Player-pulls (the denominator for the coverage percentages). */
+  rows: number;
+  raiders: number;
+  flaskOrElixirPct: number;
+  foodPct: number;
+  weaponBuffPct: number;
+  prepotPct: number;
+  potionsTotal: number;
+  prepots: number;
+  /** Potion casts by type, most-used first. */
+  potionTypes: { name: string; uses: number }[];
+  /** Non-potion in-fight items (gems, seeds, healthstones, runes, drums). */
+  inFightTypes: { name: string; uses: number }[];
+}
+
+export interface RaidCooldownRow {
+  name: string;
+  uses: number;
+  providers: { name: string; slug?: string; count: number }[];
+}
+
+export type ImprovementSeverity = "high" | "medium" | "low";
+
+export interface ImprovementFinding {
+  severity: ImprovementSeverity;
+  label: string;
+  /** Boss names or extra context. */
+  detail?: string;
+}
+
+/** One raider's preparation gaps for the night, worst first. */
+export interface PlayerImprovements {
+  name: string;
+  slug?: string;
+  className?: string;
+  role: WclRole;
+  /** Severity-weighted sum — drives the worst-first ordering. */
+  score: number;
+  findings: ImprovementFinding[];
+}
+
+export interface RaidReportView {
+  report: WclReport;
+  session?: RaidSession;
+  fights: RaidFight[];
+  reportPulls: number;
+  prep: RaidPrepStats;
+  upkeep: RaidUpkeepRow[];
+  cooldowns: RaidCooldownRow[];
+  /** Raiders with at least one preparation gap, worst first. */
+  improvements: PlayerImprovements[];
+}
+
+
 /** A name seen in imported logs that matches no tracked character. */
 export interface UntrackedLogPlayer {
   name: string;

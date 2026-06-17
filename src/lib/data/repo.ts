@@ -11,6 +11,7 @@ import type {
   ItemContention,
   ItemDemand,
   LootAward,
+  RaidReportView,
   RaidSession,
   UntrackedLogPlayer,
   WclPlayerFight,
@@ -41,6 +42,8 @@ export interface Repo {
   listWclReports(): Promise<WclReportView[]>;
   /** Per-report performance + career rollup for one character (null = unknown character). */
   getCharacterPerformance(slug: string): Promise<CharacterPerformance | null>;
+  /** Raid-wide rollup of one report (defaults to the latest); null when no reports. */
+  getRaidReport(code?: string): Promise<RaidReportView | null>;
   /** Names seen in imported logs that match no tracked character, most pulls first. */
   listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]>;
 }

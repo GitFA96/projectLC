@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/roster", label: "Roster" },
   { href: "/loot", label: "Loot" },
+  { href: "/logs", label: "Logs" },
   { href: "/items", label: "Items" },
   { href: "/admin/import", label: "Import" },
 ];
