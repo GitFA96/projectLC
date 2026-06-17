@@ -7,6 +7,7 @@ import {
 import { computeItemContention } from "@/lib/analysis/contention";
 import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
+import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { phaseForZones } from "@/lib/constants/wow";
 import type {
   AttendanceExemption,
@@ -25,6 +26,7 @@ import type {
   PerformanceReportView,
   Phase,
   PhaseWishlistView,
+  RaidReportView,
   RaidSession,
   UntrackedLogPlayer,
   WclPlayerFight,
@@ -414,6 +416,28 @@ export function createRepoFromStore(store: EntityStore): Repo {
             killCount: new Set(rows.filter((r) => r.kill).map((r) => r.fightId)).size,
           };
         });
+    },
+
+    async getRaidReport(code?: string): Promise<RaidReportView | null> {
+      if (wclReports.length === 0) return null;
+      const sorted = [...wclReports].sort((a, b) => b.startTime.localeCompare(a.startTime));
+      const report = (code ? sorted.find((r) => r.code === code) : undefined) ?? sorted[0];
+      const rows = wclPlayerFights.filter((r) => r.reportCode === report.code);
+      if (rows.length === 0) return null;
+      // Resolve logged names to roster slugs (read-time match included).
+      const slugByActor = new Map<string, string>();
+      for (const row of rows) {
+        const id = wclRowCharacterId(row);
+        const character = id ? charactersById.get(id) : undefined;
+        if (character) slugByActor.set(row.actorName.toLowerCase(), character.name.toLowerCase());
+      }
+      return summarizeRaidReport({
+        report,
+        session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
+        rows,
+        reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
+        slugByActor,
+      });
     },
 
     async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {
