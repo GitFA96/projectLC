@@ -8,10 +8,11 @@ export const metadata: Metadata = { title: "Loot ledger" };
 
 export default async function LootPage() {
   const repo = await getRepo();
-  const [awards, sessions, characters] = await Promise.all([
+  const [awards, sessions, characters, items] = await Promise.all([
     repo.listLootAwards(),
     repo.listRaidSessions(),
     repo.listCharacters(),
+    repo.listItems(),
   ]);
 
   const rows: LootRow[] = awards.map((a) => ({
@@ -28,6 +29,7 @@ export default async function LootPage() {
     },
     winnerName: a.character?.name ?? a.award.rawWinnerName,
     winnerClass: a.character?.class,
+    winnerCharacterId: a.character?.id,
     winnerStatus: a.character ? ("roster" as const) : a.award.external ? ("external" as const) : ("unresolved" as const),
     offspec: a.award.offspec,
     matched: a.wishlist.matched,
@@ -57,6 +59,7 @@ export default async function LootPage() {
             name: c.character.name,
             wowClass: c.character.class,
           }))}
+          knownItems={items.map((i) => ({ id: i.id, name: i.name, quality: i.quality, icon: i.icon }))}
         />
       </Suspense>
     </div>

@@ -13,7 +13,7 @@ Loot Council tracker for **World of Warcraft: The Burning Crusade**. A character
 | `/characters/[name]/performance` | **Warcraft Logs dashboard** — per-pull parses (with ilvl-bracket percentile), deaths, consumables at/in every pull, class cooldowns + debuff/shout upkeep (expand any boss row), enchant audit, per-report + career rollups |
 | `/logs` | **Raid-wide logs dashboard** — one raid night at a time: preparation coverage, raid debuff/buff uptime by provider, cooldown + potion/in-fight usage, and a worst-first **player-improvements** list (missing enchants, flask/food gaps, skipped potions) |
 | `/compare` | **Character comparison** — up to 4 characters side-by-side on the contribution that matters: median output, parses, attendance, consumable coverage, the buffs/debuffs they keep up, and each one's comment log. Leader highlighted per metric; **per-column log picker** scopes the log-derived metrics to chosen raid nights; shareable via the URL |
-| `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline |
+| `/loot` | Loot ledger: every award with wishlist-match status; filter by character, class, phase, session, off-spec, winner status; resolve unmatched winners inline; **add / edit / delete awards and delete whole imports** |
 | `/items` | Item index: every known item with wishlist demand, open contention and drop history — the "something just dropped" lookup |
 | `/items/[itemId]` | Item contention: who has it wishlisted (open demand first), who already won it |
 | `/admin/import` | Commit SixtyUpgrades JSON sets, Gargul award pastes and Warcraft Logs reports, with preview and validation |
@@ -46,7 +46,11 @@ Gear sets are **one per character for current gear, one per character+phase for 
 
 ### Gargul commits
 
-Each paste becomes one raid session. Winners are matched to roster characters by name (realm suffixes stripped); unmatched winners are kept by name and flagged. **Already-recorded awards are skipped** (same item + winner + timestamp), so re-pasting an overlapping export is safe — if everything is a duplicate, no session is created. Item links in the paste teach the item cache new items (name + quality from the link color).
+Each paste becomes one raid session. Gargul's **standard CSV export** — the one that leads with a `dateTime,character,itemID,offspec,id` header — is pasted as-is: the header is detected and each column read by name, so the trailing award `id` is ignored and the winner/item never swap. A header-less custom format (`@DATE;@TIME;@ID;@ITEM;@WINNER;@OS`, semicolon/comma/tab) works too, and item links (`@LINK`) teach the item cache new items (name + quality from the link color). Winners are matched to roster characters by name (realm suffixes stripped); unmatched winners are kept by name and flagged. **Already-recorded awards are skipped** (same item + winner + timestamp), so re-pasting an overlapping export is safe — if everything is a duplicate, no session is created.
+
+### Editing the ledger
+
+The loot ledger is fully editable, no re-import needed. **Edit** any award to fix the item, the winner (assign a roster character, type a custom/pug name, or mark off-roster), the off-spec flag or a council note — wishlist matching re-derives live. **Add** a missing drop straight into a session, **delete** awards one at a time or by checkbox selection, or **delete a whole import** (the session and all its awards; a Warcraft Logs report linked to that night is kept, just unlinked). Item ids resolve their name and quality from the cache automatically.
 
 ### Resolving winners
 
@@ -112,13 +116,13 @@ A fresh database is seeded with fictional demo content so the UI isn't empty. On
 
 > **Note on seed data:** the roster, gear sets and awards are fictional demo data. Item IDs/names/icons are best-effort real TBC entries to make Wowhead tooltips work, but expect a few inaccuracies — they exist to exercise the UI and get replaced by your real imports.
 
-> **Note on export formats:** the SixtyUpgrades parser is **built against a real export** (checked in as a test fixture under `src/lib/import/__fixtures__/`) — `items` array, UPPER_SNAKE slot names, `gameClass`, per-set `phase`, computed stats. The Gargul parser still targets an *assumed* format (**TODO:** validate against a real Gargul export — tolerant column-shape detection and item links should cover most configs until then).
+> **Note on export formats:** the SixtyUpgrades parser is **built against a real export** (checked in as a test fixture under `src/lib/import/__fixtures__/`) — `items` array, UPPER_SNAKE slot names, `gameClass`, per-set `phase`, computed stats. The Gargul parser handles the **standard CSV export** (header-detected, the award `id` column ignored) and header-less custom formats via tolerant column-shape detection plus item links — covering the common configs.
 
 ## Roadmap
 
 - **M1** — UI draft on realistic seed data ✓
 - **M2** — SQLite persistence, commit-enabled SixtyUpgrades/Gargul imports, character editing, wishlist update flow with change confirmation ✓
-- **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓; **remaining: validate the Gargul parser against a real export** (+ column mapping if needed)
+- **M3 (in progress)** — LC decision support: manual winner resolution ✓, item demand index ✓, per-phase fairness ✓, Gargul standard-CSV export parsing ✓, full ledger editing (add / edit / delete awards, delete imports) ✓; fixed: item hover tooltips no longer dismiss after ~1s ✓
 - **M4 (in progress)** — Warcraft Logs integration: API client + report import ✓ (validated against real reports), per-character performance dashboard (parses, deaths, consumables, enchant audit) ✓, class toolkit (cooldown casts + maintained debuff/buff uptime) ✓, raid-wide logs dashboard with player-improvements list ✓, character-vs-character comparison + officer comment log ✓; **remaining: validate the uptime event fetch against a live report** (the name-based filter degrades to a warning if the API rejects it)
 
 ## License

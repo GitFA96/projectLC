@@ -287,6 +287,114 @@ describe("sqlite repo", () => {
     });
   });
 
+  describe("loot editing", () => {
+    async function seedSession(repo: ReturnType<typeof getSqliteRepo>) {
+      const result = await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Karazhan"], source: "gargul" },
+        [{ rawWinnerName: "Thrainn", itemId: 99930, itemName: "Test Blade", awardedAt: "2026-06-11T21:00:00", offspec: false }],
+      );
+      return result.session!.id;
+    }
+
+    it("adds a manual award to a session, auto-linking a roster name", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+
+      const added = await repo.addLootAward(sessionId, {
+        itemId: 28830,
+        itemName: "Dragonspine Trophy",
+        rawWinnerName: "Velora",
+        characterId: null, // the repo trusts the caller; the action resolves the link
+        external: false,
+        offspec: true,
+        note: "council pick",
+      });
+      expect(added.ok).toBe(true);
+      if (!added.ok) throw new Error("unreachable");
+      expect(added.award.awardedAt).toBe("2026-06-11T12:00:00"); // session date at noon
+      expect(added.award.offspec).toBe(true);
+
+      const ledgerRow = (await repo.listLootAwards()).find((a) => a.award.id === added.award.id)!;
+      expect(ledgerRow.award.itemId).toBe(28830);
+      expect(ledgerRow.session.id).toBe(sessionId);
+    });
+
+    it("rejects an award on a missing session or with a bad item id", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      const base = { itemName: "X", rawWinnerName: "Thrainn", characterId: null, external: false, offspec: false };
+      expect((await repo.addLootAward("rs_nope", { ...base, itemId: 100 })).ok).toBe(false);
+      expect((await repo.addLootAward(sessionId, { ...base, itemId: 0 })).ok).toBe(false);
+      const linkedToGhost = await repo.addLootAward(sessionId, { ...base, itemId: 100, characterId: "chr_missing" });
+      expect(linkedToGhost.ok).toBe(false);
+    });
+
+    it("edits an award's item, winner and off-spec flag and re-derives the link", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99930)!;
+      const velora = (await repo.findCharacterByName("Velora"))!;
+
+      const updated = await repo.updateLootAward(award.award.id, {
+        itemId: 28773,
+        itemName: "Gorehowl",
+        rawWinnerName: velora.name,
+        characterId: velora.id,
+        external: false,
+        offspec: true,
+        note: "reassigned",
+      });
+      expect(updated.ok).toBe(true);
+
+      const after = (await repo.listLootAwards()).find((a) => a.award.id === award.award.id)!;
+      expect(after.award.itemId).toBe(28773);
+      expect(after.character?.name).toBe("Velora");
+      expect(after.award.offspec).toBe(true);
+      expect(after.award.raidSessionId).toBe(sessionId); // session/date are preserved
+    });
+
+    it("deletes a single award and reports a missing one", async () => {
+      const repo = getSqliteRepo();
+      await seedSession(repo);
+      const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99930)!;
+      const before = (await repo.listLootAwards()).length;
+
+      expect(await repo.deleteLootAward(award.award.id)).toBe(true);
+      expect(await repo.deleteLootAward(award.award.id)).toBe(false);
+      expect((await repo.listLootAwards()).length).toBe(before - 1);
+    });
+
+    it("deletes a whole import: awards go, the session goes, a linked report is unlinked", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      // A report linked to the session must survive the delete, just unlinked.
+      await repo.saveWclReport(
+        { code: "DELME000000000001", title: "Linked night", startTime: "2026-06-11T19:00:00Z", endTime: "2026-06-11T22:00:00Z", raidSessionId: sessionId },
+        [
+          {
+            fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
+            actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
+            prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], upkeep: [],
+            deaths: 0, drums: 0, runes: 0, healthstones: 0, missingEnchants: [], gear: [],
+          },
+        ],
+      );
+
+      const result = await repo.deleteRaidSession(sessionId);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("unreachable");
+      expect(result.deletedAwards).toBe(1);
+      expect(result.unlinkedReports).toBe(1);
+
+      expect((await repo.listRaidSessions()).some((s) => s.id === sessionId)).toBe(false);
+      expect((await repo.listLootAwards()).some((a) => a.award.raidSessionId === sessionId)).toBe(false);
+      // The report itself is kept (now session-less), so the store stays valid.
+      const report = (await repo.listWclReports()).find((r) => r.report.code === "DELME000000000001")!;
+      expect(report.report.raidSessionId).toBeNull();
+      expect((await repo.deleteRaidSession(sessionId)).ok).toBe(false); // already gone
+    });
+  });
+
   describe("item demand index", () => {
     it("lists contested items first with demand counts", async () => {
       const repo = getSqliteRepo();

@@ -118,6 +118,30 @@ export type ResolveAwardResult =
   | { ok: true; award: LootAward }
   | { ok: false; error: string };
 
+/**
+ * Every editable field of one award. The winner is already resolved to a
+ * concrete link: characterId set (a roster character), external true (a
+ * deliberate off-roster winner), or both empty/false (unresolved). The server
+ * action translates the picker choice into these before calling the repo.
+ */
+export interface AwardEditInput {
+  itemId: number;
+  itemName: string;
+  rawWinnerName: string;
+  characterId: string | null;
+  external: boolean;
+  offspec: boolean;
+  note?: string;
+}
+
+export type AwardWriteResult =
+  | { ok: true; award: LootAward }
+  | { ok: false; error: string };
+
+export type DeleteSessionResult =
+  | { ok: true; deletedAwards: number; unlinkedReports: number }
+  | { ok: false; error: string };
+
 /** A fetched report ready to persist: identity fields are derived at save time. */
 export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId"> & {
   raidSessionId?: string | null;
@@ -178,6 +202,17 @@ export interface WriteRepo extends Repo {
   createRaidSessionWithAwards(session: RaidSessionDraft, awards: AwardDraft[]): Promise<GargulCommitResult>;
   /** Settle (or reopen) the winner of one award — see AwardResolution. */
   resolveAward(awardId: string, resolution: AwardResolution): Promise<ResolveAwardResult>;
+  /** Add one award to an existing session (manual entry, not from a paste). */
+  addLootAward(raidSessionId: string, input: AwardEditInput): Promise<AwardWriteResult>;
+  /** Edit one award's item, winner, off-spec flag and note (date/session stay put). */
+  updateLootAward(awardId: string, input: AwardEditInput): Promise<AwardWriteResult>;
+  /** Remove one award outright. Returns false when it didn't exist. */
+  deleteLootAward(awardId: string): Promise<boolean>;
+  /**
+   * Delete a whole raid session (one Gargul import): its awards are removed and
+   * any Warcraft Logs report linked to it is unlinked (the report itself stays).
+   */
+  deleteRaidSession(raidSessionId: string): Promise<DeleteSessionResult>;
   /**
    * Persist one fetched Warcraft Logs report. Players are matched to roster
    * characters by name (like Gargul winners); re-saving the same report code
