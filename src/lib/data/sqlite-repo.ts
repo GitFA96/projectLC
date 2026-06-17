@@ -456,7 +456,7 @@ export function getSqliteRepo(): WriteRepo {
     listWclReports: () => readModel().repo.listWclReports(),
     getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
     getRaidReport: (code) => readModel().repo.getRaidReport(code),
-    getComparison: (slugs) => readModel().repo.getComparison(slugs),
+    getComparison: (slugs, reportFilter) => readModel().repo.getComparison(slugs, reportFilter),
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
   };
   return { ...readDelegate, ...writeMethods };

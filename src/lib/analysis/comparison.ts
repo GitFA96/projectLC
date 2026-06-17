@@ -5,6 +5,7 @@ import type {
   CharacterComment,
   CharacterComparisonView,
   ComparedCharacter,
+  ComparedReportRef,
   ComparedUpkeep,
   WclPlayerFight,
   WclRole,
@@ -65,8 +66,14 @@ function upkeepAverages(rows: WclPlayerFight[]): ComparedUpkeep[] {
 
 export interface ComparisonInput {
   character: Character;
-  /** Career rows for this character, chronological (oldest first). */
+  /**
+   * Rows feeding the log-derived metrics, chronological (oldest first) — the
+   * store pre-filters these to the selected logs. May be a subset of the
+   * character's career.
+   */
   rows: WclPlayerFight[];
+  /** Every report the character appears in (newest first) — the picker options. */
+  availableReports: ComparedReportRef[];
   attendance?: AttendanceSummary;
   comments: CharacterComment[];
   loggedSpec?: string;
@@ -82,9 +89,9 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
     const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
     const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
     const amounts = rows.map((r) => r.amount).filter((a): a is number => a !== undefined);
-    const flaskOrElixirs = rows.filter((r) => r.flask !== undefined || r.elixirs.length >= 2).length;
+    const flaskOrElixirs = rows.filter((r) => r.flask !== undefined || r.elixirs.length >= 1).length;
     const prepared = rows.filter(
-      (r) => (r.flask !== undefined || r.elixirs.length >= 2) && r.food,
+      (r) => (r.flask !== undefined || r.elixirs.length >= 1) && r.food,
     ).length;
     const deaths = rows.reduce((s, r) => s + r.deaths, 0);
     const potionsTotal = rows.reduce((s, r) => s + r.potions.length, 0);
@@ -96,6 +103,8 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
       hasLogs: rows.length > 0,
       reports: new Set(rows.map((r) => r.reportCode)).size,
       fights: rows.length,
+      availableReports: input.availableReports,
+      selectedReportCodes: [...new Set(rows.map((r) => r.reportCode))],
       output: median(amounts),
       outputUnit: role === "healer" ? "hps" : "dps",
       medianParse: median(parses),

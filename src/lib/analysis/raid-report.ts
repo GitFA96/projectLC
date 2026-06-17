@@ -32,7 +32,8 @@ function pct(part: number, total: number): number {
 }
 
 function isPrepared(row: WclPlayerFight): boolean {
-  return row.flask !== undefined || row.elixirs.length >= 2;
+  // A flask or any elixir counts — a single battle elixir is still coverage.
+  return row.flask !== undefined || row.elixirs.length >= 1;
 }
 
 export interface RaidReportInput {

@@ -332,7 +332,7 @@ export default async function PerformancePage({
                     </TableHead>
                     <TableHead className="w-28 text-right">Output</TableHead>
                     <TableHead className="w-16 text-right">Deaths</TableHead>
-                    <TableHead className="w-14" title="Flask or two elixirs at pull">Flask</TableHead>
+                    <TableHead className="w-14" title="Flask or at least one elixir at pull">Flask</TableHead>
                     <TableHead className="w-14" title="Well Fed at pull">Food</TableHead>
                     <TableHead className="w-16" title="Consumables used during the pull — potions, healthstones, runes, mana gems, seeds, drums (pre-pot shown as +)">
                       Used
@@ -386,7 +386,7 @@ export default async function PerformancePage({
                           </TableCell>
                           <TableCell>
                             <Mark
-                              ok={row.flask !== undefined || row.elixirs.length >= 2}
+                              ok={row.flask !== undefined || row.elixirs.length >= 1}
                               title={row.flask ?? (row.elixirs.length > 0 ? row.elixirs.join(" + ") : "no flask or elixirs")}
                             />
                           </TableCell>
