@@ -162,6 +162,10 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
 
   try {
     const repo = await getWriteRepo();
+    // Gargul's standard export gives only an item id (no name) — fill the
+    // denormalized name from the item cache so the ledger reads cleanly, with a
+    // plain id placeholder for items we haven't cached yet.
+    const nameById = new Map((await repo.listItems()).map((i) => [i.id, i.name]));
     const result = await repo.createRaidSessionWithAwards(
       {
         date: input.date,
@@ -172,7 +176,7 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
       lines.map((l) => ({
         rawWinnerName: l.rawWinnerName,
         itemId: l.itemId,
-        itemName: l.itemName,
+        itemName: l.itemName ?? nameById.get(l.itemId) ?? `Item #${l.itemId}`,
         awardedAt: l.awardedAt,
         offspec: l.offspec,
       })),
@@ -182,7 +186,12 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
     // they render with a quality color (icon stays a placeholder until M3 backfill).
     const linkItems: Item[] = lines
       .filter((l) => l.quality !== undefined)
-      .map((l) => ({ id: l.itemId, name: l.itemName, quality: l.quality!, icon: "inv_misc_questionmark" }));
+      .map((l) => ({
+        id: l.itemId,
+        name: l.itemName ?? `Item #${l.itemId}`,
+        quality: l.quality!,
+        icon: "inv_misc_questionmark",
+      }));
     const itemsCached = result.inserted > 0 ? await repo.addItemsIfMissing(linkItems) : 0;
 
     if (result.inserted > 0) revalidatePath("/", "layout");
