@@ -20,14 +20,18 @@ import {
   characterCommentSchema,
   characterSchema,
   gearSetSchema,
+  lootAwardSchema,
   wclPlayerFightSchema,
   wclReportSchema,
 } from "@/lib/import/schemas";
 import type {
   AddCommentResult,
   AwardDraft,
+  AwardEditInput,
   AwardResolution,
+  AwardWriteResult,
   CharacterCommentDraft,
+  DeleteSessionResult,
   CharacterDraft,
   CharacterWriteResult,
   DeleteCharacterResult,
@@ -91,6 +95,22 @@ function characterByName(name: string): Character | undefined {
 function nameTaken(name: string, exceptId?: string): boolean {
   const existing = characterByName(name);
   return existing !== undefined && existing.id !== exceptId;
+}
+
+/** Shared shape check for a manual/edited award before it touches the database. */
+function checkAwardInput(input: AwardEditInput): { ok: true } | { ok: false; error: string } {
+  if (!Number.isInteger(input.itemId) || input.itemId <= 0) {
+    return { ok: false, error: "Enter a valid item id." };
+  }
+  if (!input.itemName.trim()) return { ok: false, error: "An item name is required." };
+  if (!input.rawWinnerName.trim()) return { ok: false, error: "A winner is required." };
+  if (input.characterId !== null) {
+    if (input.external) return { ok: false, error: "An award linked to a character can't also be off-roster." };
+    if (!readModel().store.roster.some((c) => c.id === input.characterId)) {
+      return { ok: false, error: "That character no longer exists." };
+    }
+  }
+  return { ok: true };
 }
 
 const writeMethods: Omit<WriteRepo, keyof Repo> = {
@@ -279,6 +299,100 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
     return { ok: true, award: { ...award, characterId, external } };
+  },
+
+  async addLootAward(raidSessionId: string, input: AwardEditInput): Promise<AwardWriteResult> {
+    const session = readModel().store.raidSessions.find((s) => s.id === raidSessionId);
+    if (!session) return { ok: false, error: "That raid session no longer exists." };
+    const check = checkAwardInput(input);
+    if (!check.ok) return check;
+
+    const parsed = lootAwardSchema.safeParse({
+      id: `la_${randomUUID()}`,
+      raidSessionId,
+      characterId: input.characterId,
+      external: input.external,
+      rawWinnerName: input.rawWinnerName.trim(),
+      itemId: input.itemId,
+      itemName: input.itemName.trim(),
+      // Manual awards have no Gargul timestamp — file them at noon on the raid date.
+      awardedAt: `${session.date}T12:00:00`,
+      offspec: input.offspec,
+      note: input.note?.trim() || undefined,
+    } satisfies LootAward);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid award." };
+
+    const db = getDb();
+    withTx(db, () => {
+      insertLootAward(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true, award: parsed.data };
+  },
+
+  async updateLootAward(awardId: string, input: AwardEditInput): Promise<AwardWriteResult> {
+    const existing = readModel().store.lootAwards.find((a) => a.id === awardId);
+    if (!existing) return { ok: false, error: "Award not found — it may have been removed." };
+    const check = checkAwardInput(input);
+    if (!check.ok) return check;
+
+    const parsed = lootAwardSchema.safeParse({
+      ...existing,
+      characterId: input.characterId,
+      external: input.external,
+      rawWinnerName: input.rawWinnerName.trim(),
+      itemId: input.itemId,
+      itemName: input.itemName.trim(),
+      offspec: input.offspec,
+      note: input.note?.trim() || undefined,
+    } satisfies LootAward);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid award." };
+    const award = parsed.data;
+
+    const db = getDb();
+    withTx(db, () => {
+      db.prepare(
+        `UPDATE loot_awards
+            SET character_id = ?, external = ?, raw_winner_name = ?, item_id = ?, item_name = ?, offspec = ?, note = ?
+          WHERE id = ?`,
+      ).run(
+        award.characterId, award.external ? 1 : 0, award.rawWinnerName, award.itemId,
+        award.itemName, award.offspec ? 1 : 0, award.note ?? null, awardId,
+      );
+      bumpDataVersion(db);
+    });
+    return { ok: true, award };
+  },
+
+  async deleteLootAward(awardId: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = Number(db.prepare("DELETE FROM loot_awards WHERE id = ?").run(awardId).changes) > 0;
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
+  async deleteRaidSession(raidSessionId: string): Promise<DeleteSessionResult> {
+    if (!readModel().store.raidSessions.some((s) => s.id === raidSessionId)) {
+      return { ok: false, error: "Raid session not found — maybe already removed." };
+    }
+    const db = getDb();
+    let deletedAwards = 0;
+    let unlinkedReports = 0;
+    withTx(db, () => {
+      deletedAwards = Number(
+        db.prepare("DELETE FROM loot_awards WHERE raid_session_id = ?").run(raidSessionId).changes,
+      );
+      // A linked Warcraft Logs report outlives the session — just cut the link.
+      unlinkedReports = Number(
+        db.prepare("UPDATE wcl_reports SET raid_session_id = NULL WHERE raid_session_id = ?").run(raidSessionId).changes,
+      );
+      db.prepare("DELETE FROM raid_sessions WHERE id = ?").run(raidSessionId);
+      bumpDataVersion(db);
+    });
+    return { ok: true, deletedAwards, unlinkedReports };
   },
 
   async saveWclReport(reportDraft: WclReportDraft, rowDrafts: WclPlayerFightDraft[]): Promise<WclSaveResult> {

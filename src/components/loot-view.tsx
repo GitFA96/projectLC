@@ -3,12 +3,18 @@
 import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
+import { CircleAlert, CircleCheck, Loader2, Pencil, Plus } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
 import { ResolveAwardControl } from "@/components/resolve-award";
+import { DangerButton, useSelection } from "@/components/roster-actions";
+import { LootAwardDialog, type AwardDialogTarget, type DialogItem } from "@/components/loot-award-dialog";
+import { deleteAwardsAction, deleteSessionAction, type LootActionResult } from "@/app/loot/actions";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -30,6 +36,8 @@ export interface LootRow {
   item: ItemRef;
   winnerName: string;
   winnerClass?: WowClass;
+  /** The linked roster character, when winnerStatus === "roster" (prefills the editor). */
+  winnerCharacterId?: string;
   /** roster = matched character; unresolved = needs attention; external = settled off-roster. */
   winnerStatus: "roster" | "unresolved" | "external";
   offspec: boolean;
@@ -49,10 +57,12 @@ export function LootView({
   rows,
   sessions,
   characters,
+  knownItems,
 }: {
   rows: LootRow[];
   sessions: SessionOption[];
   characters: { id: string; name: string; wowClass: WowClass }[];
+  knownItems: DialogItem[];
 }) {
   const searchParams = useSearchParams();
   const [search, setSearch] = React.useState("");
@@ -65,6 +75,41 @@ export function LootView({
   const [typeFilter, setTypeFilter] = React.useState("all");
   const [matchFilter, setMatchFilter] = React.useState("all");
   const [winnerFilter, setWinnerFilter] = React.useState(searchParams.get("winner") ?? "all");
+
+  // Editing: row selection for bulk delete, the add/edit dialog, and a shared
+  // pending/result line for the session-level and bulk actions.
+  const { selected, toggle, setAll, clear } = useSelection();
+  const [dialog, setDialog] = React.useState<AwardDialogTarget | null>(null);
+  const [pending, startTransition] = React.useTransition();
+  const [actionResult, setActionResult] = React.useState<LootActionResult | null>(null);
+
+  const runAction = (fn: () => Promise<LootActionResult>, onOk?: () => void) => {
+    setActionResult(null);
+    startTransition(async () => {
+      const res = await fn();
+      setActionResult(res);
+      if (res.ok) {
+        clear();
+        onOk?.();
+      }
+    });
+  };
+
+  const editTarget = (r: LootRow): AwardDialogTarget => ({
+    mode: "edit",
+    raidSessionId: r.sessionId,
+    sessionLabel: r.sessionLabel,
+    award: {
+      id: r.id,
+      itemId: r.item.itemId,
+      itemName: r.item.name ?? `Item #${r.item.itemId}`,
+      winnerName: r.winnerName,
+      winnerCharacterId: r.winnerCharacterId,
+      external: r.winnerStatus === "external",
+      offspec: r.offspec,
+      note: r.note,
+    },
+  });
 
   const filtered = React.useMemo(
     () =>
@@ -84,8 +129,28 @@ export function LootView({
     [rows, search, characterFilter, classFilter, phaseFilter, sessionFilter, typeFilter, matchFilter, winnerFilter],
   );
 
+  const filteredIds = React.useMemo(() => filtered.map((r) => r.id), [filtered]);
+
   const columns = React.useMemo<ColumnDef<LootRow, unknown>[]>(
     () => [
+      {
+        id: "select",
+        enableSorting: false,
+        header: () => (
+          <Checkbox
+            aria-label="Select all shown awards"
+            checked={filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))}
+            onChange={(e) => setAll(filteredIds, e.target.checked)}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            aria-label="Select award"
+            checked={selected.has(row.original.id)}
+            onChange={(e) => toggle(row.original.id, e.target.checked)}
+          />
+        ),
+      },
       {
         id: "date",
         accessorKey: "awardedAt",
@@ -176,9 +241,26 @@ export function LootView({
           </span>
         ),
       },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setDialog(editTarget(row.original))}
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </Button>
+        ),
+      },
     ],
-    [characters],
+    [characters, filteredIds, selected, setAll, toggle],
   );
+
+  const activeSession = sessionFilter === "all" ? undefined : sessions.find((s) => s.id === sessionFilter);
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[200px_1fr]">
@@ -299,6 +381,73 @@ export function LootView({
           </span>
         </div>
 
+        {activeSession && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-2">
+            <span className="text-sm font-medium">{activeSession.label}</span>
+            <span className="text-xs text-muted-foreground">
+              {format(parseISO(activeSession.date), "d MMM yyyy")} · {activeSession.count} award
+              {activeSession.count === 1 ? "" : "s"}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2.5 text-xs"
+                disabled={pending}
+                onClick={() =>
+                  setDialog({ mode: "add", raidSessionId: activeSession.id, sessionLabel: activeSession.label })
+                }
+              >
+                <Plus className="h-3.5 w-3.5" /> Add award
+              </Button>
+              <DangerButton
+                disabled={pending}
+                confirmLabel="Delete import — confirm"
+                onConfirm={() =>
+                  runAction(() => deleteSessionAction({ sessionId: activeSession.id }), () => setSessionFilter("all"))
+                }
+              >
+                Delete import
+              </DangerButton>
+            </div>
+          </div>
+        )}
+
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5">
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {selected.size} selected
+              {pending && <Loader2 className="ml-1.5 inline h-3 w-3 animate-spin" />}
+            </span>
+            <DangerButton
+              disabled={pending}
+              confirmLabel={`Delete ${selected.size} — confirm`}
+              onConfirm={() => runAction(() => deleteAwardsAction({ awardIds: [...selected] }))}
+            >
+              Delete selected
+            </DangerButton>
+            <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" disabled={pending} onClick={clear}>
+              Clear
+            </Button>
+          </div>
+        )}
+
+        {actionResult && (
+          <p
+            className={cn(
+              "flex items-start gap-1.5 text-xs",
+              actionResult.ok ? "text-emerald-700" : "text-amber-700",
+            )}
+          >
+            {actionResult.ok ? (
+              <CircleCheck className="mt-px h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+            )}
+            {actionResult.message}
+          </p>
+        )}
+
         <div className="rounded-xl border bg-card">
           <DataTable
             columns={columns}
@@ -308,6 +457,15 @@ export function LootView({
           />
         </div>
       </div>
+
+      {dialog && (
+        <LootAwardDialog
+          target={dialog}
+          roster={characters}
+          knownItems={knownItems}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }
