@@ -86,6 +86,8 @@ const AURA_DEFS: AuraDef[] = [
   // Situational engineering/herb DPS consumables — off-slot, stack with elixirs.
   { label: "Flame Cap", category: "misc", ids: [28714] },
   { label: "Eye of the Night", category: "misc", ids: [31033] },
+  // Caster off-slot buff (+spell crit / +spirit, 30 min) seen at pulls.
+  { label: "Enlightened", category: "misc", ids: [43722] },
 ];
 
 const AURA_BY_ID = new Map<number, AuraDef>();

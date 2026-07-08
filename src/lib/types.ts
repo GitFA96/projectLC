@@ -407,6 +407,61 @@ export interface RaidReportView {
 }
 
 
+/* Cross-raid ("season") rankings — aggregate across selected reports */
+
+/** Slim per-report data the season aggregation runs over (from each RaidReportView). */
+export interface SeasonReportInput {
+  code: string;
+  title: string;
+  zone?: string;
+  startTime: string;
+  usage: RaiderUsage[];
+  upkeep: RaidUpkeepRow[];
+  /** This raid's logged consumable prices (empty → code defaults). */
+  overrides: Record<string, ConsumablePrice>;
+}
+
+/** One raider's cross-raid tallies, with per-raid medians (robust to a wild night). */
+export interface SeasonRaiderStat {
+  name: string;
+  slug?: string;
+  className?: string;
+  role: WclRole;
+  /** Reports the raider appeared in (of those selected). */
+  raids: number;
+  goldTotal: number;
+  goldMedianPerRaid: number;
+  consumablesTotal: number;
+  consumablesMedianPerRaid: number;
+  deathsTotal: number;
+  deathsMedianPerRaid: number;
+}
+
+/** One maintained track with its best average keepers across the season. */
+export interface SeasonUptimeRow {
+  name: string;
+  kind: "debuff" | "buff" | "selfbuff";
+  className?: string;
+  providers: { name: string; slug?: string; pct: number; raids: number }[];
+}
+
+/** A highlighted leader or laggard for the notables strip. */
+export interface SeasonNotable {
+  tone: "positive" | "negative";
+  label: string;
+  raider: { name: string; slug?: string; className?: string };
+  detail: string;
+}
+
+export interface SeasonRankingsView {
+  reportCount: number;
+  /** Sorted by total gold spent, descending. */
+  raiders: SeasonRaiderStat[];
+  /** Boss debuffs first, then by best average uptime. */
+  uptime: SeasonUptimeRow[];
+  notables: SeasonNotable[];
+}
+
 /* Character-vs-character comparison (up to 4, the contribution side-by-side) */
 
 /** One maintained debuff/buff a compared character kept up, averaged over the selected logs. */

@@ -408,6 +408,8 @@ describe("consumable classification", () => {
     expect(classifyAura("Flame Cap")?.category).toBe("misc");
     expect(classifyAura("anything", 28714)?.label).toBe("Flame Cap");
     expect(classifyAura("Eye of the Night")?.category).toBe("misc");
+    expect(classifyAura("Enlightened")?.category).toBe("misc");
+    expect(classifyAura("anything", 43722)?.label).toBe("Enlightened");
   });
 
   it("classifies the Major Defense elixir by its real buff name 'Major Armor'", () => {

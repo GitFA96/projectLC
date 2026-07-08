@@ -7,6 +7,7 @@ import type {
   ConsumablePrice,
   ImprovementSeverity,
   RaidReportView,
+  SeasonReportInput,
   WclRole,
 } from "@/lib/types";
 import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
@@ -17,6 +18,7 @@ import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
 import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
+import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,22 +49,51 @@ const SEVERITY_VARIANT: Record<ImprovementSeverity, "destructive" | "warning" | 
   low: "muted",
 };
 
+type WclReportList = Awaited<ReturnType<Awaited<ReturnType<typeof getRepo>>["listWclReports"]>>;
+
 export default async function LogsPage({ searchParams }: { searchParams: Search }) {
   const sp = await searchParams;
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
+  const seasonMode = requested === "all";
 
   const repo = await getRepo();
-  const [reports, raid] = await Promise.all([repo.listWclReports(), repo.getRaidReport(requested)]);
-  const priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
+  const reports = await repo.listWclReports();
+
+  let raid: RaidReportView | null = null;
+  let priceOverrides: Record<string, ConsumablePrice> = {};
+  let seasonInputs: SeasonReportInput[] = [];
+
+  if (seasonMode) {
+    const built = await Promise.all(
+      reports.map(async ({ report }): Promise<SeasonReportInput | null> => {
+        const view = await repo.getRaidReport(report.code);
+        if (!view) return null;
+        const overrides = await repo.getReportConsumablePrices(report.code);
+        return {
+          code: report.code,
+          title: report.title,
+          zone: report.zone ?? undefined,
+          startTime: report.startTime,
+          usage: view.usage,
+          upkeep: view.upkeep,
+          overrides,
+        };
+      }),
+    );
+    seasonInputs = built.filter((x): x is SeasonReportInput => x !== null);
+  } else {
+    raid = await repo.getRaidReport(requested);
+    priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Raid logs"
-        description="Buff & debuff uptime, consumable and cooldown usage, and who to nudge — per raid night, from imported Warcraft Logs."
+        description="Buff & debuff uptime, consumable and cooldown usage, and who to nudge — per raid night, or ranked across every raid."
       />
 
-      {!raid ? (
+      {reports.length === 0 ? (
         <EmptyState
           title="No Warcraft Logs imported yet"
           description="Import a report on the Warcraft Logs tab of the import page — the whole raid's preparation, uptime and cooldown usage rolls up here."
@@ -73,19 +104,58 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           }
         />
       ) : (
-        <RaidDashboard raid={raid} reports={reports} priceOverrides={priceOverrides} />
+        <>
+          <ReportPicker reports={reports} activeCode={seasonMode ? "all" : raid?.report.code} />
+          {seasonMode ? (
+            seasonInputs.length > 0 ? (
+              <SeasonDashboard reports={seasonInputs} />
+            ) : (
+              <EmptyState
+                title="Nothing to rank yet"
+                description="The imported reports don't have per-player rows to aggregate. Re-fetch them once Warcraft Logs has finished parsing."
+              />
+            )
+          ) : raid ? (
+            <RaidDashboard raid={raid} priceOverrides={priceOverrides} />
+          ) : (
+            <EmptyState
+              title="Report not found"
+              description="That raid isn't imported. Pick another from the list above."
+            />
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+/** Raid switcher: an "All raids" season option plus one pill per imported night. */
+function ReportPicker({ reports, activeCode }: { reports: WclReportList; activeCode?: string }) {
+  const pill = "rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-accent";
+  const activePill = "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary";
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Link href="/logs?report=all" className={cn(pill, activeCode === "all" && activePill)}>
+        All raids
+      </Link>
+      {reports.map(({ report: r }) => (
+        <Link
+          key={r.code}
+          href={`/logs?report=${encodeURIComponent(r.code)}`}
+          className={cn(pill, r.code === activeCode && activePill)}
+        >
+          {format(parseISO(r.startTime), "d MMM")} · {r.zone ?? r.title}
+        </Link>
+      ))}
     </div>
   );
 }
 
 function RaidDashboard({
   raid,
-  reports,
   priceOverrides,
 }: {
   raid: RaidReportView;
-  reports: Awaited<ReturnType<Awaited<ReturnType<typeof getRepo>>["listWclReports"]>>;
   priceOverrides: Record<string, ConsumablePrice>;
 }) {
   const { report, session, prep, fights } = raid;
@@ -93,26 +163,6 @@ function RaidDashboard({
 
   return (
     <>
-      {reports.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {reports.map(({ report: r }) => {
-            const active = r.code === report.code;
-            return (
-              <Link
-                key={r.code}
-                href={`/logs?report=${encodeURIComponent(r.code)}`}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-accent",
-                  active && "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary",
-                )}
-              >
-                {format(parseISO(r.startTime), "d MMM")} · {r.zone ?? r.title}
-              </Link>
-            );
-          })}
-        </div>
-      )}
-
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">

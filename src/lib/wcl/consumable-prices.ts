@@ -49,6 +49,7 @@ export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Bogling Root": { gold: 1, charges: 1 },
   "Kreeg's Stout Beatdown": { gold: 1, charges: 1 },
   "Eye of the Night": { gold: 30, charges: 5 },
+  Enlightened: { gold: 5, charges: 1 },
   /* Flasks (occupy both elixir slots — the priciest staples) */
   "Flask of Blinding Light": { gold: 120, charges: 1 },
   "Flask of Pure Death": { gold: 95, charges: 1 },
