@@ -232,6 +232,7 @@ export interface PerformanceSummary {
   drums: number;
   runes: number;
   healthstones: number;
+  sappers: number;
   /** From the most recent pull in the rows. */
   missingEnchants: string[];
 }
@@ -285,6 +286,31 @@ export interface RaidUpkeepRow {
   bestPct: number;
 }
 
+/**
+ * What one purchased consumable item costs and how many uses it yields. Cost
+ * per use = gold / charges — Drums of Battle is ~15g for ~50 charges, most
+ * potions are their full price for a single charge.
+ */
+export interface ConsumablePrice {
+  gold: number;
+  charges: number;
+}
+
+/** Who used a given consumable type, and how many they threw. */
+export interface ConsumableProvider {
+  name: string;
+  slug?: string;
+  count: number;
+}
+
+/** One consumable type used in-fight, with who used it and how often. */
+export interface ConsumableTypeRow {
+  name: string;
+  uses: number;
+  /** Raiders who used it, most uses first. */
+  providers: ConsumableProvider[];
+}
+
 /** Raid-wide preparation + in-fight consumable totals. */
 export interface RaidPrepStats {
   /** Player-pulls (the denominator for the coverage percentages). */
@@ -297,9 +323,47 @@ export interface RaidPrepStats {
   potionsTotal: number;
   prepots: number;
   /** Potion casts by type, most-used first. */
-  potionTypes: { name: string; uses: number }[];
-  /** Non-potion in-fight items (gems, seeds, healthstones, runes, drums). */
-  inFightTypes: { name: string; uses: number }[];
+  potionTypes: ConsumableTypeRow[];
+  /** Non-potion in-fight items (gems, seeds, healthstones, runes, drums, sappers). */
+  inFightTypes: ConsumableTypeRow[];
+  /** Total sapper charges thrown across all player-pulls this night. */
+  sappersTotal: number;
+}
+
+/**
+ * One raider's in-fight consumable and cooldown usage for the night — the
+ * per-player tallies the rankings tab leaderboards are built from.
+ */
+export interface RaiderUsage {
+  name: string;
+  slug?: string;
+  className?: string;
+  role: WclRole;
+  /** Combat potions thrown (excludes the pre-pot). */
+  potions: number;
+  /** Sapper charges thrown (both goblin and super). */
+  sappers: number;
+  /** In-fight items other than sappers (healthstones, runes, gems, seeds, drums). */
+  otherItems: number;
+  /** Every in-fight consumable: potions + all non-potion casts (incl. sappers). */
+  consumablesTotal: number;
+  /** Pulls opened with a potion already running. */
+  prepots: number;
+  /** Major class cooldowns cast across the night. */
+  cooldowns: number;
+  /** What they used, most-used first — the highlight of the consumables leaderboard. */
+  itemBreakdown: { name: string; count: number }[];
+  /** Cooldowns cast, most-used first. */
+  cooldownBreakdown: { name: string; count: number }[];
+  /** Total deaths across the raid — the reapply multiplier for prep buffs. */
+  deaths: number;
+  /**
+   * Prep/passive consumables (flask, battle/guardian elixirs, food, weapon
+   * buff, scrolls, off-slot extras like Flame Cap) with a death-aware per-raid
+   * use count, for the total-gold view. Flask counts once (persists death); the
+   * rest count 1 + deaths (re-applied after each death).
+   */
+  prepBreakdown: { name: string; count: number }[];
 }
 
 export interface RaidCooldownRow {
@@ -338,6 +402,8 @@ export interface RaidReportView {
   cooldowns: RaidCooldownRow[];
   /** Raiders with at least one preparation gap, worst first. */
   improvements: PlayerImprovements[];
+  /** Per-raider usage tallies for the rankings tab, most consumables first. */
+  usage: RaiderUsage[];
 }
 
 

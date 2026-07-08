@@ -20,6 +20,7 @@ import type {
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
+  ConsumablePrice,
   FairnessGroup,
   GearSet,
   Guild,
@@ -473,6 +474,13 @@ export function createRepoFromStore(store: EntityStore): Repo {
         reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
         slugByActor,
       });
+    },
+
+    // Per-report prices are persisted config, not entity-store data — the
+    // in-memory/seed model has none, so gold falls back to code defaults. The
+    // SQLite backend overrides this to read the raid's logged prices.
+    async getReportConsumablePrices(): Promise<Record<string, ConsumablePrice>> {
+      return {};
     },
 
     async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {

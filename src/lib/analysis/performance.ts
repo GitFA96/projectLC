@@ -103,6 +103,7 @@ export function summarizePerformance(rows: WclPlayerFight[]): PerformanceSummary
     drums: rows.reduce((sum, r) => sum + r.drums, 0),
     runes: rows.reduce((sum, r) => sum + r.runes, 0),
     healthstones: rows.reduce((sum, r) => sum + r.healthstones, 0),
+    sappers: rows.reduce((sum, r) => sum + r.sappers, 0),
     missingEnchants: latest?.missingEnchants ?? [],
   };
 }

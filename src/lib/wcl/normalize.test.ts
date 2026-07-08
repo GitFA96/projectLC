@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeWclReport } from "@/lib/wcl/normalize";
-import { classifyAura, classifyCast, isNonConsumableAura } from "@/lib/wcl/consumables";
+import { classifyAura, classifyCast, isNonConsumableAura, SAPPER_CAST_NAMES } from "@/lib/wcl/consumables";
 
 /**
  * Fixture shaped like the v2 API responses: report overview (with dps/hps
@@ -404,6 +404,10 @@ describe("consumable classification", () => {
     // The Bogling Root buff is named after the effect, not the item.
     expect(classifyAura("Fury of the Bogling", 5665)).toEqual({ category: "misc", label: "Bogling Root" });
     expect(classifyAura("Kreeg's Stout Beatdown")?.category).toBe("misc");
+    // Off-slot DPS consumables — recognized by name or id so they leave the dump.
+    expect(classifyAura("Flame Cap")?.category).toBe("misc");
+    expect(classifyAura("anything", 28714)?.label).toBe("Flame Cap");
+    expect(classifyAura("Eye of the Night")?.category).toBe("misc");
   });
 
   it("classifies the Major Defense elixir by its real buff name 'Major Armor'", () => {
@@ -446,5 +450,15 @@ describe("consumable classification", () => {
     expect(classifyCast(99999, "Drums of Speed")?.category).toBe("drums");
     expect(classifyCast(99999, "Shadow Bolt")).toBeUndefined();
     expect(classifyCast(undefined, undefined)).toBeUndefined();
+  });
+
+  it("counts sapper charges by their on-use spell ids and by name", () => {
+    // Verified item on-use spell ids (Super 30486, Goblin 12760/13241).
+    expect(classifyCast(30486)).toMatchObject({ name: "Super Sapper Charge", category: "sapper" });
+    expect(classifyCast(12760)?.name).toBe("Goblin Sapper Charge");
+    expect(classifyCast(13241)?.category).toBe("sapper");
+    // Any other rank still counts via the name fallback.
+    expect(classifyCast(99999, "Super Sapper Charge")?.category).toBe("sapper");
+    expect(SAPPER_CAST_NAMES).toEqual(["Super Sapper Charge", "Goblin Sapper Charge"]);
   });
 });

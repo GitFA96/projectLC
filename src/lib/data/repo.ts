@@ -6,6 +6,7 @@ import type {
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
+  ConsumablePrice,
   DashboardData,
   GearSet,
   Guild,
@@ -55,6 +56,11 @@ export interface Repo {
   getComparison(slugs: string[], reportFilter?: Record<string, string[]>): Promise<CharacterComparisonView>;
   /** Names seen in imported logs that match no tracked character, most pulls first. */
   listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]>;
+  /**
+   * A raid's logged consumable prices (name → gold/charges), for the gold-spent
+   * view. Empty means the raid hasn't set prices and the code defaults apply.
+   */
+  getReportConsumablePrices(code: string): Promise<Record<string, ConsumablePrice>>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -221,6 +227,11 @@ export interface WriteRepo extends Repo {
   saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
   /** Remove one fetched report and all its per-player rows (wrongful import). */
   deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
+  /**
+   * Log this raid night's consumable prices (name → gold/charges). Replaces the
+   * whole set for the report; an empty map clears it back to code defaults.
+   */
+  setReportConsumablePrices(code: string, prices: Record<string, ConsumablePrice>): Promise<void>;
   /**
    * Mark (or clear) one reset week as an excused absence for a character, so it
    * doesn't count toward their attendance markup. weekStart is the reset-week

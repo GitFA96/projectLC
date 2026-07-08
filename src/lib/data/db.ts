@@ -19,6 +19,7 @@ import type {
   AttendanceExemption,
   Character,
   CharacterComment,
+  ConsumablePrice,
   GearSet,
   Guild,
   Item,
@@ -153,6 +154,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   drums                 INTEGER NOT NULL DEFAULT 0,
   runes                 INTEGER NOT NULL DEFAULT 0,
   healthstones          INTEGER NOT NULL DEFAULT 0,
+  sappers               INTEGER NOT NULL DEFAULT 0,
   missing_enchants_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS wcl_player_fights_by_report ON wcl_player_fights(report_code);
@@ -220,6 +222,7 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("characters", "main_character_id", "main_character_id TEXT");
+  addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -247,6 +250,51 @@ export function bumpDataVersion(db: DatabaseSync): void {
     `INSERT INTO meta (key, value) VALUES ('data_version', '1')
      ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`,
   ).run();
+}
+
+/* Per-report consumable prices: editable, per raid night, stored as a JSON blob
+   in the meta table keyed by report code. Absent = the raid uses code defaults. */
+
+const consumablePriceKey = (code: string) => `consumable_prices:${code}`;
+
+/** Keep only well-formed { gold, charges } numbers so a hand-edited blob can't crash a read. */
+function sanitizePrices(raw: unknown): Record<string, ConsumablePrice> {
+  if (raw === null || typeof raw !== "object") return {};
+  const out: Record<string, ConsumablePrice> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value === null || typeof value !== "object") continue;
+    const { gold, charges } = value as Record<string, unknown>;
+    if (typeof gold === "number" && Number.isFinite(gold) && gold >= 0) {
+      const c = typeof charges === "number" && Number.isFinite(charges) && charges >= 1 ? charges : 1;
+      out[name] = { gold, charges: c };
+    }
+  }
+  return out;
+}
+
+/** A report's logged consumable prices (empty when the raid hasn't set any). */
+export function getReportConsumablePrices(db: DatabaseSync, code: string): Record<string, ConsumablePrice> {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(consumablePriceKey(code)) as
+    | { value: string }
+    | undefined;
+  if (!row) return {};
+  try {
+    return sanitizePrices(JSON.parse(row.value));
+  } catch {
+    return {};
+  }
+}
+
+/** Persist a report's consumable prices (replaces the whole blob for that report). */
+export function setReportConsumablePrices(
+  db: DatabaseSync,
+  code: string,
+  prices: Record<string, ConsumablePrice>,
+): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(consumablePriceKey(code), JSON.stringify(sanitizePrices(prices)));
 }
 
 /* Entity <-> row mapping. SQLite has no undefined: optionals become NULL and
@@ -331,8 +379,8 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, potions_json, other_casts_json, extras_json, cooldowns_json, upkeep_json,
-       gear_json, drums, runes, healthstones, missing_enchants_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       gear_json, drums, runes, healthstones, sappers, missing_enchants_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -340,7 +388,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.upkeep),
-    JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, JSON.stringify(f.missingEnchants),
+    JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
   );
 }
 
@@ -425,7 +473,8 @@ function rowToWclPlayerFight(r: Row): unknown {
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     drums: r.drums, runes: r.runes,
-    healthstones: r.healthstones, missingEnchants: JSON.parse(r.missing_enchants_json as string),
+    healthstones: r.healthstones, sappers: r.sappers ?? 0,
+    missingEnchants: JSON.parse(r.missing_enchants_json as string),
   };
 }
 

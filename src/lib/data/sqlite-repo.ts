@@ -3,6 +3,7 @@ import {
   bumpDataVersion,
   getDataVersion,
   getDb,
+  getReportConsumablePrices,
   insertAttendanceExemption,
   insertCharacter,
   insertCharacterComment,
@@ -13,6 +14,7 @@ import {
   insertWclPlayerFight,
   insertWclReport,
   loadStore,
+  setReportConsumablePrices,
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
@@ -552,6 +554,14 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     });
     return fresh.length;
   },
+
+  async setReportConsumablePrices(code, prices) {
+    const db = getDb();
+    withTx(db, () => {
+      setReportConsumablePrices(db, code, prices);
+      bumpDataVersion(db);
+    });
+  },
 };
 
 export function getSqliteRepo(): WriteRepo {
@@ -572,6 +582,8 @@ export function getSqliteRepo(): WriteRepo {
     getRaidReport: (code) => readModel().repo.getRaidReport(code),
     getComparison: (slugs, reportFilter) => readModel().repo.getComparison(slugs, reportFilter),
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
+    // Prices live in the meta table, not the derived model — read them directly.
+    getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
   };
   return { ...readDelegate, ...writeMethods };
 }

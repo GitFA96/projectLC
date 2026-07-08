@@ -1,5 +1,5 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
-import { TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
+import { SAPPER_CAST_NAMES, TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
 import { BUFF_TRACK_NAMES, COOLDOWN_CAST_IDS, DEBUFF_TRACK_NAMES } from "@/lib/wcl/class-tracks";
 import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 
@@ -119,7 +119,8 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       code,
       "Casts",
       reportDuration,
-      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")})`,
+      // Sappers also matched by name — their spell ranks vary between logs.
+      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted(SAPPER_CAST_NAMES)})`,
     ),
     soft(
       "Debuff-uptime tracking (curses, Thunder Clap…)",

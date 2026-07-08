@@ -1,0 +1,143 @@
+import type { ConsumablePrice } from "@/lib/types";
+
+/**
+ * Default gold prices + charges for in-fight consumables — the FALLBACK a raid
+ * uses until someone logs that week's real prices (see the price panel on the
+ * logs page). Prices drift with the server economy, so per-raid overrides are
+ * the source of truth; these just keep the "gold spent" view populated when a
+ * raid's prices haven't been entered.
+ *
+ * `gold` is the price of one purchased item; `charges` is how many uses you get
+ * from it (Drums ~50, most consumables 1). Cost per use = gold / charges.
+ * Conjured/self-made items (mage mana gems, warlock healthstones) are 0 gold.
+ */
+export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
+  /* Combat potions (single use) */
+  "Haste Potion": { gold: 15, charges: 1 },
+  "Destruction Potion": { gold: 17, charges: 1 },
+  "Insane Strength Potion": { gold: 15, charges: 1 },
+  "Heroic Potion": { gold: 8, charges: 1 },
+  "Ironshield Potion": { gold: 2, charges: 1 },
+  "Super Mana Potion": { gold: 2, charges: 1 },
+  "Fel Mana Potion": { gold: 12, charges: 1 },
+  "Super Healing Potion": { gold: 6, charges: 1 },
+  "Mighty Rage Potion": { gold: 10, charges: 1 },
+  "Major Mana Potion": { gold: 1, charges: 1 },
+  "Free Action Potion": { gold: 6, charges: 1 },
+  "Living Action Potion": { gold: 8, charges: 1 },
+  "Major Fire Protection Potion": { gold: 6, charges: 1 },
+  "Major Frost Protection Potion": { gold: 6, charges: 1 },
+  "Major Nature Protection Potion": { gold: 6, charges: 1 },
+  "Major Arcane Protection Potion": { gold: 6, charges: 1 },
+  "Major Shadow Protection Potion": { gold: 6, charges: 1 },
+  "Major Holy Protection Potion": { gold: 6, charges: 1 },
+  /* Drums — one item carries many charges, so cost per use is a fraction. */
+  "Drums of Battle": { gold: 12, charges: 50 },
+  "Drums of War": { gold: 12, charges: 50 },
+  "Drums of Restoration": { gold: 15, charges: 50 },
+  "Drums of Speed": { gold: 12, charges: 50 },
+  "Drums of Panic": { gold: 10, charges: 50 },
+  /* Mana runes (single use) */
+  "Dark Rune": { gold: 6, charges: 1 },
+  "Demonic Rune": { gold: 10, charges: 1 },
+  /* Engineering explosives (single use) */
+  "Super Sapper Charge": { gold: 15, charges: 1 },
+  "Goblin Sapper Charge": { gold: 11, charges: 1 },
+  /* Herb/seed & off-slot situational consumables */
+  "Nightmare Seed": { gold: 6, charges: 1 },
+  "Flame Cap": { gold: 3, charges: 1 },
+  "Bogling Root": { gold: 1, charges: 1 },
+  "Kreeg's Stout Beatdown": { gold: 1, charges: 1 },
+  "Eye of the Night": { gold: 30, charges: 5 },
+  /* Flasks (occupy both elixir slots — the priciest staples) */
+  "Flask of Blinding Light": { gold: 120, charges: 1 },
+  "Flask of Pure Death": { gold: 95, charges: 1 },
+  "Flask of Relentless Assault": { gold: 82, charges: 1 },
+  /* Battle & guardian elixirs */
+  "Elixir of Major Agility": { gold: 5, charges: 1 },
+  "Elixir of Major Shadow Power": { gold: 6, charges: 1 },
+  "Elixir of Healing Power": { gold: 1, charges: 1 },
+  "Greater Arcane Elixir": { gold: 4, charges: 1 },
+  "Spellpower Elixir": { gold: 12, charges: 1 },
+  "Elixir of Major Defense": { gold: 4.5, charges: 1 },
+  "Elixir of Major Fortitude": { gold: 1, charges: 1 },
+  "Elixir of Draenic Wisdom": { gold: 5, charges: 1 },
+  "Gift of Arthas": { gold: 2, charges: 1 },
+  /* Scrolls — rank V dearer than the base rank */
+  "Scroll of Agility": { gold: 3, charges: 1 },
+  "Scroll of Agility V": { gold: 8, charges: 1 },
+  "Scroll of Strength": { gold: 3, charges: 1 },
+  "Scroll of Strength V": { gold: 6, charges: 1 },
+  "Scroll of Protection": { gold: 0.5, charges: 1 },
+  "Scroll of Protection V": { gold: 1, charges: 1 },
+  "Scroll of Spirit V": { gold: 0.5, charges: 1 },
+  /* Prep buffs with no logged item name — flat prices, applied when present. */
+  Food: { gold: 0.5, charges: 1 },
+  "Weapon oil/stone": { gold: 4, charges: 1 },
+  /* Conjured / self-made — no gold cost */
+  "Master Healthstone": { gold: 0, charges: 1 },
+  "Mana Emerald": { gold: 0, charges: 1 },
+  "Mana Ruby": { gold: 0, charges: 1 },
+  "Mana Citrine": { gold: 0, charges: 1 },
+  "Mana Jade": { gold: 0, charges: 1 },
+  "Mana Agate": { gold: 0, charges: 1 },
+};
+
+/** Fallback for an unpriced potion so a new potion type still costs something. */
+const DEFAULT_POTION_GOLD = 8;
+/** Flask (both slots) is the priciest single-buff staple. */
+const DEFAULT_FLASK_GOLD = 25;
+/** A single battle or guardian elixir. */
+const DEFAULT_ELIXIR_GOLD = 12;
+/** Scroll rank I→V, where V is far pricier than the low ranks (TBC engineering scrolls). */
+const SCROLL_GOLD_BY_RANK: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 6, v: 20 };
+const DEFAULT_SCROLL_GOLD = 3;
+
+/**
+ * The default price + charges for a consumable not explicitly listed. Whole
+ * families (flasks, elixirs, scrolls, potions) fall back to a representative
+ * price so a new flavour still counts; scrolls scale by rank (V ≫ I).
+ */
+export function defaultPriceFor(name: string): ConsumablePrice {
+  const known = CONSUMABLE_DEFAULTS[name];
+  if (known) return known;
+  const lower = name.trim().toLowerCase();
+  if (lower.includes("flask")) return { gold: DEFAULT_FLASK_GOLD, charges: 1 };
+  const scroll = /^scroll of \w+(?:\s+(i{1,3}|iv|v))?$/.exec(lower);
+  if (scroll) return { gold: scroll[1] ? SCROLL_GOLD_BY_RANK[scroll[1]] : DEFAULT_SCROLL_GOLD, charges: 1 };
+  if (lower.startsWith("elixir of") || lower.endsWith("elixir")) {
+    return { gold: DEFAULT_ELIXIR_GOLD, charges: 1 };
+  }
+  return { gold: /potion$/.test(lower) ? DEFAULT_POTION_GOLD : 0, charges: 1 };
+}
+
+/** Gold cost of a single use — the item price spread over its charges. */
+export function costPerUse(price: ConsumablePrice): number {
+  return price.gold / Math.max(1, price.charges);
+}
+
+/** The price in force for a consumable: the raid's logged override, else the default. */
+export function effectivePrice(
+  name: string,
+  overrides: Record<string, ConsumablePrice>,
+): ConsumablePrice {
+  return overrides[name] ?? defaultPriceFor(name);
+}
+
+/** Cost-per-use for each named consumable, applying the raid's overrides. */
+export function costPerUseMap(
+  names: Iterable<string>,
+  overrides: Record<string, ConsumablePrice>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const name of names) out[name] = costPerUse(effectivePrice(name, overrides));
+  return out;
+}
+
+/** Total gold for a list of { name, count } lines, given a cost-per-use map. */
+export function goldOfBreakdown(
+  items: { name: string; count: number }[],
+  costPerUse: Record<string, number>,
+): number {
+  return items.reduce((sum, it) => sum + (costPerUse[it.name] ?? 0) * it.count, 0);
+}

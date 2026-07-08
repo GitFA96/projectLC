@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { ExternalLink, TriangleAlert } from "lucide-react";
+import { Coins, ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
-import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type {
+  ConsumablePrice,
   ImprovementSeverity,
   RaidReportView,
   WclRole,
-  WowClass,
 } from "@/lib/types";
+import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
+import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
+import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
+import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
+import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
+import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,34 +35,7 @@ export const metadata: Metadata = { title: "Raid logs" };
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
-function classColor(className?: string): string | undefined {
-  return className && className in CLASS_TEXT_COLORS
-    ? CLASS_TEXT_COLORS[className as WowClass]
-    : undefined;
-}
-
 const ROLE_LABEL: Record<WclRole, string> = { tank: "Tank", healer: "Healer", dps: "DPS" };
-
-/** Class-colored raider name, linking matched roster characters to their logs. */
-function Raider({ name, slug, className }: { name: string; slug?: string; className?: string }) {
-  const color = classColor(className);
-  if (slug) {
-    return (
-      <Link
-        href={`/characters/${encodeURIComponent(slug)}/performance`}
-        className="font-medium hover:underline"
-        style={color ? { color } : undefined}
-      >
-        {name}
-      </Link>
-    );
-  }
-  return (
-    <span className="font-medium" style={color ? { color } : undefined} title="Not matched to a roster character">
-      {name}
-    </span>
-  );
-}
 
 function uptimeClass(pct: number): string {
   return pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : "";
@@ -75,6 +53,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
 
   const repo = await getRepo();
   const [reports, raid] = await Promise.all([repo.listWclReports(), repo.getRaidReport(requested)]);
+  const priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
 
   return (
     <div className="space-y-5">
@@ -94,7 +73,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           }
         />
       ) : (
-        <RaidDashboard raid={raid} reports={reports} />
+        <RaidDashboard raid={raid} reports={reports} priceOverrides={priceOverrides} />
       )}
     </div>
   );
@@ -103,11 +82,13 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
 function RaidDashboard({
   raid,
   reports,
+  priceOverrides,
 }: {
   raid: RaidReportView;
   reports: Awaited<ReturnType<Awaited<ReturnType<typeof getRepo>>["listWclReports"]>>;
+  priceOverrides: Record<string, ConsumablePrice>;
 }) {
-  const { report, session, prep, upkeep, cooldowns, improvements, fights } = raid;
+  const { report, session, prep, fights } = raid;
   const kills = fights.filter((f) => f.kill).length;
 
   return (
@@ -173,14 +154,29 @@ function RaidDashboard({
         </CardHeader>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <KpiCard label="Flask / elixirs" value={`${prep.flaskOrElixirPct}%`} sub="of player-pulls covered" />
         <KpiCard label="Food" value={`${prep.foodPct}%`} sub="Well Fed at pull" />
         <KpiCard label="Weapon buff" value={`${prep.weaponBuffPct}%`} sub="oil / stone / poison" />
         <KpiCard label="Pre-pots" value={`${prep.prepotPct}%`} sub={`${prep.prepots} pulls opened potted`} />
         <KpiCard label="Potions used" value={prep.potionsTotal} sub="combat potions, all raiders" />
+        <KpiCard label="Sappers" value={prep.sappersTotal} sub="sapper charges thrown" />
       </div>
 
+      <RaidLogTabs
+        overview={<OverviewPanel raid={raid} />}
+        rankings={<RankingsPanel raid={raid} overrides={priceOverrides} />}
+        gold={<GoldPanel raid={raid} overrides={priceOverrides} />}
+      />
+    </>
+  );
+}
+
+function OverviewPanel({ raid }: { raid: RaidReportView }) {
+  const { prep, upkeep, cooldowns, improvements } = raid;
+
+  return (
+    <>
       {/* Section 1: buff & debuff uptime */}
       <Card>
         <CardHeader>
@@ -274,35 +270,13 @@ function RaidDashboard({
         <Card>
           <CardHeader>
             <CardTitle>Potions &amp; in-fight items</CardTitle>
-            <p className="text-xs text-muted-foreground">Everything consumed mid-fight, by type.</p>
+            <p className="text-xs text-muted-foreground">
+              Everything consumed mid-fight, by type — sappers included. Click a row to see which
+              raiders used it and how many they threw.
+            </p>
           </CardHeader>
           <CardContent>
-            {prep.potionTypes.length === 0 && prep.inFightTypes.length === 0 ? (
-              <p className="py-1 text-sm text-muted-foreground">No in-fight consumables used.</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {prep.potionTypes.map((t, i) => (
-                    <TableRow key={`pot-${t.name}`}>
-                      <TableCell className="w-24 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {i === 0 ? "Potions" : ""}
-                      </TableCell>
-                      <TableCell className="text-sm">{t.name}</TableCell>
-                      <TableCell className="w-12 text-right text-sm tabular-nums">×{t.uses}</TableCell>
-                    </TableRow>
-                  ))}
-                  {prep.inFightTypes.map((t, i) => (
-                    <TableRow key={`item-${t.name}`}>
-                      <TableCell className="w-24 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {i === 0 ? "Items" : ""}
-                      </TableCell>
-                      <TableCell className="text-sm">{t.name}</TableCell>
-                      <TableCell className="w-12 text-right text-sm tabular-nums">×{t.uses}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+            <ConsumableUsageTable potions={prep.potionTypes} items={prep.inFightTypes} />
           </CardContent>
         </Card>
       </div>
@@ -348,6 +322,228 @@ function RaidDashboard({
           )}
         </CardContent>
       </Card>
+    </>
+  );
+}
+
+function RankingsPanel({
+  raid,
+  overrides,
+}: {
+  raid: RaidReportView;
+  overrides: Record<string, ConsumablePrice>;
+}) {
+  const { usage, upkeep } = raid;
+  const cooldownLeaders = [...usage]
+    .filter((u) => u.cooldowns > 0)
+    .sort((a, b) => b.cooldowns - a.cooldowns || a.name.localeCompare(b.name));
+
+  // In-fight items thrown this raid drive the (precise) gold toggle here.
+  const itemNames = new Set(usage.flatMap((u) => u.itemBreakdown.map((b) => b.name)));
+  const costPerUse = costPerUseMap(itemNames, overrides);
+  const usingDefault = Object.keys(overrides).length === 0;
+
+  return (
+    <>
+      <ConsumableLeaderboard rows={usage} costPerUse={costPerUse} usingDefault={usingDefault} />
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-sky-600" />
+              Cooldown usage
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Most major class cooldowns pressed across the night, with the breakdown.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {cooldownLeaders.length === 0 ? (
+              <p className="py-1 text-sm text-muted-foreground">No tracked cooldowns cast.</p>
+            ) : (
+              <Table>
+                <TableBody>
+                  {cooldownLeaders.map((u, i) => (
+                    <TableRow key={u.name}>
+                      <TableCell className="w-8">
+                        <RankBadge rank={i + 1} />
+                      </TableCell>
+                      <TableCell>
+                        <Raider name={u.name} slug={u.slug} className={u.className} />
+                      </TableCell>
+                      <TableCell className="w-14 text-right text-sm font-semibold tabular-nums">
+                        ×{u.cooldowns}
+                      </TableCell>
+                      <TableCell>
+                        <BreakdownBadges items={u.cooldownBreakdown} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Uptime leaders</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Best-maintained raid debuffs and buffs — the top keeper for each track this night.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {upkeep.length === 0 ? (
+              <p className="py-1 text-sm text-muted-foreground">No tracked debuffs/buffs in this report.</p>
+            ) : (
+              <Table>
+                <TableBody>
+                  {upkeep.map((u) => {
+                    const top = u.providers[0];
+                    return (
+                      <TableRow key={u.name}>
+                        <TableCell className="text-sm font-medium">
+                          {u.name}
+                          {u.kind === "debuff" && (
+                            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                              on boss
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {top ? (
+                            <Raider name={top.name} slug={top.slug} className={u.className} />
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell
+                          className={cn("w-16 text-right text-sm font-medium tabular-nums", uptimeClass(u.bestPct))}
+                        >
+                          {u.bestPct}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}
+
+function GoldPanel({
+  raid,
+  overrides,
+}: {
+  raid: RaidReportView;
+  overrides: Record<string, ConsumablePrice>;
+}) {
+  const { usage } = raid;
+  // Union of every consumable this raid touched — in-fight casts + prep buffs.
+  const names = new Set<string>();
+  for (const u of usage) {
+    for (const b of u.itemBreakdown) names.add(b.name);
+    for (const b of u.prepBreakdown) names.add(b.name);
+  }
+  const costPerUse = costPerUseMap(names, overrides);
+  const usingDefault = Object.keys(overrides).length === 0;
+  const priceRows = [...names].sort().map((name) => ({ name, price: effectivePrice(name, overrides) }));
+
+  const goldOfName = (n: string, count: number) => (costPerUse[n] ?? 0) * count;
+  const ranked = usage
+    .map((u) => {
+      const inFight = goldOfBreakdown(u.itemBreakdown, costPerUse);
+      const prep = goldOfBreakdown(u.prepBreakdown, costPerUse);
+      // Merge both breakdowns for the "includes" column, priciest first.
+      const lines = [...u.itemBreakdown, ...u.prepBreakdown]
+        .filter((it) => goldOfName(it.name, it.count) > 0)
+        .sort((a, b) => goldOfName(b.name, b.count) - goldOfName(a.name, a.count));
+      return { u, inFight, prep, total: inFight + prep, lines };
+    })
+    .filter((x) => x.total > 0)
+    .sort((a, b) => b.total - a.total || a.u.name.localeCompare(b.u.name));
+
+  const raidTotal = ranked.reduce((s, x) => s + x.total, 0);
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            <Coins className="h-4 w-4 text-amber-500" />
+            Total gold spent
+            <span className="text-sm font-normal text-muted-foreground">
+              ≈ {Math.round(raidTotal).toLocaleString("en-US")}g across the raid
+            </span>
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Estimated gold per raider across everything — in-fight potions/sappers plus prep buffs
+            (flask, elixirs, food, weapon stone, scrolls, Flame Cap). Prep buffs scale with raid
+            length and deaths: a buff held from an early to a late pull on a night longer than it
+            lasts is re-bought (a flask ≈ ×2 past 2 hours), and consumed buffs add one per death.
+            {usingDefault && (
+              <span className="ml-1 inline-flex items-center gap-1 text-amber-600">
+                <TriangleAlert className="h-3 w-3" /> using default prices — set this raid&apos;s
+                below.
+              </span>
+            )}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {ranked.length === 0 ? (
+            <p className="py-1 text-sm text-muted-foreground">No priced consumables this raid.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Raider</TableHead>
+                  <TableHead className="w-20 text-right">In-fight</TableHead>
+                  <TableHead className="w-16 text-right">Prep</TableHead>
+                  <TableHead className="w-20 text-right">Total</TableHead>
+                  <TableHead>Includes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ranked.map(({ u, inFight, prep, total, lines }, i) => (
+                  <TableRow key={u.name} className={cn(i === 0 && "bg-amber-50/70 hover:bg-amber-50/70")}>
+                    <TableCell>
+                      <RankBadge rank={i + 1} />
+                    </TableCell>
+                    <TableCell>
+                      <Raider name={u.name} slug={u.slug} className={u.className} />
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                      {Math.round(inFight).toLocaleString("en-US")}g
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                      {Math.round(prep).toLocaleString("en-US")}g
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-semibold tabular-nums">
+                      {Math.round(total).toLocaleString("en-US")}g
+                    </TableCell>
+                    <TableCell>
+                      <BreakdownBadges items={lines} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <ConsumablePricePanel
+        key={raid.report.code}
+        code={raid.report.code}
+        rows={priceRows}
+        usingDefault={usingDefault}
+      />
     </>
   );
 }

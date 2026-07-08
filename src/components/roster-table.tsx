@@ -52,7 +52,25 @@ export interface RosterRow {
   mainCharacterName?: string;
 }
 
+/** Membership filter → which roster statuses it shows. */
+function matchesMembership(filter: string, status: CharacterStatus): boolean {
+  switch (filter) {
+    case "main":
+      return status === "main";
+    case "roster":
+      return status === "main" || status === "alt";
+    case "alt":
+      return status === "alt";
+    case "inactive":
+      return status === "inactive";
+    default:
+      return true; // "all"
+  }
+}
+
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
+  // Default to mains — the raiding core — and let alts/inactive be opted in.
+  const [membershipFilter, setMembershipFilter] = React.useState<string>("main");
   const [classFilter, setClassFilter] = React.useState<string>("all");
   const [roleFilter, setRoleFilter] = React.useState<string>("all");
   const { selected, toggle, setAll, clear } = useSelection();
@@ -62,10 +80,11 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
     () =>
       rows.filter(
         (r) =>
+          matchesMembership(membershipFilter, r.status) &&
           (classFilter === "all" || r.wowClass === classFilter) &&
           (roleFilter === "all" || r.role === roleFilter),
       ),
-    [rows, classFilter, roleFilter],
+    [rows, membershipFilter, classFilter, roleFilter],
   );
   const filteredIds = React.useMemo(() => filtered.map((r) => r.id), [filtered]);
   const selectedIds = [...selected];
@@ -238,6 +257,18 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        <Select value={membershipFilter} onValueChange={setMembershipFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Membership" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="main">Mains</SelectItem>
+            <SelectItem value="roster">Mains + alts</SelectItem>
+            <SelectItem value="alt">Alts only</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+            <SelectItem value="all">All roster</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={classFilter} onValueChange={setClassFilter}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Class" />

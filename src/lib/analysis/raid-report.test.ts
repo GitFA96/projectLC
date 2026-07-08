@@ -40,6 +40,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     drums: 0,
     runes: 0,
     healthstones: 0,
+    sappers: 0,
     missingEnchants: [],
     gear: [],
     ...rest,
@@ -87,7 +88,9 @@ describe("summarizeRaidReport", () => {
     // 5 of 6 player-pulls prepared (Morgrave's Leotheras pull is not).
     expect(raid.prep.flaskOrElixirPct).toBe(83);
     expect(raid.prep.potionsTotal).toBe(1);
-    expect(raid.prep.potionTypes).toEqual([{ name: "Haste Potion", uses: 1 }]);
+    expect(raid.prep.potionTypes).toEqual([
+      { name: "Haste Potion", uses: 1, providers: [{ name: "Kazrak", slug: "kazrak", count: 1 }] },
+    ]);
   });
 
   it("rolls up debuff/buff uptime per provider, boss debuffs first", () => {
@@ -123,5 +126,86 @@ describe("summarizeRaidReport", () => {
   it("defaults to no report gracefully via the store, but summarizes when given rows", () => {
     expect(raid.report.code).toBe("RAID001");
     expect(raid.reportPulls).toBe(2);
+  });
+
+  it("folds per-type consumable usage out to who used it", () => {
+    const v = summarizeRaidReport({
+      report,
+      reportPulls: 1,
+      slugByActor: new Map([["kazrak", "kazrak"]]),
+      rows: [
+        row({ fightId: 1, actorName: "Kazrak", potions: ["Haste Potion"], otherCasts: ["Super Sapper Charge"], sappers: 1 }),
+        row({ fightId: 1, actorName: "Bombjr", potions: ["Haste Potion"], otherCasts: ["Super Sapper Charge", "Goblin Sapper Charge"], sappers: 2 }),
+      ],
+    });
+    const haste = v.prep.potionTypes.find((t) => t.name === "Haste Potion")!;
+    expect(haste.uses).toBe(2);
+    expect(haste.providers).toEqual([
+      { name: "Bombjr", slug: undefined, count: 1 },
+      { name: "Kazrak", slug: "kazrak", count: 1 },
+    ]);
+  });
+
+  it("ranks raiders by consumable and cooldown usage with a named breakdown", () => {
+    const v = summarizeRaidReport({
+      report,
+      reportPulls: 1,
+      slugByActor: new Map(),
+      rows: [
+        row({ fightId: 1, actorName: "Kazrak", potions: ["Haste Potion"], cooldowns: ["Death Wish"] }),
+        row({ fightId: 1, actorName: "Bombjr", potions: ["Haste Potion", "Destruction Potion"],
+          otherCasts: ["Super Sapper Charge", "Goblin Sapper Charge"], sappers: 2 }),
+      ],
+      // Bombjr threw 4 in-fight items to Kazrak's 1 → tops the leaderboard.
+    });
+    expect(v.usage.map((u) => u.name)).toEqual(["Bombjr", "Kazrak"]);
+    const bomb = v.usage[0];
+    expect(bomb.consumablesTotal).toBe(4);
+    expect(bomb.sappers).toBe(2);
+    expect(bomb.potions).toBe(2);
+    expect(bomb.otherItems).toBe(0); // both other casts are sappers
+    expect(bomb.itemBreakdown[0]).toEqual({ name: "Destruction Potion", count: 1 });
+    const kaz = v.usage[1];
+    expect(kaz.cooldowns).toBe(1);
+    expect(kaz.cooldownBreakdown).toEqual([{ name: "Death Wish", count: 1 }]);
+  });
+
+  it("scales prep buffs by raid length and deaths (flask ×2 on a 4h night)", () => {
+    // The report fixture spans 19:00–23:00 = 4 hours; Kazrak holds a flask in an
+    // early and a late pull, so a 2h flask is bought ~twice.
+    const v = summarizeRaidReport({
+      report,
+      reportPulls: 2,
+      slugByActor: new Map(),
+      rows: [
+        row({ fightId: 1, actorName: "Kazrak", flask: "Flask of Relentless Assault",
+          food: true, weaponBuff: true, deaths: 1, scrolls: ["Scroll of Agility V"] }),
+        row({ fightId: 2, actorName: "Kazrak", flask: "Flask of Relentless Assault",
+          food: true, weaponBuff: true, deaths: 2, scrolls: ["Scroll of Agility V"] }),
+      ],
+    });
+    const kaz = v.usage.find((u) => u.name === "Kazrak")!;
+    expect(kaz.deaths).toBe(3);
+    const prep = Object.fromEntries(kaz.prepBreakdown.map((p) => [p.name, p.count]));
+    expect(prep["Flask of Relentless Assault"]).toBe(2); // 4h ÷ 2h window, present early+late
+    expect(prep["Scroll of Agility V"]).toBe(4); // max(4h window, 1 + 3 deaths)
+    expect(prep["Food"]).toBe(4);
+    expect(prep["Weapon oil/stone"]).toBe(4);
+  });
+
+  it("doesn't double a flask on a short raid or a one-off pull", () => {
+    const shortReport = { ...report, startTime: "2026-06-10T19:00:00.000Z", endTime: "2026-06-10T20:30:00.000Z" };
+    const v = summarizeRaidReport({
+      report: shortReport,
+      reportPulls: 2,
+      slugByActor: new Map(),
+      rows: [
+        row({ fightId: 1, actorName: "Kazrak", flask: "Flask of Relentless Assault" }),
+        row({ fightId: 2, actorName: "Kazrak", flask: "Flask of Relentless Assault" }),
+      ],
+    });
+    const kaz = v.usage.find((u) => u.name === "Kazrak")!;
+    // 1.5h night → under the 2h flask window → a single flask.
+    expect(kaz.prepBreakdown.find((p) => p.name.startsWith("Flask"))!.count).toBe(1);
   });
 });

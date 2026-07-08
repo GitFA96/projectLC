@@ -83,6 +83,9 @@ const AURA_DEFS: AuraDef[] = [
   /* Off-slot consumables (stack with everything — sweaty-raider tells) */
   { label: "Bogling Root", category: "misc", ids: [5665], buffNames: ["Fury of the Bogling"] },
   { label: "Kreeg's Stout Beatdown", category: "misc", ids: [22790] },
+  // Situational engineering/herb DPS consumables — off-slot, stack with elixirs.
+  { label: "Flame Cap", category: "misc", ids: [28714] },
+  { label: "Eye of the Night", category: "misc", ids: [31033] },
 ];
 
 const AURA_BY_ID = new Map<number, AuraDef>();
@@ -199,7 +202,7 @@ export function classifyAura(name: string, abilityId?: number): ClassifiedAura |
   return undefined;
 }
 
-export type CastCategory = "potion" | "drums" | "rune" | "healthstone" | "gem" | "other";
+export type CastCategory = "potion" | "drums" | "rune" | "healthstone" | "gem" | "sapper" | "other";
 
 export interface TrackedCast {
   id: number;
@@ -247,9 +250,23 @@ export const TRACKED_CASTS: TrackedCast[] = [
   { id: 10052, name: "Mana Jade", category: "gem" },
   { id: 5405, name: "Mana Agate", category: "gem" },
   { id: 28726, name: "Nightmare Seed", category: "other" },
+  // Engineering explosives — the item on-use spell WCL records on the throw.
+  // The casts query ALSO matches these by name (see SAPPER_CAST_NAMES), so a
+  // wrong/aliased rank id still counts; the classifyCast name fallback buckets it.
+  { id: 30486, name: "Super Sapper Charge", category: "sapper" },
+  { id: 12760, name: "Goblin Sapper Charge", category: "sapper" },
+  { id: 13241, name: "Goblin Sapper Charge", category: "sapper" },
 ];
 
 export const TRACKED_CAST_IDS = TRACKED_CASTS.map((c) => c.id);
+/**
+ * Sapper names for the casts filter: engineering explosives have several
+ * near-identical spell ranks, so matching the throw by NAME as well as id keeps
+ * them counted no matter which rank the log carries.
+ */
+export const SAPPER_CAST_NAMES = [
+  ...new Set(TRACKED_CASTS.filter((c) => c.category === "sapper").map((c) => c.name)),
+];
 const CASTS_BY_ID = new Map(TRACKED_CASTS.map((c) => [c.id, c]));
 const COMBAT_POTION_NAMES = new Set(
   TRACKED_CASTS.filter((c) => c.category === "potion").map((c) => c.name.toLowerCase()),
@@ -271,6 +288,7 @@ export function classifyCast(abilityId: number | undefined, abilityName?: string
   const lower = abilityName.trim().toLowerCase();
   if (lower.endsWith("potion")) return { id: abilityId ?? 0, name: abilityName.trim(), category: "potion" };
   if (lower.startsWith("drums of")) return { id: abilityId ?? 0, name: abilityName.trim(), category: "drums" };
+  if (lower.includes("sapper charge")) return { id: abilityId ?? 0, name: abilityName.trim(), category: "sapper" };
   return undefined;
 }
 

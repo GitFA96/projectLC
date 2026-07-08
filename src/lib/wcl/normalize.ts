@@ -178,6 +178,7 @@ export interface NormalizedPlayerFight {
   drums: number;
   runes: number;
   healthstones: number;
+  sappers: number;
   missingEnchants: string[];
 }
 
@@ -299,6 +300,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         drums: 0,
         runes: 0,
         healthstones: 0,
+        sappers: 0,
         missingEnchants: [],
       };
       rows.set(key, row);
@@ -489,6 +491,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (hit.category === "drums") row.drums++;
     else if (hit.category === "rune") row.runes++;
     else if (hit.category === "healthstone") row.healthstones++;
+    else if (hit.category === "sapper") row.sappers++;
   }
 
   /* 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events. */

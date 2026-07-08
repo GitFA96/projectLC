@@ -375,7 +375,7 @@ describe("sqlite repo", () => {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
             actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
             prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], upkeep: [],
-            deaths: 0, drums: 0, runes: 0, healthstones: 0, missingEnchants: [], gear: [],
+            deaths: 0, drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [],
           },
         ],
       );
@@ -499,6 +499,7 @@ describe("sqlite repo", () => {
         drums: 0,
         runes: 0,
         healthstones: 0,
+        sappers: 0,
         missingEnchants: [],
         ...over,
       };
@@ -571,6 +572,36 @@ describe("sqlite repo", () => {
       expect(rows).toHaveLength(1);
       expect(rows[0].parsePercent).toBe(99);
       expect(await repo.listWclReports()).toHaveLength(2);
+    });
+
+    it("round-trips per-raid consumable prices, keeping reports independent", async () => {
+      const repo = getSqliteRepo();
+      // No prices logged yet → empty (the gold view falls back to defaults).
+      expect(await repo.getReportConsumablePrices("RPT1")).toEqual({});
+
+      await repo.setReportConsumablePrices("RPT1", {
+        "Haste Potion": { gold: 42, charges: 1 },
+        "Drums of Battle": { gold: 20, charges: 50 },
+      });
+      expect(await repo.getReportConsumablePrices("RPT1")).toEqual({
+        "Haste Potion": { gold: 42, charges: 1 },
+        "Drums of Battle": { gold: 20, charges: 50 },
+      });
+      // A different raid keeps its own (empty) prices.
+      expect(await repo.getReportConsumablePrices("RPT2")).toEqual({});
+    });
+
+    it("sanitizes malformed price entries on save", async () => {
+      const repo = getSqliteRepo();
+      await repo.setReportConsumablePrices("RPT3", {
+        "Good Potion": { gold: 10, charges: 2 },
+        "Bad Gold": { gold: -5, charges: 1 },
+        "Bad Charges": { gold: 5, charges: 0 },
+      } as never);
+      const saved = await repo.getReportConsumablePrices("RPT3");
+      expect(saved["Good Potion"]).toEqual({ gold: 10, charges: 2 });
+      expect(saved["Bad Gold"]).toBeUndefined(); // negative gold dropped
+      expect(saved["Bad Charges"]).toEqual({ gold: 5, charges: 1 }); // charges clamped to ≥1
     });
 
     it("moves a character to pug and back, excluding them from guild stats", async () => {

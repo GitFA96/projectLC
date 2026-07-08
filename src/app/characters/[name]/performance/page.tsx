@@ -334,7 +334,7 @@ export default async function PerformancePage({
                     <TableHead className="w-16 text-right">Deaths</TableHead>
                     <TableHead className="w-14" title="Flask or at least one elixir at pull">Flask</TableHead>
                     <TableHead className="w-14" title="Well Fed at pull">Food</TableHead>
-                    <TableHead className="w-16" title="Consumables used during the pull — potions, healthstones, runes, mana gems, seeds, drums (pre-pot shown as +)">
+                    <TableHead className="w-16" title="Consumables used during the pull — potions, healthstones, runes, mana gems, seeds, drums, sapper charges (pre-pot shown as +)">
                       Used
                     </TableHead>
                   </TableRow>
@@ -394,11 +394,16 @@ export default async function PerformancePage({
                             <Mark ok={row.food} />
                           </TableCell>
                           <TableCell className="text-sm tabular-nums">
-                            {row.potions.length + row.otherCasts.length > 0 || row.prepot ? (
+                            {row.potions.length + row.otherCasts.length + row.sappers > 0 || row.prepot ? (
                               <span
-                                title={[...(row.prepot ? ["pre-pot"] : []), ...row.potions, ...row.otherCasts].join(", ")}
+                                title={[
+                                  ...(row.prepot ? ["pre-pot"] : []),
+                                  ...row.potions,
+                                  ...row.otherCasts,
+                                  ...(row.sappers > 0 ? [`sapper ×${row.sappers}`] : []),
+                                ].join(", ")}
                               >
-                                {row.potions.length + row.otherCasts.length}
+                                {row.potions.length + row.otherCasts.length + row.sappers}
                                 {row.prepot && <span className="text-emerald-600">+</span>}
                               </span>
                             ) : (
@@ -464,6 +469,13 @@ export default async function PerformancePage({
                       total={active.rows.length}
                       uses={usesOf(active.rows, (r) => r.otherCasts)}
                     />
+                    {active.summary.sappers > 0 && (
+                      <TableRow>
+                        <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sappers</TableCell>
+                        <TableCell className="text-sm">Sapper charges thrown</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">×{active.summary.sappers}</TableCell>
+                      </TableRow>
+                    )}
                     {active.rows.some((r) => r.extras.length > 0) && (
                       <ConsumableRows
                         label="Other buffs"
@@ -515,7 +527,8 @@ function UpkeepPct({ pct }: { pct: number }) {
 
 /** Expanded per-pull detail: items used, cooldowns cast, maintained uptime. */
 function fightDetail(row: WclPlayerFight): React.ReactNode {
-  const items = [...row.potions, ...row.otherCasts];
+  const sapperEntries = Array<string>(row.sappers).fill("Sapper charge");
+  const items = [...row.potions, ...row.otherCasts, ...sapperEntries];
   const trackedCds = cooldownsForClass(row.className);
   const trackedUptime = uptimeTracksForClass(row.className);
   const hasAnything =

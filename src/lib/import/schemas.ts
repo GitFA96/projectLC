@@ -215,6 +215,7 @@ export const wclPlayerFightSchema = z.object({
   drums: z.number().int().nonnegative().default(0),
   runes: z.number().int().nonnegative().default(0),
   healthstones: z.number().int().nonnegative().default(0),
+  sappers: z.number().int().nonnegative().default(0),
   /** Expected-to-be-enchanted gear slots missing a permanent enchant at pull. */
   missingEnchants: z.array(z.string()).default([]),
   /** Full worn-gear snapshot at the pull (empty for pre-gear-tracking imports). */

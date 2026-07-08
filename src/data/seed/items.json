@@ -143,5 +143,7 @@
   { "id": 28779, "name": "Girdle of the Immovable", "quality": "epic", "icon": "inv_belt_31", "slot": "waist", "source": { "zone": "Magtheridon's Lair", "boss": "Magtheridon" }, "phase": 1 },
   { "id": 27803, "name": "Spaulders of the Righteous", "quality": "rare", "icon": "inv_shoulder_30", "slot": "shoulder", "source": { "zone": "The Blood Furnace", "boss": "Keli'dan the Breaker" }, "phase": 1 },
   { "id": 29023, "name": "Warbringer Shoulderguards", "quality": "epic", "icon": "inv_shoulder_34", "slot": "shoulder", "source": { "zone": "Tier 4", "boss": "Token turn-in" }, "phase": 1 },
-  { "id": 28783, "name": "Wand of the Forgotten Star", "quality": "epic", "icon": "inv_wand_14", "slot": "ranged", "source": { "zone": "Magtheridon's Lair", "boss": "Magtheridon" }, "phase": 1 }
+  { "id": 28783, "name": "Wand of the Forgotten Star", "quality": "epic", "icon": "inv_wand_14", "slot": "ranged", "source": { "zone": "Magtheridon's Lair", "boss": "Magtheridon" }, "phase": 1 },
+  { "id": 28714, "name": "Flame Cap", "quality": "uncommon", "icon": "inv_misc_herb_flamecap", "source": { "zone": "Zangarmarsh" }, "phase": 1 },
+  { "id": 31033, "name": "Eye of the Night", "quality": "uncommon", "icon": "inv_misc_gem_03", "source": { "zone": "Black Temple" }, "phase": 3 }
 ]
