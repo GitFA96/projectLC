@@ -19,6 +19,8 @@ import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
+import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
+import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,7 +77,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           zone: report.zone ?? undefined,
           startTime: report.startTime,
           usage: view.usage,
-          upkeep: view.upkeep,
+          // The season rollup only needs night averages — drop the (heavy)
+          // per-fight timeline breakdown before it crosses to the client.
+          upkeep: view.upkeep.map((u) => ({ ...u, perFight: undefined })),
           overrides,
         };
       }),
@@ -223,27 +227,30 @@ function RaidDashboard({
 }
 
 function OverviewPanel({ raid }: { raid: RaidReportView }) {
-  const { prep, upkeep, cooldowns, improvements } = raid;
+  const { prep, upkeep, cooldowns, improvements, fights } = raid;
 
   return (
     <>
-      {/* Section 1: buff & debuff uptime */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Buff &amp; debuff uptime</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Maintained raid debuffs (on the boss) and self/assigned buffs, averaged across the
-            night per provider. Boss debuffs first.
-          </p>
-        </CardHeader>
-        <CardContent>
-          {upkeep.length === 0 ? (
+      {/* Section 1: uptime — boss-by-boss view on top, the full table folded below */}
+      <UptimeByBoss fights={fights} upkeep={upkeep} reportStartTime={raid.report.startTime} />
+      {upkeep.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Buff &amp; debuff uptime</CardTitle>
+          </CardHeader>
+          <CardContent>
             <p className="py-1 text-sm text-muted-foreground">
               No tracked debuffs/buffs in this report. Re-import reports from before uptime
               tracking to backfill.
             </p>
-          ) : (
-            <Table>
+          </CardContent>
+        </Card>
+      ) : (
+        <CollapsibleCard
+          title={<>Buff &amp; debuff uptime — night averages</>}
+          description="Maintained raid debuffs (on the boss) and self/assigned buffs, averaged across the night per provider. Boss debuffs first."
+        >
+          <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Debuff / buff</TableHead>
@@ -279,9 +286,8 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
                 ))}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+        </CollapsibleCard>
+      )}
 
       {/* Section 2: cooldowns + in-fight consumable types */}
       <div className="grid items-start gap-4 lg:grid-cols-2">

@@ -89,6 +89,7 @@ export interface UptimeTrack {
 
 export const UPTIME_TRACKS: UptimeTrack[] = [
   /* Warrior */
+  { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior" },
   { name: "Thunder Clap", kind: "debuff", wowClass: "Warrior" },
   { name: "Demoralizing Shout", kind: "debuff", wowClass: "Warrior" },
   { name: "Battle Shout", kind: "selfbuff", wowClass: "Warrior" },

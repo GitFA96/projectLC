@@ -104,6 +104,14 @@ describe("summarizeRaidReport", () => {
     expect(shout.bestPct).toBe(85);
   });
 
+  it("breaks uptime down boss by boss with per-pull providers", () => {
+    const curse = raid.upkeep.find((u) => u.name === "Curse of the Elements")!;
+    expect(curse.perFight).toEqual([
+      { fightId: 1, providers: [{ name: "Morgrave", slug: "morgrave", className: "Warlock", pct: 95 }] },
+      { fightId: 2, providers: [{ name: "Morgrave", slug: "morgrave", className: "Warlock", pct: 88 }] },
+    ]);
+  });
+
   it("tallies cooldown usage with providers", () => {
     const deathWish = raid.cooldowns.find((c) => c.name === "Death Wish")!;
     expect(deathWish.uses).toBe(2);

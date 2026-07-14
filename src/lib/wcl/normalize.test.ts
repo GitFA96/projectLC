@@ -31,10 +31,14 @@ const rawReport = {
   zone: { name: "Karazhan" },
   masterData: {
     actors: [
-      { id: 1, name: "Thrainn", subType: "Warrior" },
-      { id: 2, name: "Pyrelia", subType: "Mage" },
-      { id: 3, name: "Lunara", subType: "Druid" },
-      { id: 9, name: "Wolfie", subType: "Pet" },
+      { id: 1, name: "Thrainn", type: "Player", subType: "Warrior" },
+      { id: 2, name: "Pyrelia", type: "Player", subType: "Mage" },
+      { id: 3, name: "Lunara", type: "Player", subType: "Druid" },
+      { id: 9, name: "Wolfie", type: "Pet", subType: "Pet" },
+      // Enemy NPCs — upkeep targets resolve against these (boss vs add).
+      { id: 50, name: "Attumen the Huntsman", type: "NPC", subType: "Boss" },
+      { id: 51, name: "Midnight", type: "NPC", subType: "NPC" },
+      { id: 60, name: "Moroes", type: "NPC", subType: "Boss" },
     ],
   },
   fights: [
@@ -171,6 +175,12 @@ const debuffs = [
   // A brief Thunder Clap on an add (target 51) must not win best-target.
   { timestamp: 120000, type: "applydebuff", sourceID: 1, targetID: 51, ability: { name: "Thunder Clap" } },
   { timestamp: 130000, type: "removedebuff", sourceID: 1, targetID: 51, ability: { name: "Thunder Clap" } },
+  // Sunder Armor spam on the boss: one landed cast emits an applydebuffstack
+  // AND a refreshdebuff at the same ms — count each timestamp once (3 casts).
+  { timestamp: 105000, type: "applydebuff", sourceID: 1, targetID: 50, ability: { name: "Sunder Armor", guid: 25225 } },
+  { timestamp: 106000, type: "applydebuffstack", sourceID: 1, targetID: 50, ability: { name: "Sunder Armor", guid: 25225 } },
+  { timestamp: 106000, type: "refreshdebuff", sourceID: 1, targetID: 50, ability: { name: "Sunder Armor", guid: 25225 } },
+  { timestamp: 107000, type: "refreshdebuff", sourceID: 1, targetID: 50, ability: { name: "Sunder Armor", guid: 25225 } },
   // First sighting is a removal — credited from the pull start
   // (Moroes 600000–850000): 600000→690000 = 90s of 250s ⇒ 36%.
   { timestamp: 690000, type: "removedebuff", sourceID: 1, targetID: 60, ability: { name: "Demoralizing Shout" } },
@@ -299,26 +309,81 @@ describe("normalizeWclReport", () => {
 
   it("computes maintained-debuff uptime on the player's best target", () => {
     const upkeep = row(7, "Thrainn").upkeep;
-    // 260s of 300s on the boss — the add's brief 10s never wins best-target.
-    expect(upkeep).toContainEqual({ name: "Thunder Clap", pct: 87 });
+    // 260s of 300s on the boss — the add's brief 10s never wins best-target,
+    // but both victims land in the per-target timeline (boss first).
+    expect(upkeep).toContainEqual({
+      name: "Thunder Clap",
+      pct: 87,
+      targets: [
+        {
+          target: "Attumen the Huntsman",
+          boss: true,
+          pct: 87,
+          segments: [
+            [10000, 100000],
+            [130000, 300000],
+          ],
+          applications: 2,
+        },
+        { target: "Midnight", boss: false, pct: 3, segments: [[20000, 30000]], applications: 1 },
+      ],
+    });
+  });
+
+  it("tracks Sunder Armor with landed-cast counts (same-ms event pairs count once)", () => {
+    // Up from 105000 to the fight end (400000): 295s of 300s ⇒ 98%.
+    expect(row(7, "Thrainn").upkeep).toContainEqual({
+      name: "Sunder Armor",
+      pct: 98,
+      targets: [
+        {
+          target: "Attumen the Huntsman",
+          boss: true,
+          pct: 98,
+          segments: [[5000, 300000]],
+          applications: 3,
+        },
+      ],
+    });
   });
 
   it("credits a remove-without-apply from the pull start", () => {
-    expect(row(9, "Thrainn").upkeep).toContainEqual({ name: "Demoralizing Shout", pct: 36 });
+    expect(row(9, "Thrainn").upkeep).toContainEqual({
+      name: "Demoralizing Shout",
+      pct: 36,
+      targets: [{ target: "Moroes", boss: true, pct: 36, segments: [[0, 90000]], applications: 0 }],
+    });
   });
 
   it("tracks shout upkeep from self-applications only", () => {
-    expect(row(9, "Thrainn").upkeep).toContainEqual({ name: "Battle Shout", pct: 80 });
+    expect(row(9, "Thrainn").upkeep).toContainEqual({
+      name: "Battle Shout",
+      pct: 80,
+      targets: [{ target: "Thrainn", boss: false, pct: 80, segments: [[50000, 250000]], applications: 1 }],
+    });
     // The shout landing on Lunara is not her upkeep…
     expect(row(9, "Lunara").upkeep.some((u) => u.name === "Battle Shout")).toBe(false);
     // …but the Earth Shield she SOURCED is, wherever it sits.
-    expect(row(9, "Lunara").upkeep).toContainEqual({ name: "Earth Shield", pct: 40 });
+    expect(row(9, "Lunara").upkeep).toContainEqual({
+      name: "Earth Shield",
+      pct: 40,
+      targets: [{ target: "Thrainn", boss: false, pct: 40, segments: [[20000, 120000]], applications: 1 }],
+    });
   });
 
   it("opens self-buff upkeep at the pull when the aura is already up", () => {
     // Commanding Shout sat in Thrainn's pull auras with zero buff events in
     // the fight — that's 100% uptime, not 0%.
-    expect(row(7, "Thrainn").upkeep).toContainEqual({ name: "Commanding Shout", pct: 100 });
+    expect(row(7, "Thrainn").upkeep).toContainEqual({
+      name: "Commanding Shout",
+      pct: 100,
+      targets: [{ target: "Thrainn", boss: false, pct: 100, segments: [[0, 300000]], applications: 0 }],
+    });
+  });
+
+  it("stamps rows with the fight start offset for wall-clock times", () => {
+    expect(row(7, "Thrainn").fightStartMs).toBe(100000);
+    expect(row(9, "Thrainn").fightStartMs).toBe(600000);
   });
 
   it("warns about combatant info outside boss pulls", () => {

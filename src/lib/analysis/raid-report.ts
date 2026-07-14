@@ -10,6 +10,7 @@ import type {
   RaiderUsage,
   RaidUpkeepRow,
   RaidSession,
+  UpkeepFightProvider,
   WclPlayerFight,
   WclReport,
 } from "@/lib/types";
@@ -90,6 +91,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         kill: r.kill,
         fightPercentage: r.fightPercentage,
         durationMs: r.durationMs,
+        startMs: r.fightStartMs,
       });
     }
   }
@@ -264,7 +266,9 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
 
   /* ---- Maintained debuff/buff uptime ---- */
   // Per track → per provider: average their pct across the pulls they were in.
+  // Alongside, keep the raw per-pull numbers for the boss-by-boss breakdown.
   const upkeepByTrack = new Map<string, Map<string, { sum: number; pulls: number; className?: string }>>();
+  const upkeepByTrackFight = new Map<string, Map<number, UpkeepFightProvider[]>>();
   for (const r of rows) {
     for (const u of r.upkeep) {
       const providers = upkeepByTrack.get(u.name) ?? new Map();
@@ -273,6 +277,18 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       acc.pulls += 1;
       providers.set(r.actorName, acc);
       upkeepByTrack.set(u.name, providers);
+
+      const fightMap = upkeepByTrackFight.get(u.name) ?? new Map<number, UpkeepFightProvider[]>();
+      const fightProviders = fightMap.get(r.fightId) ?? [];
+      fightProviders.push({
+        name: r.actorName,
+        slug: slugOf(r.actorName),
+        className: r.className,
+        pct: u.pct,
+        targets: u.targets,
+      });
+      fightMap.set(r.fightId, fightProviders);
+      upkeepByTrackFight.set(u.name, fightMap);
     }
   }
   const upkeep: RaidUpkeepRow[] = [...upkeepByTrack].map(([name, providerMap]) => {
@@ -285,12 +301,19 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       .sort((a, b) => b.pct - a.pct);
     const track = UPTIME_TRACK_BY_LABEL.get(name.toLowerCase());
     const dominantClass = [...providerMap.values()][0]?.className;
+    const perFight = [...(upkeepByTrackFight.get(name) ?? new Map<number, UpkeepFightProvider[]>())]
+      .map(([fightId, fightProviders]) => ({
+        fightId,
+        providers: fightProviders.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.fightId - b.fightId);
     return {
       name,
       className: dominantClass,
       kind: track?.kind ?? "debuff",
       providers,
       bestPct: providers[0]?.pct ?? 0,
+      perFight,
     };
   });
   // Debuffs (on the boss) first, then by best uptime descending.

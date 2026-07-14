@@ -26,6 +26,8 @@ import {
 const rawActorSchema = z.looseObject({
   id: z.number(),
   name: z.string(),
+  /** "Player" | "Pet" | "NPC" — absent on pre-NPC fetches (players only). */
+  type: z.string().optional(),
   subType: z.string().optional(),
 });
 
@@ -132,6 +134,8 @@ const rawAuraEventSchema = z.looseObject({
   fight: z.number().optional(),
   sourceID: z.number().optional(),
   targetID: z.number().optional(),
+  /** Which copy of the NPC, when several share one actor id (adds). */
+  targetInstance: z.number().optional(),
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
@@ -150,6 +154,8 @@ export interface NormalizedPlayerFight {
   kill: boolean;
   fightPercentage?: number;
   durationMs: number;
+  /** Fight start, ms from report start (absolute clock times derive from it). */
+  fightStartMs: number;
   actorName: string;
   className?: string;
   spec?: string;
@@ -171,8 +177,12 @@ export interface NormalizedPlayerFight {
   extras: string[];
   /** Major class cooldowns cast during the pull, one entry per use. */
   cooldowns: string[];
-  /** Maintained debuff/buff uptimes, % of the pull, best target. */
-  upkeep: { name: string; pct: number }[];
+  /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
+  upkeep: {
+    name: string;
+    pct: number;
+    targets?: NormalizedUpkeepTarget[];
+  }[];
   /** Full worn-gear snapshot at the pull. */
   gear: NormalizedGearItem[];
   drums: number;
@@ -180,6 +190,21 @@ export interface NormalizedPlayerFight {
   healthstones: number;
   sappers: number;
   missingEnchants: string[];
+}
+
+/** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
+export interface NormalizedUpkeepTarget {
+  /** Target name as logged (NPC or friendly player). */
+  target: string;
+  /** WCL instance number when several copies of the NPC exist. */
+  instance?: number;
+  /** True when the target is the encounter boss (WCL subType "Boss"). */
+  boss: boolean;
+  pct: number;
+  /** [startMs, endMs] pairs relative to the fight start. */
+  segments: [number, number][];
+  /** ≈ times the aura was applied/refreshed (stacking spam like Sunder Armor counts each landed cast). */
+  applications: number;
 }
 
 /** One worn item, slimmed for persistence (slot = WCL gear-array index). */
@@ -250,7 +275,13 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   const warnings: string[] = [];
 
   const actors = (raw.masterData?.actors ?? []).map((a) => rawActorSchema.parse(a));
-  const actorById = new Map(actors.map((a) => [a.id, a]));
+  // Friendly-source lookups stay player-only (pets/NPCs must not claim casts);
+  // missing `type` means a pre-NPC fetch that only contained players anyway.
+  const actorById = new Map(
+    actors.filter((a) => a.type === undefined || a.type === "Player").map((a) => [a.id, a]),
+  );
+  // Every actor incl. NPCs — resolves upkeep targets (boss, adds, friendlies).
+  const anyActorById = new Map(actors.map((a) => [a.id, a]));
 
   // Boss pulls only; trash fights have no encounterID.
   const fights = (raw.fights ?? []).filter((f) => (f.encounterID ?? 0) > 0);
@@ -283,6 +314,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         kill: fight.kill === true,
         fightPercentage: fight.kill === true ? undefined : (fight.fightPercentage ?? undefined),
         durationMs: Math.max(0, fight.endTime - fight.startTime),
+        fightStartMs: fight.startTime,
         actorName,
         role: "dps",
         deaths: 0,
@@ -346,8 +378,16 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     fight: (typeof fights)[number];
     actorName: string;
     track: UptimeTrack;
+    targetId: number;
+    targetInstance?: number;
     totalMs: number;
+    /** Closed up-intervals, [startMs, endMs] relative to the fight start. */
+    segments: [number, number][];
     openAt?: number;
+    /** Apply/refresh events at distinct timestamps — one landed cast can emit
+     * an applydebuffstack AND a refreshdebuff at the same ms (Sunder spam). */
+    applications: number;
+    lastApplicationTs?: number;
   }
   const uptimeAccs = new Map<string, UptimeAcc>();
   const uptimeAcc = (
@@ -355,14 +395,22 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     actorName: string,
     track: UptimeTrack,
     targetId: number,
+    targetInstance?: number,
   ): UptimeAcc => {
-    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${targetId}`;
+    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${targetId}|${targetInstance ?? 0}`;
     let acc = uptimeAccs.get(key);
     if (!acc) {
-      acc = { fight, actorName, track, totalMs: 0 };
+      acc = { fight, actorName, track, targetId, targetInstance, totalMs: 0, segments: [], applications: 0 };
       uptimeAccs.set(key, acc);
     }
     return acc;
+  };
+  /** Close an open interval at `endAbs` (report-relative ms), recording the segment. */
+  const closeInterval = (acc: UptimeAcc, endAbs: number) => {
+    if (acc.openAt === undefined) return;
+    acc.totalMs += endAbs - acc.openAt;
+    acc.segments.push([acc.openAt - acc.fight.startTime, endAbs - acc.fight.startTime]);
+    acc.openAt = undefined;
   };
 
   /* 2. Combatant info at pull: consumable auras + gear audit. */
@@ -511,41 +559,68 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (!fight || !source) continue;
 
       const ts = Math.min(Math.max(event.timestamp, fight.startTime), fight.endTime);
-      const acc = uptimeAcc(fight, source.name, track, event.targetID);
+      const acc = uptimeAcc(fight, source.name, track, event.targetID, event.targetInstance);
       if (event.type === "removedebuff" || event.type === "removebuff") {
         if (acc.openAt !== undefined) {
-          acc.totalMs += ts - acc.openAt;
-          acc.openAt = undefined;
+          closeInterval(acc, ts);
         } else if (acc.totalMs === 0) {
           // First sighting is a removal: the aura was up since the pull.
           acc.totalMs = ts - fight.startTime;
+          acc.segments.push([0, ts - fight.startTime]);
         }
       } else if (event.type.startsWith("apply") || event.type.startsWith("refresh")) {
         // Stack events imply the aura is active; they never close an interval.
         acc.openAt ??= ts;
+        if (acc.lastApplicationTs !== ts) {
+          acc.applications++;
+          acc.lastApplicationTs = ts;
+        }
       }
     }
   };
   ingestUptime(events.debuffs ?? []);
   ingestUptime(events.buffs ?? []);
 
-  // Close intervals still open at the fight end, then keep each player's best
-  // target per track (≈ the boss — adds with brief uptime never win).
-  const bestUptime = new Map<string, { row: NormalizedPlayerFight; track: UptimeTrack; totalMs: number }>();
+  // Close intervals still open at the fight end, then group each player's
+  // accumulators per track. The headline pct stays the best single target
+  // (≈ the boss — adds with brief uptime never win); every target the track
+  // touched (boss, adds, buffed friendlies) goes into the per-victim
+  // breakdown with its up-intervals.
+  const trackGroups = new Map<string, { row: NormalizedPlayerFight; track: UptimeTrack; accs: UptimeAcc[] }>();
   for (const acc of uptimeAccs.values()) {
-    if (acc.openAt !== undefined) {
-      acc.totalMs += acc.fight.endTime - acc.openAt;
-      acc.openAt = undefined;
-    }
+    closeInterval(acc, acc.fight.endTime);
     const row = rows.get(keyOf(acc.fight.id, acc.actorName));
     if (!row) continue;
     const key = `${acc.fight.id}|${acc.actorName.toLowerCase()}|${acc.track.name.toLowerCase()}`;
-    const best = bestUptime.get(key);
-    if (!best || acc.totalMs > best.totalMs) bestUptime.set(key, { row, track: acc.track, totalMs: acc.totalMs });
+    const group = trackGroups.get(key) ?? { row, track: acc.track, accs: [] };
+    group.accs.push(acc);
+    trackGroups.set(key, group);
   }
-  for (const { row, track, totalMs } of bestUptime.values()) {
-    const pct = Math.round(Math.min(100, (totalMs / Math.max(1, row.durationMs)) * 100));
-    if (pct >= 1) row.upkeep.push({ name: trackLabel(track), pct });
+  for (const { row, track, accs } of trackGroups.values()) {
+    const pctOf = (ms: number) => Math.round(Math.min(100, (ms / Math.max(1, row.durationMs)) * 100));
+    const bestPct = pctOf(Math.max(...accs.map((a) => a.totalMs)));
+    if (bestPct < 1) continue;
+    const targets: NormalizedUpkeepTarget[] = accs
+      .map((acc) => {
+        const target = anyActorById.get(acc.targetId);
+        return {
+          target: target?.name ?? `Unknown #${acc.targetId}`,
+          instance: acc.targetInstance,
+          boss: target?.subType === "Boss",
+          pct: pctOf(acc.totalMs),
+          segments: acc.segments,
+          applications: acc.applications,
+        };
+      })
+      .filter((t) => t.segments.length > 0)
+      .sort(
+        (a, b) =>
+          Number(b.boss) - Number(a.boss) ||
+          b.pct - a.pct ||
+          a.target.localeCompare(b.target) ||
+          (a.instance ?? 0) - (b.instance ?? 0),
+      );
+    row.upkeep.push({ name: trackLabel(track), pct: bestPct, targets });
   }
   for (const row of rows.values()) {
     row.upkeep.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));

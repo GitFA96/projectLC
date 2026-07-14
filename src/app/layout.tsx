@@ -44,7 +44,14 @@ export default async function RootLayout({
     awardCount: d.awardCount,
   }));
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    // suppressHydrationWarning: browser extensions (LanguageTool, dark-mode
+    // togglers) stamp attributes onto <html> before React hydrates; only this
+    // element's attributes are exempted, children still hydrate strictly.
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
       <body className="flex min-h-full flex-col font-sans">
         <WowheadScripts />
         <WowheadRefresher />

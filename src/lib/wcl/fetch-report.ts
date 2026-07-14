@@ -6,7 +6,8 @@ import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 /**
  * Fetch everything one report import needs — deliberately few requests so a
  * whole night costs ~7 API calls (the free tier allows thousands/hour):
- *   1. overview: meta + boss fights + actors + dps/hps parse rankings
+ *   1. overview: meta + boss fights + actors (players AND NPCs, for naming
+ *      upkeep targets like bosses/adds) + dps/hps parse rankings
  *   2. combatantinfo events (gear + auras at pull)            — paginated
  *   3. friendly death events                                  — paginated
  *   4. consumable + class-cooldown casts (tracked spell ids)  — paginated
@@ -23,7 +24,7 @@ query ReportOverview($code: String!) {
       startTime
       endTime
       zone { name }
-      masterData { actors(type: "Player") { id name subType } }
+      masterData { actors { id name type subType } }
       fights(killType: Encounters) {
         id encounterID name kill fightPercentage startTime endTime
       }

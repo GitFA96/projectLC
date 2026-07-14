@@ -223,6 +223,7 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("characters", "main_character_id", "main_character_id TEXT");
   addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
+  addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -379,8 +380,8 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, potions_json, other_casts_json, extras_json, cooldowns_json, upkeep_json,
-       gear_json, drums, runes, healthstones, sappers, missing_enchants_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       gear_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -389,6 +390,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
+    f.fightStartMs ?? null,
   );
 }
 
@@ -458,7 +460,7 @@ function rowToWclPlayerFight(r: Row): unknown {
   return {
     id: r.id, reportCode: r.report_code, fightId: r.fight_id, encounterId: r.encounter_id,
     encounterName: r.encounter_name, kill: r.kill === 1, fightPercentage: opt(r.fight_percentage),
-    durationMs: r.duration_ms, actorName: r.actor_name,
+    durationMs: r.duration_ms, fightStartMs: opt(r.fight_start_ms), actorName: r.actor_name,
     characterId: (r.character_id as string | null) ?? null,
     className: opt(r.class_name), spec: opt(r.spec), role: r.role,
     parsePercent: opt(r.parse_percent), bracketPercent: opt(r.bracket_percent),

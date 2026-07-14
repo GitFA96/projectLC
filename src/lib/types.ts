@@ -30,6 +30,8 @@ export type LootAward = z.infer<typeof lootAwardSchema>;
 export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
 export type WclGearItem = WclPlayerFight["gear"][number];
+/** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
+export type WclUpkeepTarget = NonNullable<WclPlayerFight["upkeep"][number]["targets"]>[number];
 export type WclRole = z.infer<typeof wclRoleSchema>;
 export type AttendanceExemption = z.infer<typeof attendanceExemptionSchema>;
 export type CharacterComment = z.infer<typeof characterCommentSchema>;
@@ -272,6 +274,18 @@ export interface RaidFight {
   kill: boolean;
   fightPercentage?: number;
   durationMs: number;
+  /** Pull start, ms from report start — absolute pull/kill clock times derive from it. Absent on pre-timeline imports. */
+  startMs?: number;
+}
+
+/** One provider's uptime of a track during a single boss pull. */
+export interface UpkeepFightProvider {
+  name: string;
+  slug?: string;
+  className?: string;
+  pct: number;
+  /** Per-victim breakdown (boss first, then adds/friendlies) with up-intervals. Absent on pre-timeline imports. */
+  targets?: WclUpkeepTarget[];
 }
 
 /** One maintained debuff/buff, with who kept it up and how well across the night. */
@@ -284,6 +298,13 @@ export interface RaidUpkeepRow {
   providers: { name: string; slug?: string; pct: number }[];
   /** Best single-provider average uptime across the night. */
   bestPct: number;
+  /**
+   * Boss-by-boss breakdown: who kept the track up on each pull and how well
+   * (best provider first). Pulls where nobody kept it are absent — the UI
+   * renders those as gaps from the fight list. Absent on season inputs — the
+   * cross-raid rollup only needs the night averages.
+   */
+  perFight?: { fightId: number; providers: UpkeepFightProvider[] }[];
 }
 
 /**

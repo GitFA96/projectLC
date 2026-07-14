@@ -179,6 +179,8 @@ export const wclPlayerFightSchema = z.object({
   /** Boss health % remaining — only meaningful on wipes. */
   fightPercentage: z.number().optional(),
   durationMs: z.number().nonnegative(),
+  /** Fight start, ms from report start — absolute pull/kill clock times derive from it. Absent on pre-timeline imports. */
+  fightStartMs: z.number().nonnegative().optional(),
   /** Player name exactly as logged (no realm — WCL keeps server separate). */
   actorName: z.string().min(1),
   /** Roster match by name, like Gargul winners; null = not on the roster. */
@@ -210,8 +212,37 @@ export const wclPlayerFightSchema = z.object({
   extras: z.array(z.string()).default([]),
   /** Major class cooldowns cast during the pull, one entry per use. */
   cooldowns: z.array(z.string()).default([]),
-  /** Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…), % of the pull. */
-  upkeep: z.array(z.object({ name: z.string().min(1), pct: z.number().min(0).max(100) })).default([]),
+  /**
+   * Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…),
+   * % of the pull for the best target. `targets` (absent on pre-timeline
+   * imports) breaks it down per victim — boss, adds (with instance numbers)
+   * or the buffed friendly — with the exact up-intervals inside the pull.
+   */
+  upkeep: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        pct: z.number().min(0).max(100),
+        targets: z
+          .array(
+            z.object({
+              /** Target name as logged (NPC or friendly player). */
+              target: z.string().min(1),
+              /** WCL instance number when several copies of the NPC exist. */
+              instance: z.number().int().positive().optional(),
+              /** True when the target is the encounter boss (WCL subType "Boss"). */
+              boss: z.boolean(),
+              pct: z.number().min(0).max(100),
+              /** [startMs, endMs] pairs relative to the fight start. */
+              segments: z.array(z.tuple([z.number(), z.number()])),
+              /** ≈ times the aura was applied/refreshed (stacking spam like Sunder Armor counts each landed cast). */
+              applications: z.number().int().nonnegative().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .default([]),
   drums: z.number().int().nonnegative().default(0),
   runes: z.number().int().nonnegative().default(0),
   healthstones: z.number().int().nonnegative().default(0),
