@@ -45,7 +45,7 @@ function isPrepared(row: WclPlayerFight): boolean {
  * an early AND a late pull) was re-applied, so it's counted more than once
  * (e.g. a flask, 2h, on a 3-hour night ≈ 2 flasks). Easy to tune.
  */
-const PREP_HOURS = { flask: 2, elixir: 1, food: 1, weapon: 1, scroll: 1 } as const;
+export const PREP_HOURS = { flask: 2, elixir: 1, food: 1, weapon: 1, scroll: 1 } as const;
 
 /**
  * How many times a prep buff was bought this raid. Base 1; consumed buffs (not
@@ -53,7 +53,7 @@ const PREP_HOURS = { flask: 2, elixir: 1, food: 1, weapon: 1, scroll: 1 } as con
  * a raid longer than it lasts is scaled by how many of its windows the night
  * spans. The largest of these wins.
  */
-function prepApplications(opts: {
+export function prepApplications(opts: {
   durationHours: number;
   persistsDeath: boolean;
   spanHours: number;

@@ -228,6 +228,14 @@ export interface WriteRepo extends Repo {
   /** Remove one fetched report and all its per-player rows (wrongful import). */
   deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
   /**
+   * Rename a report and/or relabel its raid (zone) — display metadata only,
+   * nothing derived changes. Empty zone clears back to "no zone".
+   */
+  updateWclReportMeta(
+    code: string,
+    meta: { title?: string; zone?: string },
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
    * Log this raid night's consumable prices (name → gold/charges). Replaces the
    * whole set for the report; an empty map clears it back to code defaults.
    */

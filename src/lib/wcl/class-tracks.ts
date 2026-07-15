@@ -58,6 +58,7 @@ export const CLASS_COOLDOWNS: ClassCooldown[] = [
   { ids: [31842], name: "Divine Illumination", wowClass: "Paladin" },
   { ids: [633, 2800, 10310, 27154], name: "Lay on Hands", wowClass: "Paladin" },
   /* Shaman */
+  { ids: [30823], name: "Shamanistic Rage", wowClass: "Shaman" },
   { ids: [2825], name: "Bloodlust", wowClass: "Shaman" },
   { ids: [32182], name: "Heroism", wowClass: "Shaman" },
   { ids: [16190], name: "Mana Tide Totem", wowClass: "Shaman" },
@@ -88,12 +89,13 @@ export interface UptimeTrack {
 }
 
 export const UPTIME_TRACKS: UptimeTrack[] = [
-  /* Warrior */
+  /* Warrior — fury keeps Rampage rolling; tanks stack Sunder and hold TC/Demo. */
   { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior" },
   { name: "Thunder Clap", kind: "debuff", wowClass: "Warrior" },
   { name: "Demoralizing Shout", kind: "debuff", wowClass: "Warrior" },
   { name: "Battle Shout", kind: "selfbuff", wowClass: "Warrior" },
   { name: "Commanding Shout", kind: "selfbuff", wowClass: "Warrior" },
+  { name: "Rampage", kind: "selfbuff", wowClass: "Warrior" },
   /* Warlock curse assignments */
   { name: "Curse of Recklessness", kind: "debuff", wowClass: "Warlock" },
   { name: "Curse of the Elements", kind: "debuff", wowClass: "Warlock" },
@@ -101,28 +103,47 @@ export const UPTIME_TRACKS: UptimeTrack[] = [
   { name: "Curse of Doom", kind: "debuff", wowClass: "Warlock" },
   { name: "Curse of Agony", kind: "debuff", wowClass: "Warlock" },
   { name: "Curse of Tongues", kind: "debuff", wowClass: "Warlock" },
-  /* Druid */
+  /* Druid — feral upkeep: Mangle is the bleed/Shred amplifier, Lacerate the bear threat stack. */
   { name: "Faerie Fire", kind: "debuff", wowClass: "Druid" },
   { name: "Faerie Fire (Feral)", kind: "debuff", wowClass: "Druid" },
+  { name: "Mangle (Cat)", kind: "debuff", wowClass: "Druid" },
+  { name: "Mangle (Bear)", kind: "debuff", wowClass: "Druid" },
+  { name: "Lacerate", kind: "debuff", wowClass: "Druid" },
+  /* Balance DoT upkeep. */
+  { name: "Insect Swarm", kind: "debuff", wowClass: "Druid" },
+  { name: "Moonfire", kind: "debuff", wowClass: "Druid" },
   /* Mage */
   { name: "Fire Vulnerability", label: "Imp. Scorch (Fire Vulnerability)", kind: "debuff", wowClass: "Mage" },
   { name: "Winter's Chill", kind: "debuff", wowClass: "Mage" },
-  /* Priest */
+  /* Priest — shadow DoT upkeep is the spec's whole rotation. */
   { name: "Shadow Weaving", kind: "debuff", wowClass: "Priest" },
   { name: "Misery", kind: "debuff", wowClass: "Priest" },
   { name: "Vampiric Touch", kind: "debuff", wowClass: "Priest" },
-  /* Paladin judgements */
+  { name: "Shadow Word: Pain", kind: "debuff", wowClass: "Priest" },
+  { name: "Vampiric Embrace", kind: "debuff", wowClass: "Priest" },
+  /* Paladin — judgement assignments; prot's block wall. */
   { name: "Judgement of Wisdom", kind: "debuff", wowClass: "Paladin" },
   { name: "Judgement of Light", kind: "debuff", wowClass: "Paladin" },
   { name: "Judgement of the Crusader", kind: "debuff", wowClass: "Paladin" },
+  { name: "Holy Shield", kind: "selfbuff", wowClass: "Paladin" },
   /* Hunter */
   { name: "Hunter's Mark", kind: "debuff", wowClass: "Hunter" },
   { name: "Expose Weakness", kind: "debuff", wowClass: "Hunter" },
-  /* Rogue */
+  /* Rogue — Slice and Dice uptime IS rogue play; Rupture for the finisher rotation. */
   { name: "Expose Armor", kind: "debuff", wowClass: "Rogue" },
-  /* Shaman */
+  { name: "Rupture", kind: "debuff", wowClass: "Rogue" },
+  { name: "Slice and Dice", kind: "selfbuff", wowClass: "Rogue" },
+  /* Shaman — enhancement keeps Flame Shock rolling between Stormstrikes; Water Shield is the mana engine. */
   { name: "Stormstrike", kind: "debuff", wowClass: "Shaman" },
+  { name: "Flame Shock", kind: "debuff", wowClass: "Shaman" },
+  { name: "Water Shield", kind: "selfbuff", wowClass: "Shaman" },
   { name: "Earth Shield", kind: "buff", wowClass: "Shaman" },
+  /* Warlock — personal DoT upkeep alongside the curse assignment. */
+  { name: "Corruption", kind: "debuff", wowClass: "Warlock" },
+  { name: "Immolate", kind: "debuff", wowClass: "Warlock" },
+  { name: "Unstable Affliction", kind: "debuff", wowClass: "Warlock" },
+  /* Hunter */
+  { name: "Serpent Sting", kind: "debuff", wowClass: "Hunter" },
 ];
 
 export const UPTIME_TRACK_BY_NAME = new Map<string, UptimeTrack>(

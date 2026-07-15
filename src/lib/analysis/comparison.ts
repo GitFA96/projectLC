@@ -1,4 +1,6 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
+import { PREP_HOURS, prepApplications } from "@/lib/analysis/raid-report";
+import { costPerUseMap } from "@/lib/wcl/consumable-prices";
 import type {
   AttendanceSummary,
   Character,
@@ -51,17 +53,118 @@ function upkeepAverages(rows: WclPlayerFight[]): ComparedUpkeep[] {
   const totalDur = rows.reduce((s, r) => s + r.durationMs, 0);
   return names
     .map((name): ComparedUpkeep => {
-      const weighted = rows.reduce(
-        (s, r) => s + (r.upkeep.find((u) => u.name === name)?.pct ?? 0) * r.durationMs,
-        0,
-      );
+      let weighted = 0;
+      // Boss-only + effort stats come from the per-target timeline breakdown
+      // (absent on pre-timeline imports — those pulls just don't contribute).
+      let bossWeighted = 0;
+      let bossDur = 0;
+      let applications = 0;
+      let pullsWithEntry = 0;
+      for (const r of rows) {
+        const entry = r.upkeep.find((u) => u.name === name);
+        if (!entry) continue;
+        pullsWithEntry++;
+        weighted += entry.pct * r.durationMs;
+        if (entry.targets) {
+          const bossPct = Math.max(0, ...entry.targets.filter((t) => t.boss).map((t) => t.pct));
+          bossWeighted += bossPct * r.durationMs;
+          bossDur += r.durationMs;
+          applications += entry.targets.reduce((s, t) => s + (t.applications ?? 0), 0);
+        }
+      }
       return {
         name,
         kind: UPTIME_TRACK_BY_LABEL.get(name.toLowerCase())?.kind ?? "debuff",
         pct: Math.round(weighted / Math.max(1, totalDur)),
+        bossPct: bossDur > 0 ? Math.round(bossWeighted / bossDur) : undefined,
+        appliesPerFight:
+          bossDur > 0 && pullsWithEntry > 0
+            ? Math.round((applications / pullsWithEntry) * 10) / 10
+            : undefined,
       };
     })
     .sort((a, b) => b.pct - a.pct);
+}
+
+/**
+ * ≈ gold per raid on consumables at DEFAULT prices — comparable across
+ * columns even when individual raids have logged price overrides. Reuses the
+ * logs-page prep model per report: consumed buffs re-buy on death, timed buffs
+ * re-buy across a night longer than they last. Raid span and early/late pulls
+ * are approximated from the character's own pulls (compare inputs don't carry
+ * the whole raid).
+ */
+function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
+  if (rows.length === 0) return undefined;
+  const byReport = new Map<string, WclPlayerFight[]>();
+  for (const r of rows) {
+    const list = byReport.get(r.reportCode) ?? [];
+    list.push(r);
+    byReport.set(r.reportCode, list);
+  }
+
+  let total = 0;
+  for (const reportRows of byReport.values()) {
+    const ordered = [...reportRows].sort((a, b) => a.fightId - b.fightId);
+    const starts = ordered.map((r) => r.fightStartMs).filter((s): s is number => s !== undefined);
+    const spanMs =
+      starts.length > 0
+        ? Math.max(...ordered.map((r) => (r.fightStartMs ?? 0) + r.durationMs)) - Math.min(...starts)
+        : 0;
+    const spanHours = spanMs > 0 ? spanMs / 3_600_000 : 0;
+    const deaths = ordered.reduce((s, r) => s + r.deaths, 0);
+
+    const half = Math.ceil(ordered.length / 2);
+    const present = { flask: { early: false, late: false }, elixir: { early: false, late: false }, scroll: { early: false, late: false }, food: { early: false, late: false }, weapon: { early: false, late: false } };
+    const flaskNames = new Set<string>();
+    const elixirNames = new Set<string>();
+    const scrollNames = new Set<string>();
+    const extraNames = new Set<string>();
+    const itemCounts = new Map<string, number>();
+    let anyFood = false;
+    let anyWeapon = false;
+    ordered.forEach((r, i) => {
+      const early = i < half;
+      const late = i >= ordered.length - half;
+      const mark = (k: keyof typeof present) => {
+        present[k].early ||= early;
+        present[k].late ||= late;
+      };
+      if (r.flask) {
+        flaskNames.add(r.flask);
+        mark("flask");
+      }
+      if (r.elixirs.length > 0) mark("elixir");
+      for (const e of r.elixirs) elixirNames.add(e);
+      if (r.scrolls.length > 0) mark("scroll");
+      for (const s of r.scrolls) scrollNames.add(s);
+      for (const x of r.extras) extraNames.add(x);
+      if (r.food) {
+        anyFood = true;
+        mark("food");
+      }
+      if (r.weaponBuff) {
+        anyWeapon = true;
+        mark("weapon");
+      }
+      for (const p of r.potions) itemCounts.set(p, (itemCounts.get(p) ?? 0) + 1);
+      for (const c of r.otherCasts) itemCounts.set(c, (itemCounts.get(c) ?? 0) + 1);
+    });
+    const apps = (kind: keyof typeof PREP_HOURS, persistsDeath: boolean) =>
+      prepApplications({ durationHours: PREP_HOURS[kind], persistsDeath, spanHours, deaths, ...present[kind] });
+    const lines = [
+      ...[...itemCounts].map(([name, count]) => ({ name, count })),
+      ...[...flaskNames].map((name) => ({ name, count: apps("flask", true) })),
+      ...[...elixirNames].map((name) => ({ name, count: apps("elixir", false) })),
+      ...[...scrollNames].map((name) => ({ name, count: apps("scroll", false) })),
+      ...[...extraNames].map((name) => ({ name, count: 1 + deaths })),
+      ...(anyFood ? [{ name: "Food", count: apps("food", false) }] : []),
+      ...(anyWeapon ? [{ name: "Weapon oil/stone", count: apps("weapon", false) }] : []),
+    ];
+    const costPerUse = costPerUseMap(new Set(lines.map((l) => l.name)), {});
+    total += lines.reduce((s, l) => s + (costPerUse[l.name] ?? 0) * l.count, 0);
+  }
+  return Math.round(total / byReport.size);
 }
 
 export interface ComparisonInput {
@@ -96,6 +199,12 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
     const deaths = rows.reduce((s, r) => s + r.deaths, 0);
     const potionsTotal = rows.reduce((s, r) => s + r.potions.length, 0);
 
+    const cdCounts = new Map<string, number>();
+    for (const r of rows) {
+      for (const cd of r.cooldowns) cdCounts.set(cd, (cdCounts.get(cd) ?? 0) + 1);
+    }
+    const cooldownsTotal = [...cdCounts.values()].reduce((s, n) => s + n, 0);
+
     return {
       character,
       loggedSpec: input.loggedSpec,
@@ -119,6 +228,16 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
       weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
       potionsPerFight: rows.length === 0 ? 0 : Math.round((potionsTotal / rows.length) * 10) / 10,
       prepots: rows.filter((r) => r.prepot).length,
+      cooldownsTotal,
+      cooldownsPerFight: rows.length === 0 ? 0 : Math.round((cooldownsTotal / rows.length) * 10) / 10,
+      cooldownBreakdown: [...cdCounts]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      sappers: rows.reduce((s, r) => s + r.sappers, 0),
+      healthstones: rows.reduce((s, r) => s + r.healthstones, 0),
+      runes: rows.reduce((s, r) => s + r.runes, 0),
+      drums: rows.reduce((s, r) => s + r.drums, 0),
+      goldPerRaid: goldPerRaid(rows),
       upkeep: upkeepAverages(rows),
       comments,
     } satisfies ComparedCharacter;

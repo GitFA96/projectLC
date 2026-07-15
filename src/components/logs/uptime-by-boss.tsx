@@ -35,6 +35,61 @@ function clockTime(reportStartMs: number, offsetMs: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
 
+/**
+ * Tick positions (ms) for a fight's time axis — the step adapts to the pull
+ * length (15s gates on a short pull, minutes on a long one) so there are
+ * always a readable ~4–8 gates.
+ */
+function timeTicks(durationMs: number): { ticks: number[]; stepMs: number } {
+  const steps = [15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
+  const stepMs = steps.find((s) => durationMs / s <= 8) ?? 600_000;
+  const ticks: number[] = [];
+  for (let t = stepMs; t < durationMs; t += stepMs) ticks.push(t);
+  return { ticks, stepMs };
+}
+
+/** Axis header: tick labels over the lane column, aligned with the gridlines. */
+function TimeAxis({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
+  const dur = Math.max(1, durationMs);
+  return (
+    <div className="grid grid-cols-[11rem_1fr_2.75rem] items-end gap-2">
+      <span />
+      <div className="relative h-4 text-[10px] tabular-nums text-muted-foreground">
+        <span className="absolute bottom-0 left-0">0:00</span>
+        {ticks.map((t) => {
+          const leftPct = (t / dur) * 100;
+          // Skip labels that would collide with the endpoints.
+          if (leftPct < 7 || leftPct > 91) return null;
+          return (
+            <span key={t} className="absolute bottom-0 -translate-x-1/2" style={{ left: `${leftPct}%` }}>
+              {mmss(t)}
+            </span>
+          );
+        })}
+        <span className="absolute bottom-0 right-0">{mmss(durationMs)}</span>
+      </div>
+      <span />
+    </div>
+  );
+}
+
+/** Vertical gridlines behind a lane's bands, one per axis tick. */
+function TickGrid({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
+  const dur = Math.max(1, durationMs);
+  return (
+    <>
+      {ticks.map((t) => (
+        <div
+          key={t}
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 w-px bg-foreground/15"
+          style={{ left: `${(t / dur) * 100}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
 /** One provider's up-intervals on one target, as bands over the pull. */
 function SegmentLane({
   provider,
@@ -44,6 +99,7 @@ function SegmentLane({
   segments,
   applications,
   durationMs,
+  ticks,
 }: {
   provider: UpkeepFightProvider;
   trackName: string;
@@ -52,6 +108,7 @@ function SegmentLane({
   segments: [number, number][];
   applications?: number;
   durationMs: number;
+  ticks: number[];
 }) {
   const color = classColor(provider.className) ?? "var(--primary)";
   const dur = Math.max(1, durationMs);
@@ -69,6 +126,7 @@ function SegmentLane({
         )}
       </span>
       <div className="relative h-2.5 overflow-hidden rounded-sm bg-muted">
+        <TickGrid durationMs={dur} ticks={ticks} />
         {segments.map(([from, to], i) => (
           <div
             key={i}
@@ -274,6 +332,7 @@ export function UptimeByBoss({
               const hasTimelines = targetGroups.length > 0;
               const anyProviders = perTrack.some((t) => t.providers.length > 0);
               const showTrack = tracks.length > 1;
+              const { ticks } = timeTicks(fight.durationMs);
               return (
                 <TabsContent key={fight.fightId} value={String(fight.fightId)} className="space-y-4">
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -282,15 +341,15 @@ export function UptimeByBoss({
                         ? "kill"
                         : `wipe${fight.fightPercentage !== undefined ? ` at ${Math.round(fight.fightPercentage)}%` : ""}`}
                     </Badge>
-                    <span className="tabular-nums">{mmss(fight.durationMs)} fight</span>
                     {fight.startMs !== undefined && (
                       <span className="tabular-nums">
-                        · pulled {clockTime(reportStartMs, fight.startMs)} ·{" "}
+                        pulled {clockTime(reportStartMs, fight.startMs)} ·{" "}
                         {fight.kill ? "killed" : "wiped"} {clockTime(reportStartMs, fight.startMs + fight.durationMs)}
                       </span>
                     )}
                   </p>
 
+                  {hasTimelines && <TimeAxis durationMs={fight.durationMs} ticks={ticks} />}
                   {hasTimelines &&
                     targetGroups.map((group) => (
                       <div key={group.key} className="space-y-1">
@@ -311,6 +370,7 @@ export function UptimeByBoss({
                               segments={target.segments}
                               applications={target.applications}
                               durationMs={fight.durationMs}
+                              ticks={ticks}
                             />
                           ))}
                         </div>

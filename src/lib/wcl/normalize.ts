@@ -570,7 +570,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         }
       } else if (event.type.startsWith("apply") || event.type.startsWith("refresh")) {
         // Stack events imply the aura is active; they never close an interval.
-        acc.openAt ??= ts;
+        if (acc.openAt === undefined) {
+          // A refresh can only land on an aura that is already up — a refresh
+          // as the FIRST sighting means it was pre-cast before the pull
+          // (Hunter's Mark applied pre-fight), so credit from the pull start.
+          const preCast =
+            event.type.startsWith("refresh") && acc.totalMs === 0 && acc.segments.length === 0;
+          acc.openAt = preCast ? fight.startTime : ts;
+        }
         if (acc.lastApplicationTs !== ts) {
           acc.applications++;
           acc.lastApplicationTs = ts;

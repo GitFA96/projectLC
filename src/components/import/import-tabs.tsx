@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CircleAlert, CircleCheck, FileUp, Loader2, MoveRight } from "lucide-react";
+import { CircleAlert, CircleCheck, FileUp, Loader2, MoveRight, Pencil } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ import {
 } from "@/app/admin/import/actions";
 import {
   deleteWclReportAction,
+  updateWclReportMetaAction,
   importWclReport,
   type WclImportActionResult,
 } from "@/app/admin/import/wcl-actions";
@@ -739,6 +740,96 @@ export interface ImportedReport {
   sessionLabel?: string;
 }
 
+/** One report row: title/zone with an inline rename editor. */
+function ImportedReportRow({
+  r,
+  pending,
+  run,
+}: {
+  r: ImportedReport;
+  pending: boolean;
+  run: (fn: () => Promise<{ ok: boolean; message: string }>) => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(r.title);
+  const [zone, setZone] = React.useState(r.zone ?? "");
+
+  const save = () => {
+    run(() => updateWclReportMetaAction({ code: r.code, title: title.trim(), zone: zone.trim() }));
+    setEditing(false);
+  };
+
+  return (
+    <TableRow>
+      <TableCell className="tabular-nums text-muted-foreground">{r.startTime.slice(0, 10)}</TableCell>
+      <TableCell>
+        {editing ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="h-7 w-44 text-xs"
+              placeholder="Report name"
+              aria-label="Report name"
+            />
+            <Input
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+              className="h-7 w-32 text-xs"
+              placeholder="Raid label (e.g. SSC/TK)"
+              aria-label="Raid label"
+            />
+            <Button size="sm" className="h-7" disabled={pending || !title.trim()} onClick={save}>
+              Save
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              onClick={() => {
+                setEditing(false);
+                setTitle(r.title);
+                setZone(r.zone ?? "");
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
+        ) : (
+          <>
+            <span className="text-sm font-medium">{r.title}</span>
+            {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
+            <span className="ml-2 font-mono text-[11px] text-muted-foreground/60">{r.code}</span>
+            <button
+              type="button"
+              aria-label={`Rename ${r.title}`}
+              title="Rename report / relabel raid"
+              className="ml-1.5 cursor-pointer align-middle text-muted-foreground hover:text-foreground"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </>
+        )}
+      </TableCell>
+      <TableCell className="text-right text-sm tabular-nums">
+        {r.encounterCount} ({r.killCount})
+      </TableCell>
+      <TableCell className="text-right text-sm tabular-nums">{r.playerCount}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">{r.sessionLabel ?? "—"}</TableCell>
+      <TableCell className="text-right">
+        <DangerButton
+          disabled={pending}
+          confirmLabel="Confirm remove"
+          onConfirm={() => run(() => deleteWclReportAction({ code: r.code }))}
+        >
+          Remove
+        </DangerButton>
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
   const { pending, result, run } = useRosterAction();
   return (
@@ -768,30 +859,7 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
             </TableHeader>
             <TableBody>
               {reports.map((r) => (
-                <TableRow key={r.code}>
-                  <TableCell className="tabular-nums text-muted-foreground">
-                    {r.startTime.slice(0, 10)}
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm font-medium">{r.title}</span>
-                    {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
-                    <span className="ml-2 font-mono text-[11px] text-muted-foreground/60">{r.code}</span>
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums">
-                    {r.encounterCount} ({r.killCount})
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums">{r.playerCount}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{r.sessionLabel ?? "—"}</TableCell>
-                  <TableCell className="text-right">
-                    <DangerButton
-                      disabled={pending}
-                      confirmLabel="Confirm remove"
-                      onConfirm={() => run(() => deleteWclReportAction({ code: r.code }))}
-                    >
-                      Remove
-                    </DangerButton>
-                  </TableCell>
-                </TableRow>
+                <ImportedReportRow key={r.code} r={r} pending={pending} run={run} />
               ))}
             </TableBody>
           </Table>
@@ -813,6 +881,8 @@ function WclTab({
 }) {
   const [report, setReport] = React.useState("");
   const [sessionId, setSessionId] = React.useState("none");
+  const [titleOverride, setTitleOverride] = React.useState("");
+  const [zoneOverride, setZoneOverride] = React.useState("");
   const [result, setResult] = React.useState<WclImportActionResult | null>(null);
   const [pending, startTransition] = React.useTransition();
 
@@ -822,6 +892,8 @@ function WclTab({
         await importWclReport({
           report,
           raidSessionId: sessionId === "none" ? undefined : sessionId,
+          title: titleOverride.trim() || undefined,
+          zone: zoneOverride.trim() || undefined,
         }),
       );
     });
@@ -876,6 +948,26 @@ function WclTab({
                   placeholder="https://classic.warcraftlogs.com/reports/AbCdEf1234567890"
                   className="h-8 font-mono text-xs"
                 />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Report name (optional)</Label>
+                  <Input
+                    value={titleOverride}
+                    onChange={(e) => setTitleOverride(e.target.value)}
+                    placeholder="Keep WCL's title"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Raid label (optional)</Label>
+                  <Input
+                    value={zoneOverride}
+                    onChange={(e) => setZoneOverride(e.target.value)}
+                    placeholder="e.g. SSC/TK — WCL often mislabels multi-zone nights"
+                    className="h-8 text-xs"
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Link to raid session (optional)</Label>

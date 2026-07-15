@@ -64,10 +64,21 @@ describe("summarizeComparison", () => {
       rows: [
         row({ fightId: 1, actorName: "Kazrak", className: "Warrior", amount: 1000, parsePercent: 60,
           bracketPercent: 55, flask: "Flask of Relentless Assault", deaths: 1,
-          upkeep: [{ name: "Battle Shout", pct: 90 }] }),
+          cooldowns: ["Death Wish", "Recklessness"], sappers: 2,
+          upkeep: [{ name: "Battle Shout", pct: 90 }, {
+            name: "Sunder Armor", pct: 80,
+            targets: [
+              { target: "Attumen", boss: true, pct: 80, segments: [[0, 240000]], applications: 20 },
+              { target: "Midnight", boss: false, pct: 95, segments: [[0, 285000]], applications: 4 },
+            ],
+          }] }),
         row({ fightId: 2, actorName: "Kazrak", className: "Warrior", amount: 1400, parsePercent: 80,
           bracketPercent: 65, flask: "Flask of Relentless Assault",
-          upkeep: [{ name: "Battle Shout", pct: 80 }] }),
+          cooldowns: ["Death Wish"], sappers: 1,
+          upkeep: [{ name: "Battle Shout", pct: 80 }, {
+            name: "Sunder Armor", pct: 60,
+            targets: [{ target: "Moroes", boss: true, pct: 60, segments: [[0, 180000]], applications: 10 }],
+          }] }),
       ],
       comments: [comment],
     },
@@ -126,6 +137,40 @@ describe("summarizeComparison", () => {
     const tid = view.characters[2];
     // (100*100000 + 0*300000) / 400000 = 25
     expect(tid.upkeep.find((u) => u.name === "Earth Shield")!.pct).toBe(25);
+  });
+
+  it("tallies cooldown discipline and in-fight items", () => {
+    const kaz = view.characters[0];
+    expect(kaz.cooldownsTotal).toBe(3);
+    expect(kaz.cooldownsPerFight).toBe(1.5);
+    expect(kaz.cooldownBreakdown).toEqual([
+      { name: "Death Wish", count: 2 },
+      { name: "Recklessness", count: 1 },
+    ]);
+    expect(kaz.sappers).toBe(3);
+    // No-log column stays empty rather than zeroed-looking.
+    expect(view.characters[3].cooldownsTotal).toBe(0);
+    expect(view.characters[3].goldPerRaid).toBeUndefined();
+  });
+
+  it("derives boss-only uptime and landed casts from the per-target breakdown", () => {
+    const kaz = view.characters[0];
+    const sunder = kaz.upkeep.find((u) => u.name === "Sunder Armor")!;
+    // Best-target average: equal-length pulls of 80 and 60.
+    expect(sunder.pct).toBe(70);
+    // Boss-only ignores the 95% on the Midnight add: (80+60)/2.
+    expect(sunder.bossPct).toBe(70);
+    // (20+4+10) applications over 2 pulls with the track.
+    expect(sunder.appliesPerFight).toBe(17);
+    // Tracks without target data stay undefined, not 0.
+    const shout = kaz.upkeep.find((u) => u.name === "Battle Shout")!;
+    expect(shout.bossPct).toBeUndefined();
+    expect(shout.appliesPerFight).toBeUndefined();
+  });
+
+  it("estimates gold per raid from default prices", () => {
+    // Kazrak ran a flask both pulls — at minimum the flask is priced.
+    expect(view.characters[0].goldPerRaid ?? 0).toBeGreaterThan(0);
   });
 
   it("unions upkeep tracks with boss debuffs first", () => {

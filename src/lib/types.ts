@@ -490,6 +490,10 @@ export interface ComparedUpkeep {
   name: string;
   kind: "debuff" | "buff" | "selfbuff";
   pct: number;
+  /** Uptime on boss targets only (undefined on pre-timeline imports). */
+  bossPct?: number;
+  /** ≈ landed casts per pull the track was up (Sunder effort vs. uptime). */
+  appliesPerFight?: number;
 }
 
 /** A report a compared character appears in — the options for the per-column log picker. */
@@ -533,6 +537,18 @@ export interface ComparedCharacter {
   weaponBuffPct: number;
   potionsPerFight: number;
   prepots: number;
+  /* Cooldown discipline — major class CDs pressed across the selected logs. */
+  cooldownsTotal: number;
+  cooldownsPerFight: number;
+  /** Most-used first, e.g. Death Wish ×14. */
+  cooldownBreakdown: { name: string; count: number }[];
+  /* In-fight utility items (totals across the selected logs). */
+  sappers: number;
+  healthstones: number;
+  runes: number;
+  drums: number;
+  /** ≈ gold per raid on consumables (default prices), prep + in-fight. */
+  goldPerRaid?: number;
   /* Uptime of the buffs/debuffs their spec is responsible for, career-averaged. */
   upkeep: ComparedUpkeep[];
   /* Comments — the detailed officer log. */

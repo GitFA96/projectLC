@@ -12,6 +12,9 @@ const importInputSchema = z.object({
   report: z.string().min(1),
   /** Optional Gargul raid session to link the report to. */
   raidSessionId: z.string().optional(),
+  /** Optional display overrides — WCL titles/zones are often wrong for multi-zone nights. */
+  title: z.string().optional(),
+  zone: z.string().optional(),
 });
 export type WclImportInput = z.infer<typeof importInputSchema>;
 
@@ -54,6 +57,37 @@ export async function deleteWclReportAction(input: { code: string }): Promise<{ 
   }
 }
 
+const updateMetaSchema = z.object({
+  code: z.string().min(1),
+  title: z.string().min(1, "The title can't be empty."),
+  /** Empty string clears the zone label. */
+  zone: z.string(),
+});
+
+/** Rename an imported report / relabel its raid ("Gruul / Magtheridon" → "SSC/TK"). */
+export async function updateWclReportMetaAction(input: {
+  code: string;
+  title: string;
+  zone: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const parsed = updateMetaSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.updateWclReportMeta(parsed.data.code, {
+      title: parsed.data.title,
+      zone: parsed.data.zone,
+    });
+    if (!result.ok) return { ok: false, message: result.error };
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Report updated." };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
 export async function importWclReport(input: WclImportInput): Promise<WclImportActionResult> {
   const parsed = importInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -75,8 +109,8 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
     const saved = await repo.saveWclReport(
       {
         code,
-        title: normalized.title,
-        zone: normalized.zone,
+        title: parsed.data.title?.trim() || normalized.title,
+        zone: parsed.data.zone?.trim() || normalized.zone,
         startTime: normalized.startTime,
         endTime: normalized.endTime,
         raidSessionId: parsed.data.raidSessionId || null,

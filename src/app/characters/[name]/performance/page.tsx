@@ -18,6 +18,8 @@ import {
 import { CLASS_TEXT_COLORS, QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
 import type { Item, PerformanceReportView, WclPlayerFight } from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
+import { FightGraphPanel } from "@/components/performance/fight-graph";
+import { PerformanceTabs } from "@/components/performance/performance-tabs";
 import { AttendanceWeeks } from "@/components/performance/attendance-weeks";
 import { ItemIcon } from "@/components/item-icon";
 import { SpecBadge } from "@/components/spec-badge";
@@ -270,6 +272,9 @@ export default async function PerformancePage({
             </Card>
           </div>
 
+          <PerformanceTabs
+            overview={
+              <>
           <Card>
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center gap-2">
@@ -495,6 +500,23 @@ export default async function PerformancePage({
             rows={active.rows}
             missingEnchants={active.summary.missingEnchants}
             itemsById={itemsById}
+          />
+              </>
+            }
+            graph={
+              <FightGraphPanel
+                code={active.report.code}
+                actorName={active.rows[0]?.actorName ?? character.name}
+                fights={[...active.rows]
+                  .sort((a, b) => a.fightId - b.fightId)
+                  .map((r) => ({
+                    fightId: r.fightId,
+                    encounterName: r.encounterName,
+                    kill: r.kill,
+                    fightPercentage: r.fightPercentage,
+                  }))}
+              />
+            }
           />
         </>
       )}

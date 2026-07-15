@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/roster", label: "Roster" },
   { href: "/loot", label: "Loot" },
   { href: "/logs", label: "Logs" },
+  { href: "/fight-graph", label: "Fight graph" },
   { href: "/compare", label: "Compare" },
   { href: "/items", label: "Items" },
   { href: "/admin/import", label: "Import" },

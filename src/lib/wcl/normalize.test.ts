@@ -184,6 +184,9 @@ const debuffs = [
   // First sighting is a removal — credited from the pull start
   // (Moroes 600000–850000): 600000→690000 = 90s of 250s ⇒ 36%.
   { timestamp: 690000, type: "removedebuff", sourceID: 1, targetID: 60, ability: { name: "Demoralizing Shout" } },
+  // Pre-cast before the pull: the first sighting is a REFRESH (Hunter's Mark
+  // applied pre-fight) — credited from the pull start, not the refresh.
+  { timestamp: 650000, type: "refreshdebuff", sourceID: 2, targetID: 60, ability: { name: "Hunter's Mark" } },
   // Untracked debuffs are ignored.
   { timestamp: 615000, type: "applydebuff", sourceID: 2, targetID: 60, ability: { name: "Mystery Hex" } },
 ];
@@ -344,6 +347,16 @@ describe("normalizeWclReport", () => {
           applications: 3,
         },
       ],
+    });
+  });
+
+  it("credits a pre-cast debuff (refresh-first) from the pull start", () => {
+    // Hunter's Mark was applied before the pull — the only in-fight event is a
+    // refresh at 650000, but the debuff was on the boss the whole fight.
+    expect(row(9, "Pyrelia").upkeep).toContainEqual({
+      name: "Hunter's Mark",
+      pct: 100,
+      targets: [{ target: "Moroes", boss: true, pct: 100, segments: [[0, 250000]], applications: 1 }],
     });
   });
 

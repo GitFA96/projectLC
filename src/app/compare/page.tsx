@@ -207,6 +207,27 @@ function ComparisonMatrix({
           values={chars.map((c) => (c.hasLogs ? c.weaponBuffPct : undefined))} dir="high" format={(v) => `${v}%`} />
         <MetricRow cols={cols} label="Potions / pull"
           values={chars.map((c) => (c.hasLogs ? c.potionsPerFight : undefined))} dir="high" format={(v) => v} muteBest />
+        <MetricRow cols={cols} label="Gold / raid"
+          title="≈ consumable gold per raid at default prices — in-fight items plus prep buffs (re-bought on deaths and over long nights)"
+          values={chars.map((c) => c.goldPerRaid)} dir="high" muteBest
+          format={(v) => `≈${v.toLocaleString("en-US")}g`} />
+
+        <SectionLabel cols={cols} label="Cooldowns" />
+        <MetricRow cols={cols} label="CDs / pull"
+          title="Major class cooldowns pressed per logged pull"
+          values={chars.map((c) => (c.hasLogs ? c.cooldownsPerFight : undefined))} dir="high"
+          format={(v, i) => `${v} · ×${chars[i].cooldownsTotal}`} />
+        <BreakdownRow cols={cols} label="Most pressed" chars={chars} />
+
+        <SectionLabel cols={cols} label="In-fight items" />
+        <MetricRow cols={cols} label="Sappers"
+          values={chars.map((c) => (c.hasLogs ? c.sappers : undefined))} dir="high" format={(v) => `×${v}`} />
+        <MetricRow cols={cols} label="Healthstones"
+          values={chars.map((c) => (c.hasLogs ? c.healthstones : undefined))} dir="high" format={(v) => `×${v}`} />
+        <MetricRow cols={cols} label="Runes / mana gems"
+          values={chars.map((c) => (c.hasLogs ? c.runes : undefined))} dir="high" format={(v) => `×${v}`} />
+        <MetricRow cols={cols} label="Drums"
+          values={chars.map((c) => (c.hasLogs ? c.drums : undefined))} dir="high" format={(v) => `×${v}`} />
 
         {view.upkeepTracks.length > 0 && (
           <>
@@ -216,10 +237,30 @@ function ComparisonMatrix({
                 key={track.name}
                 cols={cols}
                 label={track.name}
-                title={track.kind === "debuff" ? "Maintained on the boss" : "Maintained on a friendly target"}
+                title={
+                  track.kind === "debuff"
+                    ? "Best-target uptime; the sub-line is boss-only uptime and ≈ landed casts per pull"
+                    : "Maintained on a friendly target"
+                }
                 values={chars.map((c) => c.upkeep.find((u) => u.name === track.name)?.pct)}
                 dir="high"
-                format={(v) => `${v}%`}
+                format={(v, i) => {
+                  const entry = chars[i].upkeep.find((u) => u.name === track.name);
+                  const sub = [
+                    entry?.bossPct !== undefined && track.kind === "debuff" ? `boss ${entry.bossPct}%` : undefined,
+                    entry?.appliesPerFight !== undefined && entry.appliesPerFight > 0
+                      ? `×${entry.appliesPerFight}/pull`
+                      : undefined,
+                  ].filter(Boolean);
+                  return (
+                    <span className="inline-flex flex-col items-end">
+                      <span>{v}%</span>
+                      {sub.length > 0 && (
+                        <span className="text-[10px] font-normal text-muted-foreground">{sub.join(" · ")}</span>
+                      )}
+                    </span>
+                  );
+                }}
               />
             ))}
           </>
@@ -321,6 +362,27 @@ function MetricRow({
           )}
         >
           {v === undefined ? <span className="text-muted-foreground/40">—</span> : format(v, i)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Top cooldowns per column — names, not a number, so no leader highlight. */
+function BreakdownRow({ cols, label, chars }: { cols: string; label: string; chars: ComparedCharacter[] }) {
+  return (
+    <div style={{ gridTemplateColumns: cols }} className="grid items-start gap-x-2 border-t px-3 py-1.5">
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
+      {chars.map((c) => (
+        <div key={c.character.id} className="text-right text-[11px] text-muted-foreground">
+          {c.cooldownBreakdown.length === 0 ? (
+            <span className="text-muted-foreground/40">—</span>
+          ) : (
+            c.cooldownBreakdown
+              .slice(0, 3)
+              .map((b) => `${b.name} ×${b.count}`)
+              .join(", ") + (c.cooldownBreakdown.length > 3 ? ", …" : "")
+          )}
         </div>
       ))}
     </div>

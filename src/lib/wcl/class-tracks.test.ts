@@ -32,7 +32,15 @@ describe("class tracks", () => {
 
   it("class lookups return that class's toolkit", () => {
     expect(cooldownsForClass("Warrior").map((c) => c.name)).toContain("Death Wish");
-    expect(uptimeTracksForClass("Warlock").every((t) => t.name.startsWith("Curse of"))).toBe(true);
+    // Warlocks track their curse assignment AND personal DoT upkeep.
+    const warlock = uptimeTracksForClass("Warlock").map((t) => t.name);
+    expect(warlock).toContain("Curse of the Elements");
+    expect(warlock).toContain("Corruption");
+    // Enhancement's rotation: Stormstrike on CD, Flame Shock rolling.
+    const shaman = uptimeTracksForClass("Shaman").map((t) => t.name);
+    expect(shaman).toContain("Flame Shock");
+    expect(shaman).toContain("Stormstrike");
+    expect(cooldownsForClass("Shaman").map((c) => c.name)).toContain("Shamanistic Rage");
     expect(cooldownsForClass(undefined)).toEqual([]);
   });
 });

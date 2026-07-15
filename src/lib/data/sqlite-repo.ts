@@ -478,6 +478,23 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return removed;
   },
 
+  async updateWclReportMeta(code: string, meta: { title?: string; zone?: string }) {
+    if (!readModel().store.wclReports.some((r) => r.code === code)) {
+      return { ok: false as const, error: "Report not found — maybe removed." };
+    }
+    const title = meta.title?.trim();
+    const zone = meta.zone?.trim();
+    const db = getDb();
+    withTx(db, () => {
+      if (title) db.prepare("UPDATE wcl_reports SET title = ? WHERE code = ?").run(title, code);
+      if (meta.zone !== undefined) {
+        db.prepare("UPDATE wcl_reports SET zone = ? WHERE code = ?").run(zone || null, code);
+      }
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
   async deleteWclReport(code: string) {
     const exists = readModel().store.wclReports.some((r) => r.code === code);
     if (!exists) return { ok: false as const, error: "Report not found — maybe already removed." };
