@@ -62,6 +62,18 @@ describe("OverlayChart", () => {
     expect(html).not.toContain("#eb6834");
   });
 
+  it("dims the other instance when one is focused", () => {
+    const html = renderToStaticMarkup(
+      <OverlayChart instances={instances} focusKey="a" onFocusToggle={() => {}} />,
+    );
+    // Instance b's line group recedes; a's keeps its normal 2px weight —
+    // the receding of everything else IS the emphasis.
+    expect(html).toContain('opacity="0.25"');
+    expect(html).not.toContain('stroke-width="3"');
+    // Clickable hit paths ride each DPS line.
+    expect(html).toContain('stroke="transparent"');
+  });
+
   it("hides filtered buffs and dims non-highlighted lanes", () => {
     const hidden = renderToStaticMarkup(
       <OverlayChart instances={instances} buffFilter={{ "Lightning Speed": "hidden" }} />,

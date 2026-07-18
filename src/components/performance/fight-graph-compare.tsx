@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Columns2, Layers, Rows2, X } from "lucide-react";
-import type { FightGraphActionResult } from "@/app/characters/[name]/performance/graph-actions";
-import { fetchFightGraphAction } from "@/app/characters/[name]/performance/graph-actions";
-import type { FightGraphView } from "@/lib/wcl/fight-graph";
+import { Columns2, Layers, Minus, Plus, Rows2, X } from "lucide-react";
+import type { FightGraphResult, FightGraphView } from "@/lib/wcl/fight-graph";
+import { fightGraphKey, loadFightGraph, peekFightGraph } from "@/components/performance/fight-graph-client";
 import { DpsChart } from "@/components/performance/fight-graph";
 import {
   HiddenBuffsMenu,
@@ -34,12 +33,13 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * The fight-graph playground: one or two player instances — any (player,
- * report, fight) combination, including the same player across two raids —
+ * The fight-graph playground: up to four player instances — any (player,
+ * report, fight) combination, including the same player across raids —
  * rendered as an overlay on one time axis, side by side, or stacked.
- * Color codes the INSTANCE (validated blue/orange pair); in overlay mode
- * marker shape carries cast kind (● cooldown, ■ consumable) since color is
- * taken by identity.
+ * Color codes the INSTANCE (validated 4-slot set); in overlay mode marker
+ * shape carries cast kind (● cooldown, ■ consumable) since color is taken by
+ * identity. Clicking a DPS line, legend chip or chart label focuses that
+ * player (everything else recedes); the −/+ stepper walks three chart sizes.
  */
 
 export interface PickerFight {
@@ -67,27 +67,22 @@ interface Instance {
 
 type ViewMode = "overlay" | "side" | "stack";
 
-const cache = new Map<string, FightGraphActionResult>();
-
 function instanceKey(inst: Instance): string | undefined {
   if (!inst.reportCode || inst.fightId === undefined || !inst.player) return undefined;
-  return `${inst.reportCode}|${inst.fightId}|${inst.player}`;
+  return fightGraphKey(inst.reportCode, inst.fightId, inst.player);
 }
 
-/** Loads one complete instance's graph via the (cached) server action. */
-function useInstanceData(inst: Instance): { result?: FightGraphActionResult; loading: boolean } {
+/** Loads one complete instance's graph via the (cached) API route — plain GETs, so several instances load in parallel. */
+function useInstanceData(inst: Instance): { result?: FightGraphResult; loading: boolean } {
   const key = instanceKey(inst);
-  const fromCache = key ? cache.get(key) : undefined;
-  const [loaded, setLoaded] = React.useState<{ key: string; result: FightGraphActionResult } | null>(null);
+  const fromCache = key ? peekFightGraph(key) : undefined;
+  const [loaded, setLoaded] = React.useState<{ key: string; result: FightGraphResult } | null>(null);
 
   React.useEffect(() => {
-    if (!key || cache.has(key)) return;
+    if (!key || peekFightGraph(key)) return;
     let cancelled = false;
-    const [reportCode, fightId, player] = key.split("|");
-    fetchFightGraphAction({ code: reportCode, fightId: Number(fightId), actorName: player }).then((r) => {
-      if (cancelled) return;
-      cache.set(key, r);
-      setLoaded({ key, result: r });
+    loadFightGraph(key).then((r) => {
+      if (!cancelled) setLoaded({ key, result: r });
     });
     return () => {
       cancelled = true;
@@ -96,17 +91,34 @@ function useInstanceData(inst: Instance): { result?: FightGraphActionResult; loa
 
   if (!key) return { loading: false };
   if (fromCache) return { result: fromCache, loading: false };
-  return { result: loaded?.key === key ? loaded.result : undefined, loading: true };
+  return { result: loaded?.key === key ? loaded.result : undefined, loading: loaded?.key !== key };
 }
 
 /** Up to four instances side by side; hooks need a fixed count. */
 const SLOTS = [0, 1, 2, 3] as const;
 type SlotIndex = (typeof SLOTS)[number];
 
+/**
+ * Chart-area sizes the −/+ stepper walks: per-chart max width in overlay/
+ * stack, minimum column width in side-by-side (auto-fit decides how many
+ * columns that allows). L is the full-bleed default.
+ */
+const SIZES = [
+  { label: "S", maxWidth: "56rem", sideMin: 400 },
+  { label: "M", maxWidth: "76rem", sideMin: 560 },
+  { label: "L", maxWidth: undefined, sideMin: 740 },
+] as const;
+
 export function FightGraphCompare({ reports }: { reports: PickerReport[] }) {
   const [instances, setInstances] = React.useState<Instance[]>([{}, {}, {}, {}]);
   const [view, setView] = React.useState<ViewMode>("overlay");
   const [buffFilter, setBuffFilter] = React.useState<BuffFilterState>({});
+  const [size, setSize] = React.useState(2);
+  // Clicked-on player instance: everything else recedes. Click again to release.
+  const [focusKey, setFocusKey] = React.useState<string | null>(null);
+  const toggleFocus = (key: string) => setFocusKey((k) => (k === key ? null : key));
+  // Hovering a line or name previews the same emphasis without committing it.
+  const [hoverKey, setHoverKey] = React.useState<string | null>(null);
 
   const results = [
     useInstanceData(instances[0]),
@@ -145,6 +157,11 @@ export function FightGraphCompare({ reports }: { reports: PickerReport[] }) {
     loading: boolean;
   }[];
 
+  // A focus only holds while its instance is still on screen; a live hover
+  // outranks the clicked focus as the emphasized instance.
+  const focus = focusKey !== null && loadedInstances.some((i) => i.key === focusKey) ? focusKey : null;
+  const emphasis = hoverKey !== null && loadedInstances.some((i) => i.key === hoverKey) ? hoverKey : focus;
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 lg:grid-cols-2">
@@ -179,13 +196,38 @@ export function FightGraphCompare({ reports }: { reports: PickerReport[] }) {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle>Fight graph</CardTitle>
-              {active.length > 1 && (
-                <div className="flex items-center gap-1">
-                  <ViewButton current={view} mode="overlay" onClick={setView} icon={<Layers className="h-3.5 w-3.5" />} label="Overlay" />
-                  <ViewButton current={view} mode="side" onClick={setView} icon={<Columns2 className="h-3.5 w-3.5" />} label="Side by side" />
-                  <ViewButton current={view} mode="stack" onClick={setView} icon={<Rows2 className="h-3.5 w-3.5" />} label="Stacked" />
+              <div className="flex flex-wrap items-center gap-1">
+                {active.length > 1 && (
+                  <>
+                    <ViewButton current={view} mode="overlay" onClick={setView} icon={<Layers className="h-3.5 w-3.5" />} label="Overlay" />
+                    <ViewButton current={view} mode="side" onClick={setView} icon={<Columns2 className="h-3.5 w-3.5" />} label="Side by side" />
+                    <ViewButton current={view} mode="stack" onClick={setView} icon={<Rows2 className="h-3.5 w-3.5" />} label="Stacked" />
+                  </>
+                )}
+                <div className="ml-2 flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label="Smaller charts"
+                    disabled={size === 0}
+                    onClick={() => setSize((s) => Math.max(0, s - 1))}
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </Button>
+                  <span className="w-4 text-center text-xs font-medium text-muted-foreground">{SIZES[size].label}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label="Larger charts"
+                    disabled={size === SIZES.length - 1}
+                    onClick={() => setSize((s) => Math.min(SIZES.length - 1, s + 1))}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-              )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -203,35 +245,67 @@ export function FightGraphCompare({ reports }: { reports: PickerReport[] }) {
               <div className="space-y-3">
                 <HiddenBuffsMenu filter={buffFilter} onChange={setBuffFilter} />
                 {loadedInstances.length === 1 || view !== "overlay" ? (
-                  <div
-                    className={cn(
-                      "gap-6",
-                      view === "side" && loadedInstances.length > 1 ? "grid lg:grid-cols-2" : "flex flex-col",
-                    )}
-                  >
-                    {loadedInstances.map((inst) => (
-                      <div key={inst.key} className={cn("min-w-0 space-y-2 transition-opacity", inst.loading && "opacity-50")}>
-                        <p className="flex items-center gap-1.5 text-sm font-medium">
-                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: inst.color }} />
-                          {inst.label}
-                        </p>
-                        <DpsChart
-                          data={inst.data}
-                          accent={inst.color}
-                          buffFilter={buffFilter}
-                          onBuffClick={(name) => setBuffFilter((f) => toggleHighlight(f, name))}
-                          onBuffHide={(name) => setBuffFilter((f) => hideBuff(f, name))}
-                        />
+                  (() => {
+                    const sideGrid = view === "side" && loadedInstances.length > 1;
+                    return (
+                      <div
+                        className={cn("gap-6", sideGrid ? "grid" : "flex flex-col items-center")}
+                        style={
+                          sideGrid
+                            ? { gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${SIZES[size].sideMin}px), 1fr))` }
+                            : undefined
+                        }
+                      >
+                        {loadedInstances.map((inst) => (
+                          <div
+                            key={inst.key}
+                            className={cn(
+                              "w-full min-w-0 space-y-2 transition-opacity",
+                              inst.loading && "opacity-50",
+                              emphasis !== null && inst.key !== emphasis && "opacity-30",
+                            )}
+                            style={!sideGrid ? { maxWidth: SIZES[size].maxWidth } : undefined}
+                          >
+                            <button
+                              type="button"
+                              title="Click: highlight this player on/off"
+                              aria-pressed={focus === inst.key}
+                              className={cn(
+                                "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm font-medium transition-colors hover:bg-accent",
+                                focus === inst.key && "bg-accent",
+                              )}
+                              onClick={() => toggleFocus(inst.key)}
+                              onMouseEnter={() => setHoverKey(inst.key)}
+                              onMouseLeave={() => setHoverKey(null)}
+                            >
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: inst.color }} />
+                              {inst.label}
+                            </button>
+                            <DpsChart
+                              data={inst.data}
+                              accent={inst.color}
+                              buffFilter={buffFilter}
+                              onBuffClick={(name) => setBuffFilter((f) => toggleHighlight(f, name))}
+                              onBuffHide={(name) => setBuffFilter((f) => hideBuff(f, name))}
+                            />
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()
                 ) : (
-                  <OverlayChart
-                    instances={loadedInstances}
-                    buffFilter={buffFilter}
-                    onBuffClick={(name) => setBuffFilter((f) => toggleHighlight(f, name))}
-                    onBuffHide={(name) => setBuffFilter((f) => hideBuff(f, name))}
-                  />
+                  <div className="mx-auto w-full" style={{ maxWidth: SIZES[size].maxWidth }}>
+                    <OverlayChart
+                      instances={loadedInstances}
+                      buffFilter={buffFilter}
+                      onBuffClick={(name) => setBuffFilter((f) => toggleHighlight(f, name))}
+                      onBuffHide={(name) => setBuffFilter((f) => hideBuff(f, name))}
+                      focusKey={emphasis}
+                      pressedKey={focus}
+                      onFocusToggle={toggleFocus}
+                      onFocusHover={setHoverKey}
+                    />
+                  </div>
                 )}
               </div>
             )}
@@ -404,14 +478,26 @@ export function OverlayChart({
   buffFilter,
   onBuffClick,
   onBuffHide,
+  focusKey,
+  pressedKey,
+  onFocusToggle,
+  onFocusHover,
 }: {
   instances: OverlayInstance[];
   buffFilter?: BuffFilterState;
   onBuffClick?: (name: string) => void;
   onBuffHide?: (name: string) => void;
+  /** Emphasized instance (clicked focus or live hover): the rest recede. */
+  focusKey?: string | null;
+  /** The clicked (persistent) focus — drives the pressed chip styling. */
+  pressedKey?: string | null;
+  onFocusToggle?: (key: string) => void;
+  onFocusHover?: (key: string | null) => void;
 }) {
   const svgRef = React.useRef<SVGSVGElement>(null);
   const [hover, setHover] = React.useState<{ t: number; x: number } | null>(null);
+
+  const instDimmed = (key: string) => focusKey != null && key !== focusKey;
 
   const durationMs = Math.max(...instances.map((i) => i.data.durationMs));
   const yMax = niceCeil(Math.max(1, ...instances.flatMap((i) => i.data.dps)));
@@ -456,10 +542,23 @@ export function OverlayChart({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {instances.map((inst) => (
-          <span key={inst.key} className="inline-flex items-center gap-1.5">
+          <button
+            key={inst.key}
+            type="button"
+            title="Click: highlight this player on/off"
+            aria-pressed={pressedKey === inst.key}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-all hover:bg-accent",
+              instDimmed(inst.key) && "opacity-40",
+              pressedKey === inst.key && "bg-accent font-medium",
+            )}
+            onClick={onFocusToggle ? () => onFocusToggle(inst.key) : undefined}
+            onMouseEnter={onFocusHover ? () => onFocusHover(inst.key) : undefined}
+            onMouseLeave={onFocusHover ? () => onFocusHover(null) : undefined}
+          >
             <span className="h-0.5 w-4 rounded" style={{ backgroundColor: inst.color }} />
             <span className="text-foreground">{inst.label}</span>
-          </span>
+          </button>
         ))}
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-full border border-muted-foreground/60" /> cooldown
@@ -498,7 +597,9 @@ export function OverlayChart({
           <text x={GUTTER} y={H - 6} textAnchor="start" fontSize={10} fill="var(--muted-foreground)">0:00</text>
           <text x={W - M_RIGHT} y={H - 6} textAnchor="end" fontSize={10} fill="var(--muted-foreground)">{mmss(durationMs)}</text>
 
-          {/* One line + wash per instance; identity is the instance color. */}
+          {/* One line + wash per instance; identity is the instance color.
+              Washes never take pointer events — they cover the whole plot and
+              would otherwise swallow clicks meant for other players' lines. */}
           {instances.map((inst) => {
             const tAt = (i: number) => Math.min(inst.data.durationMs, i * inst.data.bucketMs + inst.data.bucketMs / 2);
             if (inst.data.dps.length === 0) return null;
@@ -507,33 +608,75 @@ export function OverlayChart({
               .join(" ");
             const area = `${line} L${x(tAt(inst.data.dps.length - 1)).toFixed(1)},${y(0)} L${x(tAt(0)).toFixed(1)},${y(0)} Z`;
             return (
-              <g key={inst.key}>
-                <path d={area} fill={inst.color} opacity={0.08} />
-                <path d={line} fill="none" stroke={inst.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-                {inst.data.casts.map((c, i) =>
-                  c.kind === "cooldown" ? (
-                    <circle key={i} cx={x(c.t)} cy={y(dpsAt(inst, c.t) ?? 0)} r={4.5} fill={inst.color} stroke="var(--card)" strokeWidth={2}>
-                      <title>{`${inst.label} · ${mmss(c.t)} · ${c.name}`}</title>
-                    </circle>
-                  ) : (
-                    <rect
-                      key={i}
-                      x={x(c.t) - 4}
-                      y={y(dpsAt(inst, c.t) ?? 0) - 4}
-                      width={8}
-                      height={8}
-                      fill={inst.color}
-                      stroke="var(--card)"
-                      strokeWidth={2}
-                      opacity={anyHighlight(buffFilter) ? 0.25 : 1}
-                    >
-                      <title>{`${inst.label} · ${mmss(c.t)} · ${c.name}`}</title>
-                    </rect>
-                  ),
-                )}
+              <g key={inst.key} opacity={instDimmed(inst.key) ? 0.25 : 1} className="transition-opacity">
+                <path d={area} fill={inst.color} opacity={0.08} pointerEvents="none" />
+                <path
+                  d={line}
+                  fill="none"
+                  stroke={inst.color}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  pointerEvents="none"
+                />
               </g>
             );
           })}
+
+          {/* Click targets for line highlighting: invisible wide strokes, drawn
+              AFTER every wash and line so no other player's fill can cover
+              them. Cast markers come later still, keeping their tooltips. */}
+          {onFocusToggle &&
+            instances.map((inst) => {
+              const tAt = (i: number) => Math.min(inst.data.durationMs, i * inst.data.bucketMs + inst.data.bucketMs / 2);
+              if (inst.data.dps.length === 0) return null;
+              const line = inst.data.dps
+                .map((v, i) => `${i === 0 ? "M" : "L"}${x(tAt(i)).toFixed(1)},${y(v).toFixed(1)}`)
+                .join(" ");
+              return (
+                <path
+                  key={inst.key}
+                  d={line}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={14}
+                  style={{ cursor: "pointer" }}
+                  pointerEvents="stroke"
+                  onClick={() => onFocusToggle(inst.key)}
+                  onMouseEnter={onFocusHover ? () => onFocusHover(inst.key) : undefined}
+                  onMouseLeave={onFocusHover ? () => onFocusHover(null) : undefined}
+                >
+                  <title>{`${inst.label} — click: highlight on/off`}</title>
+                </path>
+              );
+            })}
+
+          {/* Cast markers, above the click targets so their tooltips work. */}
+          {instances.map((inst) => (
+            <g key={inst.key} opacity={instDimmed(inst.key) ? 0.25 : 1} className="transition-opacity">
+              {inst.data.casts.map((c, i) =>
+                c.kind === "cooldown" ? (
+                  <circle key={i} cx={x(c.t)} cy={y(dpsAt(inst, c.t) ?? 0)} r={4.5} fill={inst.color} stroke="var(--card)" strokeWidth={2}>
+                    <title>{`${inst.label} · ${mmss(c.t)} · ${c.name}`}</title>
+                  </circle>
+                ) : (
+                  <rect
+                    key={i}
+                    x={x(c.t) - 4}
+                    y={y(dpsAt(inst, c.t) ?? 0) - 4}
+                    width={8}
+                    height={8}
+                    fill={inst.color}
+                    stroke="var(--card)"
+                    strokeWidth={2}
+                    opacity={anyHighlight(buffFilter) ? 0.25 : 1}
+                  >
+                    <title>{`${inst.label} · ${mmss(c.t)} · ${c.name}`}</title>
+                  </rect>
+                ),
+              )}
+            </g>
+          ))}
 
           {/* Boss health strip — one curve per instance, instance-colored. */}
           {anyBoss && (
@@ -551,6 +694,7 @@ export function OverlayChart({
                     stroke={inst.color}
                     strokeWidth={2}
                     strokeLinejoin="round"
+                    opacity={instDimmed(inst.key) ? 0.25 : 1}
                   />
                 ) : null,
               )}
@@ -563,9 +707,11 @@ export function OverlayChart({
           {lanes.map((lane, row) => {
             const top = lanesTop + row * LANE_H;
             const player = lane.inst.label.split(" · ")[0];
-            // A highlight recedes everything else — other buffs AND consumes.
+            // A highlight recedes everything else — other buffs AND consumes —
+            // and an instance focus recedes every other player's lanes.
             const dimmed =
-              lane.kind === "buff" ? isDimmed(lane.name, buffFilter) : anyHighlight(buffFilter);
+              instDimmed(lane.inst.key) ||
+              (lane.kind === "buff" ? isDimmed(lane.name, buffFilter) : anyHighlight(buffFilter));
             const clickable = lane.kind === "buff" && onBuffClick;
             return (
               <g
@@ -628,8 +774,19 @@ export function OverlayChart({
             );
           })}
 
+          {/* The crosshair tracks the pointer exactly, so it MUST be inert —
+              as the topmost element it would otherwise sit under the cursor
+              and steal every hover and click inside the plot. */}
           {hover && (
-            <line x1={x(hover.t)} x2={x(hover.t)} y1={M_TOP} y2={lanesBottom} stroke="var(--muted-foreground)" strokeWidth={1} />
+            <line
+              x1={x(hover.t)}
+              x2={x(hover.t)}
+              y1={M_TOP}
+              y2={lanesBottom}
+              stroke="var(--muted-foreground)"
+              strokeWidth={1}
+              pointerEvents="none"
+            />
           )}
         </svg>
 
@@ -642,7 +799,7 @@ export function OverlayChart({
             {instances.map((inst) => {
               const v = dpsAt(inst, hover.t);
               return (
-                <p key={inst.key} className="mt-0.5 flex items-center gap-1.5">
+                <p key={inst.key} className={cn("mt-0.5 flex items-center gap-1.5", instDimmed(inst.key) && "opacity-40")}>
                   <span className="h-1.5 w-4 rounded" style={{ backgroundColor: inst.color }} />
                   <span className="font-semibold tabular-nums">
                     {v === undefined ? "ended" : Math.round(v).toLocaleString("en-US")}
@@ -659,7 +816,10 @@ export function OverlayChart({
       {instances.map(
         (inst) =>
           inst.data.casts.length > 0 && (
-            <div key={inst.key} className="flex flex-wrap items-center gap-1.5">
+            <div
+              key={inst.key}
+              className={cn("flex flex-wrap items-center gap-1.5 transition-opacity", instDimmed(inst.key) && "opacity-40")}
+            >
               <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: inst.color }} />
                 {inst.label.split(" · ")[0]}:

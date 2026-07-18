@@ -47,12 +47,18 @@ export interface FightGraphView {
   bossMaxHp?: number;
 }
 
+/** How the API layer reports a fight-graph fetch to the client components. */
+export type FightGraphResult =
+  | { status: "ok"; data: FightGraphView }
+  | { status: "not-configured" }
+  | { status: "error"; message: string };
+
 const OVERVIEW_QUERY = `
-query FightGraphOverview($code: String!, $fightId: Int!) {
+query FightGraphOverview($code: String!) {
   reportData {
     report(code: $code) {
       masterData { actors { id name type subType } }
-      fights(fightIDs: [$fightId]) { id name kill startTime endTime enemyNPCs { id } }
+      fights { id name kill startTime endTime enemyNPCs { id } }
     }
   }
 }`;
@@ -211,9 +217,31 @@ function isStaticBuff(name: string): boolean {
  * several officers reading the same pull — cost zero WCL calls.
  */
 const CACHE_MAX = 300;
-const globalCache = globalThis as unknown as { __projectlcFightGraphCache?: Map<string, FightGraphView> };
+const globalCache = globalThis as unknown as {
+  __projectlcFightGraphCache?: Map<string, FightGraphView>;
+  __projectlcFightOverviewCache?: Map<string, z.infer<typeof overviewSchema>>;
+};
 function cacheOf(): Map<string, FightGraphView> {
   return (globalCache.__projectlcFightGraphCache ??= new Map());
+}
+
+/**
+ * The overview (actor list + fight times) is identical for every player and
+ * fight in a report, and reports are immutable once logged — so one fetch per
+ * report serves every instance, saving a whole WCL round trip on each
+ * subsequent graph in the same raid.
+ */
+async function fetchOverview(code: string): Promise<z.infer<typeof overviewSchema>> {
+  const cache = (globalCache.__projectlcFightOverviewCache ??= new Map());
+  const cached = cache.get(code);
+  if (cached) return cached;
+  const overview = overviewSchema.parse(await wclQuery<unknown>(OVERVIEW_QUERY, { code }));
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(code, overview);
+  return overview;
 }
 
 export async function fetchFightGraph(code: string, fightId: number, actorName: string): Promise<FightGraphView> {
@@ -222,10 +250,9 @@ export async function fetchFightGraph(code: string, fightId: number, actorName: 
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const overviewRaw = await wclQuery<unknown>(OVERVIEW_QUERY, { code, fightId });
-  const overview = overviewSchema.parse(overviewRaw);
+  const overview = await fetchOverview(code);
   const report = overview.reportData.report;
-  const fight = (report?.fights ?? [])[0];
+  const fight = (report?.fights ?? []).find((f) => f.id === fightId);
   if (!fight) throw new WclError(`Fight ${fightId} was not found in report ${code}.`);
   const actors = report?.masterData?.actors ?? [];
   const actor = actors.find((a) => (a.type === undefined || a.type === "Player") && a.name.toLowerCase() === actorName.toLowerCase());

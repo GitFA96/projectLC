@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { FightGraphActionResult } from "@/app/characters/[name]/performance/graph-actions";
-import { fetchFightGraphAction } from "@/app/characters/[name]/performance/graph-actions";
-import type { FightGraphView } from "@/lib/wcl/fight-graph";
+import type { FightGraphResult, FightGraphView } from "@/lib/wcl/fight-graph";
+import { fightGraphKey, loadFightGraph, peekFightGraph } from "@/components/performance/fight-graph-client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -56,11 +55,6 @@ interface FightOption {
   fightPercentage?: number;
 }
 
-// Fights are historical, so results cache for the whole browser session
-// (module scope, shared across mounts) — flipping between fights or players
-// already viewed costs no server roundtrip and no WCL calls.
-const clientCache = new Map<string, FightGraphActionResult>();
-
 export function FightGraphPanel({
   code,
   actorName,
@@ -74,26 +68,24 @@ export function FightGraphPanel({
   // Buff show/highlight/hide persists across fight switches — that's how you
   // follow one proc through the night.
   const [buffFilter, setBuffFilter] = React.useState<BuffFilterState>({});
-  const key = `${code}|${fightId}|${actorName}`;
-  const fromCache = clientCache.get(key);
+  const key = fightGraphKey(code, fightId ?? -1, actorName);
+  const fromCache = peekFightGraph(key);
   // While a new fight loads, the previously shown result holds at reduced opacity.
-  const [loaded, setLoaded] = React.useState<{ key: string; result: FightGraphActionResult } | null>(null);
+  const [loaded, setLoaded] = React.useState<{ key: string; result: FightGraphResult } | null>(null);
   const result = fromCache ?? loaded?.result;
-  const loading = !fromCache;
+  const loading = !fromCache && loaded?.key !== key;
 
   React.useEffect(() => {
-    if (fightId === undefined || clientCache.has(key)) return;
+    if (fightId === undefined || peekFightGraph(key)) return;
     let cancelled = false;
     const requestKey = key;
-    fetchFightGraphAction({ code, fightId, actorName }).then((r) => {
-      if (cancelled) return;
-      clientCache.set(requestKey, r);
-      setLoaded({ key: requestKey, result: r });
+    loadFightGraph(requestKey).then((r) => {
+      if (!cancelled) setLoaded({ key: requestKey, result: r });
     });
     return () => {
       cancelled = true;
     };
-  }, [code, fightId, actorName, key]);
+  }, [fightId, key]);
 
   if (fights.length === 0) {
     return <p className="py-1 text-sm text-muted-foreground">No pulls in this report.</p>;
@@ -398,9 +390,18 @@ export function DpsChart({
             );
           })}
 
-          {/* Crosshair spans the plot, the strip and every lane. */}
+          {/* Crosshair spans the plot, the strip and every lane. Inert — as the
+              topmost element it would otherwise steal lane clicks under the cursor. */}
           {hover && (
-            <line x1={x(hover.t)} x2={x(hover.t)} y1={M_TOP} y2={lanesBottom} stroke="var(--muted-foreground)" strokeWidth={1} />
+            <line
+              x1={x(hover.t)}
+              x2={x(hover.t)}
+              y1={M_TOP}
+              y2={lanesBottom}
+              stroke="var(--muted-foreground)"
+              strokeWidth={1}
+              pointerEvents="none"
+            />
           )}
         </svg>
 
