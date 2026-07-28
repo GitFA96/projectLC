@@ -54,6 +54,7 @@ export function computeWishlistRows(
       current: currentBySlot.get(wished.slot),
       state: equippedMatch ? "equipped" : award ? "awarded" : "open",
       awardedAt: !equippedMatch && award ? award.awardedAt : undefined,
+      awardId: !equippedMatch && award ? award.id : undefined,
     } satisfies WishlistRow;
   });
 }

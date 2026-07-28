@@ -51,13 +51,20 @@ export const characterSchema = z.object({
   note: z.string().optional(),
 });
 
-/** Item cache entry (WoW item ID is the primary key). */
+/**
+ * Item cache entry (WoW item ID is the primary key).
+ *
+ * Everything but the id is optional: the cache is filled from whatever each
+ * source happens to know — a Gargul link carries a name and quality, a log's
+ * gear snapshot carries only an icon — and later imports fill the gaps in
+ * place. Partial knowledge beats a fabricated "Item #30048".
+ */
 export const itemSchema = z.object({
   id: z.number().int().positive(),
-  name: z.string().min(1),
-  quality: z.enum(QUALITIES),
-  /** Wowhead/zamimg icon name, e.g. "inv_axe_60". */
-  icon: z.string().min(1),
+  name: z.string().min(1).optional(),
+  quality: z.enum(QUALITIES).optional(),
+  /** Wowhead/zamimg icon name, e.g. "inv_axe_60" (no extension). */
+  icon: z.string().min(1).optional(),
   slot: z.enum(SLOT_IDS).nullish(),
   source: z.object({ zone: z.string(), boss: z.string().optional() }).optional(),
   phase: phaseSchema.optional(),
@@ -144,12 +151,24 @@ export const wclGearItemSchema = z.object({
   slot: z.number().int().nonnegative(),
   id: z.number().int().positive(),
   ilvl: z.number().int().optional(),
-  /** Permanent enchantment id (Wowhead /tbc/enchantment=…). */
+  /** Item quality straight from the log — colours the row with no lookup. */
+  quality: z.enum(QUALITIES).optional(),
+  /** Permanent enchantment id. Wowhead has no page for these; the item's hover tooltip renders it. */
   enchant: z.number().int().optional(),
   /** Temporary enchant id (oil / stone / poison / imbue). */
   temp: z.number().int().optional(),
-  /** Socketed gem ITEM ids — socket counts aren't in the log, so empties are invisible. */
-  gems: z.array(z.number().int()).default([]),
+  /**
+   * Socketed gems, each with the icon the log carries (names come from the
+   * item cache). Socket counts aren't logged, so empty sockets stay invisible.
+   * Imports from before gem icons were kept are bare ids — read as {id}.
+   */
+  gems: z
+    .array(
+      z
+        .union([z.number().int(), z.object({ id: z.number().int(), icon: z.string().optional() })])
+        .transform((gem) => (typeof gem === "number" ? { id: gem } : gem)),
+    )
+    .default([]),
   /** Pass-throughs when WCL includes them. */
   name: z.string().optional(),
   icon: z.string().optional(),
@@ -213,6 +232,22 @@ export const wclPlayerFightSchema = z.object({
   /** Major class cooldowns cast during the pull, one entry per use. */
   cooldowns: z.array(z.string()).default([]),
   /**
+   * When those cooldowns — and the shaman totem drops — happened, ms from the
+   * pull start. Empty on imports from before cast timing was tracked.
+   */
+  castTimes: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        atMs: z.number().nonnegative(),
+        /** Friendly target, when it wasn't the caster themself. */
+        target: z.string().optional(),
+        /** A shaman totem drop rather than a class cooldown. */
+        totem: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /**
    * Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…),
    * % of the pull for the best target. `targets` (absent on pre-timeline
    * imports) breaks it down per victim — boss, adds (with instance numbers)
@@ -232,6 +267,8 @@ export const wclPlayerFightSchema = z.object({
               instance: z.number().int().positive().optional(),
               /** True when the target is the encounter boss (WCL subType "Boss"). */
               boss: z.boolean(),
+              /** True when the target is a friendly player — feeds the "uptime by player" view. */
+              player: z.boolean().optional(),
               pct: z.number().min(0).max(100),
               /** [startMs, endMs] pairs relative to the fight start. */
               segments: z.array(z.tuple([z.number(), z.number()])),

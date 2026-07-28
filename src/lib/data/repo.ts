@@ -61,6 +61,17 @@ export interface Repo {
    * view. Empty means the raid hasn't set prices and the code defaults apply.
    */
   getReportConsumablePrices(code: string): Promise<Record<string, ConsumablePrice>>;
+  /**
+   * The pulls an officer excluded from a report's rollups (fight ids). Empty
+   * means the whole night counts — see WriteRepo.setReportExcludedFights.
+   */
+  getReportExcludedFights(code: string): Promise<number[]>;
+  /**
+   * Items the UI has to render as a bare id: referenced by loot, a wishlist or
+   * the cache itself, but still missing a name or an icon. The (bounded) work
+   * list for the Wowhead resolver, most-referenced first.
+   */
+  listUnresolvedItemIds(): Promise<number[]>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -241,6 +252,13 @@ export interface WriteRepo extends Repo {
    */
   setReportConsumablePrices(code: string, prices: Record<string, ConsumablePrice>): Promise<void>;
   /**
+   * Choose which of a report's pulls feed its rollups: the given fight ids are
+   * excluded from preparation coverage, consumable/cooldown counts, uptime and
+   * the improvement list. Replaces the whole set; an empty list counts the
+   * whole night again.
+   */
+  setReportExcludedFights(code: string, fightIds: number[]): Promise<void>;
+  /**
    * Mark (or clear) one reset week as an excused absence for a character, so it
    * doesn't count toward their attendance markup. weekStart is the reset-week
    * Wednesday (resetWeekStart). Idempotent.
@@ -255,8 +273,23 @@ export interface WriteRepo extends Repo {
   addCharacterComment(draft: CharacterCommentDraft): Promise<AddCommentResult>;
   /** Remove one comment by id. Returns false when it didn't exist. */
   deleteCharacterComment(id: string): Promise<boolean>;
-  /** Cache items learned from imports (insert-only — never overwrites curated entries). */
+  /**
+   * Fill the item cache from an import. Fields are merged per id — a row only
+   * ever gains what it was missing, so curated entries are never overwritten.
+   * Returns how many items were created or learned something.
+   */
   addItemsIfMissing(items: Item[]): Promise<number>;
+  /**
+   * Harvest item data out of records already imported: names from wishlists
+   * and loot pastes, icons from the gear snapshot on every logged pull. No
+   * network — this is data the database already holds, buried in per-row JSON.
+   */
+  harvestItemCache(): Promise<number>;
+  /**
+   * Replace the invented "Item #30048" names frozen into old loot rows with
+   * the real name, once the cache knows it. Returns rows repaired.
+   */
+  repairPlaceholderAwardNames(): Promise<number>;
   /**
    * Remove the demo content a fresh database was seeded with (fictional
    * characters, their sessions/awards/gear sets and the seed WCL report),

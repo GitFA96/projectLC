@@ -10,6 +10,7 @@ import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
 import { phaseForZones } from "@/lib/constants/wow";
+import { itemDisplayName } from "@/lib/items/item-data";
 import type {
   AttendanceExemption,
   AttendanceSummary,
@@ -111,7 +112,17 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
   }
 }
 
-export function createRepoFromStore(store: EntityStore): Repo {
+/**
+ * Persisted per-report config that isn't entity data: the pulls an officer
+ * excluded from a report's rollups, keyed by report code. The seed backend has
+ * none; the SQLite backend reads it from the meta table when it builds the
+ * model (every write bumps the data version, so the model picks edits up).
+ */
+export interface StoreConfig {
+  excludedFightsByCode?: Record<string, number[]>;
+}
+
+export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
   const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions, characterComments } = store;
 
   /* Indexes */
@@ -418,7 +429,7 @@ export function createRepoFromStore(store: EntityStore): Repo {
           const c = contentionFor(itemId);
           return {
             itemId,
-            name: item?.name ?? c.awards[0]?.award.itemName ?? wishlistNames.get(itemId) ?? `Item #${itemId}`,
+            name: itemDisplayName(itemId, item?.name, c.awards[0]?.award.itemName, wishlistNames.get(itemId)),
             quality: item?.quality,
             icon: item?.icon,
             slot: item?.slot,
@@ -473,7 +484,40 @@ export function createRepoFromStore(store: EntityStore): Repo {
         rows,
         reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
         slugByActor,
+        excludedFightIds: config.excludedFightsByCode?.[report.code],
       });
+    },
+
+    async getReportExcludedFights(code: string): Promise<number[]> {
+      return config.excludedFightsByCode?.[code] ?? [];
+    },
+
+    async listUnresolvedItemIds(): Promise<number[]> {
+      // Ordered by how much a person is looking at them: loot history and
+      // wishlists first (they carry the ledger), then anything else the cache
+      // half-knows — mostly gear ids harvested from logs, which have an icon
+      // but no name. Callers resolve a capped slice per run, so the ordering
+      // decides what gets fixed first, not what gets fixed at all.
+      const LEDGER_WEIGHT = 100;
+      const references = new Map<number, number>();
+      const bump = (id: number, weight: number) =>
+        references.set(id, (references.get(id) ?? 0) + weight);
+      for (const award of lootAwards) bump(award.itemId, LEDGER_WEIGHT);
+      for (const set of gearSets) for (const slot of set.slots) bump(slot.itemId, LEDGER_WEIGHT);
+      // Gems show on the gear panel by icon; only their name needs looking up.
+      for (const row of wclPlayerFights) {
+        for (const item of row.gear) for (const gem of item.gems) bump(gem.id, 1);
+      }
+      for (const item of items) {
+        if (item.name === undefined || item.icon === undefined) bump(item.id, 1);
+      }
+      return [...references]
+        .filter(([id]) => {
+          const item = itemsById.get(id);
+          return item?.name === undefined || item.icon === undefined;
+        })
+        .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+        .map(([id]) => id);
     },
 
     // Per-report prices are persisted config, not entity-store data — the

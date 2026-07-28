@@ -5,7 +5,7 @@ import { Activity, GitCompareArrows, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
-import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
+import { CLASS_TEXT_COLORS, PHASES } from "@/lib/constants/wow";
 import type { Repo } from "@/lib/data/repo";
 import type { SlotItem } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
@@ -18,6 +18,7 @@ import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterComments } from "@/components/character-comments";
+import { AwardItemButton, type AwardContext } from "@/components/award-item-controls";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,12 +53,31 @@ async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef> {
 export default async function CharacterPage({ params }: { params: Promise<Params> }) {
   const { name } = await params;
   const repo = await getRepo();
-  const [guild, bundle] = await Promise.all([
+  const [guild, bundle, sessions] = await Promise.all([
     repo.getGuild(),
     repo.getCharacterBundle(decodeURIComponent(name)),
+    repo.listRaidSessions(),
   ]);
   if (!bundle) notFound();
   const { character, current, wishlists, awards, summary, comments } = bundle;
+
+  // Awarding by hand: the recent raid nights to file under, plus the zones a
+  // new manual entry can name. The active phase's raids lead the zone list.
+  const activePhaseZones = PHASES.find((p) => p.phase === guild.activePhase)?.zones ?? [];
+  const award: AwardContext = {
+    characterId: character.id,
+    characterName: character.name,
+    sessions: [...sessions]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 12)
+      .map((s) => ({
+        id: s.id,
+        label: `${format(parseISO(s.date), "d MMM yyyy")} — ${s.zones.join(" + ")}`,
+      })),
+    zones: [...new Set([...activePhaseZones, ...PHASES.flatMap((p) => p.zones)])],
+    defaultZone: activePhaseZones[0] ?? PHASES[0].zones[0],
+    today: new Date().toISOString().slice(0, 10),
+  };
 
   const slotRows: SlotRowView[] = current
     ? await Promise.all(
@@ -85,6 +105,7 @@ export default async function CharacterPage({ params }: { params: Promise<Params
           current: row.current ? await toItemRef(repo, row.current) : undefined,
           state: row.state,
           awardedAt: row.awardedAt,
+          awardId: row.awardId,
         })),
       ),
     })),
@@ -264,6 +285,7 @@ export default async function CharacterPage({ params }: { params: Promise<Params
               activePhase={guild.activePhase}
               hasCurrent={current !== undefined}
               characterName={character.name}
+              award={award}
             />
           </div>
         </div>
@@ -276,11 +298,15 @@ export default async function CharacterPage({ params }: { params: Promise<Params
       />
 
       <Card>
-        <CardHeader>
-          <CardTitle>Loot history</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Everything awarded to {character.name} via Gargul, matched against their wishlists.
-          </p>
+        <CardHeader className="flex-row items-start justify-between space-y-0">
+          <div>
+            <CardTitle>Loot history</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Everything awarded to {character.name} — imported from Gargul or entered by hand —
+              matched against their wishlists.
+            </p>
+          </div>
+          <AwardItemButton ctx={award} label="Award an item" variant="default" />
         </CardHeader>
         <CardContent>
           {awards.length === 0 ? (

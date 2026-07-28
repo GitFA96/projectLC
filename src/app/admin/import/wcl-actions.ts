@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { WclError, extractReportCode, hasWclCredentials } from "@/lib/wcl/client";
 import { fetchWclReport } from "@/lib/wcl/fetch-report";
 import type { IgnoredCombatantInfo, UnclassifiedAura } from "@/lib/wcl/normalize";
@@ -47,7 +47,7 @@ export async function deleteWclReportAction(input: { code: string }): Promise<{ 
     const repo = await getWriteRepo();
     const result = await repo.deleteWclReport(parsed.data.code);
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return {
       ok: true,
       message: `Report removed (${result.rowsRemoved} player-pull rows). Attendance and performance pages updated.`,
@@ -81,7 +81,7 @@ export async function updateWclReportMetaAction(input: {
       zone: parsed.data.zone,
     });
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true, message: "Report updated." };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Update failed." };
@@ -119,7 +119,7 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
     );
     if (!saved.ok) return { status: "error", message: saved.error };
 
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return {
       status: "committed",
       code: saved.report.code,

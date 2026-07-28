@@ -63,11 +63,14 @@ CREATE TABLE IF NOT EXISTS characters (
   main_character_id TEXT,
   note              TEXT
 );
+-- Only the id is required: the cache is filled from whatever each import
+-- knew (a Gargul link has a name, a log's gear snapshot only an icon) and
+-- later sources fill the gaps in place. NULL means "not known yet".
 CREATE TABLE IF NOT EXISTS items (
   id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL,
-  quality     TEXT NOT NULL,
-  icon        TEXT NOT NULL,
+  name        TEXT,
+  quality     TEXT,
+  icon        TEXT,
   slot        TEXT,
   source_json TEXT,
   phase       INTEGER
@@ -149,6 +152,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   other_casts_json      TEXT NOT NULL DEFAULT '[]',
   extras_json           TEXT NOT NULL DEFAULT '[]',
   cooldowns_json        TEXT NOT NULL DEFAULT '[]',
+  cast_times_json       TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
   drums                 INTEGER NOT NULL DEFAULT 0,
@@ -219,11 +223,39 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "other_casts_json", "other_casts_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "extras_json", "extras_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "cooldowns_json", "cooldowns_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("wcl_player_fights", "cast_times_json", "cast_times_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("characters", "main_character_id", "main_character_id TEXT");
   addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
   addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
+  relaxItemColumns(db);
+}
+
+/**
+ * Older databases declared items.name/quality/icon NOT NULL, which blocks the
+ * partial entries the cache now stores. SQLite can't drop a NOT NULL, so the
+ * table is rebuilt once — contents preserved.
+ */
+function relaxItemColumns(db: DatabaseSync): void {
+  const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string; notnull: number }[];
+  const required = cols.filter((c) => c.name !== "id" && c.notnull === 1);
+  if (required.length === 0) return;
+  db.exec(`
+    CREATE TABLE items_relaxed (
+      id          INTEGER PRIMARY KEY,
+      name        TEXT,
+      quality     TEXT,
+      icon        TEXT,
+      slot        TEXT,
+      source_json TEXT,
+      phase       INTEGER
+    );
+    INSERT INTO items_relaxed (id, name, quality, icon, slot, source_json, phase)
+      SELECT id, name, quality, icon, slot, source_json, phase FROM items;
+    DROP TABLE items;
+    ALTER TABLE items_relaxed RENAME TO items;
+  `);
 }
 
 export function withTx<T>(db: DatabaseSync, fn: () => T): T {
@@ -298,6 +330,58 @@ export function setReportConsumablePrices(
   ).run(consumablePriceKey(code), JSON.stringify(sanitizePrices(prices)));
 }
 
+/* Per-report excluded pulls: the fight ids an officer switched off for a raid
+   night, so a farm wipe or a gimmick pull stops skewing the night's numbers.
+   Same meta-table pattern as prices — absent means "every pull counts". */
+
+const excludedFightsKey = (code: string) => `excluded_fights:${code}`;
+
+function sanitizeFightIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = raw.filter((v): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0);
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
+/** The pulls excluded from one report's rollups (empty when the raid counts them all). */
+export function getReportExcludedFights(db: DatabaseSync, code: string): number[] {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(excludedFightsKey(code)) as
+    | { value: string }
+    | undefined;
+  if (!row) return [];
+  try {
+    return sanitizeFightIds(JSON.parse(row.value));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Every report's excluded pulls, keyed by report code — one query, so a rollup
+ * over many reports doesn't hit the meta table per report.
+ */
+export function getAllExcludedFights(db: DatabaseSync): Record<string, number[]> {
+  const rows = db
+    .prepare("SELECT key, value FROM meta WHERE key LIKE 'excluded_fights:%'")
+    .all() as { key: string; value: string }[];
+  const out: Record<string, number[]> = {};
+  for (const { key, value } of rows) {
+    try {
+      out[key.slice("excluded_fights:".length)] = sanitizeFightIds(JSON.parse(value));
+    } catch {
+      // A hand-mangled blob just means "nothing excluded" for that report.
+    }
+  }
+  return out;
+}
+
+/** Replace a report's excluded pulls (an empty list clears the filter). */
+export function setReportExcludedFights(db: DatabaseSync, code: string, fightIds: number[]): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(excludedFightsKey(code), JSON.stringify(sanitizeFightIds(fightIds)));
+}
+
 /* Entity <-> row mapping. SQLite has no undefined: optionals become NULL and
    are stripped again on load so zod sees exactly the canonical shapes. */
 
@@ -337,7 +421,46 @@ export function insertItem(db: DatabaseSync, i: Item): void {
   db.prepare(
     `INSERT OR REPLACE INTO items (id, name, quality, icon, slot, source_json, phase)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(i.id, i.name, i.quality, i.icon, i.slot ?? null, i.source ? JSON.stringify(i.source) : null, i.phase ?? null);
+  ).run(
+    i.id, i.name ?? null, i.quality ?? null, i.icon ?? null, i.slot ?? null,
+    i.source ? JSON.stringify(i.source) : null, i.phase ?? null,
+  );
+}
+
+/**
+ * Fill the item cache from an import without ever overwriting what's already
+ * known: a new row is inserted whole, an existing one only gains the fields it
+ * was missing (COALESCE keeps the curated value). Returns how many rows were
+ * created or learned something — nothing else touches the cache, so that count
+ * is what the import panel reports.
+ */
+export function mergeItems(db: DatabaseSync, items: Item[]): number {
+  const stmt = db.prepare(
+    `INSERT INTO items (id, name, quality, icon, slot, source_json, phase)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name        = COALESCE(items.name, excluded.name),
+       quality     = COALESCE(items.quality, excluded.quality),
+       icon        = COALESCE(items.icon, excluded.icon),
+       slot        = COALESCE(items.slot, excluded.slot),
+       source_json = COALESCE(items.source_json, excluded.source_json),
+       phase       = COALESCE(items.phase, excluded.phase)
+     WHERE (items.name        IS NULL AND excluded.name        IS NOT NULL)
+        OR (items.quality     IS NULL AND excluded.quality     IS NOT NULL)
+        OR (items.icon        IS NULL AND excluded.icon        IS NOT NULL)
+        OR (items.slot        IS NULL AND excluded.slot        IS NOT NULL)
+        OR (items.source_json IS NULL AND excluded.source_json IS NOT NULL)
+        OR (items.phase       IS NULL AND excluded.phase       IS NOT NULL)`,
+  );
+  let learned = 0;
+  for (const i of items) {
+    const changes = stmt.run(
+      i.id, i.name ?? null, i.quality ?? null, i.icon ?? null, i.slot ?? null,
+      i.source ? JSON.stringify(i.source) : null, i.phase ?? null,
+    ).changes;
+    learned += Number(changes) > 0 ? 1 : 0;
+  }
+  return learned;
 }
 
 export function insertGearSet(db: DatabaseSync, s: GearSet): void {
@@ -379,16 +502,17 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        id, report_code, fight_id, encounter_id, encounter_name, kill, fight_percentage,
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
-       prepot, potions_json, other_casts_json, extras_json, cooldowns_json, upkeep_json,
-       gear_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       prepot, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
+       upkeep_json, gear_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
     f.spec ?? null, f.role, f.parsePercent ?? null, f.bracketPercent ?? null, f.amount ?? null,
     f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
-    JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.upkeep),
+    JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
+    JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
     f.fightStartMs ?? null,
   );
@@ -419,7 +543,7 @@ function rowToCharacterComment(r: Row): unknown {
 
 function rowToItem(r: Row): unknown {
   return {
-    id: r.id, name: r.name, quality: r.quality, icon: r.icon, slot: opt(r.slot),
+    id: r.id, name: opt(r.name), quality: opt(r.quality), icon: opt(r.icon), slot: opt(r.slot),
     source: r.source_json ? JSON.parse(r.source_json as string) : undefined,
     phase: opt(r.phase),
   };
@@ -472,6 +596,7 @@ function rowToWclPlayerFight(r: Row): unknown {
     otherCasts: JSON.parse((r.other_casts_json as string | null) ?? "[]"),
     extras: JSON.parse((r.extras_json as string | null) ?? "[]"),
     cooldowns: JSON.parse((r.cooldowns_json as string | null) ?? "[]"),
+    castTimes: JSON.parse((r.cast_times_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     drums: r.drums, runes: r.runes,

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { WishlistTable, type WishlistRowView } from "@/components/wishlist-table";
+import type { AwardContext } from "@/components/award-item-controls";
 import { StatDeltaPanel } from "@/components/stat-delta-panel";
 import { EmptyState } from "@/components/empty-state";
 import { PHASES } from "@/lib/constants/wow";
@@ -38,11 +39,14 @@ export function CharacterPhaseTabs({
   activePhase,
   hasCurrent,
   characterName,
+  award,
 }: {
   tabs: PhaseTabView[];
   activePhase: Phase;
   hasCurrent: boolean;
   characterName: string;
+  /** Enables awarding a wishlist row (and clearing it) straight from the table. */
+  award?: AwardContext;
 }) {
   const byPhase = new Map(tabs.map((t) => [t.phase, t]));
   if (tabs.length === 0) {
@@ -99,7 +103,7 @@ export function CharacterPhaseTabs({
                 </div>
               </CardHeader>
               <CardContent>
-                <WishlistTable rows={openRows} />
+                <WishlistTable rows={openRows} award={award} />
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Imported {format(parseISO(tab.importedAt), "d MMM yyyy")} · source: {tab.source} ·{" "}
                   <Link

@@ -6,8 +6,11 @@ import {
   classifyCast,
   isNonConsumableAura,
 } from "@/lib/wcl/consumables";
+import { normalizeIcon, qualityFromId } from "@/lib/items/item-data";
+import type { Quality } from "@/lib/types";
 import {
   COOLDOWN_BY_ID,
+  TOTEM_CAST_BY_NAME,
   UPTIME_TRACK_BY_NAME,
   trackLabel,
   type UptimeTrack,
@@ -29,6 +32,8 @@ const rawActorSchema = z.looseObject({
   /** "Player" | "Pet" | "NPC" — absent on pre-NPC fetches (players only). */
   type: z.string().optional(),
   subType: z.string().optional(),
+  /** Owner actor id for pets — totems included, which is how totem buffs get credited to the shaman. */
+  petOwner: z.number().nullish(),
 });
 
 const rawFightSchema = z.looseObject({
@@ -92,9 +97,14 @@ const rawAbilitySchema = z.looseObject({
 const rawGearItemSchema = z.looseObject({
   id: z.number().optional(),
   itemLevel: z.number().nullish(),
+  /** Wowhead's 0–5 scale — free quality colouring, no lookup needed. */
+  quality: z.number().nullish(),
   permanentEnchant: z.number().nullish(),
   temporaryEnchant: z.number().nullish(),
-  gems: z.array(z.looseObject({ id: z.number().optional() })).nullish(),
+  /** Each gem carries its own icon; only its NAME needs resolving later. */
+  gems: z
+    .array(z.looseObject({ id: z.number().optional(), icon: z.string().nullish() }))
+    .nullish(),
   name: z.string().nullish(),
   icon: z.string().nullish(),
 });
@@ -107,7 +117,14 @@ const rawCombatantInfoEventSchema = z.looseObject({
   sourceID: z.number().optional(),
   gear: z.array(rawGearItemSchema).nullish(),
   auras: z
-    .array(z.looseObject({ name: z.string().optional(), ability: z.number().optional() }))
+    .array(
+      z.looseObject({
+        name: z.string().optional(),
+        ability: z.number().optional(),
+        /** Actor that applied the aura — present on most logs, absent on older ones. */
+        source: z.number().optional(),
+      }),
+    )
     .nullish(),
 });
 
@@ -116,6 +133,8 @@ const rawCastEventSchema = z.looseObject({
   type: z.string(),
   fight: z.number().optional(),
   sourceID: z.number().optional(),
+  /** Friendly target of a targeted cooldown (Innervate, Misdirection). */
+  targetID: z.number().optional(),
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
@@ -177,6 +196,13 @@ export interface NormalizedPlayerFight {
   extras: string[];
   /** Major class cooldowns cast during the pull, one entry per use. */
   cooldowns: string[];
+  /**
+   * When the tracked cooldowns and totem drops happened — ms from the pull
+   * start, in cast order, with the friendly target for the ones aimed at
+   * someone else (Innervate, Misdirection, Power Infusion). This is what turns
+   * "Innervate ×3" into a timeline.
+   */
+  castTimes: NormalizedCastMoment[];
   /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
   upkeep: {
     name: string;
@@ -192,6 +218,17 @@ export interface NormalizedPlayerFight {
   missingEnchants: string[];
 }
 
+/** One tracked cooldown or totem drop, placed inside the pull. */
+export interface NormalizedCastMoment {
+  name: string;
+  /** ms from the pull start. */
+  atMs: number;
+  /** Friendly target, when it wasn't the caster themself. */
+  target?: string;
+  /** A shaman totem drop rather than a class cooldown. */
+  totem?: boolean;
+}
+
 /** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
 export interface NormalizedUpkeepTarget {
   /** Target name as logged (NPC or friendly player). */
@@ -200,6 +237,8 @@ export interface NormalizedUpkeepTarget {
   instance?: number;
   /** True when the target is the encounter boss (WCL subType "Boss"). */
   boss: boolean;
+  /** True when the target is a friendly player — the "uptime by player" side of raid buffs. */
+  player?: boolean;
   pct: number;
   /** [startMs, endMs] pairs relative to the fight start. */
   segments: [number, number][];
@@ -207,14 +246,21 @@ export interface NormalizedUpkeepTarget {
   applications: number;
 }
 
+/** One socketed gem: the log gives its id and icon, never its name. */
+export interface NormalizedGem {
+  id: number;
+  icon?: string;
+}
+
 /** One worn item, slimmed for persistence (slot = WCL gear-array index). */
 export interface NormalizedGearItem {
   slot: number;
   id: number;
   ilvl?: number;
+  quality?: Quality;
   enchant?: number;
   temp?: number;
-  gems: number[];
+  gems: NormalizedGem[];
   name?: string;
   icon?: string;
 }
@@ -282,6 +328,17 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   );
   // Every actor incl. NPCs — resolves upkeep targets (boss, adds, friendlies).
   const anyActorById = new Map(actors.map((a) => [a.id, a]));
+  /**
+   * The player behind an aura source. A totem is a pet actor of the shaman who
+   * dropped it, and totem buffs are sourced from the totem — without this the
+   * whole shaman totem suite would go uncredited.
+   */
+  const sourcePlayerOf = (actorId: number) => {
+    const direct = actorById.get(actorId);
+    if (direct) return direct;
+    const owner = anyActorById.get(actorId)?.petOwner;
+    return owner !== null && owner !== undefined ? actorById.get(owner) : undefined;
+  };
 
   // Boss pulls only; trash fights have no encounterID.
   const fights = (raw.fights ?? []).filter((f) => (f.encounterID ?? 0) > 0);
@@ -327,6 +384,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         otherCasts: [],
         extras: [],
         cooldowns: [],
+        castTimes: [],
         upkeep: [],
         gear: [],
         drums: 0,
@@ -448,12 +506,24 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (!aura.name) continue;
       const hit = classifyAura(aura.name, aura.ability);
       if (!hit) {
-        // A maintained self-buff already up at the pull (shouts): open its
-        // uptime interval at the pull start — without this, a long-lasting
-        // shout with no events inside a short fight would read as 0%.
+        // A tracked buff already up at the pull: open its uptime interval at
+        // the pull start — without this, a shout or totem cast before the pull
+        // with no events inside a short fight would read as 0%.
         const track = UPTIME_TRACK_BY_NAME.get(aura.name.toLowerCase());
-        if (track?.kind === "selfbuff") {
-          uptimeAcc(fight, actor.name, track, event.sourceID).openAt ??= fight.startTime;
+        if (track && track.kind !== "debuff") {
+          // The log usually names who applied it (a totem resolves to its
+          // shaman); when it doesn't, only a class-matching recipient can be
+          // assumed to have buffed themself — guessing a provider would put
+          // someone else's totem on a raider's own name.
+          const provider =
+            aura.source !== undefined
+              ? sourcePlayerOf(aura.source)
+              : actor.subType === track.wowClass
+                ? actor
+                : undefined;
+          if (provider && (track.kind !== "selfbuff" || provider.id === event.sourceID)) {
+            uptimeAcc(fight, provider.name, track, event.sourceID).openAt ??= fight.startTime;
+          }
         }
         if (track || isNonConsumableAura(aura.name, aura.ability)) continue;
         const key = `${aura.name.toLowerCase()}|${aura.ability ?? ""}`;
@@ -486,11 +556,16 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           slot,
           id: item.id as number,
           ilvl: item.itemLevel ?? undefined,
+          quality: qualityFromId(item.quality),
           enchant: item.permanentEnchant ?? undefined,
           temp: item.temporaryEnchant ?? undefined,
-          gems: (item.gems ?? []).flatMap((g) => (g.id !== undefined && g.id > 0 ? [g.id] : [])),
+          // Each gem's own icon rides along; the log never names them.
+          gems: (item.gems ?? []).flatMap((g) =>
+            g.id !== undefined && g.id > 0 ? [{ id: g.id, icon: normalizeIcon(g.icon ?? undefined) }] : [],
+          ),
           name: item.name ?? undefined,
-          icon: item.icon ?? undefined,
+          // Logs spell icons "inv_helmet_15.jpg"; the CDN helper adds the extension.
+          icon: normalizeIcon(item.icon ?? undefined),
         }];
       });
     }
@@ -526,9 +601,22 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     const abilityId = event.ability?.guid ?? event.abilityGameID;
     const hit = classifyCast(abilityId, event.ability?.name);
     if (!hit) {
-      // Not a consumable — maybe one of the tracked class cooldowns.
+      // Not a consumable — maybe a tracked class cooldown or a totem drop.
       const cooldown = abilityId !== undefined ? COOLDOWN_BY_ID.get(abilityId) : undefined;
+      const totem = TOTEM_CAST_BY_NAME.get((event.ability?.name ?? "").toLowerCase());
+      if (!cooldown && !totem) continue;
+      const targetActor =
+        event.targetID !== undefined && event.targetID !== event.sourceID
+          ? actorById.get(event.targetID)
+          : undefined;
       if (cooldown) row.cooldowns.push(cooldown.name);
+      row.castTimes.push({
+        name: cooldown?.name ?? (totem as string),
+        atMs: Math.max(0, Math.min(event.timestamp, fight.endTime) - fight.startTime),
+        ...(targetActor ? { target: targetActor.name } : {}),
+        // Mana Tide is both a cooldown and a totem — it belongs in both views.
+        ...(totem ? { totem: true } : {}),
+      });
       continue;
     }
     if (hit.category === "potion") {
@@ -555,7 +643,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (!track) continue;
       if (track.kind === "selfbuff" && event.targetID !== event.sourceID) continue;
       const fight = bossFightOf(event);
-      const source = actorById.get(event.sourceID);
+      const source = sourcePlayerOf(event.sourceID);
       if (!fight || !source) continue;
 
       const ts = Math.min(Math.max(event.timestamp, fight.startTime), fight.endTime);
@@ -614,6 +702,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           target: target?.name ?? `Unknown #${acc.targetId}`,
           instance: acc.targetInstance,
           boss: target?.subType === "Boss",
+          ...(target?.type === "Player" ? { player: true } : {}),
           pct: pctOf(acc.totalMs),
           segments: acc.segments,
           applications: acc.applications,
@@ -631,6 +720,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   }
   for (const row of rows.values()) {
     row.upkeep.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+    row.castTimes.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
   }
 
   // Stable order: pull order, then name.

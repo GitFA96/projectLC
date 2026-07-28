@@ -1,9 +1,9 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { CHARACTER_STATUSES, ROLES, WOW_CLASSES } from "@/lib/constants/wow";
 
 /**
@@ -75,7 +75,7 @@ export async function saveCharacter(
     return { error: e instanceof Error ? e.message : "Saving failed.", values: raw };
   }
 
-  revalidatePath("/", "layout");
+  refreshAfterWrite("/", "layout");
   redirect(`/characters/${encodeURIComponent(savedName.toLowerCase())}`);
 }
 
@@ -89,7 +89,7 @@ export async function deleteGearSet(setId: string): Promise<DeleteGearSetResult>
     const repo = await getWriteRepo();
     const deleted = await repo.deleteGearSet(setId);
     if (!deleted) return { ok: false, message: "That set no longer exists." };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true, message: "Set deleted." };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Delete failed." };

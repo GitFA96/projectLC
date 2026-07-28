@@ -9,6 +9,7 @@ import type {
   SlotItem,
 } from "@/lib/types";
 import { SLOT_FAMILIES } from "@/lib/constants/wow";
+import { itemDisplayName } from "@/lib/items/item-data";
 
 interface ContentionInput {
   itemId: number;
@@ -82,7 +83,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
   return {
     item,
     itemId,
-    itemName: item?.name ?? itemAwards[0]?.award.itemName ?? `Item ${itemId}`,
+    itemName: itemDisplayName(itemId, item?.name, itemAwards[0]?.award.itemName),
     wishers,
     awards: itemAwards,
     openCount: wishers.filter((w) => !w.satisfied).length,

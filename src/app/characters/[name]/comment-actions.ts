@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { COMMENT_CATEGORIES } from "@/lib/comments";
 
 /**
@@ -35,7 +35,7 @@ export async function addComment(input: {
       author: parsed.data.author || undefined,
     });
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not add the comment." };
@@ -50,7 +50,7 @@ export async function deleteComment(input: {
     const repo = await getWriteRepo();
     const removed = await repo.deleteCharacterComment(input.commentId);
     if (!removed) return { ok: false, message: "Comment not found — it may already be gone." };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not remove the comment." };

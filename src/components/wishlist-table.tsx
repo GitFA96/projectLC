@@ -2,6 +2,11 @@ import { SLOT_LABELS } from "@/lib/constants/wow";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { AcquiredBadge } from "@/components/acquired-badge";
 import {
+  AwardItemButton,
+  ClearAwardButton,
+  type AwardContext,
+} from "@/components/award-item-controls";
+import {
   Table,
   TableBody,
   TableCell,
@@ -17,14 +22,21 @@ export interface WishlistRowView {
   current?: ItemRef;
   state: WishlistSlotState;
   awardedAt?: string;
+  /** Present when an award satisfied the slot — the handle for clearing it. */
+  awardId?: string;
 }
 
 /**
  * The slots where the wishlist differs from current gear (upgrades wanted),
  * with acquisition status. Slots already matching current gear are omitted —
  * they count toward completion but aren't actionable.
+ *
+ * With an award context the status column becomes editable: hand the item over
+ * without waiting for a Gargul paste, or clear an award that shouldn't have
+ * been recorded. Equipped slots have nothing to award — the character already
+ * has the item.
  */
-export function WishlistTable({ rows }: { rows: WishlistRowView[] }) {
+export function WishlistTable({ rows, award }: { rows: WishlistRowView[]; award?: AwardContext }) {
   if (rows.length === 0) {
     return (
       <p className="px-1 py-3 text-sm text-muted-foreground">
@@ -39,6 +51,7 @@ export function WishlistTable({ rows }: { rows: WishlistRowView[] }) {
           <TableHead className="w-20">Slot</TableHead>
           <TableHead>Wanted</TableHead>
           <TableHead className="w-36">Status</TableHead>
+          {award && <TableHead className="w-24" />}
           <TableHead>Currently</TableHead>
         </TableRow>
       </TableHeader>
@@ -54,6 +67,15 @@ export function WishlistTable({ rows }: { rows: WishlistRowView[] }) {
             <TableCell>
               <AcquiredBadge state={row.state} awardedAt={row.awardedAt} />
             </TableCell>
+            {award && (
+              <TableCell>
+                {row.awardId ? (
+                  <ClearAwardButton awardId={row.awardId} />
+                ) : row.state === "open" ? (
+                  <AwardItemButton ctx={award} prefill={row.wished} />
+                ) : null}
+              </TableCell>
+            )}
             <TableCell>
               {row.current ? (
                 <ItemLink item={row.current} size="sm" className="opacity-60" />

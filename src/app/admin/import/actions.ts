@@ -1,11 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { parseSixtyUpgradesExport } from "@/lib/import/sixtyupgrades";
 import { parseGargulExport } from "@/lib/import/gargul";
 import { phaseSchema } from "@/lib/import/schemas";
+import { mergeItemFacts } from "@/lib/items/item-data";
+import { resolveItemsFromWowhead } from "@/lib/items/wowhead";
 import { GEAR_SET_KINDS, PHASES } from "@/lib/constants/wow";
 import type { GearSet, Item, SlotItem } from "@/lib/types";
 
@@ -103,7 +105,7 @@ export async function commitSixtyUpgrades(rawInput: SixtyCommitInput): Promise<S
       };
     }
 
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return {
       status: "committed",
       replaced: result.status === "replaced",
@@ -166,6 +168,12 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
     // denormalized name from the item cache so the ledger reads cleanly, with a
     // plain id placeholder for items we haven't cached yet.
     const nameById = new Map((await repo.listItems()).map((i) => [i.id, i.name]));
+    // Ids that end up with a real name without asking Wowhead: the cache knew
+    // one, or the paste itself carried an item link.
+    const namedIds = new Set([
+      ...[...nameById].filter(([, name]) => name !== undefined).map(([id]) => id),
+      ...lines.filter((l) => l.itemName !== undefined).map((l) => l.itemId),
+    ]);
     const result = await repo.createRaidSessionWithAwards(
       {
         date: input.date,
@@ -182,19 +190,30 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
       })),
     );
 
-    // Item links in the paste carry name + quality — cache unknown items so
-    // they render with a quality color (icon stays a placeholder until M3 backfill).
-    const linkItems: Item[] = lines
-      .filter((l) => l.quality !== undefined)
-      .map((l) => ({
-        id: l.itemId,
-        name: l.itemName ?? `Item #${l.itemId}`,
-        quality: l.quality!,
-        icon: "inv_misc_questionmark",
-      }));
-    const itemsCached = result.inserted > 0 ? await repo.addItemsIfMissing(linkItems) : 0;
+    // Item links in the paste carry a name and a quality (its color); plain
+    // id lines carry neither. Cache whatever each line knew — no invented
+    // icon, so the resolver still recognizes the gap and fills it later.
+    const pasteItems: Item[] = mergeItemFacts(
+      lines.map((l) => ({ id: l.itemId, name: l.itemName, quality: l.quality })),
+    );
+    let itemsCached = result.inserted > 0 ? await repo.addItemsIfMissing(pasteItems) : 0;
 
-    if (result.inserted > 0) revalidatePath("/", "layout");
+    // A paste of plain item ids leaves a handful of items with no name at all.
+    // Resolve just those, right away — a raid's worth is a few lookups, and
+    // the ledger reads properly the moment it's imported. Bigger backlogs are
+    // the import page's "Backfill item data" button, not this.
+    if (result.inserted > 0) {
+      const unnamed = lines.map((l) => l.itemId).filter((id) => !namedIds.has(id));
+      if (unnamed.length > 0) {
+        const { resolved } = await resolveItemsFromWowhead(unnamed, { limit: 25 });
+        if (resolved.length > 0) {
+          itemsCached += await repo.addItemsIfMissing(resolved);
+          await repo.repairPlaceholderAwardNames();
+        }
+      }
+    }
+
+    if (result.inserted > 0) refreshAfterWrite("/", "layout");
     return {
       status: "committed",
       sessionId: result.session?.id,

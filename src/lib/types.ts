@@ -48,6 +48,8 @@ export interface WishlistRow {
   state: WishlistSlotState;
   /** Set when state === "awarded". */
   awardedAt?: string;
+  /** The loot award that satisfied the slot — the handle for undoing it. */
+  awardId?: string;
 }
 
 export interface WishlistCompletion {
@@ -276,6 +278,12 @@ export interface RaidFight {
   durationMs: number;
   /** Pull start, ms from report start — absolute pull/kill clock times derive from it. Absent on pre-timeline imports. */
   startMs?: number;
+  /**
+   * Officer-excluded pull: it stays visible in the fight list (and in the
+   * filter), but feeds nothing derived — no prep coverage, no consumable or
+   * cooldown counts, no uptime, no improvement findings.
+   */
+  excluded?: boolean;
 }
 
 /** One provider's uptime of a track during a single boss pull. */
@@ -305,6 +313,73 @@ export interface RaidUpkeepRow {
    * cross-raid rollup only needs the night averages.
    */
   perFight?: { fightId: number; providers: UpkeepFightProvider[] }[];
+}
+
+/* Raid buffs seen from the receiving end — "uptime by player" */
+
+/** One provider's share of a raid buff on one player during a pull. */
+export interface PlayerBuffSource {
+  name: string;
+  slug?: string;
+  className?: string;
+  pct: number;
+  /** [startMs, endMs] pairs relative to the fight start. */
+  segments: [number, number][];
+  /** ≈ times this provider (re)applied it on that player. */
+  applications?: number;
+  /**
+   * When the provider cast it on them, ms from the pull start — the press
+   * itself, next to the window it bought (Innervate at 1:12, up until 1:32).
+   * Only for buffs cast from a tracked cooldown.
+   */
+  casts?: number[];
+}
+
+/** One player's coverage of a raid buff during one pull, across every provider. */
+export interface PlayerBuffRecipient {
+  name: string;
+  slug?: string;
+  className?: string;
+  /** Coverage of the pull with the buff up, counting overlapping providers once. */
+  pct: number;
+  /** Who kept it on them, best coverage first. */
+  sources: PlayerBuffSource[];
+}
+
+/**
+ * One raid buff (Innervate, Mana Tide, shouts, every totem aura) tracked from
+ * the receiving end: who had it and for how long, plus who provided it.
+ */
+export interface RaidPlayerBuffRow {
+  name: string;
+  /** WCL class string of the providers, for coloring. */
+  className?: string;
+  /**
+   * Night average per recipient: their per-pull coverage averaged over the
+   * pulls they were in (a pull they attended without the buff counts as 0).
+   */
+  recipients: { name: string; slug?: string; className?: string; pct: number; pulls: number }[];
+  /** Who provided it across the night, most applications first. */
+  providers: { name: string; slug?: string; className?: string; applications: number }[];
+  /** Per-pull breakdown, pull order. Pulls where nobody had it are absent. */
+  perFight: { fightId: number; recipients: PlayerBuffRecipient[] }[];
+}
+
+/**
+ * One shaman's totem drops during a pull, in cast order. TBC never logs the
+ * buff a totem hands out, so the drop itself — which totem, dropped when — is
+ * the only honest record of totem work.
+ */
+export interface TotemDropLane {
+  name: string;
+  slug?: string;
+  className?: string;
+  drops: { name: string; atMs: number }[];
+}
+
+export interface RaidTotemFight {
+  fightId: number;
+  lanes: TotemDropLane[];
 }
 
 /**
@@ -420,6 +495,10 @@ export interface RaidReportView {
   reportPulls: number;
   prep: RaidPrepStats;
   upkeep: RaidUpkeepRow[];
+  /** Raid buffs from the receiving end (shouts, Innervate), most recipients first. */
+  playerBuffs: RaidPlayerBuffRow[];
+  /** Shaman totem drops per pull — pulls where nobody dropped one are absent. */
+  totems: RaidTotemFight[];
   cooldowns: RaidCooldownRow[];
   /** Raiders with at least one preparation gap, worst first. */
   improvements: PlayerImprovements[];

@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 
 /**
  * Toggle one reset week as an excused absence for a character. Used by the
@@ -30,7 +30,7 @@ export async function setWeekExcused(input: {
       parsed.data.excused,
     );
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Update failed." };

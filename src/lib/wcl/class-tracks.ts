@@ -74,9 +74,13 @@ export const COOLDOWN_BY_ID = new Map<number, ClassCooldown>(
 export type UptimeKind =
   /** Debuff the player maintains on enemies (uptime on their best target). */
   | "debuff"
-  /** Buff the player maintains on themself (shouts) — source must equal target. */
+  /** Buff the player maintains on themself (Rampage, Water Shield) — source must equal target. */
   | "selfbuff"
-  /** Buff the player maintains on someone friendly (Earth Shield on the tank). */
+  /**
+   * Buff a player puts on other raiders — shouts, Innervate, every totem aura.
+   * Tracked in both directions: who provided it, and who had it (uptime per
+   * recipient, the "uptime by player" view).
+   */
   | "buff";
 
 export interface UptimeTrack {
@@ -93,8 +97,8 @@ export const UPTIME_TRACKS: UptimeTrack[] = [
   { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior" },
   { name: "Thunder Clap", kind: "debuff", wowClass: "Warrior" },
   { name: "Demoralizing Shout", kind: "debuff", wowClass: "Warrior" },
-  { name: "Battle Shout", kind: "selfbuff", wowClass: "Warrior" },
-  { name: "Commanding Shout", kind: "selfbuff", wowClass: "Warrior" },
+  { name: "Battle Shout", kind: "buff", wowClass: "Warrior" },
+  { name: "Commanding Shout", kind: "buff", wowClass: "Warrior" },
   { name: "Rampage", kind: "selfbuff", wowClass: "Warrior" },
   /* Warlock curse assignments */
   { name: "Curse of Recklessness", kind: "debuff", wowClass: "Warlock" },
@@ -144,7 +148,59 @@ export const UPTIME_TRACKS: UptimeTrack[] = [
   { name: "Unstable Affliction", kind: "debuff", wowClass: "Warlock" },
   /* Hunter */
   { name: "Serpent Sting", kind: "debuff", wowClass: "Hunter" },
+  /*
+   * Raid buffs put on OTHER players — the "uptime by player" view.
+   *
+   * Only auras the TBC combat log actually emits belong here. Totem party
+   * buffs (Strength of Earth, Grace of Air, Wrath of Air, Mana Spring…) are
+   * NOT logged — they appear in neither buff events nor the pull's aura
+   * snapshot — and "Windfury Totem" as a buff is the attacker's own proc
+   * window, not who stands in the totem. Totems are tracked from their DROPS
+   * instead; see SHAMAN_TOTEM_CASTS.
+   */
+  { name: "Innervate", kind: "buff", wowClass: "Druid" },
 ];
+
+/**
+ * Every shaman totem, matched by CAST name so one entry covers all ranks.
+ * The log records the drop (source, timestamp, totem) even though the buff it
+ * hands out never reaches the combat log — so the honest view of totem work is
+ * a drop timeline per shaman, not an uptime bar per raider.
+ */
+export const SHAMAN_TOTEM_CASTS = [
+  "Windfury Totem",
+  "Strength of Earth Totem",
+  "Grace of Air Totem",
+  "Mana Spring Totem",
+  "Healing Stream Totem",
+  "Mana Tide Totem",
+  "Wrath of Air Totem",
+  "Totem of Wrath",
+  "Flametongue Totem",
+  "Tranquil Air Totem",
+  "Stoneskin Totem",
+  "Stoneclaw Totem",
+  "Windwall Totem",
+  "Fire Resistance Totem",
+  "Frost Resistance Totem",
+  "Nature Resistance Totem",
+  "Searing Totem",
+  "Magma Totem",
+  "Fire Nova Totem",
+  "Earthbind Totem",
+  "Tremor Totem",
+  "Grounding Totem",
+  "Cleansing Totem",
+  "Poison Cleansing Totem",
+  "Disease Cleansing Totem",
+  "Sentry Totem",
+  "Fire Elemental Totem",
+  "Earth Elemental Totem",
+];
+
+export const TOTEM_CAST_BY_NAME = new Map<string, string>(
+  SHAMAN_TOTEM_CASTS.map((n) => [n.toLowerCase(), n]),
+);
 
 export const UPTIME_TRACK_BY_NAME = new Map<string, UptimeTrack>(
   UPTIME_TRACKS.map((t) => [t.name.toLowerCase(), t]),

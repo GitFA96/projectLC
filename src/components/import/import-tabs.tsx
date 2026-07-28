@@ -81,12 +81,16 @@ export interface ImportPrefill {
   phase?: string;
 }
 
-/** Item cache rows shipped from the server so previews resolve icon/quality live. */
+/**
+   * Item cache rows shipped from the server so previews resolve icon/quality
+   * live. Every field but the id is optional — the cache fills in from
+   * whatever each import knew, so a row can be a name with no icon yet.
+   */
 export interface KnownItem {
   id: number;
-  name: string;
-  quality: Quality;
-  icon: string;
+  name?: string;
+  quality?: Quality;
+  icon?: string;
 }
 
 interface ItemResolver {

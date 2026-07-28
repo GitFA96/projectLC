@@ -20,6 +20,9 @@ import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard"
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
+import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
+import { FightFilter } from "@/components/logs/fight-filter";
+import { TotemTimeline } from "@/components/logs/totem-timeline";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
 import { Badge } from "@/components/ui/badge";
@@ -163,7 +166,8 @@ function RaidDashboard({
   priceOverrides: Record<string, ConsumablePrice>;
 }) {
   const { report, session, prep, fights } = raid;
-  const kills = fights.filter((f) => f.kill).length;
+  const counted = fights.filter((f) => !f.excluded);
+  const kills = counted.filter((f) => f.kill).length;
 
   return (
     <>
@@ -175,7 +179,7 @@ function RaidDashboard({
           </CardTitle>
           <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             {format(parseISO(report.startTime), "EEE d MMM yyyy")} · {prep.raiders} raiders ·{" "}
-            {kills}/{fights.length} bosses killed
+            {kills}/{counted.length} bosses killed
             {session && (
               <>
                 ·{" "}
@@ -197,13 +201,9 @@ function RaidDashboard({
               open on Warcraft Logs <ExternalLink className="h-3 w-3" />
             </a>
           </p>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {fights.map((f) => (
-              <Badge key={f.fightId} variant={f.kill ? "success" : "warning"} className="font-normal">
-                {f.encounterName}
-                {!f.kill && f.fightPercentage !== undefined && ` ${Math.round(f.fightPercentage)}%`}
-              </Badge>
-            ))}
+          {/* The pull list doubles as the switch for which pulls count. */}
+          <div className="mt-1">
+            <FightFilter code={report.code} fights={fights} />
           </div>
         </CardHeader>
       </Card>
@@ -227,12 +227,16 @@ function RaidDashboard({
 }
 
 function OverviewPanel({ raid }: { raid: RaidReportView }) {
-  const { prep, upkeep, cooldowns, improvements, fights } = raid;
+  const { prep, upkeep, playerBuffs, totems, cooldowns, improvements, fights } = raid;
+  // Excluded pulls feed nothing derived, so they get no timeline tab either.
+  const counted = fights.filter((f) => !f.excluded);
 
   return (
     <>
-      {/* Section 1: uptime — boss-by-boss view on top, the full table folded below */}
-      <UptimeByBoss fights={fights} upkeep={upkeep} reportStartTime={raid.report.startTime} />
+      {/* Section 1: uptime — boss-by-boss and player-by-player, the full table folded below */}
+      <UptimeByBoss fights={counted} upkeep={upkeep} reportStartTime={raid.report.startTime} />
+      <UptimeByPlayer fights={counted} playerBuffs={playerBuffs} reportStartTime={raid.report.startTime} />
+      <TotemTimeline fights={counted} totems={totems} />
       {upkeep.length === 0 ? (
         <Card>
           <CardHeader>

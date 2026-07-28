@@ -1,6 +1,11 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
 import { SAPPER_CAST_NAMES, TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
-import { BUFF_TRACK_NAMES, COOLDOWN_CAST_IDS, DEBUFF_TRACK_NAMES } from "@/lib/wcl/class-tracks";
+import {
+  BUFF_TRACK_NAMES,
+  COOLDOWN_CAST_IDS,
+  DEBUFF_TRACK_NAMES,
+  SHAMAN_TOTEM_CASTS,
+} from "@/lib/wcl/class-tracks";
 import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 
 /**
@@ -12,7 +17,7 @@ import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
  *   3. friendly death events                                  — paginated
  *   4. consumable + class-cooldown casts (tracked spell ids)  — paginated
  *   5. tracked debuffs on enemies (upkeep uptime)             — paginated, soft
- *   6. tracked buffs on friendlies (shouts, Earth Shield)     — paginated, soft
+ *   6. tracked buffs on friendlies (shouts, totems, Innervate) — paginated, soft
  * "Soft" fetches degrade to a warning instead of failing the import.
  */
 
@@ -24,7 +29,7 @@ query ReportOverview($code: String!) {
       startTime
       endTime
       zone { name }
-      masterData { actors { id name type subType } }
+      masterData { actors { id name type subType petOwner } }
       fights(killType: Encounters) {
         id encounterID name kill fightPercentage startTime endTime
       }
@@ -120,15 +125,15 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       code,
       "Casts",
       reportDuration,
-      // Sappers also matched by name — their spell ranks vary between logs.
-      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted(SAPPER_CAST_NAMES)})`,
+      // Sappers and totems are matched by name — one entry covers every rank.
+      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS])})`,
     ),
     soft(
       "Debuff-uptime tracking (curses, Thunder Clap…)",
       fetchAllEvents(code, "Debuffs", reportDuration, `ability.name IN (${quoted(DEBUFF_TRACK_NAMES)})`, "Enemies"),
     ),
     soft(
-      "Buff-uptime tracking (shouts, Earth Shield)",
+      "Buff-uptime tracking (shouts, totems, Innervate)",
       fetchAllEvents(code, "Buffs", reportDuration, `ability.name IN (${quoted(BUFF_TRACK_NAMES)})`),
     ),
   ]);

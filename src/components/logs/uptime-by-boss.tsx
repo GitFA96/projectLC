@@ -17,78 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-
-function uptimeClass(pct: number): string {
-  return pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : "";
-}
-
-/** "4:12" from ms. */
-function mmss(ms: number): string {
-  const total = Math.round(ms / 1000);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-/** Wall-clock "21:14:32" for an offset into the report night. */
-function clockTime(reportStartMs: number, offsetMs: number): string {
-  const d = new Date(reportStartMs + offsetMs);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-}
-
-/**
- * Tick positions (ms) for a fight's time axis — the step adapts to the pull
- * length (15s gates on a short pull, minutes on a long one) so there are
- * always a readable ~4–8 gates.
- */
-function timeTicks(durationMs: number): { ticks: number[]; stepMs: number } {
-  const steps = [15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
-  const stepMs = steps.find((s) => durationMs / s <= 8) ?? 600_000;
-  const ticks: number[] = [];
-  for (let t = stepMs; t < durationMs; t += stepMs) ticks.push(t);
-  return { ticks, stepMs };
-}
-
-/** Axis header: tick labels over the lane column, aligned with the gridlines. */
-function TimeAxis({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
-  const dur = Math.max(1, durationMs);
-  return (
-    <div className="grid grid-cols-[11rem_1fr_2.75rem] items-end gap-2">
-      <span />
-      <div className="relative h-4 text-[10px] tabular-nums text-muted-foreground">
-        <span className="absolute bottom-0 left-0">0:00</span>
-        {ticks.map((t) => {
-          const leftPct = (t / dur) * 100;
-          // Skip labels that would collide with the endpoints.
-          if (leftPct < 7 || leftPct > 91) return null;
-          return (
-            <span key={t} className="absolute bottom-0 -translate-x-1/2" style={{ left: `${leftPct}%` }}>
-              {mmss(t)}
-            </span>
-          );
-        })}
-        <span className="absolute bottom-0 right-0">{mmss(durationMs)}</span>
-      </div>
-      <span />
-    </div>
-  );
-}
-
-/** Vertical gridlines behind a lane's bands, one per axis tick. */
-function TickGrid({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
-  const dur = Math.max(1, durationMs);
-  return (
-    <>
-      {ticks.map((t) => (
-        <div
-          key={t}
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 w-px bg-foreground/15"
-          style={{ left: `${(t / dur) * 100}%` }}
-        />
-      ))}
-    </>
-  );
-}
+import { clockTime, PctLane, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
 
 /** One provider's up-intervals on one target, as bands over the pull. */
 function SegmentLane({
@@ -110,56 +39,29 @@ function SegmentLane({
   durationMs: number;
   ticks: number[];
 }) {
-  const color = classColor(provider.className) ?? "var(--primary)";
-  const dur = Math.max(1, durationMs);
   return (
-    <div className="grid grid-cols-[11rem_1fr_2.75rem] items-center gap-2">
-      <span className="truncate text-sm">
-        <Raider name={provider.name} slug={provider.slug} className={provider.className} />
-        {applications !== undefined && applications > 1 && (
-          <span className="ml-1 text-xs tabular-nums text-muted-foreground" title="≈ casts landed (applies + refreshes)">
-            ×{applications}
-          </span>
-        )}
-        {showTrack && (
-          <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">{trackName}</span>
-        )}
-      </span>
-      <div className="relative h-2.5 overflow-hidden rounded-sm bg-muted">
-        <TickGrid durationMs={dur} ticks={ticks} />
-        {segments.map(([from, to], i) => (
-          <div
-            key={i}
-            className="absolute inset-y-0 rounded-[1px]"
-            title={`${mmss(from)}–${mmss(to)}`}
-            style={{
-              left: `${Math.max(0, (from / dur) * 100)}%`,
-              width: `${Math.max(0.4, ((to - from) / dur) * 100)}%`,
-              backgroundColor: color,
-            }}
-          />
-        ))}
-      </div>
-      <span className={cn("text-right text-xs font-medium tabular-nums", uptimeClass(pct))}>{pct}%</span>
-    </div>
-  );
-}
-
-/** Fallback for pre-timeline imports: plain per-provider uptime bars. */
-function PctLane({ provider }: { provider: UpkeepFightProvider }) {
-  const color = classColor(provider.className) ?? "var(--primary)";
-  return (
-    <div className="grid grid-cols-[11rem_1fr_2.75rem] items-center gap-2">
-      <span className="truncate text-sm">
-        <Raider name={provider.name} slug={provider.slug} className={provider.className} />
-      </span>
-      <div className="h-2.5 overflow-hidden rounded-sm bg-muted">
-        <div className="h-full" style={{ width: `${Math.min(100, provider.pct)}%`, backgroundColor: color }} />
-      </div>
-      <span className={cn("text-right text-xs font-medium tabular-nums", uptimeClass(provider.pct))}>
-        {provider.pct}%
-      </span>
-    </div>
+    <TimelineLane
+      label={
+        <>
+          <Raider name={provider.name} slug={provider.slug} className={provider.className} />
+          {applications !== undefined && applications > 1 && (
+            <span
+              className="ml-1 text-xs tabular-nums text-muted-foreground"
+              title="≈ casts landed (applies + refreshes)"
+            >
+              ×{applications}
+            </span>
+          )}
+          {showTrack && (
+            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">{trackName}</span>
+          )}
+        </>
+      }
+      bands={[{ segments, color: classColor(provider.className) ?? "var(--primary)" }]}
+      pct={pct}
+      durationMs={durationMs}
+      ticks={ticks}
+    />
   );
 }
 
@@ -231,13 +133,16 @@ function groupByTarget(tracks: { name: string; providers: UpkeepFightProvider[] 
  */
 export function UptimeByBoss({
   fights,
-  upkeep,
+  upkeep: allUpkeep,
   reportStartTime,
 }: {
   fights: RaidFight[];
   upkeep: RaidUpkeepRow[];
   reportStartTime: string;
 }) {
+  // Buffs a player puts on other raiders (shouts, totems, Innervate) are read
+  // from the receiving end instead — that's the "Uptime by player" section.
+  const upkeep = allUpkeep.filter((u) => u.kind !== "buff");
   const [selected, setSelected] = React.useState<string[]>(() => {
     // The armor/physical debuff suite the officers watch first; anything of it
     // present in the report starts selected. Explicitly not "(Feral)".
@@ -295,7 +200,7 @@ export function UptimeByBoss({
                   )}
                   {buffs.length > 0 && (
                     <SelectGroup>
-                      <SelectLabel>Buffs</SelectLabel>
+                      <SelectLabel>Self-buffs</SelectLabel>
                       {buffs.map((u) => (
                         <SelectItem key={u.name} value={u.name}>
                           {u.name}
@@ -386,7 +291,12 @@ export function UptimeByBoss({
                           <div key={t.name} className="space-y-1">
                             {showTrack && <p className="text-sm font-medium">{t.name}</p>}
                             {t.providers.map((p) => (
-                              <PctLane key={p.name} provider={p} />
+                              <PctLane
+                                key={p.name}
+                                label={<Raider name={p.name} slug={p.slug} className={p.className} />}
+                                pct={p.pct}
+                                color={classColor(p.className)}
+                              />
                             ))}
                           </div>
                         ))}

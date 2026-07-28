@@ -4,6 +4,7 @@ import { getRepo } from "@/lib/data/repo";
 import { hasWclCredentials } from "@/lib/wcl/client";
 import { PageHeader } from "@/components/page-header";
 import { ImportTabs, type ImportPrefill } from "@/components/import/import-tabs";
+import { ItemCacheCard } from "@/components/import/item-cache-card";
 import { PHASES } from "@/lib/constants/wow";
 
 export const metadata: Metadata = { title: "Import" };
@@ -26,11 +27,12 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items, sessions, wclReports] = await Promise.all([
+  const [characters, items, sessions, wclReports, unresolvedItems] = await Promise.all([
     repo.listCharacters(),
     repo.listItems(),
     repo.listRaidSessions(),
     repo.listWclReports(),
+    repo.listUnresolvedItemIds(),
   ]);
 
   return (
@@ -62,6 +64,9 @@ export default async function ImportPage({
         }))}
         prefill={prefill}
       />
+      <div className="mt-4">
+        <ItemCacheCard unresolved={unresolvedItems.length} />
+      </div>
     </div>
   );
 }

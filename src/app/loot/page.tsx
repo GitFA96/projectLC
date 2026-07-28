@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getRepo } from "@/lib/data/repo";
+import { itemDisplayName } from "@/lib/items/item-data";
 import { PageHeader } from "@/components/page-header";
 import { LootView, type LootRow, type SessionOption } from "@/components/loot-view";
 
@@ -23,7 +24,7 @@ export default async function LootPage() {
     phase: a.sessionPhase,
     item: {
       itemId: a.award.itemId,
-      name: a.item?.name ?? a.award.itemName,
+      name: itemDisplayName(a.award.itemId, a.item?.name, a.award.itemName),
       quality: a.item?.quality,
       icon: a.item?.icon,
     },

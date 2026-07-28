@@ -36,6 +36,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     otherCasts: [],
     extras: [],
     cooldowns: [],
+    castTimes: [],
     upkeep: [],
     drums: 0,
     runes: 0,
@@ -94,13 +95,13 @@ describe("summarizeRaidReport", () => {
   });
 
   it("rolls up debuff/buff uptime per provider, boss debuffs first", () => {
-    // Curse of the Elements (debuff) sorts above Battle Shout (selfbuff).
+    // Curse of the Elements (debuff) sorts above Battle Shout (a raid buff).
     expect(raid.upkeep[0].name).toBe("Curse of the Elements");
     expect(raid.upkeep[0].kind).toBe("debuff");
     expect(raid.upkeep[0].bestPct).toBe(92); // avg of 95 and 88, rounded
     expect(raid.upkeep[0].providers[0]).toMatchObject({ name: "Morgrave", slug: "morgrave" });
     const shout = raid.upkeep.find((u) => u.name === "Battle Shout")!;
-    expect(shout.kind).toBe("selfbuff");
+    expect(shout.kind).toBe("buff");
     expect(shout.bestPct).toBe(85);
   });
 
@@ -215,5 +216,134 @@ describe("summarizeRaidReport", () => {
     const kaz = v.usage.find((u) => u.name === "Kazrak")!;
     // 1.5h night → under the 2h flask window → a single flask.
     expect(kaz.prepBreakdown.find((p) => p.name.startsWith("Flask"))!.count).toBe(1);
+  });
+});
+
+describe("summarizeRaidReport — excluded pulls", () => {
+  const rows: WclPlayerFight[] = [
+    row({ fightId: 1, actorName: "Kazrak", encounterName: "Hydross", className: "Warrior",
+      flask: "Flask of Relentless Assault", potions: ["Haste Potion"], cooldowns: ["Death Wish"],
+      upkeep: [{ name: "Battle Shout", pct: 90 }] }),
+    // The pull the officers want out: no flask, no food, no potion — a gimmick
+    // wipe that would otherwise drag the whole night's numbers down.
+    row({ fightId: 2, actorName: "Kazrak", encounterName: "Leotheras", kill: false, className: "Warrior",
+      flask: undefined, food: false, potions: [], cooldowns: ["Recklessness"],
+      upkeep: [{ name: "Battle Shout", pct: 10 }] }),
+  ];
+  const full = summarizeRaidReport({ report, rows, reportPulls: 2, slugByActor: new Map() });
+  const filtered = summarizeRaidReport({ report, rows, reportPulls: 2, slugByActor: new Map(), excludedFightIds: [2] });
+
+  it("keeps every pull in the fight list, flagging the excluded ones", () => {
+    expect(filtered.fights.map((f) => [f.fightId, f.excluded])).toEqual([
+      [1, undefined],
+      [2, true],
+    ]);
+  });
+
+  it("leaves excluded pulls out of preparation coverage and consumable counts", () => {
+    expect(full.prep.flaskOrElixirPct).toBe(50);
+    expect(filtered.prep.flaskOrElixirPct).toBe(100);
+    expect(filtered.prep.foodPct).toBe(100);
+    expect(filtered.prep.rows).toBe(1);
+    expect(filtered.usage.find((u) => u.name === "Kazrak")!.potions).toBe(1);
+  });
+
+  it("leaves them out of cooldowns, uptime and the improvement list", () => {
+    expect(filtered.cooldowns.map((c) => c.name)).toEqual(["Death Wish"]);
+    expect(filtered.upkeep.find((u) => u.name === "Battle Shout")!.bestPct).toBe(90); // not (90+10)/2
+    // The only gap Kazrak had was on the excluded pull.
+    expect(full.improvements.some((p) => p.name === "Kazrak")).toBe(true);
+    expect(filtered.improvements).toEqual([]);
+  });
+});
+
+describe("summarizeRaidReport — raid buffs by player", () => {
+  // Two warriors overlapping Battle Shout on the same raider, plus a single
+  // Innervate: the provider rows carry the per-recipient timelines.
+  const rows: WclPlayerFight[] = [
+    row({ fightId: 1, actorName: "Dëltâ", className: "Warrior",
+      upkeep: [{ name: "Battle Shout", pct: 50, targets: [
+        { target: "Kazrak", boss: false, player: true, pct: 50, segments: [[0, 150000]], applications: 1 },
+      ] }] }),
+    row({ fightId: 1, actorName: "Katzewarr", className: "Warrior",
+      upkeep: [{ name: "Battle Shout", pct: 50, targets: [
+        // Overlaps Dëltâ's window — the union is 0–250s, not 400s of a 300s pull.
+        { target: "Kazrak", boss: false, player: true, pct: 50, segments: [[100000, 250000]], applications: 1 },
+      ] }] }),
+    row({ fightId: 1, actorName: "Lunara", className: "Druid", role: "healer",
+      cooldowns: ["Innervate"],
+      castTimes: [{ name: "Innervate", atMs: 60000, target: "Tidemar" }],
+      upkeep: [{ name: "Innervate", pct: 6, targets: [
+        { target: "Tidemar", boss: false, player: true, pct: 6, segments: [[60000, 80000]], applications: 1 },
+      ] }] }),
+    row({ fightId: 1, actorName: "Kazrak", className: "Warrior" }),
+    // A second pull nobody buffed — it still counts against the night average.
+    row({ fightId: 2, actorName: "Kazrak", className: "Warrior" }),
+  ];
+  const v = summarizeRaidReport({
+    report,
+    rows,
+    reportPulls: 2,
+    slugByActor: new Map([["kazrak", "kazrak"]]),
+  });
+  const shout = v.playerBuffs.find((b) => b.name === "Battle Shout")!;
+
+  it("inverts provider timelines into per-recipient coverage, counting overlap once", () => {
+    const pull = shout.perFight.find((p) => p.fightId === 1)!;
+    const kazrak = pull.recipients.find((r) => r.name === "Kazrak")!;
+    expect(kazrak.pct).toBe(83); // union 0–250s of a 300s pull, not 100%
+    expect(kazrak.slug).toBe("kazrak");
+    expect(kazrak.className).toBe("Warrior");
+    expect(kazrak.sources.map((s) => s.name).sort()).toEqual(["Dëltâ", "Katzewarr"]);
+  });
+
+  it("averages a recipient over the pulls they raided, unbuffed ones as zeros", () => {
+    expect(shout.recipients).toEqual([
+      { name: "Kazrak", slug: "kazrak", className: "Warrior", pct: 42, pulls: 2 },
+    ]);
+  });
+
+  it("keeps the cast moment next to the window it bought", () => {
+    const innervate = v.playerBuffs.find((b) => b.name === "Innervate")!;
+    expect(innervate.providers[0]).toMatchObject({ name: "Lunara", className: "Druid", applications: 1 });
+    expect(innervate.recipients.map((r) => r.name)).toEqual(["Tidemar"]);
+    const source = innervate.perFight[0].recipients[0].sources[0];
+    expect(source.casts).toEqual([60000]);
+    expect(source.segments).toEqual([[60000, 80000]]);
+  });
+});
+
+describe("summarizeRaidReport — totem drops", () => {
+  const v = summarizeRaidReport({
+    report,
+    reportPulls: 1,
+    slugByActor: new Map([["tidemar", "tidemar"]]),
+    rows: [
+      row({ fightId: 1, actorName: "Tidemar", className: "Shaman", castTimes: [
+        { name: "Windfury Totem", atMs: 20000, totem: true },
+        { name: "Strength of Earth Totem", atMs: 21000, totem: true },
+        { name: "Death Wish", atMs: 30000 },
+      ] }),
+      row({ fightId: 1, actorName: "Kazrak", className: "Warrior" }),
+    ],
+  });
+
+  it("lays each shaman's drops out along the pull, cooldowns excluded", () => {
+    expect(v.totems).toEqual([
+      {
+        fightId: 1,
+        lanes: [
+          {
+            name: "Tidemar",
+            slug: "tidemar",
+            className: "Shaman",
+            drops: [
+              { name: "Windfury Totem", atMs: 20000 },
+              { name: "Strength of Earth Totem", atMs: 21000 },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 });

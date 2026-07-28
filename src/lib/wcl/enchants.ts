@@ -2,9 +2,10 @@
  * Gear-slot knowledge for the WCL gear panel.
  *
  * WCL combatant-info gear arrays are ordered by equipment slot; enchants come
- * as bare ENCHANTMENT ids. Names for ids are curated only where we're certain —
- * every id additionally links to its Wowhead enchantment page, so unknown ids
- * still resolve to ground truth in one click (and can be pasted back here).
+ * as bare ENCHANTMENT ids, which no Wowhead page or API accepts. Names are
+ * curated only where we're certain; everything else is left as its id, with
+ * the item's hover tooltip (rendered by Wowhead with the enchant applied) as
+ * the ground truth an officer can read off and paste back here.
  */
 
 /** Display label per gear-array index (shirt 3 and tabard 18 omitted). */
@@ -37,8 +38,14 @@ export const ENCHANT_NAMES: Record<number, string> = {
   3273: "Deathfrost",
 };
 
-export function wowheadEnchantUrl(id: number): string {
-  return `https://www.wowhead.com/tbc/enchantment=${id}`;
+/**
+ * Wowhead has no page for a SpellItemEnchantment id — /tbc/enchantment=3273
+ * is a 404 — so a known enchant links to a search for its name instead. The
+ * ids themselves only resolve inside an item tooltip, which the gear panel
+ * feeds via data-wowhead="item=…&ench=…".
+ */
+export function wowheadEnchantSearchUrl(name: string): string {
+  return `https://www.wowhead.com/tbc/search?q=${encodeURIComponent(name)}`;
 }
 
 export function wowheadItemUrl(id: number): string {

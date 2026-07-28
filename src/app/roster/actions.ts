@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { CHARACTER_STATUSES, WOW_CLASSES, type Role, type WowClass } from "@/lib/constants/wow";
 
 export type RosterActionResult = { ok: boolean; message: string };
@@ -45,7 +45,7 @@ export async function setCharactersStatus(input: SetStatusInput): Promise<Roster
       if (result.ok) moved++;
       else failures.push(`${c.name}: ${result.error}`);
     }
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     const target = parsed.data.status === "pug" ? "known puggers" : `the guild roster (${parsed.data.status})`;
     return {
       ok: failures.length === 0,
@@ -81,7 +81,7 @@ export async function deleteCharacters(input: DeleteCharactersInput): Promise<Ro
         failures.push(result.error);
       }
     }
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     const unlinked = [
       unlinkedAwards > 0 ? `${plural(unlinkedAwards, "award")} reopened as unresolved` : undefined,
       unlinkedLogRows > 0 ? `${plural(unlinkedLogRows, "log pull")} back to untracked` : undefined,
@@ -157,7 +157,7 @@ export async function trackLogPlayers(input: TrackPlayersInput): Promise<RosterA
       if (result.ok) created++;
       else failures.push(`${player.name}: ${result.error}`);
     }
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return {
       ok: failures.length === 0 && skipped.length === 0,
       message:
@@ -179,7 +179,7 @@ export async function purgeDemoData(): Promise<RosterActionResult> {
   try {
     const repo = await getWriteRepo();
     const removed = await repo.purgeDemoData();
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return {
       ok: true,
       message: `Demo data removed: ${removed.characters} characters, ${removed.raidSessions} raid sessions, ${removed.lootAwards} awards, ${removed.gearSets} gear sets, ${removed.wclReports} log report(s). Your imported data is untouched.`,

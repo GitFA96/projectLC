@@ -12,7 +12,13 @@ const REPORT_START = 1765000000000;
 function gear(
   overrides: Record<
     number,
-    { permanentEnchant?: number | null; temporaryEnchant?: number | null; id?: number; gems?: { id?: number }[] }
+    {
+      permanentEnchant?: number | null;
+      temporaryEnchant?: number | null;
+      id?: number;
+      quality?: number;
+      gems?: { id?: number; icon?: string }[];
+    }
   > = {},
 ) {
   return Array.from({ length: 17 }, (_, i) => ({
@@ -20,6 +26,7 @@ function gear(
     itemLevel: 120 + i,
     permanentEnchant: 3001 as number | null,
     temporaryEnchant: null as number | null,
+    quality: 4,
     ...overrides[i],
   }));
 }
@@ -90,7 +97,7 @@ const combatantInfo = [
       { name: "Well Fed", ability: 33257 },
       { name: "Commanding Shout", ability: 469 },
     ],
-    gear: gear({ 15: { temporaryEnchant: 2713 }, 0: { gems: [{ id: 24027 }, {}] } }),
+    gear: gear({ 15: { temporaryEnchant: 2713 }, 0: { gems: [{ id: 24027, icon: "inv_jewelcrafting_livingruby_03.jpg" }, {}] } }),
   },
   {
     timestamp: 100060,
@@ -294,8 +301,13 @@ describe("normalizeWclReport", () => {
     expect(tank.gear).toHaveLength(17);
     const weapon = tank.gear.find((g) => g.slot === 15)!;
     expect(weapon).toMatchObject({ id: 30015, ilvl: 135, enchant: 3001, temp: 2713 });
-    // Gem ids come through; gem entries without an id are dropped.
-    expect(tank.gear.find((g) => g.slot === 0)!.gems).toEqual([24027]);
+    // Gems keep the icon the log gives them (extension stripped); entries
+    // without an id are dropped. Their names come from the item cache later.
+    expect(tank.gear.find((g) => g.slot === 0)!.gems).toEqual([
+      { id: 24027, icon: "inv_jewelcrafting_livingruby_03" },
+    ]);
+    // Quality rides along, so gear renders coloured with no lookup at all.
+    expect(weapon.quality).toBe("epic");
     // The mage's unenchanted chest carries no enchant id.
     expect(row(7, "Pyrelia").gear.find((g) => g.slot === 4)!.enchant).toBeUndefined();
   });
@@ -368,29 +380,36 @@ describe("normalizeWclReport", () => {
     });
   });
 
-  it("tracks shout upkeep from self-applications only", () => {
+  it("tracks a raid buff on every player it landed on, credited to its caster", () => {
+    // The shout is Thrainn's upkeep wherever it sits — on himself and on
+    // Lunara — which is what the by-player view reads back.
     expect(row(9, "Thrainn").upkeep).toContainEqual({
       name: "Battle Shout",
       pct: 80,
-      targets: [{ target: "Thrainn", boss: false, pct: 80, segments: [[50000, 250000]], applications: 1 }],
+      targets: [
+        { target: "Lunara", boss: false, player: true, pct: 80, segments: [[50000, 250000]], applications: 1 },
+        { target: "Thrainn", boss: false, player: true, pct: 80, segments: [[50000, 250000]], applications: 1 },
+      ],
     });
-    // The shout landing on Lunara is not her upkeep…
+    // Receiving it is never the recipient's own upkeep.
     expect(row(9, "Lunara").upkeep.some((u) => u.name === "Battle Shout")).toBe(false);
-    // …but the Earth Shield she SOURCED is, wherever it sits.
+    // Earth Shield is the same shape: attributed to the shaman who cast it.
     expect(row(9, "Lunara").upkeep).toContainEqual({
       name: "Earth Shield",
       pct: 40,
-      targets: [{ target: "Thrainn", boss: false, pct: 40, segments: [[20000, 120000]], applications: 1 }],
+      targets: [
+        { target: "Thrainn", boss: false, player: true, pct: 40, segments: [[20000, 120000]], applications: 1 },
+      ],
     });
   });
 
-  it("opens self-buff upkeep at the pull when the aura is already up", () => {
+  it("opens buff upkeep at the pull when the aura is already up", () => {
     // Commanding Shout sat in Thrainn's pull auras with zero buff events in
     // the fight — that's 100% uptime, not 0%.
     expect(row(7, "Thrainn").upkeep).toContainEqual({
       name: "Commanding Shout",
       pct: 100,
-      targets: [{ target: "Thrainn", boss: false, pct: 100, segments: [[0, 300000]], applications: 0 }],
+      targets: [{ target: "Thrainn", boss: false, player: true, pct: 100, segments: [[0, 300000]], applications: 0 }],
     });
   });
 
@@ -416,6 +435,99 @@ describe("normalizeWclReport", () => {
     expect(row(7, "Pyrelia").flask).toBeUndefined();
     // …and a cast stamped outside every window still lands via its fight field.
     expect(row(9, "Pyrelia").potions).toEqual(["Haste Potion"]);
+  });
+});
+
+/**
+ * Raid buffs put on OTHER players (the caster is named in the pull's aura
+ * snapshot) and the totem drops that carry no aura at all.
+ */
+describe("normalizeWclReport — raid buffs and totem drops", () => {
+  const buffReport = {
+    title: "Totem night",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 600_000,
+    masterData: {
+      actors: [
+        { id: 1, name: "Tidemar", type: "Player", subType: "Shaman" },
+        { id: 2, name: "Kazrak", type: "Player", subType: "Warrior" },
+        // The totem is a pet of the shaman who dropped it.
+        { id: 20, name: "Windfury Totem", type: "Pet", subType: "Pet", petOwner: 1 },
+        { id: 50, name: "Attumen the Huntsman", type: "NPC", subType: "Boss" },
+      ],
+    },
+    fights: [
+      { id: 1, encounterID: 653, name: "Attumen the Huntsman", kill: true, startTime: 0, endTime: 200_000 },
+    ],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: {
+            dps: {
+              characters: [
+                { name: "Tidemar", class: "Shaman", spec: "Enhancement" },
+                { name: "Kazrak", class: "Warrior", spec: "Fury" },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const result = normalizeWclReport(buffReport, {
+    combatantInfo: [
+      // Kazrak pulled with Battle Shout already up — the aura names its caster,
+      // so it counts from the pull start even with no buff events inside it.
+      {
+        timestamp: 10,
+        type: "combatantinfo",
+        sourceID: 2,
+        auras: [{ name: "Battle Shout", ability: 2048, source: 2 }],
+        gear: [],
+      },
+      { timestamp: 20, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+    ],
+    deaths: [],
+    casts: [
+      // Totem drops: no aura ever reaches the raid, so the cast IS the record.
+      { timestamp: 20_000, type: "cast", sourceID: 1, ability: { name: "Windfury Totem", guid: 25587 } },
+      { timestamp: 21_000, type: "cast", sourceID: 1, ability: { name: "Strength of Earth Totem", guid: 25528 } },
+      { timestamp: 150_000, type: "cast", sourceID: 1, ability: { name: "Windfury Totem", guid: 8512 } },
+      // Mana Tide is a cooldown AND a totem — it belongs to both views.
+      { timestamp: 90_000, type: "cast", sourceID: 1, ability: { name: "Mana Tide Totem", guid: 16190 } },
+      // A targeted cooldown records who it was aimed at.
+      { timestamp: 60_000, type: "cast", sourceID: 1, targetID: 2, ability: { name: "Heroism", guid: 32182 } },
+    ],
+    debuffs: [],
+    buffs: [],
+  });
+  const row = (name: string) => result.rows.find((r) => r.actorName === name)!;
+
+  it("records totem drops with their moment in the pull", () => {
+    expect(row("Tidemar").castTimes.filter((c) => c.totem)).toEqual([
+      { name: "Windfury Totem", atMs: 20_000, totem: true },
+      { name: "Strength of Earth Totem", atMs: 21_000, totem: true },
+      { name: "Mana Tide Totem", atMs: 90_000, totem: true },
+      { name: "Windfury Totem", atMs: 150_000, totem: true },
+    ]);
+    // Only Mana Tide is a tracked cooldown — plain totems never inflate that count.
+    expect([...row("Tidemar").cooldowns].sort()).toEqual(["Heroism", "Mana Tide Totem"]);
+  });
+
+  it("stamps a targeted cooldown with its recipient", () => {
+    expect(row("Tidemar").castTimes).toContainEqual({ name: "Heroism", atMs: 60_000, target: "Kazrak" });
+  });
+
+  it("credits a buff already up at the pull to the caster the aura names", () => {
+    expect(row("Kazrak").upkeep).toContainEqual({
+      name: "Battle Shout",
+      pct: 100,
+      targets: [
+        { target: "Kazrak", boss: false, player: true, pct: 100, segments: [[0, 200_000]], applications: 0 },
+      ],
+    });
   });
 });
 

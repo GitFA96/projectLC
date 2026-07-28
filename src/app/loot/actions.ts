@@ -1,7 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { refreshAfterWrite } from "@/lib/refresh";
 import { getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
 
 /**
@@ -39,7 +39,7 @@ export async function resolveAwardAction(input: ResolveAwardInput): Promise<Reso
     );
     if (!result.ok) return { ok: false, message: result.error };
 
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     const message =
       data.resolution === "character"
         ? "Award assigned — wishlist matching has been re-derived."
@@ -123,7 +123,7 @@ export async function addAwardAction(input: AddAwardInput): Promise<LootActionRe
     if ("error" in built) return { ok: false, message: built.error };
     const result = await repo.addLootAward(parsed.data.raidSessionId, built);
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true, message: `Added “${result.award.itemName}” for ${result.award.rawWinnerName}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Adding the award failed." };
@@ -139,7 +139,7 @@ export async function updateAwardAction(input: UpdateAwardInput): Promise<LootAc
     if ("error" in built) return { ok: false, message: built.error };
     const result = await repo.updateLootAward(parsed.data.awardId, built);
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     return { ok: true, message: "Award updated — wishlist matching re-derived." };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Updating the award failed." };
@@ -158,7 +158,7 @@ export async function deleteAwardsAction(input: DeleteAwardsInput): Promise<Loot
     for (const id of parsed.data.awardIds) {
       if (await repo.deleteLootAward(id)) deleted++;
     }
-    if (deleted > 0) revalidatePath("/", "layout");
+    if (deleted > 0) refreshAfterWrite("/", "layout");
     return { ok: true, message: `Deleted ${deleted} award${deleted === 1 ? "" : "s"}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Deleting failed." };
@@ -175,7 +175,7 @@ export async function deleteSessionAction(input: DeleteSessionInput): Promise<Lo
     const repo = await getWriteRepo();
     const result = await repo.deleteRaidSession(parsed.data.sessionId);
     if (!result.ok) return { ok: false, message: result.error };
-    revalidatePath("/", "layout");
+    refreshAfterWrite("/", "layout");
     const reportNote =
       result.unlinkedReports > 0
         ? ` ${result.unlinkedReports} linked log${result.unlinkedReports === 1 ? "" : "s"} unlinked (kept).`

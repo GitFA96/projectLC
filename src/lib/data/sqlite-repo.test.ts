@@ -374,7 +374,7 @@ describe("sqlite repo", () => {
           {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
             actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
-            prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], upkeep: [],
+            prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [], upkeep: [],
             deaths: 0, drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [],
           },
         ],
@@ -474,6 +474,125 @@ describe("sqlite repo", () => {
     expect((await repo.getItem(99950))!.name).toBe("Brand New");
   });
 
+  it("fills the gaps in a cached item without touching what it already knew", async () => {
+    const repo = getSqliteRepo();
+    // A loot paste that only knew a name and a color.
+    expect(await repo.addItemsIfMissing([{ id: 99951, name: "Half-Known Blade", quality: "epic" }])).toBe(1);
+    // A log's gear snapshot later supplies the icon — and a wrong name, ignored.
+    expect(await repo.addItemsIfMissing([{ id: 99951, name: "Wrong", icon: "inv_sword_48" }])).toBe(1);
+    expect(await repo.getItem(99951)).toMatchObject({
+      name: "Half-Known Blade",
+      quality: "epic",
+      icon: "inv_sword_48",
+    });
+    // Nothing new to learn — the row is left alone and reported as untouched.
+    expect(await repo.addItemsIfMissing([{ id: 99951, name: "Wrong again" }])).toBe(0);
+  });
+
+  it("lists items that would render as a bare id, and stops listing them once resolved", async () => {
+    const repo = getSqliteRepo();
+    const session = await repo.createRaidSessionWithAwards(
+      { date: "2026-06-11", zones: ["Serpentshrine Cavern"], source: "gargul" },
+      [{ rawWinnerName: "Thrainn", itemId: 99952, itemName: "Item #99952", awardedAt: "2026-06-11T21:00:00", offspec: false }],
+    );
+    expect(session.inserted).toBe(1);
+    expect(await repo.listUnresolvedItemIds()).toContain(99952);
+
+    // What the Wowhead resolver hands back.
+    await repo.addItemsIfMissing([{ id: 99952, name: "Fathom-Brooch of the Tidewalker", quality: "epic", icon: "inv_jewelry_necklace_21" }]);
+    expect(await repo.listUnresolvedItemIds()).not.toContain(99952);
+
+    // The invented name frozen into the award row is repaired from the cache.
+    expect(await repo.repairPlaceholderAwardNames()).toBe(1);
+    const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99952)!;
+    expect(award.award.itemName).toBe("Fathom-Brooch of the Tidewalker");
+    expect(await repo.repairPlaceholderAwardNames()).toBe(0);
+  });
+
+  it("awards a wishlist item by hand and clears it again", async () => {
+    const repo = getSqliteRepo();
+    const before = (await repo.getCharacterBundle("thrainn"))!;
+    const openRow = before.wishlists[0].rows.find((r) => r.state === "open")!;
+    expect(openRow.awardId).toBeUndefined();
+
+    // What the character page's dialog does for "+ New manual entry".
+    const session = await repo.createRaidSessionWithAwards(
+      { date: "2026-07-28", zones: ["Serpentshrine Cavern"], source: "manual", note: "Manual loot entry" },
+      [
+        {
+          rawWinnerName: before.character.name,
+          itemId: openRow.wished.itemId,
+          itemName: openRow.wished.itemName,
+          awardedAt: "2026-07-28T12:00:00",
+          offspec: false,
+        },
+      ],
+    );
+    expect(session.inserted).toBe(1);
+
+    const awarded = (await repo.getCharacterBundle("thrainn"))!;
+    const awardedRow = awarded.wishlists[0].rows.find((r) => r.wished.itemId === openRow.wished.itemId)!;
+    expect(awardedRow.state).toBe("awarded");
+    expect(awardedRow.awardId).toBeDefined();
+    // Completion and the loot ledger move with it — one source of truth.
+    expect(awarded.wishlists[0].completion.satisfied).toBe(before.wishlists[0].completion.satisfied + 1);
+    expect(awarded.awards.some((a) => a.award.itemId === openRow.wished.itemId)).toBe(true);
+
+    expect(await repo.deleteLootAward(awardedRow.awardId!)).toBe(true);
+    const cleared = (await repo.getCharacterBundle("thrainn"))!;
+    const clearedRow = cleared.wishlists[0].rows.find((r) => r.wished.itemId === openRow.wished.itemId)!;
+    expect(clearedRow.state).toBe("open");
+    expect(clearedRow.awardId).toBeUndefined();
+    expect(cleared.wishlists[0].completion.satisfied).toBe(before.wishlists[0].completion.satisfied);
+  });
+
+  it("files a hand-written award into an existing raid night", async () => {
+    const repo = getSqliteRepo();
+    const character = (await repo.findCharacterByName("Thrainn"))!;
+    const session = (await repo.listRaidSessions())[0];
+    const result = await repo.addLootAward(session.id, {
+      itemId: 30048,
+      itemName: "Brighthelm of Justice",
+      rawWinnerName: character.name,
+      characterId: character.id,
+      external: false,
+      offspec: true,
+      note: "traded after the raid",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    // Filed under that night, linked to the character, off-spec kept.
+    expect(result.award.raidSessionId).toBe(session.id);
+    expect(result.award.characterId).toBe(character.id);
+    expect(result.award.offspec).toBe(true);
+    expect(result.award.awardedAt.startsWith(session.date)).toBe(true);
+  });
+
+  it("harvests icons out of stored log gear into the cache", async () => {
+    const repo = getSqliteRepo();
+    await repo.saveWclReport(
+      {
+        code: "GEARICONS",
+        title: "Gear icon harvest",
+        zone: "Tempest Keep",
+        startTime: "2026-06-11T18:00:00.000Z",
+        endTime: "2026-06-11T22:00:00.000Z",
+      },
+      [
+        {
+          fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
+          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
+          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          missingEnchants: [],
+          // The snapshot spells icons with an extension; the cache stores them bare.
+          gear: [{ slot: 0, id: 99953, icon: "inv_helmet_15.jpg", gems: [] }],
+        },
+      ],
+    );
+    expect(await repo.getItem(99953)).toMatchObject({ icon: "inv_helmet_15" });
+  });
+
   describe("warcraft logs performance", () => {
     function fightDraft(
       over: Partial<WclPlayerFightDraft> & { fightId: number; actorName: string },
@@ -494,6 +613,7 @@ describe("sqlite repo", () => {
         otherCasts: [],
         extras: [],
         cooldowns: [],
+        castTimes: [],
         upkeep: [],
         gear: [],
         drums: 0,
@@ -602,6 +722,27 @@ describe("sqlite repo", () => {
       expect(saved["Good Potion"]).toEqual({ gold: 10, charges: 2 });
       expect(saved["Bad Gold"]).toBeUndefined(); // negative gold dropped
       expect(saved["Bad Charges"]).toEqual({ gold: 5, charges: 1 }); // charges clamped to ≥1
+    });
+
+    it("round-trips the excluded pulls of a raid and applies them to its rollup", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia", potions: ["Haste Potion"] }),
+        fightDraft({ fightId: 2, actorName: "Pyrelia", encounterName: "Moroes", kill: false, potions: ["Haste Potion"] }),
+      ]);
+      expect(await repo.getReportExcludedFights(reportDraft.code)).toEqual([]);
+      expect((await repo.getRaidReport(reportDraft.code))!.prep.potionsTotal).toBe(2);
+
+      await repo.setReportExcludedFights(reportDraft.code, [2]);
+      expect(await repo.getReportExcludedFights(reportDraft.code)).toEqual([2]);
+      const filtered = (await repo.getRaidReport(reportDraft.code))!;
+      // The pull stays visible, flagged, but its potion no longer counts.
+      expect(filtered.fights.map((f) => f.excluded)).toEqual([undefined, true]);
+      expect(filtered.prep.potionsTotal).toBe(1);
+
+      // Clearing the filter counts the whole night again.
+      await repo.setReportExcludedFights(reportDraft.code, []);
+      expect((await repo.getRaidReport(reportDraft.code))!.prep.potionsTotal).toBe(2);
     });
 
     it("moves a character to pug and back, excluding them from guild stats", async () => {

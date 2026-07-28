@@ -46,9 +46,10 @@ export interface AwardDialogTarget {
 
 export interface DialogItem {
   id: number;
-  name: string;
-  quality: Quality;
-  icon: string;
+  /** Absent until some import or the Wowhead resolver learns it. */
+  name?: string;
+  quality?: Quality;
+  icon?: string;
 }
 
 const CUSTOM = "__name__";

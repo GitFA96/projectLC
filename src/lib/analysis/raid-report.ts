@@ -2,14 +2,19 @@ import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import type {
   ConsumableTypeRow,
   ImprovementFinding,
+  PlayerBuffRecipient,
+  PlayerBuffSource,
   PlayerImprovements,
   RaidCooldownRow,
   RaidFight,
+  RaidPlayerBuffRow,
   RaidPrepStats,
   RaidReportView,
   RaiderUsage,
-  RaidUpkeepRow,
   RaidSession,
+  RaidTotemFight,
+  RaidUpkeepRow,
+  TotemDropLane,
   UpkeepFightProvider,
   WclPlayerFight,
   WclReport,
@@ -32,6 +37,25 @@ function bossList(names: string[], cap = 3): string {
 
 function pct(part: number, total: number): number {
   return total === 0 ? 0 : Math.round((part / total) * 100);
+}
+
+/** Overlapping/adjacent up-intervals folded into disjoint ones, in time order. */
+export function mergeSegments(segments: [number, number][]): [number, number][] {
+  const sorted = [...segments].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const [from, to] of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+    else merged.push([from, to]);
+  }
+  return merged;
+}
+
+/** % of a pull covered by the union of up-intervals — two providers overlapping still count once. */
+function coveragePct(segments: [number, number][], durationMs: number): number {
+  if (durationMs <= 0) return 0;
+  const up = mergeSegments(segments).reduce((sum, [from, to]) => sum + (to - from), 0);
+  return Math.round(Math.min(100, (up / durationMs) * 100));
 }
 
 function isPrepared(row: WclPlayerFight): boolean {
@@ -75,15 +99,23 @@ export interface RaidReportInput {
   reportPulls: number;
   /** Lowercased actor name → roster slug, for deep-linking matched raiders. */
   slugByActor: Map<string, string>;
+  /**
+   * Pulls the officers switched off for this report (a farm wipe, an off-night
+   * gimmick fight). They stay in the fight list, flagged, but contribute
+   * nothing to prep coverage, consumable/cooldown counts, uptime or
+   * improvements.
+   */
+  excludedFightIds?: number[];
 }
 
 export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
-  const { report, session, rows, reportPulls, slugByActor } = input;
+  const { report, session, rows: allRows, reportPulls, slugByActor } = input;
   const slugOf = (actorName: string) => slugByActor.get(actorName.toLowerCase());
+  const excluded = new Set(input.excludedFightIds ?? []);
 
-  /* Distinct boss pulls, in pull order. */
+  /* Distinct boss pulls, in pull order — every pull, excluded ones flagged. */
   const fightById = new Map<number, RaidFight>();
-  for (const r of rows) {
+  for (const r of allRows) {
     if (!fightById.has(r.fightId)) {
       fightById.set(r.fightId, {
         fightId: r.fightId,
@@ -92,18 +124,22 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         fightPercentage: r.fightPercentage,
         durationMs: r.durationMs,
         startMs: r.fightStartMs,
+        ...(excluded.has(r.fightId) ? { excluded: true } : {}),
       });
     }
   }
   const fights = [...fightById.values()].sort((a, b) => a.fightId - b.fightId);
+  // Everything below this line is derived from the INCLUDED pulls only.
+  const rows = excluded.size === 0 ? allRows : allRows.filter((r) => !excluded.has(r.fightId));
 
   // Raid span + early/late pull halves feed the duration-based prep model:
   // a buff present in both halves of a long night was re-applied.
   const spanMs = Date.parse(report.endTime) - Date.parse(report.startTime);
   const spanHours = Number.isFinite(spanMs) && spanMs > 0 ? spanMs / 3_600_000 : 0;
-  const nFights = fights.length;
+  const includedFights = fights.filter((f) => !f.excluded);
+  const nFights = includedFights.length;
   const fightHalf = new Map<number, { early: boolean; late: boolean }>();
-  fights.forEach((f, i) =>
+  includedFights.forEach((f, i) =>
     fightHalf.set(f.fightId, { early: i < Math.ceil(nFights / 2), late: i >= Math.floor(nFights / 2) }),
   );
 
@@ -301,6 +337,13 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       .sort((a, b) => b.pct - a.pct);
     const track = UPTIME_TRACK_BY_LABEL.get(name.toLowerCase());
     const dominantClass = [...providerMap.values()][0]?.className;
+    // A track that has since left the catalogue (or an import that predates it)
+    // still has to sort somewhere: enemy targets mean it was a debuff, purely
+    // friendly ones a buff. Without this an old row would claim "on boss".
+    const allTargets = [...(upkeepByTrackFight.get(name) ?? new Map<number, UpkeepFightProvider[]>()).values()]
+      .flat()
+      .flatMap((p) => p.targets ?? []);
+    const onlyPlayerTargets = allTargets.length > 0 && allTargets.every((t) => t.player);
     const perFight = [...(upkeepByTrackFight.get(name) ?? new Map<number, UpkeepFightProvider[]>())]
       .map(([fightId, fightProviders]) => ({
         fightId,
@@ -310,7 +353,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     return {
       name,
       className: dominantClass,
-      kind: track?.kind ?? "debuff",
+      kind: track?.kind ?? (onlyPlayerTargets ? "selfbuff" : "debuff"),
       providers,
       bestPct: providers[0]?.pct ?? 0,
       perFight,
@@ -319,6 +362,136 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   // Debuffs (on the boss) first, then by best uptime descending.
   const kindOrder = { debuff: 0, selfbuff: 1, buff: 1 } as const;
   upkeep.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || b.bestPct - a.bestPct || a.name.localeCompare(b.name));
+
+  /* ---- Raid buffs from the receiving end ("uptime by player") ---- */
+  // The provider's row carries the per-victim breakdown; invert it into
+  // track → pull → recipient → providers, so a raider can be read as "what did
+  // I have up, and who gave it to me".
+  const classByActor = new Map<string, string | undefined>();
+  const pullsByActor = new Map<string, number>();
+  for (const r of rows) {
+    if (r.className) classByActor.set(r.actorName, r.className);
+    pullsByActor.set(r.actorName, (pullsByActor.get(r.actorName) ?? 0) + 1);
+  }
+  const durationOf = new Map(fights.map((f) => [f.fightId, f.durationMs]));
+  interface BuffTrackAcc {
+    className?: string;
+    /** fightId → recipient → provider → their coverage of that recipient. */
+    perFight: Map<number, Map<string, Map<string, PlayerBuffSource>>>;
+    applicationsByProvider: Map<string, number>;
+  }
+  const buffTracks = new Map<string, BuffTrackAcc>();
+  for (const r of rows) {
+    for (const u of r.upkeep) {
+      const track = UPTIME_TRACK_BY_LABEL.get(u.name.toLowerCase());
+      if (track?.kind !== "buff") continue;
+      for (const t of u.targets ?? []) {
+        if (!t.player) continue;
+        const acc = buffTracks.get(u.name) ?? {
+          className: r.className,
+          perFight: new Map(),
+          applicationsByProvider: new Map(),
+        };
+        acc.className ??= r.className;
+        const recipients = acc.perFight.get(r.fightId) ?? new Map<string, Map<string, PlayerBuffSource>>();
+        const sources = recipients.get(t.target) ?? new Map<string, PlayerBuffSource>();
+        const prev = sources.get(r.actorName);
+        // Presses of the button, when the buff comes from a tracked cooldown:
+        // a targeted one (Innervate) only counts on the raider it was aimed at.
+        const casts = r.castTimes
+          .filter((c) => c.name === u.name && (c.target === undefined || c.target === t.target))
+          .map((c) => c.atMs);
+        sources.set(r.actorName, {
+          name: r.actorName,
+          slug: slugOf(r.actorName),
+          className: r.className,
+          pct: Math.max(prev?.pct ?? 0, t.pct),
+          segments: [...(prev?.segments ?? []), ...t.segments],
+          applications: (prev?.applications ?? 0) + (t.applications ?? 0),
+          ...(casts.length > 0 ? { casts: [...(prev?.casts ?? []), ...casts] } : {}),
+        });
+        recipients.set(t.target, sources);
+        acc.perFight.set(r.fightId, recipients);
+        acc.applicationsByProvider.set(
+          r.actorName,
+          (acc.applicationsByProvider.get(r.actorName) ?? 0) + (t.applications ?? 0),
+        );
+        buffTracks.set(u.name, acc);
+      }
+    }
+  }
+  const playerBuffs: RaidPlayerBuffRow[] = [...buffTracks]
+    .map(([name, acc]): RaidPlayerBuffRow => {
+      // Coverage sums per recipient across pulls; the night average divides by
+      // the pulls they were IN, so a pull spent unbuffed counts as a zero.
+      const coverageByRecipient = new Map<string, number>();
+      const perFight = [...acc.perFight]
+        .map(([fightId, recipientMap]) => {
+          const durationMs = durationOf.get(fightId) ?? 0;
+          const recipients: PlayerBuffRecipient[] = [...recipientMap]
+            .map(([recipient, sourceMap]) => {
+              const sources = [...sourceMap.values()]
+                .map((s) => ({
+                  ...s,
+                  segments: mergeSegments(s.segments),
+                  ...(s.casts ? { casts: [...new Set(s.casts)].sort((a, b) => a - b) } : {}),
+                }))
+                .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+              const pct = coveragePct(sources.flatMap((s) => s.segments), durationMs);
+              coverageByRecipient.set(recipient, (coverageByRecipient.get(recipient) ?? 0) + pct);
+              return { name: recipient, slug: slugOf(recipient), className: classByActor.get(recipient), pct, sources };
+            })
+            .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+          return { fightId, recipients };
+        })
+        .sort((a, b) => a.fightId - b.fightId);
+      const recipients = [...coverageByRecipient]
+        .map(([recipient, total]) => ({
+          name: recipient,
+          slug: slugOf(recipient),
+          className: classByActor.get(recipient),
+          pct: Math.round(total / Math.max(1, pullsByActor.get(recipient) ?? 1)),
+          pulls: pullsByActor.get(recipient) ?? 0,
+        }))
+        .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+      const providers = [...acc.applicationsByProvider]
+        .map(([provider, applications]) => ({
+          name: provider,
+          slug: slugOf(provider),
+          className: classByActor.get(provider),
+          applications,
+        }))
+        .sort((a, b) => b.applications - a.applications || a.name.localeCompare(b.name));
+      return { name, className: acc.className, recipients, providers, perFight };
+    })
+    // Raid-wide buffs (shouts, totems) first, spot buffs like Innervate after.
+    .sort((a, b) => b.recipients.length - a.recipients.length || a.name.localeCompare(b.name));
+
+  /* ---- Totem drops ---- */
+  // TBC logs the drop but never the buff a totem hands out, so the timeline of
+  // presses is the whole story: which totem each shaman put down, and when.
+  const totemsByFight = new Map<number, Map<string, TotemDropLane>>();
+  for (const r of rows) {
+    const drops = r.castTimes.filter((c) => c.totem);
+    if (drops.length === 0) continue;
+    const lanes = totemsByFight.get(r.fightId) ?? new Map<string, TotemDropLane>();
+    const lane = lanes.get(r.actorName) ?? {
+      name: r.actorName,
+      slug: slugOf(r.actorName),
+      className: r.className,
+      drops: [],
+    };
+    lane.drops.push(...drops.map((c) => ({ name: c.name, atMs: c.atMs })));
+    lane.drops.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
+    lanes.set(r.actorName, lane);
+    totemsByFight.set(r.fightId, lanes);
+  }
+  const totems: RaidTotemFight[] = [...totemsByFight]
+    .map(([fightId, lanes]) => ({
+      fightId,
+      lanes: [...lanes.values()].sort((a, b) => b.drops.length - a.drops.length || a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.fightId - b.fightId);
 
   /* ---- Cooldown usage ---- */
   const cooldownByName = new Map<string, Map<string, number>>();
@@ -396,5 +569,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   }
   improvements.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-  return { report, session, fights, reportPulls, prep, upkeep, cooldowns, improvements, usage };
+  return {
+    report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
+  };
 }

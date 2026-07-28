@@ -12,11 +12,12 @@ import {
   ENCHANT_NAMES,
   GEAR_SLOT_LABELS,
   P2_ENCHANT_GUIDE,
-  wowheadEnchantUrl,
+  wowheadEnchantSearchUrl,
   wowheadItemUrl,
 } from "@/lib/wcl/enchants";
 import { CLASS_TEXT_COLORS, QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
-import type { Item, PerformanceReportView, WclPlayerFight } from "@/lib/types";
+import { itemDisplayName, normalizeIcon } from "@/lib/items/item-data";
+import type { Item, PerformanceReportView, Quality, WclPlayerFight } from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
 import { FightGraphPanel } from "@/components/performance/fight-graph";
 import { PerformanceTabs } from "@/components/performance/performance-tabs";
@@ -676,32 +677,82 @@ function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
   );
 }
 
-/** External Wowhead-linked item (worn gear / gems live outside the item pages). */
+/**
+ * External Wowhead-linked item (worn gear and gems live outside the item
+ * pages). The hover tooltip is given the enchant and the socketed gems, so it
+ * renders the item exactly as it was worn — which is the only place an
+ * enchant's real name shows up: Wowhead has no page for enchantment ids.
+ */
 function WornItemLink({
   gearItem,
   cached,
   size = 20,
 }: {
-  gearItem: { id: number; name?: string; icon?: string };
+  gearItem: { id: number; name?: string; icon?: string; quality?: Quality; enchant?: number; gems?: { id: number }[] };
   cached?: Item;
   size?: number;
 }) {
-  const name = gearItem.name ?? cached?.name ?? `Item #${gearItem.id}`;
+  const name = itemDisplayName(gearItem.id, gearItem.name, cached?.name);
+  const quality = gearItem.quality ?? cached?.quality;
+  const gems = (gearItem.gems ?? []).map((g) => g.id).join(":");
+  const tooltip = [
+    `item=${gearItem.id}`,
+    gearItem.enchant !== undefined ? `ench=${gearItem.enchant}` : undefined,
+    gems ? `gems=${gems}` : undefined,
+    "domain=tbc",
+  ]
+    .filter(Boolean)
+    .join("&");
   return (
     <a
       href={wowheadItemUrl(gearItem.id)}
       target="_blank"
       rel="noreferrer"
-      data-wowhead={`item=${gearItem.id}&domain=tbc`}
+      data-wowhead={tooltip}
       className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
     >
-      <ItemIcon icon={gearItem.icon ?? cached?.icon} quality={cached?.quality ?? "common"} size={size} />
+      <ItemIcon
+        icon={normalizeIcon(gearItem.icon) ?? cached?.icon}
+        quality={quality ?? "common"}
+        size={size}
+      />
       <span
         className="truncate text-sm font-medium"
-        style={cached ? { color: QUALITY_TEXT_COLORS[cached.quality] } : undefined}
+        style={quality ? { color: QUALITY_TEXT_COLORS[quality] } : undefined}
       >
         {name}
       </span>
+    </a>
+  );
+}
+
+/**
+ * One socketed gem: its icon comes from the log, its name from the item cache
+ * (filled by the import page's backfill). An unnamed gem shows its id rather
+ * than a fake name — the icon and the hover tooltip still identify it.
+ */
+function GemChip({ gem, cached }: { gem: { id: number; icon?: string }; cached?: Item }) {
+  const quality = cached?.quality;
+  return (
+    <a
+      href={wowheadItemUrl(gem.id)}
+      target="_blank"
+      rel="noreferrer"
+      data-wowhead={`item=${gem.id}&domain=tbc`}
+      className="inline-flex min-w-0 items-center gap-1 hover:underline"
+      title={cached?.name ?? `Gem ${gem.id} — hover for the Wowhead tooltip`}
+    >
+      <ItemIcon icon={normalizeIcon(gem.icon) ?? cached?.icon} quality={quality ?? "common"} size={16} />
+      {cached?.name ? (
+        <span
+          className="truncate text-xs"
+          style={quality ? { color: QUALITY_TEXT_COLORS[quality] } : undefined}
+        >
+          {cached.name}
+        </span>
+      ) : (
+        <span className="truncate text-xs tabular-nums text-muted-foreground">#{gem.id}</span>
+      )}
     </a>
   );
 }
@@ -780,15 +831,24 @@ function GearPanel({
                       </TableCell>
                       <TableCell className="text-sm">
                         {g.enchant !== undefined ? (
-                          <a
-                            href={wowheadEnchantUrl(g.enchant)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-emerald-700 underline-offset-2 hover:underline"
-                            title="Open the enchant on Wowhead"
-                          >
-                            {ENCHANT_NAMES[g.enchant] ?? `enchant #${g.enchant}`}
-                          </a>
+                          ENCHANT_NAMES[g.enchant] ? (
+                            <a
+                              href={wowheadEnchantSearchUrl(ENCHANT_NAMES[g.enchant])}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-700 underline-offset-2 hover:underline"
+                              title="Look this enchant up on Wowhead"
+                            >
+                              {ENCHANT_NAMES[g.enchant]}
+                            </a>
+                          ) : (
+                            <span
+                              className="text-emerald-700"
+                              title="Wowhead has no page for enchantment ids — hover the item to see this enchant by name"
+                            >
+                              enchanted <span className="text-muted-foreground">#{g.enchant}</span>
+                            </span>
+                          )
                         ) : expectsEnchant ? (
                           <span className="font-medium text-destructive">missing</span>
                         ) : (
@@ -807,18 +867,9 @@ function GearPanel({
                       </TableCell>
                       <TableCell>
                         {g.gems.length > 0 ? (
-                          <span className="inline-flex items-center gap-1">
-                            {g.gems.map((gemId, i) => (
-                              <a
-                                key={`${gemId}-${i}`}
-                                href={wowheadItemUrl(gemId)}
-                                target="_blank"
-                                rel="noreferrer"
-                                data-wowhead={`item=${gemId}&domain=tbc`}
-                                title={itemsById.get(gemId)?.name ?? `Gem #${gemId}`}
-                              >
-                                <ItemIcon icon={itemsById.get(gemId)?.icon} size={16} />
-                              </a>
+                          <span className="flex flex-col gap-0.5">
+                            {g.gems.map((gem, i) => (
+                              <GemChip key={`${gem.id}-${i}`} gem={gem} cached={itemsById.get(gem.id)} />
                             ))}
                           </span>
                         ) : (
@@ -831,10 +882,11 @@ function GearPanel({
               </TableBody>
             </Table>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Hover any item or gem for the Wowhead tooltip; enchants link to Wowhead (unnamed ones
-              show their id — the link is the ground truth). The log doesn&apos;t carry socket
-              counts, so an empty socket is invisible here: compare the gems column against the
-              tooltip&apos;s sockets.
+              Hover an item for its Wowhead tooltip — it renders with this enchant and these gems
+              applied, which is where an enchant shows up by name (Wowhead has no page for the
+              enchantment ids logs carry, so the column names only the ones we recognise). The log
+              doesn&apos;t carry socket counts, so an empty socket is invisible here: compare the
+              gems column against the tooltip&apos;s sockets.
             </p>
           </>
         )}

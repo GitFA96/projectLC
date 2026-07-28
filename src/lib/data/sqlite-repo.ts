@@ -2,22 +2,26 @@ import { randomUUID } from "node:crypto";
 import {
   bumpDataVersion,
   getDataVersion,
+  getAllExcludedFights,
   getDb,
   getReportConsumablePrices,
+  getReportExcludedFights,
   insertAttendanceExemption,
   insertCharacter,
   insertCharacterComment,
   insertGearSet,
-  insertItem,
   insertLootAward,
   insertRaidSession,
   insertWclPlayerFight,
   insertWclReport,
   loadStore,
+  mergeItems,
   setReportConsumablePrices,
+  setReportExcludedFights,
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
+import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
 import {
   characterCommentSchema,
   characterSchema,
@@ -74,7 +78,12 @@ function readModel(): CachedModel {
   const dbPath = process.env.PROJECTLC_DB ?? "";
   if (cached && cached.version === version && cached.dbPath === dbPath) return cached;
   const store = loadStore(db);
-  const model: CachedModel = { dbPath, version, repo: createRepoFromStore(store), store };
+  const model: CachedModel = {
+    dbPath,
+    version,
+    repo: createRepoFromStore(store, { excludedFightsByCode: getAllExcludedFights(db) }),
+    store,
+  };
   globalCache.__projectlcModel = model;
   return model;
 }
@@ -138,6 +147,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     withTx(db, () => {
       if (existing) db.prepare("DELETE FROM gear_sets WHERE id = ?").run(existing.id);
       insertGearSet(db, set);
+      mergeItems(db, harvestItemFacts({ gearSets: [set], lootAwards: [], wclPlayerFights: [] }));
       bumpDataVersion(db);
     });
     return existing ? { status: "replaced", set, previous: existing } : { status: "created", set };
@@ -269,6 +279,9 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     withTx(db, () => {
       insertRaidSession(db, session);
       for (const award of toInsert) insertLootAward(db, award);
+      // A paste that named its items teaches the cache those names; invented
+      // "Item #30048" ones are filtered out by the harvest.
+      mergeItems(db, harvestItemFacts({ gearSets: [], lootAwards: toInsert, wclPlayerFights: [] }));
       bumpDataVersion(db);
     });
     return {
@@ -435,6 +448,10 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(report.code);
       insertWclReport(db, report); // INSERT OR REPLACE keyed on code
       for (const row of rows) insertWclPlayerFight(db, row);
+      // Every logged pull carries a gear snapshot with icons (and sometimes
+      // names) — the cheapest item data there is, so it lands in the cache
+      // instead of staying buried in per-row JSON.
+      mergeItems(db, harvestItemFacts({ gearSets: [], lootAwards: [], wclPlayerFights: rows }));
       bumpDataVersion(db);
     });
     return {
@@ -561,21 +578,49 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
   },
 
   async addItemsIfMissing(items: Item[]): Promise<number> {
+    if (items.length === 0) return 0;
     const db = getDb();
-    const known = new Set(readModel().store.items.map((i) => i.id));
-    const fresh = items.filter((i) => !known.has(i.id));
-    if (fresh.length === 0) return 0;
+    let learned = 0;
     withTx(db, () => {
-      for (const item of fresh) insertItem(db, item);
+      learned = mergeItems(db, items);
+      if (learned > 0) bumpDataVersion(db);
+    });
+    return learned;
+  },
+
+  async harvestItemCache(): Promise<number> {
+    const { store } = readModel();
+    return this.addItemsIfMissing(harvestItemFacts(store));
+  },
+
+  async repairPlaceholderAwardNames(): Promise<number> {
+    const db = getDb();
+    const byId = new Map(readModel().store.items.map((i) => [i.id, i]));
+    const stale = readModel().store.lootAwards.filter(
+      (a) => isPlaceholderName(a.itemName) && byId.get(a.itemId)?.name !== undefined,
+    );
+    if (stale.length === 0) return 0;
+    withTx(db, () => {
+      const stmt = db.prepare("UPDATE loot_awards SET item_name = ? WHERE id = ?");
+      for (const award of stale) stmt.run(byId.get(award.itemId)!.name as string, award.id);
       bumpDataVersion(db);
     });
-    return fresh.length;
+    return stale.length;
   },
 
   async setReportConsumablePrices(code, prices) {
     const db = getDb();
     withTx(db, () => {
       setReportConsumablePrices(db, code, prices);
+      bumpDataVersion(db);
+    });
+  },
+
+  async setReportExcludedFights(code, fightIds) {
+    const db = getDb();
+    withTx(db, () => {
+      setReportExcludedFights(db, code, fightIds);
+      // The read model bakes the filter in — the bump forces it to rebuild.
       bumpDataVersion(db);
     });
   },
@@ -601,6 +646,8 @@ export function getSqliteRepo(): WriteRepo {
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
     // Prices live in the meta table, not the derived model — read them directly.
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
+    getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
+    listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
   };
   return { ...readDelegate, ...writeMethods };
 }
