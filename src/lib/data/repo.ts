@@ -1,3 +1,4 @@
+import type { EnchantReference } from "@/lib/analysis/enchants";
 import type {
   AwardWithContext,
   Character,
@@ -72,6 +73,13 @@ export interface Repo {
    * list for the Wowhead resolver, most-referenced first.
    */
   listUnresolvedItemIds(): Promise<number[]>;
+  /**
+   * What the guild's imported sets know about enchants: id → name (a
+   * dictionary that works on every raider's logs) and the enchant each class's
+   * wishlists pick per slot. The only source that names the enchantment ids
+   * logs carry — see lib/analysis/enchants.
+   */
+  getEnchantReference(): Promise<EnchantReference>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */

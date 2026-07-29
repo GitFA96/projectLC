@@ -75,8 +75,18 @@ export const slotItemSchema = z.object({
   itemId: z.number().int().positive(),
   /** Denormalized so a set renders even on item-cache misses. */
   itemName: z.string().min(1),
+  /**
+   * The permanent enchant the set calls for. `id` is the SpellItemEnchantment
+   * id — the SAME id Warcraft Logs reports as permanentEnchant, which is what
+   * lets an imported set both name and grade what a raider is actually wearing.
+   * `itemId` is the glyph/inscription/armor kit that applies it, when one does.
+   */
   enchant: z
-    .object({ id: z.number().int().optional(), name: z.string().min(1) })
+    .object({
+      id: z.number().int().optional(),
+      itemId: z.number().int().optional(),
+      name: z.string().min(1),
+    })
     .optional(),
   gems: z
     .array(

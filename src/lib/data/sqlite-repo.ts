@@ -648,6 +648,7 @@ export function getSqliteRepo(): WriteRepo {
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
     getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
+    getEnchantReference: () => readModel().repo.getEnchantReference(),
   };
   return { ...readDelegate, ...writeMethods };
 }

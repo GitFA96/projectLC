@@ -1,3 +1,5 @@
+import type { SlotId } from "@/lib/types";
+
 /**
  * Gear-slot knowledge for the WCL gear panel.
  *
@@ -28,6 +30,31 @@ export const GEAR_SLOT_LABELS: { index: number; label: string }[] = [
   { index: 16, label: "Off hand" },
   { index: 17, label: "Ranged" },
 ];
+
+/**
+ * Gear-array index → the slot id wishlists use, so a logged item can be held
+ * against the wishlist entry for the same slot. Shirt (3) and tabard (18) are
+ * omitted, as are slots wishlists don't model.
+ */
+export const GEAR_SLOT_IDS: Record<number, SlotId> = {
+  0: "head",
+  1: "neck",
+  2: "shoulder",
+  4: "chest",
+  5: "waist",
+  6: "legs",
+  7: "feet",
+  8: "wrist",
+  9: "hands",
+  10: "ring1",
+  11: "ring2",
+  12: "trinket1",
+  13: "trinket2",
+  14: "back",
+  15: "mainHand",
+  16: "offHand",
+  17: "ranged",
+};
 
 /** Enchantment ids we're confident naming; everything else shows the linked id. */
 export const ENCHANT_NAMES: Record<number, string> = {

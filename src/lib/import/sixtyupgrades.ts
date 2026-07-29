@@ -83,7 +83,12 @@ function normalizeSlotEntry(raw: unknown): unknown {
     asString(rawEnchant) !== undefined
       ? { name: asString(rawEnchant)! }
       : asRecord(rawEnchant) && asString(asRecord(rawEnchant)!.name)
-        ? { id: asRecord(rawEnchant)!.id as number | undefined, name: asString(asRecord(rawEnchant)!.name)! }
+        ? {
+            id: asRecord(rawEnchant)!.id as number | undefined,
+            // The glyph/inscription/kit that applies it — where its icon comes from.
+            itemId: asRecord(rawEnchant)!.itemId as number | undefined,
+            name: asString(asRecord(rawEnchant)!.name)!,
+          }
         : undefined;
   const rawGems = entry.gems ?? item?.gems;
   const gems = Array.isArray(rawGems)

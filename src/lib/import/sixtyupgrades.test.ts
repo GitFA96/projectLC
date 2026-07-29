@@ -125,8 +125,10 @@ describe("parseSixtyUpgradesExport", () => {
     expect(bySlot.get("offHand")?.itemId).toBe(30103); // OFF_HAND
     expect(bySlot.get("ranged")?.itemId).toBe(30724);
 
-    // Enchants and gems survive (extra keys like itemId/spellId are stripped).
-    expect(bySlot.get("head")?.enchant).toEqual({ id: 3003, name: "Glyph of Ferocity" });
+    // Enchants and gems survive. The enchantment id is the one Warcraft Logs
+    // reports for worn gear, so an imported set both names and grades it; the
+    // itemId is the glyph that applies it, which carries the icon.
+    expect(bySlot.get("head")?.enchant).toEqual({ id: 3003, itemId: 29192, name: "Glyph of Ferocity" });
     expect(bySlot.get("head")?.gems?.map((g) => g.name)).toEqual([
       "Enigmatic Skyfire Diamond",
       "Stone of Blades",

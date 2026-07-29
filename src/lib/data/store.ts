@@ -5,6 +5,7 @@ import {
   matchAwardToWishlists,
 } from "@/lib/analysis/wishlist";
 import { computeItemContention } from "@/lib/analysis/contention";
+import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
 import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
@@ -490,6 +491,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
     async getReportExcludedFights(code: string): Promise<number[]> {
       return config.excludedFightsByCode?.[code] ?? [];
+    },
+
+    async getEnchantReference(): Promise<EnchantReference> {
+      return buildEnchantReference(gearSets, (characterId) => charactersById.get(characterId)?.class);
     },
 
     async listUnresolvedItemIds(): Promise<number[]> {

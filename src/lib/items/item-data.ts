@@ -95,7 +95,13 @@ export function harvestItemFacts(input: {
   const facts: ItemFacts[] = [];
   // Gear sets first: a wishlist name is typed by a person and the most exact.
   for (const set of input.gearSets) {
-    for (const slot of set.slots) facts.push({ id: slot.itemId, name: slot.itemName, slot: slot.slot });
+    for (const slot of set.slots) {
+      facts.push({ id: slot.itemId, name: slot.itemName, slot: slot.slot });
+      // A glyph/inscription/leg-armor enchant is applied by an item, and that
+      // item's icon is what the gear panel shows next to the enchant's name.
+      if (slot.enchant?.itemId) facts.push({ id: slot.enchant.itemId, name: slot.enchant.name });
+      for (const gem of slot.gems ?? []) if (gem.id) facts.push({ id: gem.id, name: gem.name, icon: gem.icon });
+    }
   }
   for (const award of input.lootAwards) facts.push({ id: award.itemId, name: award.itemName });
   for (const row of input.wclPlayerFights) {
