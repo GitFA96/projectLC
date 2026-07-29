@@ -24,6 +24,7 @@ triage, Innervate + Rebirth are raid cooldowns with assignments.
 | Lacerate | debuff | Bear threat-stack upkeep |
 | Insect Swarm / Moonfire | debuff | Balance DoT discipline |
 | Innervate, Rebirth, Nature's Swiftness, Tranquility | cooldowns | Innervate/Rebirth are assigned raid CDs — unused = wasted |
+| Innervate | buff (on a raider) | Also read from the receiving end: **who** got it and **when** it was cast, not just how many went out (`/logs` → Uptime by player) |
 
 ## What we deliberately show little of
 

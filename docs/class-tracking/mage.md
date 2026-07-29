@@ -16,7 +16,7 @@ Presence of Mind on burn windows; Evocation on the mana plan.
 
 | Metric | Kind | Why |
 |---|---|---|
-| Fire Vulnerability (Imp. Scorch) | debuff | The fire-mage assignment — 5 stacks maintained is a job, and gaps hit every fire caster |
+| Imp. Scorch (Fire Vulnerability) | debuff | The fire-mage assignment — 5 stacks maintained is a job, and gaps hit every fire caster |
 | Winter's Chill | debuff | The frost-group equivalent |
 | Combustion, Arcane Power, Icy Veins, Presence of Mind, Cold Snap, Evocation | cooldowns | Pressed or wasted; Evocation counts show mana planning |
 

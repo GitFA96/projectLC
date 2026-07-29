@@ -15,9 +15,9 @@ import { COMMENT_CATEGORIES } from "@/lib/comments";
 
 /**
  * Canonical entity shapes — the single shape contract of the app.
- * Seed JSON is validated against these at load, and the future import parsers
- * (SixtyUpgrades / Gargul, M2) emit exactly these shapes. That guarantees the
- * seed data and real imported data are interchangeable.
+ * Seed JSON is validated against these at load, and every import parser
+ * (SixtyUpgrades, Gargul, Warcraft Logs) emits exactly these shapes. That
+ * guarantees seed data and real imported data are interchangeable.
  */
 
 export const phaseSchema = z

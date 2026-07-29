@@ -910,8 +910,8 @@ function WclTab({
           <CardTitle>Warcraft Logs report</CardTitle>
           <p className="text-xs text-muted-foreground">
             Paste a report URL (or just its code). The app fetches parses, per-pull consumable
-            usage, deaths and an enchant audit via the official API — players are matched to the
-            roster by name. Fetching the same report again replaces it (the update flow).
+            usage, deaths and the worn-gear snapshot via the official API — players are matched to
+            the roster by name. Fetching the same report again replaces it (the update flow).
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1097,15 +1097,18 @@ function WclTab({
             weapon buff at the pull, pre-pots, and potions/drums/runes used during the fight.
           </p>
           <p>
-            Gear seen at each pull is captured in full — every worn item with its enchant and
-            gems feeds the <span className="text-foreground">gear panel and enchant audit</span>{" "}
-            on the performance page (weapon enchant + temp buff get special attention).
+            Gear seen at each pull is captured in full — every worn item with its quality, enchant
+            and gems feeds the <span className="text-foreground">gear panel</span> on the
+            performance page, where enchants are named and graded against imported wishlists
+            (weapon enchant + temp buff get special attention).
           </p>
           <p>
             Per pull it also tracks the <span className="text-foreground">class toolkit</span>:
-            major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) and the uptime of
-            maintained debuffs/buffs — warlock curse assignments, Thunder Clap, Demoralizing Shout,
-            shouts, judgements, Faerie Fire, Earth Shield and friends.
+            major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) with the moment
+            each was pressed, shaman totem drops, and the uptime of maintained debuffs/buffs —
+            warlock curse assignments, Thunder Clap, Demoralizing Shout, shouts, judgements,
+            Faerie Fire, Earth Shield and friends. Raid buffs are also read back{" "}
+            <span className="text-foreground">per recipient</span> on the logs page.
           </p>
           <p>
             Everything lands on each character&apos;s <span className="text-foreground">Performance</span>{" "}

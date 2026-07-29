@@ -5,6 +5,7 @@ import { Activity, GitCompareArrows, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
+import { buildLoggedGear, type LoggedGearReport } from "@/lib/analysis/logged-gear";
 import { CLASS_TEXT_COLORS, PHASES } from "@/lib/constants/wow";
 import type { Repo } from "@/lib/data/repo";
 import type { SlotItem } from "@/lib/types";
@@ -15,6 +16,8 @@ import { SpecBadge } from "@/components/spec-badge";
 import { WeekDots } from "@/components/week-dots";
 import { PhasePills } from "@/components/phase-pills";
 import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
+import { LoggedGearSummary } from "@/components/logged-gear-summary";
+import { GearSourcePicker, type GearSourceOption } from "@/components/gear-source-picker";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterComments } from "@/components/character-comments";
@@ -50,13 +53,36 @@ async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef> {
   };
 }
 
-export default async function CharacterPage({ params }: { params: Promise<Params> }) {
-  const { name } = await params;
+/**
+ * How many raid nights the gear picker looks back over. Far enough to catch a
+ * swap set (resist gear, a threat trinket), recent enough that gear they've
+ * since replaced doesn't linger on the profile.
+ */
+const LOGGED_RAIDS = 3;
+
+/** The set they imported — the other answer to "what are they wearing". */
+const SET_KEY = "set";
+
+/** "20 Jul · Serpentshrine Cavern" — one raid night, as the picker names it. */
+function nightLabel(report: { startTime: string; zone?: string; title: string }): string {
+  return `${format(parseISO(report.startTime), "d MMM")} · ${report.zone ?? report.title}`;
+}
+
+export default async function CharacterPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ name }, sp] = await Promise.all([params, searchParams]);
   const repo = await getRepo();
-  const [guild, bundle, sessions] = await Promise.all([
+  const [guild, bundle, sessions, performance, items] = await Promise.all([
     repo.getGuild(),
     repo.getCharacterBundle(decodeURIComponent(name)),
     repo.listRaidSessions(),
+    repo.getCharacterPerformance(decodeURIComponent(name)),
+    repo.listItems(),
   ]);
   if (!bundle) notFound();
   const { character, current, wishlists, awards, summary, comments } = bundle;
@@ -79,6 +105,7 @@ export default async function CharacterPage({ params }: { params: Promise<Params
     today: new Date().toISOString().slice(0, 10),
   };
 
+  const itemsById = new Map(items.map((i) => [i.id, i] as const));
   const slotRows: SlotRowView[] = current
     ? await Promise.all(
         current.slots.map(async (s) => ({
@@ -89,6 +116,57 @@ export default async function CharacterPage({ params }: { params: Promise<Params
         })),
       )
     : [];
+
+  // What they wore, summarised per slot: every item seen in each slot over the
+  // recent raid nights, plus each of those nights on its own.
+  const loggedReports: LoggedGearReport[] = (performance?.reports ?? []).map((r) => ({
+    report: r.report,
+    rows: r.rows,
+  }));
+  const recent = buildLoggedGear(loggedReports, { limit: LOGGED_RAIDS });
+  const gearOptions: GearSourceOption[] = [
+    ...(current
+      ? [
+          {
+            key: SET_KEY,
+            group: "Imported set",
+            label: `Sourced: ${current.source === "sixtyupgrades" ? "SixtyUpgrades" : current.source}`,
+            triggerLabel: `Sourced: ${current.source === "sixtyupgrades" ? "SixtyUpgrades" : current.source}`,
+          },
+        ]
+      : []),
+    ...(recent.pulls > 0
+      ? [
+          {
+            key: "recent",
+            group: "From the logs",
+            label: `Last ${recent.reports.length} raid${recent.reports.length === 1 ? "" : "s"}`,
+            triggerLabel: `Logged — last ${recent.reports.length} raid${recent.reports.length === 1 ? "" : "s"}`,
+          },
+        ]
+      : []),
+    ...recent.reports.map((r) => ({
+      key: `log:${r.code}`,
+      group: "From the logs",
+      label: nightLabel(r),
+      triggerLabel: `Logged — ${nightLabel(r)}`,
+    })),
+  ];
+  const requestedGear = Array.isArray(sp.gear) ? sp.gear[0] : sp.gear;
+  // The logs lead when there are any — they're the livelier answer, and the
+  // imported set is one click away.
+  const activeGear =
+    gearOptions.find((o) => o.key === requestedGear)?.key ??
+    (recent.pulls > 0 ? "recent" : SET_KEY);
+  const activeNight = activeGear.startsWith("log:")
+    ? recent.reports.find((r) => r.code === activeGear.slice(4))
+    : undefined;
+  const activeView =
+    activeGear === "recent"
+      ? recent
+      : activeNight
+        ? buildLoggedGear(loggedReports.filter((r) => r.report.code === activeNight.code))
+        : undefined;
 
   const tabs: PhaseTabView[] = await Promise.all(
     wishlists.map(async (view) => ({
@@ -111,7 +189,8 @@ export default async function CharacterPage({ params }: { params: Promise<Params
     })),
   );
 
-  const hasAnything = current !== undefined || wishlists.length > 0 || awards.length > 0;
+  const hasAnything =
+    current !== undefined || wishlists.length > 0 || awards.length > 0 || recent.pulls > 0;
 
   return (
     <div className="space-y-5">
@@ -235,15 +314,38 @@ export default async function CharacterPage({ params }: { params: Promise<Params
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-5">
           <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Current gear</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {current ? (
-                <>
-                  <SlotGrid slots={slotRows} />
-                  <p className="mt-3 text-[11px] text-muted-foreground">
-                    Imported {format(parseISO(current.importedAt), "d MMM yyyy")} · source: {current.source}
+            <CardHeader className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>{activeView ? "Gear worn" : "Gear"}</CardTitle>
+                {gearOptions.length > 1 && (
+                  <GearSourcePicker options={gearOptions} value={activeGear} className="w-full" />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {activeView ? (
+                  <>
+                    Everything worn across{" "}
+                    {activeNight ? (
+                      <>one raid night ({nightLabel(activeNight)})</>
+                    ) : (
+                      <>
+                        {activeView.reports.length} raid night
+                        {activeView.reports.length === 1 ? "" : "s"} (
+                        {format(
+                          parseISO(activeView.reports[activeView.reports.length - 1].startTime),
+                          "d MMM",
+                        )}
+                        –{format(parseISO(activeView.reports[0].startTime), "d MMM yyyy")})
+                      </>
+                    )}{" "}
+                    — {activeView.pulls} logged pull{activeView.pulls === 1 ? "" : "s"}. A slot with
+                    more than one item is a swap; hover any item for its enchant and gems.
+                  </>
+                ) : current ? (
+                  <>
+                    The SixtyUpgrades set imported{" "}
+                    {format(parseISO(current.importedAt), "d MMM yyyy")} — what they built, not
+                    necessarily what they raided in.
                     {current.sourceUrl && (
                       <>
                         {" · "}
@@ -257,14 +359,23 @@ export default async function CharacterPage({ params }: { params: Promise<Params
                       href={`/admin/import?character=${encodeURIComponent(character.name)}&kind=current`}
                       className="font-medium text-foreground underline-offset-2 hover:underline"
                     >
-                      Update current gear
+                      Update
                     </Link>
-                  </p>
-                </>
+                  </>
+                ) : (
+                  "Nothing imported and nothing logged yet."
+                )}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {activeView ? (
+                <LoggedGearSummary view={activeView} itemsById={itemsById} />
+              ) : current ? (
+                <SlotGrid slots={slotRows} />
               ) : (
                 <EmptyState
-                  title="No current gear imported"
-                  description="Import a SixtyUpgrades set marked as “current” to enable stat comparisons and equipped-status tracking."
+                  title="No gear to show yet"
+                  description="Import a SixtyUpgrades set marked as “current” for stat comparisons and equipped-status tracking, or import a Warcraft Logs report to read gear straight off their pulls."
                   action={
                     <Button asChild size="sm" variant="outline">
                       <Link

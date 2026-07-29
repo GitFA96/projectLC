@@ -7,28 +7,148 @@
     "source": "seed",
     "importedAt": "2026-05-20T18:30:00Z",
     "stats": {
-      "health": 12750, "armor": 15200, "stamina": 815, "strength": 295, "agility": 190,
-      "defenseRating": 365, "dodgeRating": 232, "parryRating": 176, "blockRating": 118,
-      "blockValue": 264, "hitRating": 58, "expertiseRating": 18, "attackPower": 940
+      "health": 12750,
+      "armor": 15200,
+      "stamina": 815,
+      "strength": 295,
+      "agility": 190,
+      "defenseRating": 365,
+      "dodgeRating": 232,
+      "parryRating": 176,
+      "blockRating": 118,
+      "blockValue": 264,
+      "hitRating": 58,
+      "expertiseRating": 18,
+      "attackPower": 940
     },
     "slots": [
-      { "slot": "head", "itemId": 23517, "itemName": "Felsteel Helm", "enchant": { "name": "Glyph of the Defender" }, "gems": [{ "name": "Solid Star of Elune" }] },
-      { "slot": "neck", "itemId": 28516, "itemName": "Barbed Choker of Discipline" },
-      { "slot": "shoulder", "itemId": 29023, "itemName": "Warbringer Shoulderguards", "gems": [{ "name": "Solid Star of Elune" }] },
-      { "slot": "back", "itemId": 27804, "itemName": "Devilshark Cape", "enchant": { "name": "Greater Agility" } },
-      { "slot": "chest", "itemId": 28484, "itemName": "Bulwark of Kings", "enchant": { "name": "Exceptional Health" } },
-      { "slot": "wrist", "itemId": 28502, "itemName": "Vambraces of Courage", "enchant": { "name": "Superior Stamina" } },
-      { "slot": "hands", "itemId": 28503, "itemName": "Iron Gauntlets of the Maiden" },
-      { "slot": "waist", "itemId": 28779, "itemName": "Girdle of the Immovable", "gems": [{ "name": "Solid Star of Elune" }, { "name": "Thick Dawnstone" }] },
-      { "slot": "legs", "itemId": 28621, "itemName": "Wrynn Dynasty Greaves", "enchant": { "name": "Nethercleft Leg Armor" } },
-      { "slot": "feet", "itemId": 28747, "itemName": "Battlescar Boots", "enchant": { "name": "Boar's Speed" } },
-      { "slot": "ring1", "itemId": 27822, "itemName": "Iron Band of the Unbreakable" },
-      { "slot": "ring2", "itemId": 29282, "itemName": "Violet Signet of the Great Protector" },
-      { "slot": "trinket1", "itemId": 28528, "itemName": "Moroes' Lucky Pocket Watch" },
-      { "slot": "trinket2", "itemId": 27891, "itemName": "Adamantite Figurine" },
-      { "slot": "mainHand", "itemId": 28749, "itemName": "King's Defender", "enchant": { "name": "Mongoose" } },
-      { "slot": "offHand", "itemId": 28825, "itemName": "Aldori Legacy Defender", "enchant": { "name": "Major Stamina" } },
-      { "slot": "ranged", "itemId": 23537, "itemName": "Felsteel Whisper Knives" }
+      {
+        "slot": "head",
+        "itemId": 23517,
+        "itemName": "Felsteel Helm",
+        "enchant": {
+          "name": "Glyph of the Defender"
+        },
+        "gems": [
+          {
+            "name": "Solid Star of Elune"
+          }
+        ]
+      },
+      {
+        "slot": "neck",
+        "itemId": 28516,
+        "itemName": "Barbed Choker of Discipline"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29023,
+        "itemName": "Warbringer Shoulderguards",
+        "gems": [
+          {
+            "name": "Solid Star of Elune"
+          }
+        ]
+      },
+      {
+        "slot": "back",
+        "itemId": 27804,
+        "itemName": "Devilshark Cape",
+        "enchant": {
+          "name": "Greater Agility"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 28484,
+        "itemName": "Bulwark of Kings",
+        "enchant": {
+          "name": "Exceptional Health"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28502,
+        "itemName": "Vambraces of Courage",
+        "enchant": {
+          "name": "Superior Stamina"
+        }
+      },
+      {
+        "slot": "hands",
+        "itemId": 28503,
+        "itemName": "Iron Gauntlets of the Maiden"
+      },
+      {
+        "slot": "waist",
+        "itemId": 28779,
+        "itemName": "Girdle of the Immovable",
+        "gems": [
+          {
+            "name": "Solid Star of Elune"
+          },
+          {
+            "name": "Thick Dawnstone"
+          }
+        ]
+      },
+      {
+        "slot": "legs",
+        "itemId": 28621,
+        "itemName": "Wrynn Dynasty Greaves",
+        "enchant": {
+          "name": "Nethercleft Leg Armor"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28747,
+        "itemName": "Battlescar Boots",
+        "enchant": {
+          "name": "Boar's Speed"
+        }
+      },
+      {
+        "slot": "ring1",
+        "itemId": 27822,
+        "itemName": "Iron Band of the Unbreakable"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 29282,
+        "itemName": "Violet Signet of the Great Protector"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28528,
+        "itemName": "Moroes' Lucky Pocket Watch"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 27891,
+        "itemName": "Adamantite Figurine"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28749,
+        "itemName": "King's Defender",
+        "enchant": {
+          "name": "Mongoose"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28825,
+        "itemName": "Aldori Legacy Defender",
+        "enchant": {
+          "name": "Major Stamina"
+        }
+      },
+      {
+        "slot": "ranged",
+        "itemId": 23537,
+        "itemName": "Felsteel Whisper Knives"
+      }
     ]
   },
   {
@@ -40,28 +160,106 @@
     "source": "seed",
     "importedAt": "2026-04-02T19:00:00Z",
     "stats": {
-      "health": 13400, "armor": 16100, "stamina": 858, "strength": 318, "agility": 198,
-      "defenseRating": 378, "dodgeRating": 251, "parryRating": 184, "blockRating": 131,
-      "blockValue": 296, "hitRating": 64, "expertiseRating": 24, "attackPower": 1010
+      "health": 13400,
+      "armor": 16100,
+      "stamina": 858,
+      "strength": 318,
+      "agility": 198,
+      "defenseRating": 378,
+      "dodgeRating": 251,
+      "parryRating": 184,
+      "blockRating": 131,
+      "blockValue": 296,
+      "hitRating": 64,
+      "expertiseRating": 24,
+      "attackPower": 1010
     },
     "slots": [
-      { "slot": "head", "itemId": 29761, "itemName": "Helm of the Fallen Defender" },
-      { "slot": "neck", "itemId": 28516, "itemName": "Barbed Choker of Discipline" },
-      { "slot": "shoulder", "itemId": 29764, "itemName": "Pauldrons of the Fallen Defender" },
-      { "slot": "back", "itemId": 27804, "itemName": "Devilshark Cape" },
-      { "slot": "chest", "itemId": 28597, "itemName": "Panzar'Thar Breastplate" },
-      { "slot": "wrist", "itemId": 28502, "itemName": "Vambraces of Courage" },
-      { "slot": "hands", "itemId": 29757, "itemName": "Gloves of the Fallen Defender" },
-      { "slot": "waist", "itemId": 28779, "itemName": "Girdle of the Immovable" },
-      { "slot": "legs", "itemId": 28621, "itemName": "Wrynn Dynasty Greaves" },
-      { "slot": "feet", "itemId": 28747, "itemName": "Battlescar Boots" },
-      { "slot": "ring1", "itemId": 27822, "itemName": "Iron Band of the Unbreakable" },
-      { "slot": "ring2", "itemId": 29282, "itemName": "Violet Signet of the Great Protector" },
-      { "slot": "trinket1", "itemId": 28528, "itemName": "Moroes' Lucky Pocket Watch" },
-      { "slot": "trinket2", "itemId": 29387, "itemName": "Gnomeregan Auto-Blocker 600" },
-      { "slot": "mainHand", "itemId": 28749, "itemName": "King's Defender" },
-      { "slot": "offHand", "itemId": 28825, "itemName": "Aldori Legacy Defender" },
-      { "slot": "ranged", "itemId": 28832, "itemName": "Steelhawk Crossbow" }
+      {
+        "slot": "head",
+        "itemId": 29761,
+        "itemName": "Helm of the Fallen Defender"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28516,
+        "itemName": "Barbed Choker of Discipline"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29764,
+        "itemName": "Pauldrons of the Fallen Defender"
+      },
+      {
+        "slot": "back",
+        "itemId": 27804,
+        "itemName": "Devilshark Cape"
+      },
+      {
+        "slot": "chest",
+        "itemId": 28597,
+        "itemName": "Panzar'Thar Breastplate"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28502,
+        "itemName": "Vambraces of Courage"
+      },
+      {
+        "slot": "hands",
+        "itemId": 29757,
+        "itemName": "Gloves of the Fallen Defender"
+      },
+      {
+        "slot": "waist",
+        "itemId": 28779,
+        "itemName": "Girdle of the Immovable"
+      },
+      {
+        "slot": "legs",
+        "itemId": 28621,
+        "itemName": "Wrynn Dynasty Greaves"
+      },
+      {
+        "slot": "feet",
+        "itemId": 28747,
+        "itemName": "Battlescar Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 27822,
+        "itemName": "Iron Band of the Unbreakable"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 29282,
+        "itemName": "Violet Signet of the Great Protector"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28528,
+        "itemName": "Moroes' Lucky Pocket Watch"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 29387,
+        "itemName": "Gnomeregan Auto-Blocker 600"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28749,
+        "itemName": "King's Defender"
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28825,
+        "itemName": "Aldori Legacy Defender"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28832,
+        "itemName": "Steelhawk Crossbow"
+      }
     ]
   },
   {
@@ -73,28 +271,145 @@
     "source": "seed",
     "importedAt": "2026-05-28T19:00:00Z",
     "stats": {
-      "health": 14350, "armor": 17050, "stamina": 920, "strength": 334, "agility": 212,
-      "defenseRating": 401, "dodgeRating": 268, "parryRating": 195, "blockRating": 142,
-      "blockValue": 318, "hitRating": 71, "expertiseRating": 31, "attackPower": 1080
+      "health": 14350,
+      "armor": 17050,
+      "stamina": 920,
+      "strength": 334,
+      "agility": 212,
+      "defenseRating": 401,
+      "dodgeRating": 268,
+      "parryRating": 195,
+      "blockRating": 142,
+      "blockValue": 318,
+      "hitRating": 71,
+      "expertiseRating": 31,
+      "attackPower": 1080
     },
     "slots": [
-      { "slot": "head", "itemId": 30243, "itemName": "Helm of the Vanquished Defender" },
-      { "slot": "neck", "itemId": 28516, "itemName": "Barbed Choker of Discipline" },
-      { "slot": "shoulder", "itemId": 29764, "itemName": "Pauldrons of the Fallen Defender" },
-      { "slot": "back", "itemId": 27804, "itemName": "Devilshark Cape" },
-      { "slot": "chest", "itemId": 30237, "itemName": "Chestguard of the Vanquished Defender" },
-      { "slot": "wrist", "itemId": 28502, "itemName": "Vambraces of Courage" },
-      { "slot": "hands", "itemId": 29757, "itemName": "Gloves of the Fallen Defender" },
-      { "slot": "waist", "itemId": 28779, "itemName": "Girdle of the Immovable" },
-      { "slot": "legs", "itemId": 30246, "itemName": "Leggings of the Vanquished Defender" },
-      { "slot": "feet", "itemId": 28747, "itemName": "Battlescar Boots" },
-      { "slot": "ring1", "itemId": 27822, "itemName": "Iron Band of the Unbreakable" },
-      { "slot": "ring2", "itemId": 29282, "itemName": "Violet Signet of the Great Protector" },
-      { "slot": "trinket1", "itemId": 28528, "itemName": "Moroes' Lucky Pocket Watch" },
-      { "slot": "trinket2", "itemId": 30446, "itemName": "Solarian's Sapphire" },
-      { "slot": "mainHand", "itemId": 28749, "itemName": "King's Defender" },
-      { "slot": "offHand", "itemId": 28825, "itemName": "Aldori Legacy Defender" },
-      { "slot": "ranged", "itemId": 28832, "itemName": "Steelhawk Crossbow" }
+      {
+        "slot": "head",
+        "itemId": 30243,
+        "itemName": "Helm of the Vanquished Defender",
+        "enchant": {
+          "id": 3003,
+          "itemId": 29192,
+          "name": "Glyph of Ferocity"
+        }
+      },
+      {
+        "slot": "neck",
+        "itemId": 28516,
+        "itemName": "Barbed Choker of Discipline"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29764,
+        "itemName": "Pauldrons of the Fallen Defender",
+        "enchant": {
+          "id": 2997,
+          "itemId": 28909,
+          "name": "Greater Inscription of the Blade"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 27804,
+        "itemName": "Devilshark Cape",
+        "enchant": {
+          "id": 368,
+          "name": "Enchant Cloak - Greater Agility"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 30237,
+        "itemName": "Chestguard of the Vanquished Defender",
+        "enchant": {
+          "id": 2661,
+          "name": "Enchant Chest - Exceptional Stats"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28502,
+        "itemName": "Vambraces of Courage",
+        "enchant": {
+          "id": 2647,
+          "name": "Enchant Bracer - Brawn"
+        }
+      },
+      {
+        "slot": "hands",
+        "itemId": 29757,
+        "itemName": "Gloves of the Fallen Defender",
+        "enchant": {
+          "id": 684,
+          "name": "Enchant Gloves - Major Strength"
+        }
+      },
+      {
+        "slot": "waist",
+        "itemId": 28779,
+        "itemName": "Girdle of the Immovable"
+      },
+      {
+        "slot": "legs",
+        "itemId": 30246,
+        "itemName": "Leggings of the Vanquished Defender",
+        "enchant": {
+          "id": 3012,
+          "itemId": 29535,
+          "name": "Nethercobra Leg Armor"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28747,
+        "itemName": "Battlescar Boots",
+        "enchant": {
+          "id": 2939,
+          "name": "Enchant Boots - Cat's Swiftness"
+        }
+      },
+      {
+        "slot": "ring1",
+        "itemId": 27822,
+        "itemName": "Iron Band of the Unbreakable"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 29282,
+        "itemName": "Violet Signet of the Great Protector"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28528,
+        "itemName": "Moroes' Lucky Pocket Watch"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 30446,
+        "itemName": "Solarian's Sapphire"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28749,
+        "itemName": "King's Defender",
+        "enchant": {
+          "id": 2673,
+          "name": "Enchant Weapon - Mongoose"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28825,
+        "itemName": "Aldori Legacy Defender"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28832,
+        "itemName": "Steelhawk Crossbow"
+      }
     ]
   },
   {
@@ -105,26 +420,141 @@
     "source": "seed",
     "importedAt": "2026-04-30T17:45:00Z",
     "stats": {
-      "health": 9450, "mana": 7800, "agility": 642, "intellect": 295, "stamina": 540,
-      "attackPower": 1690, "rangedAttackPower": 1860, "hitRating": 102, "critRating": 398, "hasteRating": 0
+      "health": 9450,
+      "mana": 7800,
+      "agility": 642,
+      "intellect": 295,
+      "stamina": 540,
+      "attackPower": 1690,
+      "rangedAttackPower": 1860,
+      "hitRating": 102,
+      "critRating": 398,
+      "hasteRating": 0
     },
     "slots": [
-      { "slot": "head", "itemId": 28275, "itemName": "Beast Lord Helm", "enchant": { "name": "Glyph of Ferocity" } },
-      { "slot": "neck", "itemId": 28509, "itemName": "Worgen Claw Necklace" },
-      { "slot": "shoulder", "itemId": 28229, "itemName": "Beast Lord Mantle", "enchant": { "name": "Greater Inscription of Vengeance" } },
-      { "slot": "back", "itemId": 28672, "itemName": "Drape of the Dark Reavers", "enchant": { "name": "Greater Agility" } },
-      { "slot": "chest", "itemId": 28228, "itemName": "Beast Lord Cuirass", "enchant": { "name": "Exceptional Stats" } },
-      { "slot": "wrist", "itemId": 25696, "itemName": "Felstalker Bracers", "enchant": { "name": "Brawn" }, "gems": [{ "name": "Delicate Living Ruby" }] },
-      { "slot": "hands", "itemId": 28506, "itemName": "Gloves of Dexterous Manipulation", "enchant": { "name": "Major Agility" } },
-      { "slot": "waist", "itemId": 25695, "itemName": "Felstalker Belt", "gems": [{ "name": "Delicate Living Ruby" }, { "name": "Glinting Noble Topaz" }] },
-      { "slot": "legs", "itemId": 28227, "itemName": "Beast Lord Leggings", "enchant": { "name": "Cobrahide Leg Armor" } },
-      { "slot": "feet", "itemId": 25686, "itemName": "Fel Leather Boots", "enchant": { "name": "Dexterity" } },
-      { "slot": "ring1", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "ring2", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "trinket1", "itemId": 28034, "itemName": "Hourglass of the Unraveller" },
-      { "slot": "trinket2", "itemId": 29383, "itemName": "Bloodlust Brooch" },
-      { "slot": "mainHand", "itemId": 28573, "itemName": "Despair", "enchant": { "name": "Major Agility" } },
-      { "slot": "ranged", "itemId": 28772, "itemName": "Sunfury Bow of the Phoenix", "enchant": { "name": "Stabilized Eternium Scope" } }
+      {
+        "slot": "head",
+        "itemId": 28275,
+        "itemName": "Beast Lord Helm",
+        "enchant": {
+          "name": "Glyph of Ferocity"
+        }
+      },
+      {
+        "slot": "neck",
+        "itemId": 28509,
+        "itemName": "Worgen Claw Necklace"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 28229,
+        "itemName": "Beast Lord Mantle",
+        "enchant": {
+          "name": "Greater Inscription of Vengeance"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 28672,
+        "itemName": "Drape of the Dark Reavers",
+        "enchant": {
+          "name": "Greater Agility"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 28228,
+        "itemName": "Beast Lord Cuirass",
+        "enchant": {
+          "name": "Exceptional Stats"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 25696,
+        "itemName": "Felstalker Bracers",
+        "enchant": {
+          "name": "Brawn"
+        },
+        "gems": [
+          {
+            "name": "Delicate Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "hands",
+        "itemId": 28506,
+        "itemName": "Gloves of Dexterous Manipulation",
+        "enchant": {
+          "name": "Major Agility"
+        }
+      },
+      {
+        "slot": "waist",
+        "itemId": 25695,
+        "itemName": "Felstalker Belt",
+        "gems": [
+          {
+            "name": "Delicate Living Ruby"
+          },
+          {
+            "name": "Glinting Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "legs",
+        "itemId": 28227,
+        "itemName": "Beast Lord Leggings",
+        "enchant": {
+          "name": "Cobrahide Leg Armor"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 25686,
+        "itemName": "Fel Leather Boots",
+        "enchant": {
+          "name": "Dexterity"
+        }
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28034,
+        "itemName": "Hourglass of the Unraveller"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 29383,
+        "itemName": "Bloodlust Brooch"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28573,
+        "itemName": "Despair",
+        "enchant": {
+          "name": "Major Agility"
+        }
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28772,
+        "itemName": "Sunfury Bow of the Phoenix",
+        "enchant": {
+          "name": "Stabilized Eternium Scope"
+        }
+      }
     ]
   },
   {
@@ -136,26 +566,98 @@
     "source": "seed",
     "importedAt": "2026-04-05T12:00:00Z",
     "stats": {
-      "health": 9800, "mana": 8050, "agility": 678, "intellect": 312, "stamina": 572,
-      "attackPower": 1820, "rangedAttackPower": 2010, "hitRating": 118, "critRating": 442, "hasteRating": 15
+      "health": 9800,
+      "mana": 8050,
+      "agility": 678,
+      "intellect": 312,
+      "stamina": 572,
+      "attackPower": 1820,
+      "rangedAttackPower": 2010,
+      "hitRating": 118,
+      "critRating": 442,
+      "hasteRating": 15
     },
     "slots": [
-      { "slot": "head", "itemId": 29759, "itemName": "Helm of the Fallen Hero" },
-      { "slot": "neck", "itemId": 28509, "itemName": "Worgen Claw Necklace" },
-      { "slot": "shoulder", "itemId": 29762, "itemName": "Pauldrons of the Fallen Hero" },
-      { "slot": "back", "itemId": 28672, "itemName": "Drape of the Dark Reavers" },
-      { "slot": "chest", "itemId": 29755, "itemName": "Chestguard of the Fallen Hero" },
-      { "slot": "wrist", "itemId": 25696, "itemName": "Felstalker Bracers" },
-      { "slot": "hands", "itemId": 28506, "itemName": "Gloves of Dexterous Manipulation" },
-      { "slot": "waist", "itemId": 28828, "itemName": "Girdle of the Prowler" },
-      { "slot": "legs", "itemId": 28227, "itemName": "Beast Lord Leggings" },
-      { "slot": "feet", "itemId": 25686, "itemName": "Fel Leather Boots" },
-      { "slot": "ring1", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "ring2", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "trinket1", "itemId": 28034, "itemName": "Hourglass of the Unraveller" },
-      { "slot": "trinket2", "itemId": 28830, "itemName": "Dragonspine Trophy" },
-      { "slot": "mainHand", "itemId": 28773, "itemName": "Gorehowl" },
-      { "slot": "ranged", "itemId": 28772, "itemName": "Sunfury Bow of the Phoenix" }
+      {
+        "slot": "head",
+        "itemId": 29759,
+        "itemName": "Helm of the Fallen Hero"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28509,
+        "itemName": "Worgen Claw Necklace"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29762,
+        "itemName": "Pauldrons of the Fallen Hero"
+      },
+      {
+        "slot": "back",
+        "itemId": 28672,
+        "itemName": "Drape of the Dark Reavers"
+      },
+      {
+        "slot": "chest",
+        "itemId": 29755,
+        "itemName": "Chestguard of the Fallen Hero"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 25696,
+        "itemName": "Felstalker Bracers"
+      },
+      {
+        "slot": "hands",
+        "itemId": 28506,
+        "itemName": "Gloves of Dexterous Manipulation"
+      },
+      {
+        "slot": "waist",
+        "itemId": 28828,
+        "itemName": "Girdle of the Prowler"
+      },
+      {
+        "slot": "legs",
+        "itemId": 28227,
+        "itemName": "Beast Lord Leggings"
+      },
+      {
+        "slot": "feet",
+        "itemId": 25686,
+        "itemName": "Fel Leather Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28034,
+        "itemName": "Hourglass of the Unraveller"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28830,
+        "itemName": "Dragonspine Trophy"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28773,
+        "itemName": "Gorehowl"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28772,
+        "itemName": "Sunfury Bow of the Phoenix"
+      }
     ]
   },
   {
@@ -167,26 +669,98 @@
     "source": "seed",
     "importedAt": "2026-05-30T12:00:00Z",
     "stats": {
-      "health": 10400, "mana": 8420, "agility": 705, "intellect": 330, "stamina": 610,
-      "attackPower": 1960, "rangedAttackPower": 2230, "hitRating": 134, "critRating": 489, "hasteRating": 32
+      "health": 10400,
+      "mana": 8420,
+      "agility": 705,
+      "intellect": 330,
+      "stamina": 610,
+      "attackPower": 1960,
+      "rangedAttackPower": 2230,
+      "hitRating": 134,
+      "critRating": 489,
+      "hasteRating": 32
     },
     "slots": [
-      { "slot": "head", "itemId": 30244, "itemName": "Helm of the Vanquished Hero" },
-      { "slot": "neck", "itemId": 28509, "itemName": "Worgen Claw Necklace" },
-      { "slot": "shoulder", "itemId": 29762, "itemName": "Pauldrons of the Fallen Hero" },
-      { "slot": "back", "itemId": 28672, "itemName": "Drape of the Dark Reavers" },
-      { "slot": "chest", "itemId": 29755, "itemName": "Chestguard of the Fallen Hero" },
-      { "slot": "wrist", "itemId": 25696, "itemName": "Felstalker Bracers" },
-      { "slot": "hands", "itemId": 28506, "itemName": "Gloves of Dexterous Manipulation" },
-      { "slot": "waist", "itemId": 28828, "itemName": "Girdle of the Prowler" },
-      { "slot": "legs", "itemId": 30247, "itemName": "Leggings of the Vanquished Hero" },
-      { "slot": "feet", "itemId": 25686, "itemName": "Fel Leather Boots" },
-      { "slot": "ring1", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "ring2", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "trinket1", "itemId": 30627, "itemName": "Tsunami Talisman" },
-      { "slot": "trinket2", "itemId": 28830, "itemName": "Dragonspine Trophy" },
-      { "slot": "mainHand", "itemId": 28773, "itemName": "Gorehowl" },
-      { "slot": "ranged", "itemId": 30724, "itemName": "Serpent Spine Longbow" }
+      {
+        "slot": "head",
+        "itemId": 30244,
+        "itemName": "Helm of the Vanquished Hero"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28509,
+        "itemName": "Worgen Claw Necklace"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29762,
+        "itemName": "Pauldrons of the Fallen Hero"
+      },
+      {
+        "slot": "back",
+        "itemId": 28672,
+        "itemName": "Drape of the Dark Reavers"
+      },
+      {
+        "slot": "chest",
+        "itemId": 29755,
+        "itemName": "Chestguard of the Fallen Hero"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 25696,
+        "itemName": "Felstalker Bracers"
+      },
+      {
+        "slot": "hands",
+        "itemId": 28506,
+        "itemName": "Gloves of Dexterous Manipulation"
+      },
+      {
+        "slot": "waist",
+        "itemId": 28828,
+        "itemName": "Girdle of the Prowler"
+      },
+      {
+        "slot": "legs",
+        "itemId": 30247,
+        "itemName": "Leggings of the Vanquished Hero"
+      },
+      {
+        "slot": "feet",
+        "itemId": 25686,
+        "itemName": "Fel Leather Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 30627,
+        "itemName": "Tsunami Talisman"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28830,
+        "itemName": "Dragonspine Trophy"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28773,
+        "itemName": "Gorehowl"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 30724,
+        "itemName": "Serpent Spine Longbow"
+      }
     ]
   },
   {
@@ -197,28 +771,152 @@
     "source": "seed",
     "importedAt": "2026-05-20T19:10:00Z",
     "stats": {
-      "health": 7900, "mana": 9650, "stamina": 452, "intellect": 438, "spirit": 285,
-      "spellDamage": 818, "shadowDamage": 866, "spellHitRating": 118, "spellCritRating": 172,
-      "spellHasteRating": 0, "spellPenetration": 20
+      "health": 7900,
+      "mana": 9650,
+      "stamina": 452,
+      "intellect": 438,
+      "spirit": 285,
+      "spellDamage": 818,
+      "shadowDamage": 866,
+      "spellHitRating": 118,
+      "spellCritRating": 172,
+      "spellHasteRating": 0,
+      "spellPenetration": 20
     },
     "slots": [
-      { "slot": "head", "itemId": 24266, "itemName": "Spellstrike Hood", "enchant": { "name": "Glyph of Power" }, "gems": [{ "name": "Glowing Shadowsong Amethyst" }, { "name": "Veiled Noble Topaz" }, { "name": "Runed Living Ruby" }] },
-      { "slot": "neck", "itemId": 28530, "itemName": "Brooch of Heightened Potential" },
-      { "slot": "shoulder", "itemId": 21869, "itemName": "Frozen Shadoweave Shoulders", "enchant": { "name": "Greater Inscription of Discipline" } },
-      { "slot": "back", "itemId": 28570, "itemName": "Shadow-Cloak of Dalaran", "enchant": { "name": "Subtlety" } },
-      { "slot": "chest", "itemId": 21871, "itemName": "Frozen Shadoweave Robe", "enchant": { "name": "Exceptional Stats" } },
-      { "slot": "wrist", "itemId": 24250, "itemName": "Bracers of Havok", "enchant": { "name": "Spellpower" }, "gems": [{ "name": "Glowing Shadowsong Amethyst" }] },
-      { "slot": "hands", "itemId": 28507, "itemName": "Handwraps of Flowing Thought", "enchant": { "name": "Major Spellpower" } },
-      { "slot": "waist", "itemId": 24256, "itemName": "Girdle of Ruination", "gems": [{ "name": "Glowing Shadowsong Amethyst" }, { "name": "Veiled Noble Topaz" }] },
-      { "slot": "legs", "itemId": 24262, "itemName": "Spellstrike Pants", "enchant": { "name": "Runic Spellthread" } },
-      { "slot": "feet", "itemId": 21870, "itemName": "Frozen Shadoweave Boots" },
-      { "slot": "ring1", "itemId": 29367, "itemName": "Ring of Cryptic Dreams" },
-      { "slot": "ring2", "itemId": 28555, "itemName": "Seal of the Exorcist" },
-      { "slot": "trinket1", "itemId": 29370, "itemName": "Icon of the Silver Crescent" },
-      { "slot": "trinket2", "itemId": 29132, "itemName": "Scryer's Bloodgem" },
-      { "slot": "mainHand", "itemId": 28770, "itemName": "Nathrezim Mindblade", "enchant": { "name": "Soulfrost" } },
-      { "slot": "offHand", "itemId": 29272, "itemName": "Orb of the Soul-Eater" },
-      { "slot": "ranged", "itemId": 28673, "itemName": "Tirisfal Wand of Ascendancy" }
+      {
+        "slot": "head",
+        "itemId": 24266,
+        "itemName": "Spellstrike Hood",
+        "enchant": {
+          "name": "Glyph of Power"
+        },
+        "gems": [
+          {
+            "name": "Glowing Shadowsong Amethyst"
+          },
+          {
+            "name": "Veiled Noble Topaz"
+          },
+          {
+            "name": "Runed Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "neck",
+        "itemId": 28530,
+        "itemName": "Brooch of Heightened Potential"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 21869,
+        "itemName": "Frozen Shadoweave Shoulders",
+        "enchant": {
+          "name": "Greater Inscription of Discipline"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 28570,
+        "itemName": "Shadow-Cloak of Dalaran",
+        "enchant": {
+          "name": "Subtlety"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 21871,
+        "itemName": "Frozen Shadoweave Robe",
+        "enchant": {
+          "name": "Exceptional Stats"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 24250,
+        "itemName": "Bracers of Havok",
+        "enchant": {
+          "name": "Spellpower"
+        },
+        "gems": [
+          {
+            "name": "Glowing Shadowsong Amethyst"
+          }
+        ]
+      },
+      {
+        "slot": "hands",
+        "itemId": 28507,
+        "itemName": "Handwraps of Flowing Thought",
+        "enchant": {
+          "name": "Major Spellpower"
+        }
+      },
+      {
+        "slot": "waist",
+        "itemId": 24256,
+        "itemName": "Girdle of Ruination",
+        "gems": [
+          {
+            "name": "Glowing Shadowsong Amethyst"
+          },
+          {
+            "name": "Veiled Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "legs",
+        "itemId": 24262,
+        "itemName": "Spellstrike Pants",
+        "enchant": {
+          "name": "Runic Spellthread"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 21870,
+        "itemName": "Frozen Shadoweave Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 29367,
+        "itemName": "Ring of Cryptic Dreams"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28555,
+        "itemName": "Seal of the Exorcist"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29370,
+        "itemName": "Icon of the Silver Crescent"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 29132,
+        "itemName": "Scryer's Bloodgem"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28770,
+        "itemName": "Nathrezim Mindblade",
+        "enchant": {
+          "name": "Soulfrost"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 29272,
+        "itemName": "Orb of the Soul-Eater"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28673,
+        "itemName": "Tirisfal Wand of Ascendancy"
+      }
     ]
   },
   {
@@ -230,28 +928,104 @@
     "source": "seed",
     "importedAt": "2026-04-03T21:00:00Z",
     "stats": {
-      "health": 8150, "mana": 9900, "stamina": 470, "intellect": 455, "spirit": 290,
-      "spellDamage": 872, "shadowDamage": 924, "spellHitRating": 130, "spellCritRating": 184,
-      "spellHasteRating": 0, "spellPenetration": 20
+      "health": 8150,
+      "mana": 9900,
+      "stamina": 470,
+      "intellect": 455,
+      "spirit": 290,
+      "spellDamage": 872,
+      "shadowDamage": 924,
+      "spellHitRating": 130,
+      "spellCritRating": 184,
+      "spellHasteRating": 0,
+      "spellPenetration": 20
     },
     "slots": [
-      { "slot": "head", "itemId": 29761, "itemName": "Helm of the Fallen Defender" },
-      { "slot": "neck", "itemId": 28530, "itemName": "Brooch of Heightened Potential" },
-      { "slot": "shoulder", "itemId": 21869, "itemName": "Frozen Shadoweave Shoulders" },
-      { "slot": "back", "itemId": 28570, "itemName": "Shadow-Cloak of Dalaran" },
-      { "slot": "chest", "itemId": 21871, "itemName": "Frozen Shadoweave Robe" },
-      { "slot": "wrist", "itemId": 24250, "itemName": "Bracers of Havok" },
-      { "slot": "hands", "itemId": 28507, "itemName": "Handwraps of Flowing Thought" },
-      { "slot": "waist", "itemId": 24256, "itemName": "Girdle of Ruination" },
-      { "slot": "legs", "itemId": 24262, "itemName": "Spellstrike Pants" },
-      { "slot": "feet", "itemId": 21870, "itemName": "Frozen Shadoweave Boots" },
-      { "slot": "ring1", "itemId": 29367, "itemName": "Ring of Cryptic Dreams" },
-      { "slot": "ring2", "itemId": 28753, "itemName": "Ring of Recurrence" },
-      { "slot": "trinket1", "itemId": 29370, "itemName": "Icon of the Silver Crescent" },
-      { "slot": "trinket2", "itemId": 28789, "itemName": "Eye of Magtheridon" },
-      { "slot": "mainHand", "itemId": 28770, "itemName": "Nathrezim Mindblade" },
-      { "slot": "offHand", "itemId": 29272, "itemName": "Orb of the Soul-Eater" },
-      { "slot": "ranged", "itemId": 28783, "itemName": "Wand of the Forgotten Star" }
+      {
+        "slot": "head",
+        "itemId": 29761,
+        "itemName": "Helm of the Fallen Defender"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28530,
+        "itemName": "Brooch of Heightened Potential"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 21869,
+        "itemName": "Frozen Shadoweave Shoulders"
+      },
+      {
+        "slot": "back",
+        "itemId": 28570,
+        "itemName": "Shadow-Cloak of Dalaran"
+      },
+      {
+        "slot": "chest",
+        "itemId": 21871,
+        "itemName": "Frozen Shadoweave Robe"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 24250,
+        "itemName": "Bracers of Havok"
+      },
+      {
+        "slot": "hands",
+        "itemId": 28507,
+        "itemName": "Handwraps of Flowing Thought"
+      },
+      {
+        "slot": "waist",
+        "itemId": 24256,
+        "itemName": "Girdle of Ruination"
+      },
+      {
+        "slot": "legs",
+        "itemId": 24262,
+        "itemName": "Spellstrike Pants"
+      },
+      {
+        "slot": "feet",
+        "itemId": 21870,
+        "itemName": "Frozen Shadoweave Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 29367,
+        "itemName": "Ring of Cryptic Dreams"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28753,
+        "itemName": "Ring of Recurrence"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29370,
+        "itemName": "Icon of the Silver Crescent"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28789,
+        "itemName": "Eye of Magtheridon"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28770,
+        "itemName": "Nathrezim Mindblade"
+      },
+      {
+        "slot": "offHand",
+        "itemId": 29272,
+        "itemName": "Orb of the Soul-Eater"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28783,
+        "itemName": "Wand of the Forgotten Star"
+      }
     ]
   },
   {
@@ -263,28 +1037,104 @@
     "source": "seed",
     "importedAt": "2026-05-29T21:00:00Z",
     "stats": {
-      "health": 8600, "mana": 10350, "stamina": 502, "intellect": 481, "spirit": 304,
-      "spellDamage": 951, "shadowDamage": 1004, "spellHitRating": 142, "spellCritRating": 201,
-      "spellHasteRating": 24, "spellPenetration": 20
+      "health": 8600,
+      "mana": 10350,
+      "stamina": 502,
+      "intellect": 481,
+      "spirit": 304,
+      "spellDamage": 951,
+      "shadowDamage": 1004,
+      "spellHitRating": 142,
+      "spellCritRating": 201,
+      "spellHasteRating": 24,
+      "spellPenetration": 20
     },
     "slots": [
-      { "slot": "head", "itemId": 30243, "itemName": "Helm of the Vanquished Defender" },
-      { "slot": "neck", "itemId": 28530, "itemName": "Brooch of Heightened Potential" },
-      { "slot": "shoulder", "itemId": 21869, "itemName": "Frozen Shadoweave Shoulders" },
-      { "slot": "back", "itemId": 28570, "itemName": "Shadow-Cloak of Dalaran" },
-      { "slot": "chest", "itemId": 30056, "itemName": "Robe of Hateful Echoes" },
-      { "slot": "wrist", "itemId": 24250, "itemName": "Bracers of Havok" },
-      { "slot": "hands", "itemId": 28507, "itemName": "Handwraps of Flowing Thought" },
-      { "slot": "waist", "itemId": 24256, "itemName": "Girdle of Ruination" },
-      { "slot": "legs", "itemId": 24262, "itemName": "Spellstrike Pants" },
-      { "slot": "feet", "itemId": 21870, "itemName": "Frozen Shadoweave Boots" },
-      { "slot": "ring1", "itemId": 30109, "itemName": "Ring of Endless Coils" },
-      { "slot": "ring2", "itemId": 28753, "itemName": "Ring of Recurrence" },
-      { "slot": "trinket1", "itemId": 29370, "itemName": "Icon of the Silver Crescent" },
-      { "slot": "trinket2", "itemId": 28789, "itemName": "Eye of Magtheridon" },
-      { "slot": "mainHand", "itemId": 30095, "itemName": "Fang of the Leviathan" },
-      { "slot": "offHand", "itemId": 29272, "itemName": "Orb of the Soul-Eater" },
-      { "slot": "ranged", "itemId": 28783, "itemName": "Wand of the Forgotten Star" }
+      {
+        "slot": "head",
+        "itemId": 30243,
+        "itemName": "Helm of the Vanquished Defender"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28530,
+        "itemName": "Brooch of Heightened Potential"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 21869,
+        "itemName": "Frozen Shadoweave Shoulders"
+      },
+      {
+        "slot": "back",
+        "itemId": 28570,
+        "itemName": "Shadow-Cloak of Dalaran"
+      },
+      {
+        "slot": "chest",
+        "itemId": 30056,
+        "itemName": "Robe of Hateful Echoes"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 24250,
+        "itemName": "Bracers of Havok"
+      },
+      {
+        "slot": "hands",
+        "itemId": 28507,
+        "itemName": "Handwraps of Flowing Thought"
+      },
+      {
+        "slot": "waist",
+        "itemId": 24256,
+        "itemName": "Girdle of Ruination"
+      },
+      {
+        "slot": "legs",
+        "itemId": 24262,
+        "itemName": "Spellstrike Pants"
+      },
+      {
+        "slot": "feet",
+        "itemId": 21870,
+        "itemName": "Frozen Shadoweave Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 30109,
+        "itemName": "Ring of Endless Coils"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28753,
+        "itemName": "Ring of Recurrence"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29370,
+        "itemName": "Icon of the Silver Crescent"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28789,
+        "itemName": "Eye of Magtheridon"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 30095,
+        "itemName": "Fang of the Leviathan"
+      },
+      {
+        "slot": "offHand",
+        "itemId": 29272,
+        "itemName": "Orb of the Soul-Eater"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28783,
+        "itemName": "Wand of the Forgotten Star"
+      }
     ]
   },
   {
@@ -295,27 +1145,128 @@
     "source": "seed",
     "importedAt": "2026-05-20T18:00:00Z",
     "stats": {
-      "health": 7650, "mana": 10100, "stamina": 425, "intellect": 472, "spirit": 188,
-      "healing": 1454, "spellDamage": 484, "spellCritRating": 118, "mp5": 92
+      "health": 7650,
+      "mana": 10100,
+      "stamina": 425,
+      "intellect": 472,
+      "spirit": 188,
+      "healing": 1454,
+      "spellDamage": 484,
+      "spellCritRating": 118,
+      "mp5": 92
     },
     "slots": [
-      { "slot": "head", "itemId": 24261, "itemName": "Whitemend Hood", "enchant": { "name": "Glyph of Renewal" }, "gems": [{ "name": "Teardrop Living Ruby" }, { "name": "Luminous Noble Topaz" }] },
-      { "slot": "neck", "itemId": 28609, "itemName": "Emberspur Talisman" },
-      { "slot": "shoulder", "itemId": 21874, "itemName": "Primal Mooncloth Shoulders", "enchant": { "name": "Greater Inscription of Faith" } },
-      { "slot": "back", "itemId": 24252, "itemName": "White Remedy Cape" },
-      { "slot": "chest", "itemId": 21875, "itemName": "Primal Mooncloth Robe", "enchant": { "name": "Exceptional Stats" } },
-      { "slot": "wrist", "itemId": 28511, "itemName": "Bands of Indwelling", "enchant": { "name": "Superior Healing" } },
-      { "slot": "hands", "itemId": 28508, "itemName": "Gloves of Saintly Blessings" },
-      { "slot": "waist", "itemId": 21873, "itemName": "Primal Mooncloth Belt" },
-      { "slot": "legs", "itemId": 24264, "itemName": "Whitemend Pants", "enchant": { "name": "Golden Spellthread" } },
-      { "slot": "feet", "itemId": 28663, "itemName": "Boots of the Incorrupt" },
-      { "slot": "ring1", "itemId": 28523, "itemName": "Jade Ring of the Everliving" },
-      { "slot": "ring2", "itemId": 29373, "itemName": "Band of Halos" },
-      { "slot": "trinket1", "itemId": 29376, "itemName": "Essence of the Martyr" },
-      { "slot": "trinket2", "itemId": 28590, "itemName": "Ribbon of Sacrifice" },
-      { "slot": "mainHand", "itemId": 28771, "itemName": "Light's Justice", "enchant": { "name": "Major Healing" } },
-      { "slot": "offHand", "itemId": 29274, "itemName": "Tears of Heaven" },
-      { "slot": "ranged", "itemId": 28592, "itemName": "Libram of Souls Redeemed" }
+      {
+        "slot": "head",
+        "itemId": 24261,
+        "itemName": "Whitemend Hood",
+        "enchant": {
+          "name": "Glyph of Renewal"
+        },
+        "gems": [
+          {
+            "name": "Teardrop Living Ruby"
+          },
+          {
+            "name": "Luminous Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "neck",
+        "itemId": 28609,
+        "itemName": "Emberspur Talisman"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 21874,
+        "itemName": "Primal Mooncloth Shoulders",
+        "enchant": {
+          "name": "Greater Inscription of Faith"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 24252,
+        "itemName": "White Remedy Cape"
+      },
+      {
+        "slot": "chest",
+        "itemId": 21875,
+        "itemName": "Primal Mooncloth Robe",
+        "enchant": {
+          "name": "Exceptional Stats"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28511,
+        "itemName": "Bands of Indwelling",
+        "enchant": {
+          "name": "Superior Healing"
+        }
+      },
+      {
+        "slot": "hands",
+        "itemId": 28508,
+        "itemName": "Gloves of Saintly Blessings"
+      },
+      {
+        "slot": "waist",
+        "itemId": 21873,
+        "itemName": "Primal Mooncloth Belt"
+      },
+      {
+        "slot": "legs",
+        "itemId": 24264,
+        "itemName": "Whitemend Pants",
+        "enchant": {
+          "name": "Golden Spellthread"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28663,
+        "itemName": "Boots of the Incorrupt"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28523,
+        "itemName": "Jade Ring of the Everliving"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 29373,
+        "itemName": "Band of Halos"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29376,
+        "itemName": "Essence of the Martyr"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28590,
+        "itemName": "Ribbon of Sacrifice"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28771,
+        "itemName": "Light's Justice",
+        "enchant": {
+          "name": "Major Healing"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 29274,
+        "itemName": "Tears of Heaven"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28592,
+        "itemName": "Libram of Souls Redeemed"
+      }
     ]
   },
   {
@@ -327,27 +1278,102 @@
     "source": "seed",
     "importedAt": "2026-04-04T16:30:00Z",
     "stats": {
-      "health": 7900, "mana": 10400, "stamina": 441, "intellect": 489, "spirit": 195,
-      "healing": 1556, "spellDamage": 518, "spellCritRating": 127, "mp5": 101
+      "health": 7900,
+      "mana": 10400,
+      "stamina": 441,
+      "intellect": 489,
+      "spirit": 195,
+      "healing": 1556,
+      "spellDamage": 518,
+      "spellCritRating": 127,
+      "mp5": 101
     },
     "slots": [
-      { "slot": "head", "itemId": 29760, "itemName": "Helm of the Fallen Champion" },
-      { "slot": "neck", "itemId": 28609, "itemName": "Emberspur Talisman" },
-      { "slot": "shoulder", "itemId": 29763, "itemName": "Pauldrons of the Fallen Champion" },
-      { "slot": "back", "itemId": 24252, "itemName": "White Remedy Cape" },
-      { "slot": "chest", "itemId": 21875, "itemName": "Primal Mooncloth Robe" },
-      { "slot": "wrist", "itemId": 28511, "itemName": "Bands of Indwelling" },
-      { "slot": "hands", "itemId": 28508, "itemName": "Gloves of Saintly Blessings" },
-      { "slot": "waist", "itemId": 21873, "itemName": "Primal Mooncloth Belt" },
-      { "slot": "legs", "itemId": 24264, "itemName": "Whitemend Pants" },
-      { "slot": "feet", "itemId": 28663, "itemName": "Boots of the Incorrupt" },
-      { "slot": "ring1", "itemId": 28523, "itemName": "Jade Ring of the Everliving" },
-      { "slot": "ring2", "itemId": 29373, "itemName": "Band of Halos" },
-      { "slot": "trinket1", "itemId": 28823, "itemName": "Eye of Gruul" },
-      { "slot": "trinket2", "itemId": 28590, "itemName": "Ribbon of Sacrifice" },
-      { "slot": "mainHand", "itemId": 28771, "itemName": "Light's Justice" },
-      { "slot": "offHand", "itemId": 28588, "itemName": "Aran's Soothing Sapphire" },
-      { "slot": "ranged", "itemId": 28592, "itemName": "Libram of Souls Redeemed" }
+      {
+        "slot": "head",
+        "itemId": 29760,
+        "itemName": "Helm of the Fallen Champion"
+      },
+      {
+        "slot": "neck",
+        "itemId": 28609,
+        "itemName": "Emberspur Talisman"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29763,
+        "itemName": "Pauldrons of the Fallen Champion"
+      },
+      {
+        "slot": "back",
+        "itemId": 24252,
+        "itemName": "White Remedy Cape"
+      },
+      {
+        "slot": "chest",
+        "itemId": 21875,
+        "itemName": "Primal Mooncloth Robe"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28511,
+        "itemName": "Bands of Indwelling"
+      },
+      {
+        "slot": "hands",
+        "itemId": 28508,
+        "itemName": "Gloves of Saintly Blessings"
+      },
+      {
+        "slot": "waist",
+        "itemId": 21873,
+        "itemName": "Primal Mooncloth Belt"
+      },
+      {
+        "slot": "legs",
+        "itemId": 24264,
+        "itemName": "Whitemend Pants"
+      },
+      {
+        "slot": "feet",
+        "itemId": 28663,
+        "itemName": "Boots of the Incorrupt"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28523,
+        "itemName": "Jade Ring of the Everliving"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 29373,
+        "itemName": "Band of Halos"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28823,
+        "itemName": "Eye of Gruul"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28590,
+        "itemName": "Ribbon of Sacrifice"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28771,
+        "itemName": "Light's Justice"
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28588,
+        "itemName": "Aran's Soothing Sapphire"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28592,
+        "itemName": "Libram of Souls Redeemed"
+      }
     ]
   },
   {
@@ -358,27 +1384,137 @@
     "source": "seed",
     "importedAt": "2026-05-20T20:00:00Z",
     "stats": {
-      "health": 8900, "agility": 615, "stamina": 505, "strength": 122,
-      "attackPower": 1748, "hitRating": 256, "critRating": 412, "hasteRating": 0, "expertiseRating": 10
+      "health": 8900,
+      "agility": 615,
+      "stamina": 505,
+      "strength": 122,
+      "attackPower": 1748,
+      "hitRating": 256,
+      "critRating": 412,
+      "hasteRating": 0,
+      "expertiseRating": 10
     },
     "slots": [
-      { "slot": "head", "itemId": 28182, "itemName": "Stealther's Helmet of Second Sight", "enchant": { "name": "Glyph of Ferocity" } },
-      { "slot": "neck", "itemId": 29381, "itemName": "Choker of Vile Intent" },
-      { "slot": "shoulder", "itemId": 27776, "itemName": "Wastewalker Shoulderpads", "enchant": { "name": "Greater Inscription of Vengeance" } },
-      { "slot": "back", "itemId": 28765, "itemName": "Royal Cloak of Arathi Kings", "enchant": { "name": "Greater Agility" } },
-      { "slot": "chest", "itemId": 28601, "itemName": "Tunic of Assassination", "enchant": { "name": "Exceptional Stats" } },
-      { "slot": "wrist", "itemId": 28514, "itemName": "Nightfall Wristguards", "enchant": { "name": "Brawn" } },
-      { "slot": "hands", "itemId": 25685, "itemName": "Fel Leather Gloves", "enchant": { "name": "Major Agility" } },
-      { "slot": "waist", "itemId": 29247, "itemName": "Girdle of the Deathdealer" },
-      { "slot": "legs", "itemId": 25687, "itemName": "Fel Leather Leggings", "enchant": { "name": "Cobrahide Leg Armor" } },
-      { "slot": "feet", "itemId": 28545, "itemName": "Edgewalker Longboots", "enchant": { "name": "Dexterity" }, "gems": [{ "name": "Delicate Living Ruby" }] },
-      { "slot": "ring1", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "ring2", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "trinket1", "itemId": 28579, "itemName": "Romulo's Poison Vial" },
-      { "slot": "trinket2", "itemId": 29383, "itemName": "Bloodlust Brooch" },
-      { "slot": "mainHand", "itemId": 28437, "itemName": "Drakefist Hammer", "enchant": { "name": "Mongoose" } },
-      { "slot": "offHand", "itemId": 28524, "itemName": "Emerald Ripper", "enchant": { "name": "Potency" } },
-      { "slot": "ranged", "itemId": 28581, "itemName": "Wolfslayer Sniper Rifle" }
+      {
+        "slot": "head",
+        "itemId": 28182,
+        "itemName": "Stealther's Helmet of Second Sight",
+        "enchant": {
+          "name": "Glyph of Ferocity"
+        }
+      },
+      {
+        "slot": "neck",
+        "itemId": 29381,
+        "itemName": "Choker of Vile Intent"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 27776,
+        "itemName": "Wastewalker Shoulderpads",
+        "enchant": {
+          "name": "Greater Inscription of Vengeance"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 28765,
+        "itemName": "Royal Cloak of Arathi Kings",
+        "enchant": {
+          "name": "Greater Agility"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 28601,
+        "itemName": "Tunic of Assassination",
+        "enchant": {
+          "name": "Exceptional Stats"
+        }
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28514,
+        "itemName": "Nightfall Wristguards",
+        "enchant": {
+          "name": "Brawn"
+        }
+      },
+      {
+        "slot": "hands",
+        "itemId": 25685,
+        "itemName": "Fel Leather Gloves",
+        "enchant": {
+          "name": "Major Agility"
+        }
+      },
+      {
+        "slot": "waist",
+        "itemId": 29247,
+        "itemName": "Girdle of the Deathdealer"
+      },
+      {
+        "slot": "legs",
+        "itemId": 25687,
+        "itemName": "Fel Leather Leggings",
+        "enchant": {
+          "name": "Cobrahide Leg Armor"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28545,
+        "itemName": "Edgewalker Longboots",
+        "enchant": {
+          "name": "Dexterity"
+        },
+        "gems": [
+          {
+            "name": "Delicate Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28579,
+        "itemName": "Romulo's Poison Vial"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 29383,
+        "itemName": "Bloodlust Brooch"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28437,
+        "itemName": "Drakefist Hammer",
+        "enchant": {
+          "name": "Mongoose"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28524,
+        "itemName": "Emerald Ripper",
+        "enchant": {
+          "name": "Potency"
+        }
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28581,
+        "itemName": "Wolfslayer Sniper Rifle"
+      }
     ]
   },
   {
@@ -390,27 +1526,102 @@
     "source": "seed",
     "importedAt": "2026-04-06T14:00:00Z",
     "stats": {
-      "health": 9150, "agility": 648, "stamina": 524, "strength": 128,
-      "attackPower": 1854, "hitRating": 271, "critRating": 455, "hasteRating": 18, "expertiseRating": 15
+      "health": 9150,
+      "agility": 648,
+      "stamina": 524,
+      "strength": 128,
+      "attackPower": 1854,
+      "hitRating": 271,
+      "critRating": 455,
+      "hasteRating": 18,
+      "expertiseRating": 15
     },
     "slots": [
-      { "slot": "head", "itemId": 29760, "itemName": "Helm of the Fallen Champion" },
-      { "slot": "neck", "itemId": 29381, "itemName": "Choker of Vile Intent" },
-      { "slot": "shoulder", "itemId": 27776, "itemName": "Wastewalker Shoulderpads" },
-      { "slot": "back", "itemId": 28765, "itemName": "Royal Cloak of Arathi Kings" },
-      { "slot": "chest", "itemId": 29753, "itemName": "Chestguard of the Fallen Champion" },
-      { "slot": "wrist", "itemId": 28514, "itemName": "Nightfall Wristguards" },
-      { "slot": "hands", "itemId": 25685, "itemName": "Fel Leather Gloves" },
-      { "slot": "waist", "itemId": 29247, "itemName": "Girdle of the Deathdealer" },
-      { "slot": "legs", "itemId": 25687, "itemName": "Fel Leather Leggings" },
-      { "slot": "feet", "itemId": 28545, "itemName": "Edgewalker Longboots" },
-      { "slot": "ring1", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "ring2", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "trinket1", "itemId": 28579, "itemName": "Romulo's Poison Vial" },
-      { "slot": "trinket2", "itemId": 28830, "itemName": "Dragonspine Trophy" },
-      { "slot": "mainHand", "itemId": 28438, "itemName": "Dragonmaw" },
-      { "slot": "offHand", "itemId": 28524, "itemName": "Emerald Ripper" },
-      { "slot": "ranged", "itemId": 28832, "itemName": "Steelhawk Crossbow" }
+      {
+        "slot": "head",
+        "itemId": 29760,
+        "itemName": "Helm of the Fallen Champion"
+      },
+      {
+        "slot": "neck",
+        "itemId": 29381,
+        "itemName": "Choker of Vile Intent"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 27776,
+        "itemName": "Wastewalker Shoulderpads"
+      },
+      {
+        "slot": "back",
+        "itemId": 28765,
+        "itemName": "Royal Cloak of Arathi Kings"
+      },
+      {
+        "slot": "chest",
+        "itemId": 29753,
+        "itemName": "Chestguard of the Fallen Champion"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 28514,
+        "itemName": "Nightfall Wristguards"
+      },
+      {
+        "slot": "hands",
+        "itemId": 25685,
+        "itemName": "Fel Leather Gloves"
+      },
+      {
+        "slot": "waist",
+        "itemId": 29247,
+        "itemName": "Girdle of the Deathdealer"
+      },
+      {
+        "slot": "legs",
+        "itemId": 25687,
+        "itemName": "Fel Leather Leggings"
+      },
+      {
+        "slot": "feet",
+        "itemId": 28545,
+        "itemName": "Edgewalker Longboots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 28579,
+        "itemName": "Romulo's Poison Vial"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28830,
+        "itemName": "Dragonspine Trophy"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28438,
+        "itemName": "Dragonmaw"
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28524,
+        "itemName": "Emerald Ripper"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28832,
+        "itemName": "Steelhawk Crossbow"
+      }
     ]
   },
   {
@@ -422,26 +1633,96 @@
     "source": "seed",
     "importedAt": "2026-04-08T19:30:00Z",
     "stats": {
-      "health": 9650, "stamina": 562, "strength": 438, "agility": 215,
-      "attackPower": 1924, "hitRating": 95, "critRating": 384, "expertiseRating": 20
+      "health": 9650,
+      "stamina": 562,
+      "strength": 438,
+      "agility": 215,
+      "attackPower": 1924,
+      "hitRating": 95,
+      "critRating": 384,
+      "expertiseRating": 20
     },
     "slots": [
-      { "slot": "head", "itemId": 29761, "itemName": "Helm of the Fallen Defender" },
-      { "slot": "neck", "itemId": 29381, "itemName": "Choker of Vile Intent" },
-      { "slot": "shoulder", "itemId": 29764, "itemName": "Pauldrons of the Fallen Defender" },
-      { "slot": "back", "itemId": 28672, "itemName": "Drape of the Dark Reavers" },
-      { "slot": "chest", "itemId": 28484, "itemName": "Bulwark of Kings" },
-      { "slot": "wrist", "itemId": 23539, "itemName": "Black Felsteel Bracers" },
-      { "slot": "hands", "itemId": 29757, "itemName": "Gloves of the Fallen Defender" },
-      { "slot": "waist", "itemId": 28800, "itemName": "Girdle of the Endless Pit" },
-      { "slot": "legs", "itemId": 29767, "itemName": "Leggings of the Fallen Defender" },
-      { "slot": "feet", "itemId": 28747, "itemName": "Battlescar Boots" },
-      { "slot": "ring1", "itemId": 28793, "itemName": "Ring of a Thousand Marks" },
-      { "slot": "ring2", "itemId": 28649, "itemName": "Garona's Signet Ring" },
-      { "slot": "trinket1", "itemId": 29383, "itemName": "Bloodlust Brooch" },
-      { "slot": "trinket2", "itemId": 28034, "itemName": "Hourglass of the Unraveller" },
-      { "slot": "mainHand", "itemId": 28773, "itemName": "Gorehowl" },
-      { "slot": "ranged", "itemId": 28832, "itemName": "Steelhawk Crossbow" }
+      {
+        "slot": "head",
+        "itemId": 29761,
+        "itemName": "Helm of the Fallen Defender"
+      },
+      {
+        "slot": "neck",
+        "itemId": 29381,
+        "itemName": "Choker of Vile Intent"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 29764,
+        "itemName": "Pauldrons of the Fallen Defender"
+      },
+      {
+        "slot": "back",
+        "itemId": 28672,
+        "itemName": "Drape of the Dark Reavers"
+      },
+      {
+        "slot": "chest",
+        "itemId": 28484,
+        "itemName": "Bulwark of Kings"
+      },
+      {
+        "slot": "wrist",
+        "itemId": 23539,
+        "itemName": "Black Felsteel Bracers"
+      },
+      {
+        "slot": "hands",
+        "itemId": 29757,
+        "itemName": "Gloves of the Fallen Defender"
+      },
+      {
+        "slot": "waist",
+        "itemId": 28800,
+        "itemName": "Girdle of the Endless Pit"
+      },
+      {
+        "slot": "legs",
+        "itemId": 29767,
+        "itemName": "Leggings of the Fallen Defender"
+      },
+      {
+        "slot": "feet",
+        "itemId": 28747,
+        "itemName": "Battlescar Boots"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 28793,
+        "itemName": "Ring of a Thousand Marks"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28649,
+        "itemName": "Garona's Signet Ring"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29383,
+        "itemName": "Bloodlust Brooch"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28034,
+        "itemName": "Hourglass of the Unraveller"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28773,
+        "itemName": "Gorehowl"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28832,
+        "itemName": "Steelhawk Crossbow"
+      }
     ]
   },
   {
@@ -452,27 +1733,138 @@
     "source": "seed",
     "importedAt": "2026-05-25T17:00:00Z",
     "stats": {
-      "health": 7800, "mana": 9900, "stamina": 448, "intellect": 461, "spirit": 312,
-      "healing": 1502, "mp5": 88, "spellCritRating": 92
+      "health": 7800,
+      "mana": 9900,
+      "stamina": 448,
+      "intellect": 461,
+      "spirit": 312,
+      "healing": 1502,
+      "mp5": 88,
+      "spellCritRating": 92
     },
     "slots": [
-      { "slot": "head", "itemId": 24261, "itemName": "Whitemend Hood", "enchant": { "name": "Glyph of Renewal" } },
-      { "slot": "neck", "itemId": 27758, "itemName": "Hydra-fang Necklace" },
-      { "slot": "shoulder", "itemId": 21874, "itemName": "Primal Mooncloth Shoulders", "enchant": { "name": "Greater Inscription of Faith" } },
-      { "slot": "back", "itemId": 24252, "itemName": "White Remedy Cape" },
-      { "slot": "chest", "itemId": 29522, "itemName": "Windhawk Hauberk", "enchant": { "name": "Exceptional Stats" }, "gems": [{ "name": "Teardrop Living Ruby" }, { "name": "Royal Nightseye" }, { "name": "Teardrop Living Ruby" }] },
-      { "slot": "wrist", "itemId": 29524, "itemName": "Windhawk Bracers", "enchant": { "name": "Superior Healing" } },
-      { "slot": "hands", "itemId": 27465, "itemName": "Prismatic Mittens of Mending" },
-      { "slot": "waist", "itemId": 29523, "itemName": "Windhawk Belt", "gems": [{ "name": "Teardrop Living Ruby" }, { "name": "Luminous Noble Topaz" }] },
-      { "slot": "legs", "itemId": 24264, "itemName": "Whitemend Pants", "enchant": { "name": "Golden Spellthread" } },
-      { "slot": "feet", "itemId": 28752, "itemName": "Forestlord Striders" },
-      { "slot": "ring1", "itemId": 29373, "itemName": "Band of Halos" },
-      { "slot": "ring2", "itemId": 28523, "itemName": "Jade Ring of the Everliving" },
-      { "slot": "trinket1", "itemId": 29376, "itemName": "Essence of the Martyr" },
-      { "slot": "trinket2", "itemId": 28370, "itemName": "Bangle of Endless Blessings" },
-      { "slot": "mainHand", "itemId": 28577, "itemName": "Shard of the Virtuous", "enchant": { "name": "Major Healing" } },
-      { "slot": "offHand", "itemId": 28588, "itemName": "Aran's Soothing Sapphire" },
-      { "slot": "ranged", "itemId": 27886, "itemName": "Idol of the Emerald Queen" }
+      {
+        "slot": "head",
+        "itemId": 24261,
+        "itemName": "Whitemend Hood",
+        "enchant": {
+          "name": "Glyph of Renewal"
+        }
+      },
+      {
+        "slot": "neck",
+        "itemId": 27758,
+        "itemName": "Hydra-fang Necklace"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 21874,
+        "itemName": "Primal Mooncloth Shoulders",
+        "enchant": {
+          "name": "Greater Inscription of Faith"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 24252,
+        "itemName": "White Remedy Cape"
+      },
+      {
+        "slot": "chest",
+        "itemId": 29522,
+        "itemName": "Windhawk Hauberk",
+        "enchant": {
+          "name": "Exceptional Stats"
+        },
+        "gems": [
+          {
+            "name": "Teardrop Living Ruby"
+          },
+          {
+            "name": "Royal Nightseye"
+          },
+          {
+            "name": "Teardrop Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "wrist",
+        "itemId": 29524,
+        "itemName": "Windhawk Bracers",
+        "enchant": {
+          "name": "Superior Healing"
+        }
+      },
+      {
+        "slot": "hands",
+        "itemId": 27465,
+        "itemName": "Prismatic Mittens of Mending"
+      },
+      {
+        "slot": "waist",
+        "itemId": 29523,
+        "itemName": "Windhawk Belt",
+        "gems": [
+          {
+            "name": "Teardrop Living Ruby"
+          },
+          {
+            "name": "Luminous Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "legs",
+        "itemId": 24264,
+        "itemName": "Whitemend Pants",
+        "enchant": {
+          "name": "Golden Spellthread"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28752,
+        "itemName": "Forestlord Striders"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 29373,
+        "itemName": "Band of Halos"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28523,
+        "itemName": "Jade Ring of the Everliving"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29376,
+        "itemName": "Essence of the Martyr"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28370,
+        "itemName": "Bangle of Endless Blessings"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28577,
+        "itemName": "Shard of the Virtuous",
+        "enchant": {
+          "name": "Major Healing"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 28588,
+        "itemName": "Aran's Soothing Sapphire"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 27886,
+        "itemName": "Idol of the Emerald Queen"
+      }
     ]
   },
   {
@@ -483,27 +1875,167 @@
     "source": "seed",
     "importedAt": "2026-05-20T18:45:00Z",
     "stats": {
-      "health": 7750, "mana": 9800, "stamina": 441, "intellect": 448, "spirit": 162,
-      "spellDamage": 845, "fireDamage": 901, "spellHitRating": 124, "spellCritRating": 215, "spellHasteRating": 0
+      "health": 7750,
+      "mana": 9800,
+      "stamina": 441,
+      "intellect": 448,
+      "spirit": 162,
+      "spellDamage": 845,
+      "fireDamage": 901,
+      "spellHitRating": 124,
+      "spellCritRating": 215,
+      "spellHasteRating": 0
     },
     "slots": [
-      { "slot": "head", "itemId": 28586, "itemName": "Wicked Witch's Hat", "enchant": { "name": "Glyph of Power" }, "gems": [{ "name": "Runed Living Ruby" }, { "name": "Veiled Noble Topaz" }] },
-      { "slot": "neck", "itemId": 29368, "itemName": "Manasurge Pendant" },
-      { "slot": "shoulder", "itemId": 28726, "itemName": "Mantle of the Mind Flayer", "enchant": { "name": "Greater Inscription of Discipline" } },
-      { "slot": "back", "itemId": 28766, "itemName": "Ruby Drape of the Mysticant", "enchant": { "name": "Subtlety" } },
-      { "slot": "chest", "itemId": 21846, "itemName": "Spellfire Robe", "enchant": { "name": "Exceptional Stats" }, "gems": [{ "name": "Runed Living Ruby" }, { "name": "Runed Living Ruby" }, { "name": "Veiled Noble Topaz" }] },
-      { "slot": "wrist", "itemId": 24250, "itemName": "Bracers of Havok", "enchant": { "name": "Spellpower" }, "gems": [{ "name": "Runed Living Ruby" }] },
-      { "slot": "hands", "itemId": 21847, "itemName": "Spellfire Gloves", "enchant": { "name": "Major Spellpower" }, "gems": [{ "name": "Runed Living Ruby" }, { "name": "Veiled Noble Topaz" }] },
-      { "slot": "waist", "itemId": 21848, "itemName": "Spellfire Belt", "gems": [{ "name": "Runed Living Ruby" }, { "name": "Runed Living Ruby" }] },
-      { "slot": "legs", "itemId": 24262, "itemName": "Spellstrike Pants", "enchant": { "name": "Runic Spellthread" } },
-      { "slot": "feet", "itemId": 28517, "itemName": "Boots of Foretelling" },
-      { "slot": "ring1", "itemId": 29367, "itemName": "Ring of Cryptic Dreams" },
-      { "slot": "ring2", "itemId": 28753, "itemName": "Ring of Recurrence" },
-      { "slot": "trinket1", "itemId": 29370, "itemName": "Icon of the Silver Crescent" },
-      { "slot": "trinket2", "itemId": 28789, "itemName": "Eye of Magtheridon" },
-      { "slot": "mainHand", "itemId": 28802, "itemName": "Bloodmaw Magus-Blade", "enchant": { "name": "Major Spellpower" } },
-      { "slot": "offHand", "itemId": 29272, "itemName": "Orb of the Soul-Eater" },
-      { "slot": "ranged", "itemId": 28734, "itemName": "Nether Core's Control Rod" }
+      {
+        "slot": "head",
+        "itemId": 28586,
+        "itemName": "Wicked Witch's Hat",
+        "enchant": {
+          "name": "Glyph of Power"
+        },
+        "gems": [
+          {
+            "name": "Runed Living Ruby"
+          },
+          {
+            "name": "Veiled Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "neck",
+        "itemId": 29368,
+        "itemName": "Manasurge Pendant"
+      },
+      {
+        "slot": "shoulder",
+        "itemId": 28726,
+        "itemName": "Mantle of the Mind Flayer",
+        "enchant": {
+          "name": "Greater Inscription of Discipline"
+        }
+      },
+      {
+        "slot": "back",
+        "itemId": 28766,
+        "itemName": "Ruby Drape of the Mysticant",
+        "enchant": {
+          "name": "Subtlety"
+        }
+      },
+      {
+        "slot": "chest",
+        "itemId": 21846,
+        "itemName": "Spellfire Robe",
+        "enchant": {
+          "name": "Exceptional Stats"
+        },
+        "gems": [
+          {
+            "name": "Runed Living Ruby"
+          },
+          {
+            "name": "Runed Living Ruby"
+          },
+          {
+            "name": "Veiled Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "wrist",
+        "itemId": 24250,
+        "itemName": "Bracers of Havok",
+        "enchant": {
+          "name": "Spellpower"
+        },
+        "gems": [
+          {
+            "name": "Runed Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "hands",
+        "itemId": 21847,
+        "itemName": "Spellfire Gloves",
+        "enchant": {
+          "name": "Major Spellpower"
+        },
+        "gems": [
+          {
+            "name": "Runed Living Ruby"
+          },
+          {
+            "name": "Veiled Noble Topaz"
+          }
+        ]
+      },
+      {
+        "slot": "waist",
+        "itemId": 21848,
+        "itemName": "Spellfire Belt",
+        "gems": [
+          {
+            "name": "Runed Living Ruby"
+          },
+          {
+            "name": "Runed Living Ruby"
+          }
+        ]
+      },
+      {
+        "slot": "legs",
+        "itemId": 24262,
+        "itemName": "Spellstrike Pants",
+        "enchant": {
+          "name": "Runic Spellthread"
+        }
+      },
+      {
+        "slot": "feet",
+        "itemId": 28517,
+        "itemName": "Boots of Foretelling"
+      },
+      {
+        "slot": "ring1",
+        "itemId": 29367,
+        "itemName": "Ring of Cryptic Dreams"
+      },
+      {
+        "slot": "ring2",
+        "itemId": 28753,
+        "itemName": "Ring of Recurrence"
+      },
+      {
+        "slot": "trinket1",
+        "itemId": 29370,
+        "itemName": "Icon of the Silver Crescent"
+      },
+      {
+        "slot": "trinket2",
+        "itemId": 28789,
+        "itemName": "Eye of Magtheridon"
+      },
+      {
+        "slot": "mainHand",
+        "itemId": 28802,
+        "itemName": "Bloodmaw Magus-Blade",
+        "enchant": {
+          "name": "Major Spellpower"
+        }
+      },
+      {
+        "slot": "offHand",
+        "itemId": 29272,
+        "itemName": "Orb of the Soul-Eater"
+      },
+      {
+        "slot": "ranged",
+        "itemId": 28734,
+        "itemName": "Nether Core's Control Rod"
+      }
     ]
   }
 ]

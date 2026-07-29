@@ -14,23 +14,33 @@ All tracking is driven by two curated lists in
 | List | What it captures | How |
 |---|---|---|
 | `UPTIME_TRACKS` | Maintained debuffs/buffs (uptime %) | Matched **by aura name** (covers all spell ranks) from WCL apply/refresh/remove events |
-| `CLASS_COOLDOWNS` | Major cooldown presses (counts) | Matched **by spell id** (every rank listed) from cast events |
+| `CLASS_COOLDOWNS` | Major cooldown presses (counts **and timings**) | Matched **by spell id** (every rank listed) from cast events |
+| `SHAMAN_TOTEM_CASTS` | Totem drops (which totem, dropped when) | Matched **by cast name** (rank-independent) — see the shaman file for why drops, not uptime |
 
 Each uptime track has a `kind`:
 
 - **`debuff`** — maintained on enemies. Tracked per target (boss vs adds, with
   instance numbers), with within-fight time segments and ≈landed-cast counts.
-- **`selfbuff`** — maintained on yourself (shouts, Slice and Dice). Only counts
-  when source = target; auras already up at the pull are credited from its start.
-- **`buff`** — maintained on someone friendly (Earth Shield on the tank),
-  attributed to the caster.
+- **`selfbuff`** — maintained on yourself (Rampage, Slice and Dice, Water
+  Shield). Only counts when source = target; auras already up at the pull are
+  credited from its start.
+- **`buff`** — put on other raiders (shouts, Innervate, Earth Shield). Tracked
+  in **both directions**: attributed to the caster, and read back per recipient
+  for the logs page's "uptime by player" view. A buff already running at the
+  pull is credited to whoever the pull's aura snapshot names as its caster, and
+  a totem-sourced buff resolves through the totem to the shaman who dropped it.
+
+Tracked cooldowns also record **when** they were pressed (and at whom, for
+targeted ones like Innervate), which is what turns "Innervate ×3" into a
+timeline.
 
 Pre-cast debuffs are handled: a refresh (or removal) as the first in-fight event
 means the aura was up before the pull, so it's credited from the pull start.
 
-**Where it shows up:** the logs page (uptime by boss timelines, night averages,
-uptime leaders), each player's performance page (per-class expectations, fight
-graph), and the compare page (uptime %, boss-only %, casts per pull).
+**Where it shows up:** the logs page (uptime by boss timelines, **uptime by
+player**, **totem drops**, night averages, uptime leaders), each player's
+performance page (per-class expectations, fight graph), and the compare page
+(uptime %, boss-only %, casts per pull).
 
 **Adding a track requires a re-import** of existing reports — the events fetch
 is filtered server-side to the tracked names, so old imports don't contain

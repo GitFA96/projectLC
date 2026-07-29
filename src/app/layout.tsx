@@ -64,7 +64,7 @@ export default async function RootLayout({
           />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
           <footer className="border-t py-4 text-center text-xs text-muted-foreground">
-            projectLC · loot council tracker for TBC · wishlists via SixtyUpgrades · loot via Gargul
+            projectLC · loot council tracker for TBC · wishlists via SixtyUpgrades · loot via Gargul or by hand
           </footer>
         </TooltipProvider>
       </body>
