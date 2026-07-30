@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/empty-state";
 import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
 import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
+import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
@@ -405,6 +406,21 @@ function RankingsPanel({
 
   return (
     <>
+      <ParseBoards boards={raid.parseBoards} />
+      {raid.parseBoards.length > 0 && !raid.parseBoards.some((b) => b.bossMetric) && (
+        <p className="text-xs text-muted-foreground">
+          No boss-damage parses in this report, so the boards show all damage only — boss damage
+          was added to the importer after this report was fetched. Re-import it on the{" "}
+          <Link
+            href="/admin/import?tab=wcl"
+            className="font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            Warcraft Logs tab
+          </Link>{" "}
+          to fill the board in.
+        </p>
+      )}
+
       <ConsumableLeaderboard rows={usage} costPerUse={costPerUse} usingDefault={usingDefault} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">

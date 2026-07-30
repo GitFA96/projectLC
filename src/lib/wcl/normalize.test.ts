@@ -73,6 +73,21 @@ const rawReport = {
       },
     ],
   },
+  bossdps: {
+    data: [
+      {
+        fightID: 7,
+        roles: {
+          tanks: { characters: [{ name: "Thrainn", class: "Warrior", spec: "Protection", amount: 302.1, rankPercent: 55 }] },
+          dps: { characters: [{ name: "Pyrelia", class: "Mage", spec: "Fire", amount: 610.4, rankPercent: 88 }] },
+          // WCL ranks healers here too, at ~0 damage — never worth recording.
+          healers: { characters: [{ name: "Lunara", class: "Druid", spec: "Restoration", amount: 0, rankPercent: 12 }] },
+          // A name that never showed up in the dps/hps rankings isn't in the raid.
+          ghost: { characters: [{ name: "Nobody", class: "Rogue", spec: "Combat", amount: 700, rankPercent: 99 }] },
+        },
+      },
+    ],
+  },
   hps: {
     data: [
       {
@@ -242,6 +257,25 @@ describe("normalizeWclReport", () => {
     expect(healer.role).toBe("healer");
     expect(healer.parsePercent).toBe(84);
     expect(healer.amount).toBeCloseTo(1011.5);
+  });
+
+  it("records boss-damage parses alongside the all-damage ones", () => {
+    // Same players, ranked on damage to the boss alone — a separate number
+    // that must not overwrite the all-damage parse or the role.
+    expect(row(7, "Pyrelia")).toMatchObject({
+      role: "dps",
+      parsePercent: 97.4,
+      bossParsePercent: 88,
+      bossAmount: 610.4,
+    });
+    expect(row(7, "Thrainn")).toMatchObject({ role: "tank", parsePercent: 61, bossParsePercent: 55 });
+  });
+
+  it("keeps boss damage off healers, and invents no rows from it", () => {
+    // A healer's boss damage is ~0 and meaningless; a name only the boss-damage
+    // rankings mention was never in the raid to begin with.
+    expect(row(7, "Lunara").bossParsePercent).toBeUndefined();
+    expect(result.rows.some((r) => r.actorName === "Nobody")).toBe(false);
   });
 
   it("marks wipes with boss percentage and no parse", () => {

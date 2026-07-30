@@ -3,6 +3,9 @@ import type {
   ConsumableTypeRow,
   ImprovementFinding,
   PlayerBuffRecipient,
+  ParseBoard,
+  ParseBoardColumn,
+  ParseBoardRow,
   PlayerBuffSource,
   PlayerImprovements,
   RaidCooldownRow,
@@ -569,7 +572,148 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   }
   improvements.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
+  /* ---- Parse boards (the WCL-style grid) ---- */
+  const parseBoards = buildParseBoards(rows, fights, slugOf);
+
   return {
     report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
+    parseBoards,
   };
+}
+
+
+/**
+ * Parses as a grid: one table per role, a column per boss kill, mirroring
+ * Warcraft Logs' own rankings view.
+ *
+ * Each cell carries BOTH percentiles WCL ranks a raider on — the role's metric
+ * and, for anyone who deals damage, the same pull ranked on damage to the boss
+ * alone. They're different numbers (on a night with adds, by up to ten points),
+ * so the board switches metric rather than repeating every raider in a second
+ * table.
+ *
+ * Only kills get a column — a wipe has no percentile to report — and a raider
+ * only appears in a board if they were ranked on at least one of them, so a
+ * healer never shows up as a row of blanks under Damage Dealers. Averages are
+ * over the kills they actually have a parse for, never over the whole night:
+ * missing a boss shouldn't read as a zero.
+ */
+function buildParseBoards(
+  rows: WclPlayerFight[],
+  fights: RaidFight[],
+  slugOf: (actorName: string) => string | undefined,
+): ParseBoard[] {
+  const columnsAll: ParseBoardColumn[] = fights
+    .filter((f) => f.kill && !f.excluded)
+    .map((f) => ({ fightId: f.fightId, encounterName: f.encounterName, durationMs: f.durationMs }));
+  if (columnsAll.length === 0) return [];
+
+  const definitions: {
+    key: ParseBoard["key"];
+    label: string;
+    metric: string;
+    keeps: (r: WclPlayerFight) => boolean;
+    /** Healers deal no meaningful boss damage — WCL ranks them at ~0. */
+    bossDamage: boolean;
+  }[] = [
+    {
+      key: "dps",
+      label: "Damage Dealers",
+      metric: "damage done, all targets",
+      keeps: (r) => r.role === "dps",
+      bossDamage: true,
+    },
+    {
+      key: "healers",
+      label: "Healers",
+      metric: "healing done",
+      keeps: (r) => r.role === "healer",
+      bossDamage: false,
+    },
+    {
+      key: "tanks",
+      label: "Tanks",
+      metric: "damage done, within the tank bracket",
+      keeps: (r) => r.role === "tank",
+      bossDamage: true,
+    },
+  ];
+
+  const boards: ParseBoard[] = [];
+  for (const def of definitions) {
+    const byActor = new Map<string, WclPlayerFight[]>();
+    for (const r of rows) {
+      if (!def.keeps(r) || r.parsePercent === undefined) continue;
+      const list = byActor.get(r.actorName) ?? [];
+      list.push(r);
+      byActor.set(r.actorName, list);
+    }
+    if (byActor.size === 0) continue;
+
+    // Columns nobody in this board was ranked on would be dead width.
+    const ranked = new Set([...byActor.values()].flat().map((r) => r.fightId));
+    const columns = columnsAll.filter((c) => ranked.has(c.fightId));
+
+    const boardRows: ParseBoardRow[] = [...byActor]
+      .map(([actorName, playerRows]): ParseBoardRow => {
+        const cells = columns.flatMap((column) => {
+          const row = playerRows.find((r) => r.fightId === column.fightId);
+          if (!row || row.parsePercent === undefined) return [];
+          return [
+            {
+              fightId: column.fightId,
+              parse: row.parsePercent,
+              bracket: row.bracketPercent,
+              amount: row.amount,
+              spec: row.spec,
+              ...(def.bossDamage && row.bossParsePercent !== undefined
+                ? { bossParse: row.bossParsePercent, bossAmount: row.bossAmount }
+                : {}),
+            },
+          ];
+        });
+        const bossCells = cells.filter((c) => c.bossParse !== undefined);
+        const newest = playerRows[playerRows.length - 1];
+        return {
+          name: actorName,
+          slug: slugOf(actorName),
+          className: newest?.className,
+          spec: modeOf(playerRows.map((r) => r.spec)),
+          avg: mean(cells.map((c) => c.parse)),
+          ranked: cells.length,
+          bossAvg: mean(bossCells.map((c) => c.bossParse!)),
+          bossRanked: bossCells.length,
+          cells,
+        };
+      })
+      .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || a.name.localeCompare(b.name));
+
+    boards.push({
+      key: def.key,
+      label: def.label,
+      metric: def.metric,
+      // Offered only when the report actually carries boss-damage parses —
+      // imports from before they were fetched keep the single metric.
+      ...(boardRows.some((r) => r.bossRanked > 0)
+        ? { bossMetric: "damage to the boss only — no adds, no cleave padding" }
+        : {}),
+      columns,
+      rows: boardRows,
+    });
+  }
+  return boards;
+}
+
+/** Rounded mean, or undefined for nothing to average. */
+function mean(values: number[]): number | undefined {
+  return values.length > 0
+    ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length)
+    : undefined;
+}
+
+/** The most frequent value, ties broken by first appearance. */
+function modeOf(values: (string | undefined)[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
 }

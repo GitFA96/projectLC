@@ -12,7 +12,7 @@ import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
  * Fetch everything one report import needs — deliberately few requests so a
  * whole night costs ~7 API calls (the free tier allows thousands/hour):
  *   1. overview: meta + boss fights + actors (players AND NPCs, for naming
- *      upkeep targets like bosses/adds) + dps/hps parse rankings
+ *      upkeep targets like bosses/adds) + dps/hps/boss-damage parse rankings
  *   2. combatantinfo events (gear + auras at pull)            — paginated
  *   3. friendly death events                                  — paginated
  *   4. consumable + class-cooldown casts (tracked spell ids)  — paginated
@@ -35,6 +35,7 @@ query ReportOverview($code: String!) {
       }
       dps: rankings(playerMetric: dps, compare: Parses)
       hps: rankings(playerMetric: hps, compare: Parses)
+      bossdps: rankings(playerMetric: bossdps, compare: Parses)
     }
   }
 }`;

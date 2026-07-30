@@ -85,6 +85,7 @@ export const rawReportSchema = z.looseObject({
   fights: z.array(rawFightSchema).nullish(),
   dps: rawRankingsSchema.nullish(),
   hps: rawRankingsSchema.nullish(),
+  bossdps: rawRankingsSchema.nullish(),
 });
 export type RawReport = z.infer<typeof rawReportSchema>;
 
@@ -182,6 +183,10 @@ export interface NormalizedPlayerFight {
   parsePercent?: number;
   bracketPercent?: number;
   amount?: number;
+  /** Parse percentile on damage to the boss only (absent for healers). */
+  bossParsePercent?: number;
+  /** Boss-only dps behind `bossParsePercent`. */
+  bossAmount?: number;
   deaths: number;
   flask?: string;
   elixirs: string[];
@@ -422,6 +427,24 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   // Healers parse on HPS; tanks and dps parse on DPS (tanks in their own bracket).
   applyRankings(raw.dps, ["tanks", "dps"], "dps");
   applyRankings(raw.hps, ["healers"], "healer");
+  /*
+   * Boss-damage parses are the same players ranked on damage to the boss
+   * alone — no adds, no cleave padding. They never create a row or touch a
+   * role: a player missing from the dps/hps rankings isn't in this report's
+   * roster either. Healers are skipped; WCL ranks them here at 0 damage.
+   */
+  for (const fightRanking of raw.bossdps?.data ?? []) {
+    const fight = fightsById.get(fightRanking.fightID);
+    if (!fight) continue;
+    for (const section of ["tanks", "dps"] as const) {
+      for (const ch of fightRanking.roles?.[section]?.characters ?? []) {
+        const row = rows.get(keyOf(fight.id, ch.name));
+        if (!row) continue;
+        row.bossParsePercent = clampPct(ch.rankPercent) ?? row.bossParsePercent;
+        row.bossAmount = ch.amount ?? row.bossAmount;
+      }
+    }
+  }
   if (rows.size === 0 && fights.length > 0) {
     warnings.push("No per-player rankings in the report yet — parses can lag a fresh upload; re-fetch later.");
   }

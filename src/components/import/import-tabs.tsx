@@ -909,9 +909,11 @@ function WclTab({
         <CardHeader>
           <CardTitle>Warcraft Logs report</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Paste a report URL (or just its code). The app fetches parses, per-pull consumable
-            usage, deaths and the worn-gear snapshot via the official API — players are matched to
-            the roster by name. Fetching the same report again replaces it (the update flow).
+            Paste a report URL (or just its code). The app fetches parses (all-damage, healing and
+            boss-damage), per-pull consumable usage, deaths and the worn-gear snapshot via the
+            official API — players are matched to the roster by name. Fetching the same report
+            again replaces it (the update flow), which is also how an older import gains anything
+            added since.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">

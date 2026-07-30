@@ -40,6 +40,9 @@ const SPEC_ICONS: Record<string, string> = {
   "druid:balance": "spell_nature_starfall",
   "druid:feral": "ability_druid_catform",
   "druid:guardian": "ability_racial_bearform",
+  // WCL's names for the tank flavours of feral/protection in TBC logs.
+  "druid:warden": "ability_racial_bearform",
+  "paladin:justicar": "spell_holy_devotionaura",
   "druid:restoration": "spell_nature_healingtouch",
 };
 
@@ -53,14 +56,22 @@ export function SpecBadge({
   wowClass,
   title,
   className,
+  iconOnly = false,
 }: {
   spec: string;
   /** Class string (roster enum or WCL's) — drives color + icon lookup. */
   wowClass?: string;
   title?: string;
   className?: string;
+  /**
+   * Drop the label and show the talent-tab icon alone — for dense tables where
+   * the spec is a hint, not a column. Renders nothing when the spec has no
+   * icon: an empty chip would just be a gap the reader has to explain.
+   */
+  iconOnly?: boolean;
 }) {
   const icon = wowClass ? SPEC_ICONS[`${norm(wowClass)}:${norm(spec)}`] : undefined;
+  if (iconOnly && !icon) return null;
   const color =
     wowClass && wowClass in CLASS_TEXT_COLORS
       ? CLASS_TEXT_COLORS[wowClass as WowClass]
@@ -80,7 +91,7 @@ export function SpecBadge({
           className="rounded-sm border border-black/20"
         />
       )}
-      <span style={color ? { color } : undefined}>{specLabel(spec)}</span>
+      {!iconOnly && <span style={color ? { color } : undefined}>{specLabel(spec)}</span>}
     </span>
   );
 }

@@ -222,6 +222,13 @@ export const wclPlayerFightSchema = z.object({
   parsePercent: z.number().min(0).max(100).optional(),
   /** Percentile within the item-level bracket — gear-adjusted skill signal. */
   bracketPercent: z.number().min(0).max(100).optional(),
+  /**
+   * Parse percentile on damage to the BOSS only — the metric that ignores adds
+   * and cleave padding. Absent on imports from before it was fetched.
+   */
+  bossParsePercent: z.number().min(0).max(100).optional(),
+  /** Boss-only dps behind `bossParsePercent`. */
+  bossAmount: z.number().optional(),
   /** The metric value itself (dps or hps). */
   amount: z.number().optional(),
   deaths: z.number().int().nonnegative().default(0),

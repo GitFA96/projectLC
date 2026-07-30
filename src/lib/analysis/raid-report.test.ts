@@ -347,3 +347,90 @@ describe("summarizeRaidReport — totem drops", () => {
     ]);
   });
 });
+
+
+describe("summarizeRaidReport — parse boards", () => {
+  const rows: WclPlayerFight[] = [
+    // Two kills and a wipe. The wipe carries no parse — WCL doesn't rank them.
+    row({ fightId: 1, actorName: "Kazrak", encounterName: "Hydross", className: "Warrior", role: "dps",
+      spec: "Fury", parsePercent: 90, bracketPercent: 84, amount: 1200, bossParsePercent: 70, bossAmount: 800 }),
+    row({ fightId: 3, actorName: "Kazrak", encounterName: "Vashj", className: "Warrior", role: "dps",
+      spec: "Fury", parsePercent: 80, amount: 1100, bossParsePercent: 60 }),
+    row({ fightId: 2, actorName: "Kazrak", encounterName: "Leotheras", kill: false, className: "Warrior", role: "dps" }),
+    // Present for one kill only — an average over one parse, not a zero. A high
+    // all-damage parse with no boss-damage one at all (an add-heavy pull).
+    row({ fightId: 3, actorName: "Morgrave", encounterName: "Vashj", className: "Warlock", role: "dps",
+      spec: "Destruction", parsePercent: 41, amount: 900 }),
+    row({ fightId: 1, actorName: "Ardin", encounterName: "Hydross", className: "Paladin", role: "tank",
+      spec: "Protection", parsePercent: 55, bossParsePercent: 30 }),
+    row({ fightId: 1, actorName: "Tidemar", encounterName: "Hydross", className: "Shaman", role: "healer",
+      spec: "Restoration", parsePercent: 77, bossParsePercent: 12 }),
+  ];
+  const raid = summarizeRaidReport({
+    report, rows, reportPulls: 3, slugByActor: new Map([["kazrak", "kazrak"]]),
+  });
+  const board = (key: string) => raid.parseBoards.find((b) => b.key === key)!;
+
+  it("splits raiders into one board per role, and no raider into two", () => {
+    expect(raid.parseBoards.map((b) => b.key)).toEqual(["dps", "healers", "tanks"]);
+    expect(board("dps").rows.map((r) => r.name)).toEqual(["Kazrak", "Morgrave"]);
+    expect(board("healers").rows.map((r) => r.name)).toEqual(["Tidemar"]);
+    expect(board("tanks").rows.map((r) => r.name)).toEqual(["Ardin"]);
+  });
+
+  it("gives a column per counted kill and none for wipes", () => {
+    expect(board("dps").columns.map((c) => c.encounterName)).toEqual(["Hydross", "Vashj"]);
+    // The healer was only ranked on Hydross, so Vashj would be dead width.
+    expect(board("healers").columns.map((c) => c.encounterName)).toEqual(["Hydross"]);
+  });
+
+  it("averages over the kills a raider was ranked on, not the whole night", () => {
+    const [kazrak, morgrave] = board("dps").rows;
+    expect(kazrak).toMatchObject({ avg: 85, ranked: 2, spec: "Fury", slug: "kazrak" });
+    // One parse of 41 stays 41 — a missed boss is not a zero.
+    expect(morgrave).toMatchObject({ avg: 41, ranked: 1, slug: undefined });
+    expect(morgrave.cells.map((c) => c.fightId)).toEqual([3]);
+  });
+
+  it("carries both percentiles on the same cell, never as a second board", () => {
+    const kazrak = board("dps").rows[0];
+    expect(kazrak.cells.map((c) => [c.parse, c.bossParse])).toEqual([
+      [90, 70],
+      [80, 60],
+    ]);
+    // Both averages are kept, each over the kills that metric ranked.
+    expect(kazrak).toMatchObject({ avg: 85, ranked: 2, bossAvg: 65, bossRanked: 2 });
+    // Morgrave has no boss-damage parse at all — the cell keeps its all-damage
+    // number and simply has nothing to show on the other metric.
+    expect(board("dps").rows[1]).toMatchObject({ avg: 41, bossAvg: undefined, bossRanked: 0 });
+  });
+
+  it("offers boss damage only where it means something", () => {
+    expect(board("dps").bossMetric).toBeDefined();
+    expect(board("tanks").bossMetric).toBeDefined();
+    // WCL ranks healers on boss damage at ~0 — never worth offering.
+    expect(board("healers").bossMetric).toBeUndefined();
+    expect(board("healers").rows[0].cells[0].bossParse).toBeUndefined();
+  });
+
+  it("keeps the single metric when a report predates boss-damage parses", () => {
+    const older = summarizeRaidReport({
+      report,
+      rows: rows.map((r) => ({ ...r, bossParsePercent: undefined })),
+      reportPulls: 3,
+      slugByActor: new Map(),
+    });
+    expect(older.parseBoards.every((b) => b.bossMetric === undefined)).toBe(true);
+    expect(older.parseBoards.find((b) => b.key === "dps")!.rows[0].avg).toBe(85);
+  });
+
+  it("ignores excluded pulls entirely", () => {
+    const filtered = summarizeRaidReport({
+      report, rows, reportPulls: 3, slugByActor: new Map(), excludedFightIds: [3],
+    });
+    expect(filtered.parseBoards.find((b) => b.key === "dps")!.columns.map((c) => c.encounterName))
+      .toEqual(["Hydross"]);
+    // Morgrave only played the excluded kill, so he's off the board.
+    expect(filtered.parseBoards.find((b) => b.key === "dps")!.rows.map((r) => r.name)).toEqual(["Kazrak"]);
+  });
+});

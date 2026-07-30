@@ -79,7 +79,7 @@ WCL_CLIENT_SECRET=…
 
 Then paste a report URL on the import page's **Warcraft Logs** tab (optionally linking it to the night's Gargul session). One import costs ~7 API calls (the free tier allows thousands/hour) and records, per raider per boss pull:
 
-- **parse percentile** (DPS; HPS for healers; tanks in their bracket) plus the **ilvl-bracket percentile** — high parse + low bracket reads "carried by gear", the reverse reads "outplaying their gear"
+- **parse percentile** (DPS; HPS for healers; tanks in their bracket) plus the **ilvl-bracket percentile** — high parse + low bracket reads "carried by gear", the reverse reads "outplaying their gear" — and a **boss-damage percentile** ranked on damage to the boss alone, which is what separates real contribution from cleave padding
 - **deaths**, bucketed per pull
 - **preparation**: flask/elixirs/scrolls, Well Fed and weapon buff at the pull (from combatant info), pre-pots, and potions/drums/runes/healthstones/mana gems/seeds used in-fight (from cast events)
 - **class toolkit**: major cooldown casts (Death Wish, Combustion, Innervate, Bloodlust…) **with the moment each was pressed**, shaman totem drops, and the **uptime of maintained debuffs/buffs** — warlock curse assignments, Thunder Clap, Demoralizing Shout, shouts, judgements, Faerie Fire, Earth Shield, Innervate. Debuff uptime is computed per player on their best enemy target (≈ the boss); raid buffs are also tracked from the receiving end (who *had* it). Everything is matched by aura *name*, so every spell rank counts, and totem-sourced buffs are credited to the shaman who dropped the totem
@@ -120,6 +120,12 @@ Imported reports also drive **attendance**, led by a **per-reset check** (EU res
 `/logs` reads a single imported report — or **All raids** for the cross-raid rankings — in three tabs: **Overview**, **Rankings** and **Gold spent**.
 
 **Which pulls count.** The raid header's pull list is also a switch: click a pull to leave it out, and everything derived from the night recomputes without it — preparation coverage, potion and in-fight item counts, cooldowns, uptime averages and the improvement list. Excluded pulls stay visible (struck through) so the filter is never invisible, the selection is saved per report and survives a re-fetch, and the cross-raid rollup inherits it. A joke pull or a two-man farm boss stops skewing the night in one click.
+
+**Parse boards** open the Rankings tab: the whole raid as a grid, one table per role — Damage Dealers, Healers, Tanks — with a column per boss kill, in the shape Warcraft Logs' own rankings view uses. Names in class colour with their spec icon, the night's average next to them, percentiles coloured on WCL's scale, and every cell hovering to its bracket percentile and raw dps/hps.
+
+Warcraft Logs ranks a damage dealer twice — on all damage and on **damage to the boss alone** — and the two disagree by up to ten points on a night with adds. Both are stored per pull, and the damage boards **switch metric** rather than repeating every raider in a second table; healers never get the toggle (WCL ranks them at ~0 boss damage). Sorting and the average follow whichever metric is on screen.
+
+Wipes get no column (they have no percentile), a blank cell means "not ranked on that kill" rather than a zero, and averages are taken over the kills a raider was actually ranked on — missing a boss never reads as a bad parse. Excluded pulls drop out here too. Reports fetched before boss damage was added show all-damage only, with a note; re-import to fill it in.
 
 **Uptime by boss** draws each picked debuff/buff across a pull as colored bands per provider — gaps are exactly the time it was down — on the boss and on every add it touched. Pick several tracks to compare them on the same targets (Sunder Armor vs Expose Armor).
 

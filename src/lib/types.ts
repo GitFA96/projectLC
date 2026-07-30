@@ -430,6 +430,69 @@ export interface RaidPrepStats {
  * One raider's in-fight consumable and cooldown usage for the night — the
  * per-player tallies the rankings tab leaderboards are built from.
  */
+/* Parse boards — the WCL-style "everyone × every boss" percentile grid */
+
+/** One boss kill the boards have a column for. */
+export interface ParseBoardColumn {
+  fightId: number;
+  encounterName: string;
+  durationMs: number;
+}
+
+/**
+ * One raider on one kill, carrying both percentiles Warcraft Logs ranks them
+ * on: the board's own metric (damage done / healing done) and — for anyone who
+ * deals damage — the same pull ranked on damage to the BOSS alone. They differ by
+ * up to ten points on a fight with adds, which is the whole reason to keep
+ * both rather than pick one.
+ */
+export interface ParseBoardCell {
+  fightId: number;
+  parse: number;
+  /** Percentile within the item-level bracket — the gear-adjusted read. */
+  bracket?: number;
+  /** dps/hps behind the parse. */
+  amount?: number;
+  /** Spec played on that pull — what the row's icon shows. */
+  spec?: string;
+  /** Boss-only percentile, absent for healers and for pre-boss-damage imports. */
+  bossParse?: number;
+  /** Boss-only dps behind `bossParse`. */
+  bossAmount?: number;
+}
+
+export interface ParseBoardRow {
+  name: string;
+  slug?: string;
+  className?: string;
+  /** The spec they played most of the night. */
+  spec?: string;
+  /** Mean of the parses they have, rounded — the board's sort key. */
+  avg?: number;
+  /** Kills ranked, of the columns shown. */
+  ranked: number;
+  /** The same average on boss damage alone. */
+  bossAvg?: number;
+  bossRanked: number;
+  cells: ParseBoardCell[];
+}
+
+/**
+ * One table of the rankings grid: a role, with a column per boss kill,
+ * mirroring Warcraft Logs' own rankings view. Boss damage is a metric the
+ * table switches to, not a second table — nobody should appear twice.
+ */
+export interface ParseBoard {
+  key: "dps" | "healers" | "tanks";
+  label: string;
+  /** What the percentiles measure, for the caption. */
+  metric: string;
+  /** Caption for the boss-damage metric; absent when this board has none. */
+  bossMetric?: string;
+  columns: ParseBoardColumn[];
+  rows: ParseBoardRow[];
+}
+
 export interface RaiderUsage {
   name: string;
   slug?: string;
@@ -504,6 +567,12 @@ export interface RaidReportView {
   improvements: PlayerImprovements[];
   /** Per-raider usage tallies for the rankings tab, most consumables first. */
   usage: RaiderUsage[];
+  /**
+   * Parse percentiles as a grid — damage dealers, tanks, healers and boss
+   * damage, each with a column per boss kill. Boards nobody has a parse in are
+   * left out entirely.
+   */
+  parseBoards: ParseBoard[];
 }
 
 
