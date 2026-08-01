@@ -8,6 +8,8 @@ export interface SlotRowView {
   item?: ItemRef;
   enchant?: string;
   gems?: string[];
+  /** Set by hand from the logs rather than by the import — worth saying so. */
+  pinned?: boolean;
 }
 
 /**
@@ -29,6 +31,14 @@ export function SlotGrid({ slots }: { slots: SlotRowView[] }) {
               <>
                 <ItemLink item={row.item} className="min-w-0 flex-1" />
                 <span className="flex shrink-0 items-center gap-1">
+                  {row.pinned && (
+                    <span
+                      title="Set by hand from their logged gear — overrides the imported set"
+                      className="rounded-sm bg-muted px-1 text-[10px] leading-4 text-muted-foreground"
+                    >
+                      set
+                    </span>
+                  )}
                   {row.enchant && (
                     <span
                       title={`Enchant: ${row.enchant}`}

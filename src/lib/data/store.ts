@@ -5,6 +5,7 @@ import {
   matchAwardToWishlists,
 } from "@/lib/analysis/wishlist";
 import { computeItemContention } from "@/lib/analysis/contention";
+import { applyCurrentGearOverrides } from "@/lib/analysis/current-gear";
 import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
 import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
@@ -23,6 +24,7 @@ import type {
   CharacterPerformance,
   CharacterSummary,
   ConsumablePrice,
+  CurrentGearOverride,
   FairnessGroup,
   GearSet,
   Guild,
@@ -51,6 +53,8 @@ export interface EntityStore {
   roster: Character[];
   items: Item[];
   gearSets: GearSet[];
+  /** Officer-pinned current-gear slots, applied over the imported set on read. */
+  currentGearOverrides: CurrentGearOverride[];
   raidSessions: RaidSession[];
   lootAwards: LootAward[];
   wclReports: WclReport[];
@@ -66,6 +70,13 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
   for (const set of store.gearSets) {
     if (!charIds.has(set.characterId)) {
       throw new Error(`${sourceLabel}: gear set ${set.id} references unknown characterId ${set.characterId}`);
+    }
+  }
+  for (const override of store.currentGearOverrides) {
+    if (!charIds.has(override.characterId)) {
+      throw new Error(
+        `${sourceLabel}: current-gear override for ${override.item.slot} references unknown characterId ${override.characterId}`,
+      );
     }
   }
   for (const award of store.lootAwards) {
@@ -124,7 +135,7 @@ export interface StoreConfig {
 }
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
-  const { guild, roster, items, gearSets, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions, characterComments } = store;
+  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions, characterComments } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -155,11 +166,38 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     commentsByCharacter.get(characterId) ?? [];
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
+  // Pinned slots, per character, in canonical slot order.
+  const overridesByCharacter = new Map<string, CurrentGearOverride[]>();
+  for (const override of currentGearOverrides) {
+    const list = overridesByCharacter.get(override.characterId) ?? [];
+    list.push(override);
+    overridesByCharacter.set(override.characterId, list);
+  }
+  const overridesOf = (characterId: string): CurrentGearOverride[] =>
+    overridesByCharacter.get(characterId) ?? [];
+
+  /** The imported current set, exactly as exported — before any pinning. */
+  function importedCurrentOf(characterId: string): GearSet | undefined {
+    return gearSets.find((s) => s.characterId === characterId && s.kind === "current");
+  }
+
+  // Every derived answer reads this map, and the "current" set in it already
+  // has the pinned slots applied — so an override counts for wishlist status,
+  // completion and contention alike, with no second code path to keep in sync.
   const gearSetsByCharacter = new Map<string, GearSet[]>();
   for (const set of gearSets) {
     const list = gearSetsByCharacter.get(set.characterId) ?? [];
-    list.push(set);
+    list.push(set.kind === "current" ? (applyCurrentGearOverrides(set, overridesOf(set.characterId)) ?? set) : set);
     gearSetsByCharacter.set(set.characterId, list);
+  }
+  // Pins for a character who never imported a current set stand on their own.
+  for (const [characterId, overrides] of overridesByCharacter) {
+    if (importedCurrentOf(characterId)) continue;
+    const synthesised = applyCurrentGearOverrides(undefined, overrides);
+    if (!synthesised) continue;
+    const list = gearSetsByCharacter.get(characterId) ?? [];
+    list.push(synthesised);
+    gearSetsByCharacter.set(characterId, list);
   }
 
   function wishlistsOf(characterId: string): GearSet[] {
@@ -384,6 +422,8 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         awards: awardsWithContext.filter((a) => a.award.characterId === character.id),
         summary: summarize(character),
         comments: commentsOf(character.id),
+        currentOverrides: overridesOf(character.id),
+        importedCurrent: importedCurrentOf(character.id),
       };
     },
 
@@ -509,6 +549,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         references.set(id, (references.get(id) ?? 0) + weight);
       for (const award of lootAwards) bump(award.itemId, LEDGER_WEIGHT);
       for (const set of gearSets) for (const slot of set.slots) bump(slot.itemId, LEDGER_WEIGHT);
+      // A pinned slot is read off a log, so it often arrives with an icon but
+      // no name — exactly what the resolver exists for.
+      for (const override of currentGearOverrides) bump(override.item.itemId, LEDGER_WEIGHT);
       // Gems show on the gear panel by icon; only their name needs looking up.
       for (const row of wclPlayerFights) {
         for (const item of row.gear) for (const gem of item.gems) bump(gem.id, 1);

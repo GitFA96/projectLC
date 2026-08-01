@@ -3,6 +3,7 @@ import type {
   attendanceExemptionSchema,
   characterCommentSchema,
   characterSchema,
+  currentGearOverrideSchema,
   gearSetSchema,
   guildSchema,
   itemSchema,
@@ -14,9 +15,9 @@ import type {
   wclReportSchema,
   wclRoleSchema,
 } from "@/lib/import/schemas";
-import type { Phase, Quality, Role, SlotId, WowClass } from "@/lib/constants/wow";
+import type { GearOverrideSource, Phase, Quality, Role, SlotId, WowClass } from "@/lib/constants/wow";
 
-export type { Phase, Quality, Role, SlotId, WowClass };
+export type { GearOverrideSource, Phase, Quality, Role, SlotId, WowClass };
 
 /* Core entities (inferred from the canonical zod schemas) */
 export type Guild = z.infer<typeof guildSchema>;
@@ -25,6 +26,7 @@ export type Item = z.infer<typeof itemSchema>;
 export type SlotItem = z.infer<typeof slotItemSchema>;
 export type StatBlock = z.infer<typeof statBlockSchema>;
 export type GearSet = z.infer<typeof gearSetSchema>;
+export type CurrentGearOverride = z.infer<typeof currentGearOverrideSchema>;
 export type RaidSession = z.infer<typeof raidSessionSchema>;
 export type LootAward = z.infer<typeof lootAwardSchema>;
 export type WclReport = z.infer<typeof wclReportSchema>;
@@ -157,12 +159,17 @@ export interface PhaseWishlistView {
 
 export interface CharacterBundle {
   character: Character;
+  /** The imported current set with any pinned slots already applied. */
   current?: GearSet;
   wishlists: PhaseWishlistView[];
   awards: AwardWithContext[];
   summary: CharacterSummary;
   /** Officer comment log, newest first. */
   comments: CharacterComment[];
+  /** The slots an officer pinned by hand — which parts of `current` aren't the import. */
+  currentOverrides: CurrentGearOverride[];
+  /** The imported set as it was exported, before pinning. Undefined when nothing was imported. */
+  importedCurrent?: GearSet;
 }
 
 export interface ContentionWisher {

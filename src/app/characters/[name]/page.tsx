@@ -6,9 +6,14 @@ import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
 import { buildLoggedGear, type LoggedGearReport } from "@/lib/analysis/logged-gear";
+import {
+  LOGGED_GEAR_RAIDS,
+  loggedSlotOptions,
+  type LoggedSlotOption,
+} from "@/lib/analysis/current-gear";
 import { CLASS_TEXT_COLORS, PHASES } from "@/lib/constants/wow";
 import type { Repo } from "@/lib/data/repo";
-import type { SlotItem } from "@/lib/types";
+import type { SlotId, SlotItem } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
@@ -18,6 +23,10 @@ import { PhasePills } from "@/components/phase-pills";
 import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
 import { LoggedGearSummary } from "@/components/logged-gear-summary";
 import { GearSourcePicker, type GearSourceOption } from "@/components/gear-source-picker";
+import {
+  ResetPinnedSlotsButton,
+  type CurrentSlotOptionView,
+} from "@/components/current-slot-picker";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterComments } from "@/components/character-comments";
@@ -53,13 +62,6 @@ async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef> {
   };
 }
 
-/**
- * How many raid nights the gear picker looks back over. Far enough to catch a
- * swap set (resist gear, a threat trinket), recent enough that gear they've
- * since replaced doesn't linger on the profile.
- */
-const LOGGED_RAIDS = 3;
-
 /** The set they imported — the other answer to "what are they wearing". */
 const SET_KEY = "set";
 
@@ -85,7 +87,8 @@ export default async function CharacterPage({
     repo.listItems(),
   ]);
   if (!bundle) notFound();
-  const { character, current, wishlists, awards, summary, comments } = bundle;
+  const { character, current, wishlists, awards, summary, comments, currentOverrides, importedCurrent } =
+    bundle;
 
   // Awarding by hand: the recent raid nights to file under, plus the zones a
   // new manual entry can name. The active phase's raids lead the zone list.
@@ -106,6 +109,7 @@ export default async function CharacterPage({
   };
 
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
+  const pinnedSlotIds = new Set(bundle.currentOverrides.map((o) => o.item.slot));
   const slotRows: SlotRowView[] = current
     ? await Promise.all(
         current.slots.map(async (s) => ({
@@ -113,6 +117,7 @@ export default async function CharacterPage({
           item: await toItemRef(repo, s),
           enchant: s.enchant?.name,
           gems: s.gems?.map((g) => g.name),
+          pinned: pinnedSlotIds.has(s.slot),
         })),
       )
     : [];
@@ -123,7 +128,7 @@ export default async function CharacterPage({
     report: r.report,
     rows: r.rows,
   }));
-  const recent = buildLoggedGear(loggedReports, { limit: LOGGED_RAIDS });
+  const recent = buildLoggedGear(loggedReports, { limit: LOGGED_GEAR_RAIDS });
   const gearOptions: GearSourceOption[] = [
     ...(current
       ? [
@@ -168,6 +173,23 @@ export default async function CharacterPage({
         ? buildLoggedGear(loggedReports.filter((r) => r.report.code === activeNight.code))
         : undefined;
 
+  // What the "Currently" column can be set to: the items this character was
+  // logged wearing in each slot (its pair included), which slots an officer has
+  // already pinned, and what the import said before they did.
+  const pinnedSlots = new Set<SlotId>(currentOverrides.map((o) => o.item.slot));
+  const importedBySlot = new Map((importedCurrent?.slots ?? []).map((s) => [s.slot, s] as const));
+  const slotOptions = loggedSlotOptions(recent);
+  /** The log's reading of an item, topped up from the item cache. */
+  const optionView = (option: LoggedSlotOption): CurrentSlotOptionView => {
+    const cached = itemsById.get(option.itemId);
+    return {
+      ...option,
+      name: cached?.name ?? option.name,
+      icon: cached?.icon ?? option.icon,
+      quality: cached?.quality ?? option.quality,
+    };
+  };
+
   const tabs: PhaseTabView[] = await Promise.all(
     wishlists.map(async (view) => ({
       phase: view.phase,
@@ -177,14 +199,29 @@ export default async function CharacterPage({
       completion: view.completion,
       statDeltas: view.statDeltas,
       rows: await Promise.all(
-        view.rows.map(async (row) => ({
-          slot: row.slot,
-          wished: await toItemRef(repo, row.wished),
-          current: row.current ? await toItemRef(repo, row.current) : undefined,
-          state: row.state,
-          awardedAt: row.awardedAt,
-          awardId: row.awardId,
-        })),
+        view.rows.map(async (row) => {
+          const options = (slotOptions.get(row.slot) ?? []).map(optionView);
+          const pinned = pinnedSlots.has(row.slot);
+          const imported = importedBySlot.get(row.slot);
+          return {
+            slot: row.slot,
+            wished: await toItemRef(repo, row.wished),
+            current: row.current ? await toItemRef(repo, row.current) : undefined,
+            state: row.state,
+            awardedAt: row.awardedAt,
+            awardId: row.awardId,
+            // No logged gear and nothing pinned means there's nothing to pick
+            // from — the cell stays the plain read-only item it always was.
+            currentPick:
+              options.length > 0 || pinned
+                ? {
+                    pinned,
+                    imported: imported ? await toItemRef(repo, imported) : undefined,
+                    options,
+                  }
+                : undefined,
+          };
+        }),
       ),
     })),
   );
@@ -343,13 +380,27 @@ export default async function CharacterPage({
                   </>
                 ) : current ? (
                   <>
-                    The SixtyUpgrades set imported{" "}
-                    {format(parseISO(current.importedAt), "d MMM yyyy")} — what they built, not
-                    necessarily what they raided in.
-                    {current.sourceUrl && (
+                    {importedCurrent ? (
+                      <>
+                        The SixtyUpgrades set imported{" "}
+                        {format(parseISO(importedCurrent.importedAt), "d MMM yyyy")} — what they
+                        built, not necessarily what they raided in.
+                      </>
+                    ) : (
+                      <>
+                        Built slot by slot from their logged gear — nothing has been imported for{" "}
+                        {character.name} yet.
+                      </>
+                    )}
+                    {importedCurrent?.sourceUrl && (
                       <>
                         {" · "}
-                        <a href={current.sourceUrl} className="underline" target="_blank" rel="noreferrer">
+                        <a
+                          href={importedCurrent.sourceUrl}
+                          className="underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           open set
                         </a>
                       </>
@@ -366,6 +417,16 @@ export default async function CharacterPage({
                   "Nothing imported and nothing logged yet."
                 )}
               </p>
+              {currentOverrides.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {currentOverrides.length} slot{currentOverrides.length === 1 ? "" : "s"} set by
+                  hand from their logs — those win over the imported set wherever loot is judged.
+                  <ResetPinnedSlotsButton
+                    characterName={character.name}
+                    count={currentOverrides.length}
+                  />
+                </p>
+              )}
             </CardHeader>
             <CardContent>
               {activeView ? (
@@ -394,7 +455,9 @@ export default async function CharacterPage({
             <CharacterPhaseTabs
               tabs={tabs}
               activePhase={guild.activePhase}
-              hasCurrent={current !== undefined}
+              // Stat deltas only ever diff stat blocks SixtyUpgrades computed —
+              // pinned slots move items, never numbers.
+              hasCurrent={importedCurrent !== undefined}
               characterName={character.name}
               award={award}
             />

@@ -85,7 +85,9 @@ export function CharacterPhaseTabs({
       </TabsList>
 
       {tabs.map((tab) => {
-        const openRows = tab.rows.filter((r) => r.state !== "equipped");
+        // Open slots, plus any slot an officer satisfied by hand: a pin that
+        // closed a row has to stay visible, or there's nowhere left to undo it.
+        const openRows = tab.rows.filter((r) => r.state !== "equipped" || r.currentPick?.pinned);
         return (
           <TabsContent key={tab.phase} value={String(tab.phase)} className="space-y-4">
             <Card>
@@ -103,7 +105,7 @@ export function CharacterPhaseTabs({
                 </div>
               </CardHeader>
               <CardContent>
-                <WishlistTable rows={openRows} award={award} />
+                <WishlistTable rows={openRows} characterName={characterName} award={award} />
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Imported {format(parseISO(tab.importedAt), "d MMM yyyy")} · source: {tab.source} ·{" "}
                   <Link

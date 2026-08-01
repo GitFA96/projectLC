@@ -58,6 +58,17 @@ export const SLOT_FAMILIES: Partial<Record<SlotId, "ring" | "trinket">> = {
   trinket2: "trinket",
 };
 
+/**
+ * Every slot an item could sit in interchangeably with this one, the slot
+ * itself first. Rings and trinkets pair up — which finger a ring is on is
+ * arbitrary, so a picker for "ring 1" has to offer what was worn on either.
+ */
+export function slotFamilyMembers(slot: SlotId): SlotId[] {
+  const family = SLOT_FAMILIES[slot];
+  if (!family) return [slot];
+  return [slot, ...SLOT_IDS.filter((s) => s !== slot && SLOT_FAMILIES[s] === family)];
+}
+
 export const SLOT_META: { id: SlotId; label: string }[] = [
   { id: "head", label: "Head" },
   { id: "neck", label: "Neck" },
@@ -237,6 +248,10 @@ export function isGuildMember(status: CharacterStatus): boolean {
 
 export const GEAR_SET_KINDS = ["current", "wishlist"] as const;
 export const GEAR_SET_SOURCES = ["sixtyupgrades", "seed", "manual"] as const;
+
+/** Where an officer-pinned current-gear slot was picked from. */
+export const GEAR_OVERRIDE_SOURCES = ["logs", "manual"] as const;
+export type GearOverrideSource = (typeof GEAR_OVERRIDE_SOURCES)[number];
 export const SESSION_SOURCES = ["gargul", "manual", "seed"] as const;
 
 /** Wowhead CDN icon URL (icons render in the user's browser; UI falls back gracefully). */

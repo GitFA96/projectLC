@@ -97,6 +97,98 @@ describe("sqlite repo", () => {
     });
   });
 
+  describe("pinned current-gear slots", () => {
+    /** Thrainn wears the Felsteel Helm; his P1 list wants Helm of the Fallen Defender. */
+    const FELSTEEL_HELM = 23517;
+    const TIER_HELM = 29761;
+
+    it("overrides the imported slot everywhere the loot council reads it", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      const before = (await repo.getCharacterBundle("thrainn"))!;
+      const p1Before = before.wishlists.find((w) => w.phase === 1)!;
+      expect(p1Before.rows.find((r) => r.slot === "head")!.state).toBe("open");
+
+      const pinned = await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+        "logs",
+      );
+      expect(pinned.ok).toBe(true);
+
+      const after = (await repo.getCharacterBundle("thrainn"))!;
+      // The wishlist row closes...
+      const p1After = after.wishlists.find((w) => w.phase === 1)!;
+      expect(p1After.rows.find((r) => r.slot === "head")!.state).toBe("equipped");
+      expect(p1After.completion.satisfied).toBe(p1Before.completion.satisfied + 1);
+      // ...current gear reads the pin, while the import is kept intact for undo...
+      expect(after.current!.slots.find((s) => s.slot === "head")!.itemId).toBe(TIER_HELM);
+      expect(after.importedCurrent!.slots.find((s) => s.slot === "head")!.itemId).toBe(FELSTEEL_HELM);
+      expect(after.currentOverrides.map((o) => o.item.slot)).toEqual(["head"]);
+      // ...and contention agrees he no longer needs it.
+      const contention = (await repo.getItemContention(TIER_HELM))!;
+      expect(contention.wishers.find((w) => w.character.id === thrainn.id)!.satisfied).toBe(true);
+    });
+
+    it("hands the slot back to the import when cleared", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+        "logs",
+      );
+
+      expect(await repo.clearCurrentGearOverride(thrainn.id, "head")).toBe(true);
+      expect(await repo.clearCurrentGearOverride(thrainn.id, "head")).toBe(false); // already gone
+
+      const bundle = (await repo.getCharacterBundle("thrainn"))!;
+      expect(bundle.current!.slots.find((s) => s.slot === "head")!.itemId).toBe(FELSTEEL_HELM);
+      expect(bundle.currentOverrides).toEqual([]);
+    });
+
+    it("stands alone as current gear for a character who never imported a set", async () => {
+      const repo = getSqliteRepo();
+      const created = await repo.createCharacter({
+        name: "Zugzug",
+        class: "Warrior",
+        spec: "Fury",
+        role: "Melee DPS",
+        status: "main",
+      });
+      if (!created.ok) throw new Error(created.error);
+      expect((await repo.getCharacterBundle("zugzug"))!.current).toBeUndefined();
+
+      await repo.setCurrentGearOverride(
+        created.character.id,
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+        "logs",
+      );
+      const bundle = (await repo.getCharacterBundle("zugzug"))!;
+      expect(bundle.current!.slots).toEqual([
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+      ]);
+      expect(bundle.importedCurrent).toBeUndefined();
+      expect(bundle.summary.hasCurrentGear).toBe(true);
+
+      expect(await repo.clearCurrentGearOverrides(created.character.id)).toBe(1);
+      expect((await repo.getCharacterBundle("zugzug"))!.current).toBeUndefined();
+    });
+
+    it("goes with the character when one is deleted", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+        "logs",
+      );
+      expect((await repo.deleteCharacter(thrainn.id)).ok).toBe(true);
+      // A dangling override would fail validateStore on the next model rebuild.
+      expect(await repo.getCharacterBundle("thrainn")).toBeNull();
+    });
+  });
+
   describe("characters", () => {
     it("creates a character and rejects duplicate names case-insensitively", async () => {
       const repo = getSqliteRepo();

@@ -5,6 +5,7 @@ import {
   attendanceExemptionSchema,
   characterCommentSchema,
   characterSchema,
+  currentGearOverrideSchema,
   gearSetSchema,
   guildSchema,
   itemSchema,
@@ -20,6 +21,7 @@ import type {
   Character,
   CharacterComment,
   ConsumablePrice,
+  CurrentGearOverride,
   GearSet,
   Guild,
   Item,
@@ -93,6 +95,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS gear_sets_one_current
   ON gear_sets(character_id) WHERE kind = 'current';
 CREATE UNIQUE INDEX IF NOT EXISTS gear_sets_one_wishlist_per_phase
   ON gear_sets(character_id, phase) WHERE kind = 'wishlist';
+-- What an officer says a raider ACTUALLY has in one slot right now, pinned
+-- from their recent logs. Overrides that slot of the imported set (and stands
+-- alone when there is no import); deleting the row hands the slot back.
+CREATE TABLE IF NOT EXISTS current_gear_overrides (
+  character_id TEXT NOT NULL REFERENCES characters(id),
+  slot         TEXT NOT NULL,
+  item_id      INTEGER NOT NULL,
+  item_name    TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  set_at       TEXT NOT NULL,
+  PRIMARY KEY (character_id, slot)
+);
 CREATE TABLE IF NOT EXISTS raid_sessions (
   id         TEXT PRIMARY KEY,
   guild_id   TEXT NOT NULL,
@@ -477,6 +491,14 @@ export function insertGearSet(db: DatabaseSync, s: GearSet): void {
   );
 }
 
+/** Pin one slot (replacing whatever was pinned there before). */
+export function insertCurrentGearOverride(db: DatabaseSync, o: CurrentGearOverride): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO current_gear_overrides (character_id, slot, item_id, item_name, source, set_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(o.characterId, o.item.slot, o.item.itemId, o.item.itemName, o.source, o.setAt);
+}
+
 export function insertRaidSession(db: DatabaseSync, s: RaidSession): void {
   db.prepare(
     "INSERT INTO raid_sessions (id, guild_id, date, zones_json, note, source) VALUES (?, ?, ?, ?, ?, ?)",
@@ -562,6 +584,15 @@ function rowToGearSet(r: Row): unknown {
   };
 }
 
+function rowToCurrentGearOverride(r: Row): unknown {
+  return {
+    characterId: r.character_id,
+    item: { slot: r.slot, itemId: r.item_id, itemName: r.item_name },
+    source: r.source,
+    setAt: r.set_at,
+  };
+}
+
 function rowToRaidSession(r: Row): unknown {
   return {
     id: r.id, guildId: r.guild_id, date: r.date, zones: JSON.parse(r.zones_json as string),
@@ -629,6 +660,11 @@ export function loadStore(db: DatabaseSync): EntityStore {
     roster: parseAll("characters", characterSchema, (db.prepare("SELECT * FROM characters ORDER BY name").all() as Row[]).map(rowToCharacter)),
     items: parseAll("items", itemSchema, (db.prepare("SELECT * FROM items").all() as Row[]).map(rowToItem)),
     gearSets: parseAll("gear_sets", gearSetSchema, (db.prepare("SELECT * FROM gear_sets").all() as Row[]).map(rowToGearSet)),
+    currentGearOverrides: parseAll(
+      "current_gear_overrides",
+      currentGearOverrideSchema,
+      (db.prepare("SELECT * FROM current_gear_overrides").all() as Row[]).map(rowToCurrentGearOverride),
+    ),
     raidSessions: parseAll("raid_sessions", raidSessionSchema, (db.prepare("SELECT * FROM raid_sessions").all() as Row[]).map(rowToRaidSession)),
     lootAwards: parseAll("loot_awards", lootAwardSchema, (db.prepare("SELECT * FROM loot_awards").all() as Row[]).map(rowToLootAward)),
     wclReports: parseAll("wcl_reports", wclReportSchema, (db.prepare("SELECT * FROM wcl_reports").all() as Row[]).map(rowToWclReport)),
@@ -650,6 +686,7 @@ function seedIfEmpty(db: DatabaseSync): void {
       for (const c of seed.roster) insertCharacter(db, c);
       for (const i of seed.items) insertItem(db, i);
       for (const s of seed.gearSets) insertGearSet(db, s);
+      for (const o of seed.currentGearOverrides) insertCurrentGearOverride(db, o);
       for (const s of seed.raidSessions) insertRaidSession(db, s);
       for (const a of seed.lootAwards) insertLootAward(db, a);
       for (const r of seed.wclReports) insertWclReport(db, r);

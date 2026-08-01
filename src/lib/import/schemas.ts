@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   CHARACTER_STATUSES,
   FACTIONS,
+  GEAR_OVERRIDE_SOURCES,
   GEAR_SET_KINDS,
   GEAR_SET_SOURCES,
   PHASE_IDS,
@@ -121,6 +122,29 @@ export const gearSetSchema = z
   .refine((s) => s.kind !== "wishlist" || s.phase !== undefined, {
     message: "wishlist gear sets require a phase",
   });
+
+/**
+ * One slot of a character's current gear, pinned by an officer.
+ *
+ * A SixtyUpgrades export is a snapshot of intent, and it goes stale the moment
+ * someone wins an upgrade — but the logs know exactly what was worn on every
+ * pull. An override pins one slot to an item read off those recent raids, so
+ * "currently" on a wishlist row, wishlist completion and item contention all
+ * follow reality without waiting for the raider to re-export.
+ *
+ * One per character × slot (the slot lives on `item`); clearing it hands the
+ * slot back to the imported set. Enchant and gems are deliberately not stored:
+ * the item is what loot decisions turn on, and the logs already render the
+ * worn enchant and gems on the gear panel — inventing names here would be
+ * worse than pointing at the pull that has them.
+ */
+export const currentGearOverrideSchema = z.object({
+  characterId: z.string().min(1),
+  item: slotItemSchema,
+  source: z.enum(GEAR_OVERRIDE_SOURCES),
+  /** ISO timestamp the officer pinned it. */
+  setAt: z.string().min(1),
+});
 
 export const raidSessionSchema = z.object({
   id: z.string().min(1),
@@ -341,6 +365,7 @@ export const seedGuildSchema = guildSchema;
 export const seedRosterSchema = z.array(characterSchema);
 export const seedItemsSchema = z.array(itemSchema);
 export const seedGearSetsSchema = z.array(gearSetSchema);
+export const seedCurrentGearOverridesSchema = z.array(currentGearOverrideSchema);
 export const seedRaidSessionsSchema = z.array(raidSessionSchema);
 export const seedLootAwardsSchema = z.array(lootAwardSchema);
 export const seedWclReportsSchema = z.array(wclReportSchema);

@@ -9,6 +9,7 @@ import {
   insertAttendanceExemption,
   insertCharacter,
   insertCharacterComment,
+  insertCurrentGearOverride,
   insertGearSet,
   insertLootAward,
   insertRaidSession,
@@ -25,6 +26,7 @@ import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
 import {
   characterCommentSchema,
   characterSchema,
+  currentGearOverrideSchema,
   gearSetSchema,
   lootAwardSchema,
   wclPlayerFightSchema,
@@ -47,13 +49,26 @@ import type {
   Repo,
   RaidSessionDraft,
   ResolveAwardResult,
+  SetCurrentGearOverrideResult,
   UpsertGearSetResult,
   WclPlayerFightDraft,
   WclReportDraft,
   WclSaveResult,
   WriteRepo,
 } from "@/lib/data/repo";
-import type { Character, CharacterComment, GearSet, Item, LootAward, RaidSession, WclPlayerFight } from "@/lib/types";
+import type {
+  Character,
+  CharacterComment,
+  CurrentGearOverride,
+  GearOverrideSource,
+  GearSet,
+  Item,
+  LootAward,
+  RaidSession,
+  SlotId,
+  SlotItem,
+  WclPlayerFight,
+} from "@/lib/types";
 
 /**
  * SQLite-backed repository. Reads go through the same derived read model as
@@ -164,6 +179,59 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return deleted;
   },
 
+  async setCurrentGearOverride(
+    characterId: string,
+    item: SlotItem,
+    source: GearOverrideSource,
+  ): Promise<SetCurrentGearOverrideResult> {
+    if (!readModel().store.roster.some((c) => c.id === characterId)) {
+      return { ok: false, error: "Character not found." };
+    }
+    const parsed = currentGearOverrideSchema.safeParse({
+      characterId,
+      item,
+      source,
+      setAt: new Date().toISOString(),
+    } satisfies CurrentGearOverride);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid gear override." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      insertCurrentGearOverride(db, parsed.data);
+      // The pinned item is now referenced by the profile — teach the cache
+      // whatever name came with it, like any other import does.
+      mergeItems(db, [{ id: item.itemId, name: item.itemName, slot: item.slot }]);
+      bumpDataVersion(db);
+    });
+    return { ok: true, override: parsed.data };
+  },
+
+  async clearCurrentGearOverride(characterId: string, slot: SlotId): Promise<boolean> {
+    const db = getDb();
+    let cleared = false;
+    withTx(db, () => {
+      cleared = Number(
+        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ? AND slot = ?").run(characterId, slot)
+          .changes,
+      ) > 0;
+      if (cleared) bumpDataVersion(db);
+    });
+    return cleared;
+  },
+
+  async clearCurrentGearOverrides(characterId: string): Promise<number> {
+    const db = getDb();
+    let cleared = 0;
+    withTx(db, () => {
+      cleared = Number(
+        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ?").run(characterId).changes,
+      );
+      if (cleared > 0) bumpDataVersion(db);
+    });
+    return cleared;
+  },
+
   async createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult> {
     if (nameTaken(draft.name)) {
       return { ok: false, error: `A character named “${draft.name.trim()}” already exists.` };
@@ -220,9 +288,10 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       result.deletedGearSets = Number(
         db.prepare("DELETE FROM gear_sets WHERE character_id = ?").run(id).changes,
       );
-      // Comments and exemptions reference the character — they go with it.
+      // Comments, exemptions and pinned slots reference the character — they go with it.
       db.prepare("DELETE FROM character_comments WHERE character_id = ?").run(id);
       db.prepare("DELETE FROM attendance_exemptions WHERE character_id = ?").run(id);
+      db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ?").run(id);
       db.prepare("DELETE FROM characters WHERE id = ?").run(id);
       bumpDataVersion(db);
     });
@@ -485,9 +554,10 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       db.prepare("UPDATE loot_awards SET character_id = NULL, external = 0 WHERE character_id LIKE 'c-%'").run();
       // Gear sets follow their character — covers seeded sets and test imports onto demo characters.
       removed.gearSets = Number(db.prepare("DELETE FROM gear_sets WHERE character_id LIKE 'c-%'").run().changes);
-      // Comments and exemptions on demo characters go too (they'd dangle otherwise).
+      // Comments, exemptions and pinned slots on demo characters go too (they'd dangle otherwise).
       db.prepare("DELETE FROM character_comments WHERE character_id LIKE 'c-%'").run();
       db.prepare("DELETE FROM attendance_exemptions WHERE character_id LIKE 'c-%'").run();
+      db.prepare("DELETE FROM current_gear_overrides WHERE character_id LIKE 'c-%'").run();
       removed.raidSessions = Number(db.prepare("DELETE FROM raid_sessions WHERE id LIKE 'rs-%'").run().changes);
       removed.characters = Number(db.prepare("DELETE FROM characters WHERE id LIKE 'c-%'").run().changes);
       bumpDataVersion(db);

@@ -45,6 +45,9 @@ export function loadSeedStore(): EntityStore {
     roster: parse("roster.json", seedRosterSchema, rosterJson),
     items: parse("items.json", seedItemsSchema, itemsJson),
     gearSets: parse("gear-sets.json", seedGearSetsSchema, gearSetsJson),
+    // Pinning is an officer action, never seeded — the demo starts from what
+    // the fictional raiders "exported".
+    currentGearOverrides: [],
     raidSessions: parse("raid-sessions.json", seedRaidSessionsSchema, raidSessionsJson),
     lootAwards: parse("loot-awards.json", seedLootAwardsSchema, lootAwardsJson),
     wclReports: parse("wcl-reports.json", seedWclReportsSchema, wclReportsJson),

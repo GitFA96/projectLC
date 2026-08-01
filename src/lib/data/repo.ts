@@ -8,7 +8,9 @@ import type {
   CharacterPerformance,
   CharacterSummary,
   ConsumablePrice,
+  CurrentGearOverride,
   DashboardData,
+  GearOverrideSource,
   GearSet,
   Guild,
   Item,
@@ -17,6 +19,8 @@ import type {
   LootAward,
   RaidReportView,
   RaidSession,
+  SlotId,
+  SlotItem,
   UntrackedLogPlayer,
   WclPlayerFight,
   WclReport,
@@ -105,6 +109,10 @@ export type UpsertGearSetResult =
   | { status: "replaced"; set: GearSet; previous: GearSet }
   /** A set already exists and replace wasn't confirmed — nothing written. */
   | { status: "exists"; existing: GearSet };
+
+export type SetCurrentGearOverrideResult =
+  | { ok: true; override: CurrentGearOverride }
+  | { ok: false; error: string };
 
 export type CharacterWriteResult =
   | { ok: true; character: Character }
@@ -214,6 +222,20 @@ export interface WriteRepo extends Repo {
    */
   upsertGearSet(draft: GearSetDraft, opts: { replace: boolean }): Promise<UpsertGearSetResult>;
   deleteGearSet(setId: string): Promise<boolean>;
+  /**
+   * Pin one slot of a character's current gear to a specific item, overriding
+   * whatever their imported set says (and standing alone when there is none).
+   * The slot is `item.slot`; pinning it again replaces the previous pin.
+   */
+  setCurrentGearOverride(
+    characterId: string,
+    item: SlotItem,
+    source: GearOverrideSource,
+  ): Promise<SetCurrentGearOverrideResult>;
+  /** Hand one slot back to the imported set. False when nothing was pinned there. */
+  clearCurrentGearOverride(characterId: string, slot: SlotId): Promise<boolean>;
+  /** Unpin every slot for a character — back to the imported set wholesale. */
+  clearCurrentGearOverrides(characterId: string): Promise<number>;
   createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult>;
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
   /**
