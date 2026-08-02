@@ -108,6 +108,26 @@ export const ZONE_TO_PHASE: Record<string, Phase> = Object.fromEntries(
   PHASES.flatMap((p) => p.zones.map((z) => [z, p.phase])),
 );
 
+/**
+ * Lowest item level that only a phase's own raid tier reaches.
+ *
+ * The item cache learns a phase only for the handful of items seeded with one
+ * — a log's gear snapshot carries an item level and nothing else — so this is
+ * how "is this current-tier gear" gets answered for everything else. Each
+ * floor sits ABOVE the previous tier's ceiling (SSC/TK top out at 141, Black
+ * Temple tier starts at 146), which makes the test deliberately conservative:
+ * a piece from the previous tier can never trip it, and the early, lower-level
+ * drops of the current one simply aren't counted. Under-claiming beats telling
+ * a raider to re-gem gear they're about to replace.
+ */
+export const PHASE_ITEM_LEVEL_FLOOR: Record<Phase, number> = {
+  1: 115,
+  2: 133,
+  3: 146,
+  4: 151,
+  5: 154,
+};
+
 /** Awards are attributed to a phase by raid zone, not by date (guilds farm old zones). */
 export function phaseForZones(zones: string[]): Phase | undefined {
   const phases = zones
@@ -252,6 +272,17 @@ export const GEAR_SET_SOURCES = ["sixtyupgrades", "seed", "manual"] as const;
 /** Where an officer-pinned current-gear slot was picked from. */
 export const GEAR_OVERRIDE_SOURCES = ["logs", "manual"] as const;
 export type GearOverrideSource = (typeof GEAR_OVERRIDE_SOURCES)[number];
+
+/**
+ * Which of a raider's two kits a pinned gear slot belongs to.
+ *
+ * A raider who steps in as an off-spec keeps a second set of gear for it, and
+ * the two answer different questions: "main" is what loot is judged on, "off"
+ * is a record of what they can field when the guild needs that role. Only
+ * meaningful for characters with an off-spec recorded.
+ */
+export const GEAR_SPECS = ["main", "off"] as const;
+export type GearSpec = (typeof GEAR_SPECS)[number];
 export const SESSION_SOURCES = ["gargul", "manual", "seed"] as const;
 
 /** Wowhead CDN icon URL (icons render in the user's browser; UI falls back gracefully). */

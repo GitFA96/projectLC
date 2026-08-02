@@ -5,12 +5,21 @@ import {
   matchAwardToWishlists,
 } from "@/lib/analysis/wishlist";
 import { computeItemContention } from "@/lib/analysis/contention";
-import { applyCurrentGearOverrides } from "@/lib/analysis/current-gear";
+import { applyCurrentGearOverrides, offSpecGearSet } from "@/lib/analysis/current-gear";
 import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
 import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
-import { summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
+import { goldPerRaid, summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
+import { LOOT_PRIORITY_SHEET_MD } from "@/data/seed/loot-priority-p3";
+import {
+  indexRules,
+  normalizeItemName,
+  parsePrioritySheet,
+  type PrioritySheetRule,
+} from "@/lib/loot/priority-sheet";
+import { parsePriorityChain } from "@/lib/loot/priority-chain";
+import { resolveWeights } from "@/lib/analysis/loot-priority";
 import { phaseForZones } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
 import type {
@@ -30,12 +39,15 @@ import type {
   Guild,
   Item,
   ItemDemand,
+  ItemPriorityRule,
   LootAward,
+  LootPriorityWeights,
   PerformanceReportView,
   Phase,
   PhaseWishlistView,
   RaidReportView,
   RaidSession,
+  RaiderMetrics,
   UntrackedLogPlayer,
   WclPlayerFight,
   WclReport,
@@ -132,6 +144,19 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
  */
 export interface StoreConfig {
   excludedFightsByCode?: Record<string, number[]>;
+  /** The council's factor weighting; unset factors fall back to the defaults. */
+  lootPriorityWeights?: Partial<LootPriorityWeights>;
+  /** Officer edits to the seeded priority sheet, keyed by normalized item name. */
+  itemPriorityRules?: Record<string, { itemName: string; chain: string; note?: string }>;
+  /** Enchant ids resolved from the enchantment table, for the gear panel. */
+  enchantNames?: Record<number, string>;
+}
+
+/** The guild's written sheet, parsed once per process — it never changes at runtime. */
+let sheetIndex: Map<string, PrioritySheetRule> | undefined;
+function seededSheet(): Map<string, PrioritySheetRule> {
+  sheetIndex ??= indexRules(parsePrioritySheet(LOOT_PRIORITY_SHEET_MD));
+  return sheetIndex;
 }
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
@@ -166,15 +191,22 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     commentsByCharacter.get(characterId) ?? [];
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
-  // Pinned slots, per character, in canonical slot order.
+  // Pinned slots, per character, in canonical slot order — split by which kit
+  // they belong to. Only the main-spec pins reach the derived read model:
+  // everything downstream (wishlist "Currently", completion, contention, loot
+  // priority) judges a raider in the spec they're ranked in.
   const overridesByCharacter = new Map<string, CurrentGearOverride[]>();
+  const offOverridesByCharacter = new Map<string, CurrentGearOverride[]>();
   for (const override of currentGearOverrides) {
-    const list = overridesByCharacter.get(override.characterId) ?? [];
+    const target = override.spec === "off" ? offOverridesByCharacter : overridesByCharacter;
+    const list = target.get(override.characterId) ?? [];
     list.push(override);
-    overridesByCharacter.set(override.characterId, list);
+    target.set(override.characterId, list);
   }
   const overridesOf = (characterId: string): CurrentGearOverride[] =>
     overridesByCharacter.get(characterId) ?? [];
+  const offOverridesOf = (characterId: string): CurrentGearOverride[] =>
+    offOverridesByCharacter.get(characterId) ?? [];
 
   /** The imported current set, exactly as exported — before any pinning. */
   function importedCurrentOf(characterId: string): GearSet | undefined {
@@ -270,14 +302,84 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return ids;
   }
 
+  /**
+   * The raiding record every loot-priority score reads from. Built once for
+   * the whole roster on first use and reused for every item afterwards — the
+   * contention view is asked for one item at a time, but the demand index asks
+   * for all of them.
+   */
+  let metricsByCharacter: Map<string, RaiderMetrics> | undefined;
+  function raiderMetricsOf(characterId: string): RaiderMetrics | undefined {
+    if (!metricsByCharacter) {
+      metricsByCharacter = new Map();
+      for (const character of roster) {
+        const rows = careerRowsOf(character.id);
+        metricsByCharacter.set(character.id, {
+          attendance: computeAttendance(character.id),
+          career: summarizePerformance(rows),
+          goldPerRaid: goldPerRaid(rows),
+        } satisfies RaiderMetrics);
+      }
+    }
+    return metricsByCharacter.get(characterId);
+  }
+
+  /**
+   * The council's spec priority for one item: an officer's edit if there is
+   * one, else the seeded sheet. Matching is by NAME — the sheet lists every
+   * drop a boss has, most of which the item cache has never seen — so any name
+   * the app knows for the item is worth trying.
+   */
+  function priorityRuleFor(itemId: number, ...names: (string | undefined)[]): ItemPriorityRule | undefined {
+    const keys = names
+      .filter((n): n is string => n !== undefined && n.trim() !== "")
+      .map(normalizeItemName);
+    for (const key of keys) {
+      const edited = config.itemPriorityRules?.[key];
+      if (edited) {
+        return {
+          itemName: edited.itemName,
+          chain: edited.chain,
+          tiers: parsePriorityChain(edited.chain).tiers,
+          note: edited.note,
+          origin: "officer",
+        };
+      }
+    }
+    for (const key of keys) {
+      const seeded = seededSheet().get(key);
+      if (seeded) {
+        return {
+          itemName: seeded.itemName,
+          chain: seeded.chain.source,
+          tiers: seeded.chain.tiers,
+          note: seeded.note,
+          origin: "sheet",
+          source: seeded.source,
+        };
+      }
+    }
+    void itemId;
+    return undefined;
+  }
+
   function contentionFor(itemId: number) {
+    const item = itemsById.get(itemId);
     return computeItemContention({
       itemId,
-      item: itemsById.get(itemId),
+      item,
       characters: roster,
       gearSetsByCharacter,
       awards: awardsWithContext,
       activePhase: guild.activePhase,
+      metricsOf: raiderMetricsOf,
+      priorityRule: priorityRuleFor(
+        itemId,
+        item?.name,
+        lootAwards.find((a) => a.itemId === itemId)?.itemName,
+        gearSets.flatMap((s) => s.slots).find((s) => s.itemId === itemId)?.itemName,
+      ),
+      weights: config.lootPriorityWeights,
     });
   }
 
@@ -424,6 +526,8 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         comments: commentsOf(character.id),
         currentOverrides: overridesOf(character.id),
         importedCurrent: importedCurrentOf(character.id),
+        offSpecOverrides: offOverridesOf(character.id),
+        offSpecCurrent: offSpecGearSet(character.id, offOverridesOf(character.id)),
       };
     },
 
@@ -533,8 +637,46 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return config.excludedFightsByCode?.[code] ?? [];
     },
 
+    async getLootPriorityWeights(): Promise<LootPriorityWeights> {
+      return resolveWeights(config.lootPriorityWeights);
+    },
+
+    async getItemPriorityRule(itemId: number, ...names: (string | undefined)[]) {
+      const item = itemsById.get(itemId);
+      return priorityRuleFor(
+        itemId,
+        ...names,
+        item?.name,
+        lootAwards.find((a) => a.itemId === itemId)?.itemName,
+        gearSets.flatMap((s) => s.slots).find((s) => s.itemId === itemId)?.itemName,
+      );
+    },
+
     async getEnchantReference(): Promise<EnchantReference> {
-      return buildEnchantReference(gearSets, (characterId) => charactersById.get(characterId)?.class);
+      return buildEnchantReference(
+        gearSets,
+        (characterId) => charactersById.get(characterId)?.class,
+        config.enchantNames,
+      );
+    },
+
+    async listUnnamedEnchantIds(): Promise<number[]> {
+      // Every enchant id ever logged that no imported set and no earlier
+      // lookup names, commonest first — a backfill run is capped, so the
+      // ordering decides which raiders stop seeing a bare id soonest.
+      const named = new Set<number>();
+      for (const set of gearSets) {
+        for (const slot of set.slots) if (slot.enchant?.id) named.add(slot.enchant.id);
+      }
+      for (const id of Object.keys(config.enchantNames ?? {})) named.add(Number(id));
+      const counts = new Map<number, number>();
+      for (const row of wclPlayerFights) {
+        for (const item of row.gear) {
+          if (item.enchant === undefined || named.has(item.enchant)) continue;
+          counts.set(item.enchant, (counts.get(item.enchant) ?? 0) + 1);
+        }
+      }
+      return [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([id]) => id);
     },
 
     async listUnresolvedItemIds(): Promise<number[]> {

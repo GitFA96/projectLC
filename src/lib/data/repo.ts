@@ -12,11 +12,14 @@ import type {
   DashboardData,
   GearOverrideSource,
   GearSet,
+  GearSpec,
   Guild,
   Item,
   ItemContention,
   ItemDemand,
+  ItemPriorityRule,
   LootAward,
+  LootPriorityWeights,
   RaidReportView,
   RaidSession,
   SlotId,
@@ -84,6 +87,20 @@ export interface Repo {
    * logs carry — see lib/analysis/enchants.
    */
   getEnchantReference(): Promise<EnchantReference>;
+  /**
+   * Enchant ids the gear panel can only render as a number: worn in a logged
+   * pull, named by no imported set and no earlier lookup. The work list for
+   * the enchant-name resolver, commonest first.
+   */
+  listUnnamedEnchantIds(): Promise<number[]>;
+  /** The council's factor weighting, with unset factors filled from the defaults. */
+  getLootPriorityWeights(): Promise<LootPriorityWeights>;
+  /**
+   * The spec priority chain for one item — an officer's edit when there is
+   * one, else the seeded sheet. Names are matched loosely; pass every name the
+   * caller knows for the item.
+   */
+  getItemPriorityRule(itemId: number, ...names: (string | undefined)[]): Promise<ItemPriorityRule | undefined>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -112,6 +129,16 @@ export type UpsertGearSetResult =
 
 export type SetCurrentGearOverrideResult =
   | { ok: true; override: CurrentGearOverride }
+  | { ok: false; error: string };
+
+export type SetCurrentGearOverridesResult =
+  | {
+      ok: true;
+      /** Slots written. */
+      written: number;
+      /** Slots left alone because they were already set by hand (replace: false). */
+      kept: number;
+    }
   | { ok: false; error: string };
 
 export type CharacterWriteResult =
@@ -226,16 +253,46 @@ export interface WriteRepo extends Repo {
    * Pin one slot of a character's current gear to a specific item, overriding
    * whatever their imported set says (and standing alone when there is none).
    * The slot is `item.slot`; pinning it again replaces the previous pin.
+   *
+   * `spec` picks which kit is being edited — the off-spec one is a parallel set
+   * of pins that never touches the main-spec answer.
    */
   setCurrentGearOverride(
     characterId: string,
     item: SlotItem,
     source: GearOverrideSource,
+    spec?: GearSpec,
   ): Promise<SetCurrentGearOverrideResult>;
+  /**
+   * Pin many slots at once — one transaction, one cache-invalidation. With
+   * `replace` false a slot an officer already set by hand is left alone, which
+   * is what a bulk "fill this in from the logs" pass wants.
+   */
+  setCurrentGearOverrides(
+    characterId: string,
+    items: SlotItem[],
+    source: GearOverrideSource,
+    opts?: { replace?: boolean; spec?: GearSpec },
+  ): Promise<SetCurrentGearOverridesResult>;
   /** Hand one slot back to the imported set. False when nothing was pinned there. */
-  clearCurrentGearOverride(characterId: string, slot: SlotId): Promise<boolean>;
-  /** Unpin every slot for a character — back to the imported set wholesale. */
-  clearCurrentGearOverrides(characterId: string): Promise<number>;
+  clearCurrentGearOverride(characterId: string, slot: SlotId, spec?: GearSpec): Promise<boolean>;
+  /** Unpin every slot of one kit — back to the imported set wholesale. */
+  clearCurrentGearOverrides(characterId: string, spec?: GearSpec): Promise<number>;
+  /**
+   * Set the council's factor weighting. Values are percentages; they need not
+   * sum to 100 (the score is a weighted mean, so only ratios matter).
+   */
+  setLootPriorityWeights(weights: Partial<LootPriorityWeights>): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Override one item's spec priority chain, keyed by item name so it covers
+   * drops the item cache has never seen. An empty chain clears the override and
+   * hands the item back to the seeded sheet.
+   */
+  setItemPriorityRule(
+    itemName: string,
+    chain: string,
+    note?: string,
+  ): Promise<{ ok: true; rule?: ItemPriorityRule } | { ok: false; error: string }>;
   createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult>;
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
   /**
@@ -309,6 +366,11 @@ export interface WriteRepo extends Repo {
    * Returns how many items were created or learned something.
    */
   addItemsIfMissing(items: Item[]): Promise<number>;
+  /**
+   * Record enchant ids resolved to names. Ids already named are left alone;
+   * returns how many rows were written.
+   */
+  addEnchantNames(names: { id: number; name: string }[]): Promise<number>;
   /**
    * Harvest item data out of records already imported: names from wishlists
    * and loot pastes, icons from the gear snapshot on every logged pull. No

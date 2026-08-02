@@ -11,7 +11,9 @@ import {
   loggedSlotOptions,
   type LoggedSlotOption,
 } from "@/lib/analysis/current-gear";
-import { CLASS_TEXT_COLORS, PHASES } from "@/lib/constants/wow";
+import { buildAwardContext } from "@/lib/loot/award-context";
+import { sameSpec } from "@/lib/utils";
+import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { Repo } from "@/lib/data/repo";
 import type { SlotId, SlotItem } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
@@ -90,23 +92,7 @@ export default async function CharacterPage({
   const { character, current, wishlists, awards, summary, comments, currentOverrides, importedCurrent } =
     bundle;
 
-  // Awarding by hand: the recent raid nights to file under, plus the zones a
-  // new manual entry can name. The active phase's raids lead the zone list.
-  const activePhaseZones = PHASES.find((p) => p.phase === guild.activePhase)?.zones ?? [];
-  const award: AwardContext = {
-    characterId: character.id,
-    characterName: character.name,
-    sessions: [...sessions]
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 12)
-      .map((s) => ({
-        id: s.id,
-        label: `${format(parseISO(s.date), "d MMM yyyy")} — ${s.zones.join(" + ")}`,
-      })),
-    zones: [...new Set([...activePhaseZones, ...PHASES.flatMap((p) => p.zones)])],
-    defaultZone: activePhaseZones[0] ?? PHASES[0].zones[0],
-    today: new Date().toISOString().slice(0, 10),
-  };
+  const award: AwardContext = buildAwardContext(character, guild, sessions);
 
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
   const pinnedSlotIds = new Set(bundle.currentOverrides.map((o) => o.item.slot));
@@ -240,12 +226,23 @@ export default async function CharacterPage({
             {character.race && <span>{character.race}</span>}
             <ClassBadge wowClass={character.class} spec={character.spec} />
             <RoleBadge role={character.role} />
+            {character.offSpec && (
+              <Badge variant="muted" title="Second spec they raid in — recorded by an officer">
+                off-spec:{" "}
+                <SpecBadge spec={character.offSpec} wowClass={character.class} className="ml-0.5" />
+                {character.offSpecRole && (
+                  <span className="ml-1 text-[10px]">({character.offSpecRole})</span>
+                )}
+              </Badge>
+            )}
+            {/* Only a warning when the logs show a spec the roster doesn't know
+                about at all — an off-spec night is expected, not an error. */}
             {summary.loggedSpec &&
-              summary.loggedSpec.replace(/\s/g, "").toLowerCase() !==
-                character.spec.replace(/\s/g, "").toLowerCase() && (
+              !sameSpec(summary.loggedSpec, character.spec) &&
+              !sameSpec(summary.loggedSpec, character.offSpec) && (
                 <Badge
                   variant="warning"
-                  title="Spec seen in their most recent logs differs from the roster entry"
+                  title="Spec seen in their most recent logs matches neither their main spec nor a recorded off-spec"
                 >
                   logs:{" "}
                   <SpecBadge spec={summary.loggedSpec} wowClass={character.class} className="ml-0.5" />
@@ -417,16 +414,26 @@ export default async function CharacterPage({
                   "Nothing imported and nothing logged yet."
                 )}
               </p>
-              {currentOverrides.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {currentOverrides.length} slot{currentOverrides.length === 1 ? "" : "s"} set by
-                  hand from their logs — those win over the imported set wherever loot is judged.
-                  <ResetPinnedSlotsButton
-                    characterName={character.name}
-                    count={currentOverrides.length}
-                  />
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                {currentOverrides.length > 0 ? (
+                  <>
+                    {currentOverrides.length} slot{currentOverrides.length === 1 ? "" : "s"} set by
+                    hand — those win over the imported set wherever loot is judged.
+                  </>
+                ) : (
+                  <>Every slot currently comes from the imported set.</>
+                )}{" "}
+                <Link
+                  href={`/characters/${encodeURIComponent(character.name.toLowerCase())}/edit`}
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  Edit slots
+                </Link>
+                <ResetPinnedSlotsButton
+                  characterName={character.name}
+                  count={currentOverrides.length}
+                />
+              </p>
             </CardHeader>
             <CardContent>
               {activeView ? (

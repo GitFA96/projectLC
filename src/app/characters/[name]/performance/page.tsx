@@ -10,7 +10,15 @@ import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks"
 import { P2_ENCHANT_GUIDE } from "@/lib/wcl/enchants";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { EnchantReference } from "@/lib/analysis/enchants";
-import type { GearSet, Item, PerformanceReportView, WclPlayerFight, WowClass } from "@/lib/types";
+import { gradeWornGems, summarizeGems, type GemSummary } from "@/lib/analysis/gems";
+import type {
+  GearSet,
+  Item,
+  PerformanceReportView,
+  Phase,
+  WclPlayerFight,
+  WowClass,
+} from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
 import { FightGraphPanel } from "@/components/performance/fight-graph";
 import { PerformanceTabs } from "@/components/performance/performance-tabs";
@@ -97,10 +105,11 @@ export default async function PerformancePage({
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
   const { character, reports, career, attendance } = perf;
-  const [items, enchants, bundle] = await Promise.all([
+  const [items, enchants, bundle, guild] = await Promise.all([
     repo.listItems(),
     repo.getEnchantReference(),
     repo.getCharacterBundle(decodeURIComponent(name)),
+    repo.getGuild(),
   ]);
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
   // Their own lists, active phase first — the enchant grading's first choice.
@@ -504,6 +513,7 @@ export default async function PerformancePage({
             wowClass={character.class}
             ownWishlists={ownWishlists}
             enchants={enchants}
+            activePhase={guild.activePhase}
           />
               </>
             }
@@ -680,6 +690,58 @@ function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
   );
 }
 
+/**
+ * Where a raider's gems stand, in one line.
+ *
+ * Two separate asks, kept separate: a green gem is worth replacing whatever
+ * phase it is, while a rare one only matters in gear they're keeping. Silence
+ * when there's nothing to say — and an explicit count of gems the item cache
+ * can't grade yet, so "no flags" is never confused with "nothing checked".
+ */
+function GemSummaryLine({ summary, activePhase }: { summary: GemSummary; activePhase: Phase }) {
+  if (summary.graded === 0 && summary.unknown === 0) return null;
+  const flagged = summary.uncommon + summary.rareInCurrentTier;
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {flagged === 0 ? (
+        <span className="inline-flex items-center gap-1 text-emerald-700">
+          <Check className="h-3.5 w-3.5" /> No gems worth replacing on this snapshot.
+        </span>
+      ) : (
+        <>
+          {summary.uncommon > 0 && (
+            <>
+              <span className="font-medium text-amber-700">
+                {summary.uncommon} uncommon gem{summary.uncommon === 1 ? "" : "s"}
+              </span>{" "}
+              — a rare cut of the same gem is a straight upgrade
+            </>
+          )}
+          {summary.uncommon > 0 && summary.rareInCurrentTier > 0 && " · "}
+          {summary.rareInCurrentTier > 0 && (
+            <>
+              <span className="font-medium text-amber-700">
+                {summary.rareInCurrentTier} rare gem{summary.rareInCurrentTier === 1 ? "" : "s"} in
+                phase {activePhase} gear
+              </span>{" "}
+              — worth the epic cut on pieces they&apos;re keeping
+            </>
+          )}
+          .
+        </>
+      )}
+      {summary.unknown > 0 && (
+        <span className="opacity-70">
+          {" "}
+          ({summary.unknown} gem{summary.unknown === 1 ? "" : "s"} not in the item cache yet —
+          backfill item data to grade {summary.unknown === 1 ? "it" : "them"}.)
+        </span>
+      )}
+    </p>
+  );
+}
+
 function GearPanel({
   rows,
   missingEnchants,
@@ -687,6 +749,7 @@ function GearPanel({
   wowClass,
   ownWishlists,
   enchants,
+  activePhase,
 }: {
   rows: WclPlayerFight[];
   missingEnchants: string[];
@@ -695,9 +758,11 @@ function GearPanel({
   /** The character's own wishlists — the first reference for "is this BiS". */
   ownWishlists: GearSet[];
   enchants: EnchantReference;
+  activePhase: Phase;
 }) {
   // Rows are in pull order; the last snapshot is what they currently wear.
   const latest = [...rows].reverse().find((r) => r.gear.length > 0);
+  const gems = summarizeGems(gradeWornGems(latest?.gear ?? [], itemsById, activePhase));
 
   return (
     <Card>
@@ -716,6 +781,7 @@ function GearPanel({
             </>
           )}
         </p>
+        <GemSummaryLine summary={gems} activePhase={activePhase} />
       </CardHeader>
       <CardContent>
         {!latest ? (
@@ -731,6 +797,7 @@ function GearPanel({
               wowClass={wowClass}
               ownWishlists={ownWishlists}
               enchants={enchants}
+              activePhase={activePhase}
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
               Enchants are named — and judged — from the guild&apos;s own imported SixtyUpgrades

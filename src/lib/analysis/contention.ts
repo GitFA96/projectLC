@@ -1,14 +1,21 @@
 import type {
   AwardWithContext,
   Character,
+  ContenderAward,
   ContentionWisher,
   GearSet,
   Item,
   ItemContention,
+  ItemPriorityRule,
+  LootPriorityWeights,
   Phase,
+  RaiderMetrics,
+  SlotId,
   SlotItem,
 } from "@/lib/types";
-import { SLOT_FAMILIES } from "@/lib/constants/wow";
+import { SLOT_FAMILIES, slotFamilyMembers } from "@/lib/constants/wow";
+import { rankLootContenders } from "@/lib/analysis/loot-priority";
+import { manualTiers, parsePriorityChain, tierFor } from "@/lib/loot/priority-chain";
 import { itemDisplayName } from "@/lib/items/item-data";
 
 interface ContentionInput {
@@ -18,6 +25,28 @@ interface ContentionInput {
   gearSetsByCharacter: Map<string, GearSet[]>;
   awards: AwardWithContext[]; // all awards, with context
   activePhase: Phase;
+  /** The raiding record behind each contender's priority score. */
+  metricsOf?: (characterId: string) => RaiderMetrics | undefined;
+  /** The council's spec priority for this item, when the sheet covers it. */
+  priorityRule?: ItemPriorityRule;
+  /** The council's factor weighting; unset factors fall back to the defaults. */
+  weights?: Partial<LootPriorityWeights>;
+}
+
+const familyKey = (slot: SlotId): string => SLOT_FAMILIES[slot] ?? slot;
+
+/**
+ * Which slot an awarded item goes in. The item cache knows for anything
+ * resolved from Wowhead; failing that, any of the winner's own lists that name
+ * the item says so — a wishlist slot is typed by a person and exact.
+ */
+function slotOfAward(itemId: number, item: Item | undefined, sets: GearSet[]): SlotId | undefined {
+  if (item?.slot) return item.slot;
+  for (const set of sets) {
+    const match = set.slots.find((s) => s.itemId === itemId);
+    if (match) return match.slot;
+  }
+  return undefined;
 }
 
 /**
@@ -25,13 +54,18 @@ interface ContentionInput {
  * The LC's "should this drop go to X?" view.
  */
 export function computeItemContention(input: ContentionInput): ItemContention {
-  const { itemId, item, characters, gearSetsByCharacter, awards, activePhase } = input;
+  const { itemId, item, characters, gearSetsByCharacter, awards, activePhase, metricsOf } = input;
+  // The council's written chain for this item, parsed once for every contender.
+  const chain = input.priorityRule ? parsePriorityChain(input.priorityRule.chain) : undefined;
 
   const itemAwards = awards
     .filter((a) => a.award.itemId === itemId)
     .sort((a, b) => b.award.awardedAt.localeCompare(a.award.awardedAt));
 
   const wishers: ContentionWisher[] = [];
+  // The slot the drop fills: the cache when it knows, otherwise the first list
+  // that names the item — which is typed by a person and exact.
+  let contestedSlot: SlotId | undefined = item?.slot ?? undefined;
   for (const character of characters) {
     const sets = gearSetsByCharacter.get(character.id) ?? [];
     const wishlists = sets.filter((s) => s.kind === "wishlist");
@@ -45,6 +79,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
 
     // What do they currently run in that slot family?
     const wishedSlot = wishedIn[0].slots.find((s) => s.itemId === itemId)?.slot;
+    contestedSlot ??= wishedSlot;
     const current = sets.find((s) => s.kind === "current");
     let currentInSlot: SlotItem[] = [];
     if (current && wishedSlot) {
@@ -58,34 +93,63 @@ export function computeItemContention(input: ContentionInput): ItemContention {
     const awarded = itemAwards.some(
       (a) => a.award.characterId === character.id && !a.award.offspec,
     );
-    const onSpecAwardsActivePhase = awards.filter(
-      (a) =>
-        a.award.characterId === character.id &&
-        !a.award.offspec &&
-        a.sessionPhase === activePhase,
-    ).length;
 
+    // Everything they've been handed this phase, tagged with the slot it fills
+    // — the item that just dropped competes with the belt they won last week,
+    // not only with the same item id.
+    const mine = awards.filter((a) => a.award.characterId === character.id);
+    const awardsThisPhase: ContenderAward[] = mine
+      .filter((a) => a.sessionPhase === activePhase)
+      .map((a) => {
+        const slot = slotOfAward(a.award.itemId, a.item, sets);
+        return {
+          itemId: a.award.itemId,
+          itemName: a.item?.name ?? a.award.itemName,
+          awardedAt: a.award.awardedAt,
+          offspec: a.award.offspec,
+          slot,
+          // The contested item itself is already handled by `satisfied` — this
+          // is about the OTHER things filling the same slot.
+          sameSlot:
+            a.award.itemId !== itemId &&
+            slot !== undefined &&
+            wishedSlot !== undefined &&
+            familyKey(slot) === familyKey(wishedSlot),
+        };
+      })
+      .sort((a, b) => b.awardedAt.localeCompare(a.awardedAt));
+
+    const tier = chain ? tierFor(chain, character) : {};
     wishers.push({
       character,
       phases,
       currentInSlot,
       satisfied: equipped || awarded,
-      onSpecAwardsActivePhase,
+      onSpecAwardsActivePhase: awardsThisPhase.filter((a) => !a.offspec).length,
+      awardsThisPhase,
+      totalOnSpecAwards: mine.filter((a) => !a.award.offspec).length,
+      priorityTier: tier.index,
+      priorityTierLabel: tier.label,
     });
   }
 
-  // Open (unsatisfied) wishers first, then by fewest recent awards — LC priority order.
-  wishers.sort((a, b) => {
-    if (a.satisfied !== b.satisfied) return a.satisfied ? 1 : -1;
-    return a.onSpecAwardsActivePhase - b.onSpecAwardsActivePhase;
+  // Open (unsatisfied) contenders first, in council priority order; satisfied
+  // ones keep their place in the list but are ranked out of the contest. The
+  // family size tells the ranking how many of this slot a raider can wear —
+  // one belt, but two rings — before a second one counts against them.
+  const ranked = rankLootContenders(wishers, metricsOf ?? (() => undefined), {
+    familySize: contestedSlot ? slotFamilyMembers(contestedSlot).length : 1,
+    weights: input.weights,
   });
 
   return {
     item,
     itemId,
     itemName: itemDisplayName(itemId, item?.name, itemAwards[0]?.award.itemName),
-    wishers,
+    wishers: ranked,
     awards: itemAwards,
-    openCount: wishers.filter((w) => !w.satisfied).length,
+    openCount: ranked.filter((w) => !w.satisfied).length,
+    priorityRule: input.priorityRule,
+    manualTiers: chain ? manualTiers(chain) : [],
   };
 }

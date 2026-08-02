@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { TriangleAlert } from "lucide-react";
@@ -7,14 +8,25 @@ import { PageHeader } from "@/components/page-header";
 import { ItemLink } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
 import { FairnessPanel } from "@/components/fairness-panel";
+import { LootWeightsEditor } from "@/components/loot/priority-editor";
+import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PHASES } from "@/lib/constants/wow";
 
+export const metadata: Metadata = { title: "Guild" };
 
-export default async function DashboardPage() {
+/**
+ * The guild's own page: who they are, how the season is going, and the policy
+ * every other page derives from.
+ *
+ * This is the page a multi-guild version splits first — see
+ * docs/guild-and-player-profiles.md. Everything here is already scoped to one
+ * guild; it just doesn't have to say which one yet.
+ */
+export default async function GuildPage() {
   const repo = await getRepo();
-  const data = await repo.getDashboard();
+  const [data, weights] = await Promise.all([repo.getDashboard(), repo.getLootPriorityWeights()]);
   const phaseMeta = PHASES.find((p) => p.phase === data.guild.activePhase);
 
   return (
@@ -22,7 +34,14 @@ export default async function DashboardPage() {
       <PageHeader
         title={data.guild.name}
         description={`${data.guild.realm} · ${data.guild.faction} · ${phaseMeta?.name} (${phaseMeta?.zones.join(", ")})`}
-      />
+      >
+        <Link
+          href="/roster"
+          className="text-sm font-medium underline-offset-2 hover:underline"
+        >
+          {data.rosterSize} raiders →
+        </Link>
+      </PageHeader>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Raiders" value={data.rosterSize} sub="active roster" />
@@ -136,6 +155,22 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CollapsibleCard
+        title="Loot policy — scoring weights"
+        description="How much each metric counts when the priority sheet's spec order ties. Guild-wide: changing it re-ranks every contested item. Per-item spec priority is edited on the item itself."
+        // Open by default: this is the page's setup half, not a footnote.
+        defaultOpen
+      >
+        <LootWeightsEditor weights={weights} />
+        <p className="mt-3 text-xs text-muted-foreground">
+          Spec priority chains come from the guild&apos;s Phase 3 sheet and are edited on each{" "}
+          <Link href="/items" className="font-medium text-foreground hover:underline">
+            item&apos;s page
+          </Link>
+          . The sheet decides who is eligible; these weights only order the contenders inside a rung.
+        </p>
+      </CollapsibleCard>
 
       <Card>
         <CardHeader>

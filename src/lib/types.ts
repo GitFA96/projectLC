@@ -15,9 +15,18 @@ import type {
   wclReportSchema,
   wclRoleSchema,
 } from "@/lib/import/schemas";
-import type { GearOverrideSource, Phase, Quality, Role, SlotId, WowClass } from "@/lib/constants/wow";
+import type {
+  CharacterStatus,
+  GearOverrideSource,
+  GearSpec,
+  Phase,
+  Quality,
+  Role,
+  SlotId,
+  WowClass,
+} from "@/lib/constants/wow";
 
-export type { GearOverrideSource, Phase, Quality, Role, SlotId, WowClass };
+export type { CharacterStatus, GearOverrideSource, GearSpec, Phase, Quality, Role, SlotId, WowClass };
 
 /* Core entities (inferred from the canonical zod schemas) */
 export type Guild = z.infer<typeof guildSchema>;
@@ -170,6 +179,90 @@ export interface CharacterBundle {
   currentOverrides: CurrentGearOverride[];
   /** The imported set as it was exported, before pinning. Undefined when nothing was imported. */
   importedCurrent?: GearSet;
+  /** The off-spec kit's pinned slots — empty unless an off-spec is recorded. */
+  offSpecOverrides: CurrentGearOverride[];
+  /** Those pins as a set. Never merged into `current`: loot is judged on the main spec. */
+  offSpecCurrent?: GearSet;
+}
+
+/**
+ * The raiding record a contender is judged on — one lookup per character.
+ * Both fields are whole rollups rather than the three scored numbers, so the
+ * council can open a contender and read what the score was actually built from
+ * (recent form, gear-adjusted parse, which half of "prepared" they miss).
+ */
+export interface RaiderMetrics {
+  attendance?: AttendanceSummary;
+  /** Rollup over every logged pull of their career — parse and prep come from here. */
+  career?: PerformanceSummary;
+  /** ≈ gold per raid on consumables at default prices. Context, never scored. */
+  goldPerRaid?: number;
+}
+
+export type LootPriorityFactorKey = "attendance" | "lootDebt" | "performance" | "preparation";
+
+/** The council's weighting, editable in the app. Values are percentages. */
+export type LootPriorityWeights = Record<LootPriorityFactorKey, number>;
+
+/**
+ * One item's spec priority chain — the council's sheet, as data. Seeded from
+ * the guild's markdown sheet and overridable per item in the app.
+ */
+export interface ItemPriorityRule {
+  /** The name the rule is filed under (matching is by normalized name). */
+  itemName: string;
+  /** The chain as written: "Hunter > DPS Warrior > MS > OS". */
+  chain: string;
+  /** Parsed rungs, highest priority first. */
+  tiers: { tags: string[]; manual: boolean }[];
+  note?: string;
+  /** The seeded sheet, or an officer's edit on top of it. */
+  origin: "sheet" | "officer";
+  /** Sheet section the rule came from (the boss), when seeded. */
+  source?: string;
+}
+
+/** One component of a priority score, with the evidence behind it. */
+export interface LootPriorityFactor {
+  key: LootPriorityFactorKey;
+  label: string;
+  weight: number;
+  /** 0..100. Undefined means no data — the factor drops out rather than scoring 0. */
+  score?: number;
+  /** "12 of 14 logged raids", "no on-spec loot this phase" — what the number is. */
+  detail: string;
+}
+
+/**
+ * A multiplier applied to the weighted mean, for things that are categorical
+ * rather than a percentage: roster standing, and whether this raider has
+ * already been handed something for this slot.
+ */
+export interface LootPriorityAdjustment {
+  key: "standing" | "slotServed";
+  label: string;
+  multiplier: number;
+  note: string;
+}
+
+export interface LootPriority {
+  /** 0..100 after adjustments; undefined when no factor had any data to go on. */
+  score?: number;
+  factors: LootPriorityFactor[];
+  /** Applied to the weighted mean in order. Empty means nothing pulled them down. */
+  adjustments: LootPriorityAdjustment[];
+}
+
+/** One item a contender has already been handed — the loot panel's evidence. */
+export interface ContenderAward {
+  itemId: number;
+  itemName: string;
+  awardedAt: string;
+  offspec: boolean;
+  /** The slot it fills, when the cache or a wishlist knows. */
+  slot?: SlotId;
+  /** It lands in the contested item's slot family — "they just got a belt". */
+  sameSlot: boolean;
 }
 
 export interface ContentionWisher {
@@ -179,6 +272,25 @@ export interface ContentionWisher {
   currentInSlot: SlotItem[];
   satisfied: boolean;
   onSpecAwardsActivePhase: number;
+  /** Everything they've been handed this phase, newest first. */
+  awardsThisPhase: ContenderAward[];
+  /** On-spec awards across every phase — the long view next to the phase count. */
+  totalOnSpecAwards: number;
+  /**
+   * Which rung of the item's priority chain they sit on — 0 is the top. The
+   * sheet decides eligibility before any metric is consulted, so this leads
+   * the sort and the score only ever breaks ties inside a tier. Undefined when
+   * the chain names nobody they satisfy (or there's no chain at all).
+   */
+  priorityTier?: number;
+  /** That rung's own words, for the badge: "Hunter" or "Resto Shaman = Healing Priest". */
+  priorityTierLabel?: string;
+  /** Where the council should rank them. Undefined once they're satisfied. */
+  priority?: LootPriority;
+  /** 1-based position among the unsatisfied contenders, best first. */
+  rank?: number;
+  /** The raiding record behind `priority`, for the columns next to it. */
+  metrics?: RaiderMetrics;
 }
 
 export interface ItemContention {
@@ -188,6 +300,10 @@ export interface ItemContention {
   wishers: ContentionWisher[];
   awards: AwardWithContext[];
   openCount: number;
+  /** The council's spec priority for this item, when the sheet covers it. */
+  priorityRule?: ItemPriorityRule;
+  /** Rungs a human has to rule on ("Set completion") — shown, never applied. */
+  manualTiers: string[];
 }
 
 export interface FairnessEntry {

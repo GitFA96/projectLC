@@ -54,6 +54,35 @@ describe("buildEnchantReference", () => {
     expect(reference.names.find((e) => e.id === 2673)).toEqual({ id: 2673, name: "Mongoose" });
   });
 
+  it("names the ids nobody wishlists from the resolved enchantment table", () => {
+    // A scope is worn by every hunter and listed by none of them.
+    const withResolved = buildEnchantReference(sets, classOf, {
+      2724: "Scope (+28 Critical Strike Rating)",
+      1593: "+24 Attack Power",
+    });
+    expect(withResolved.names).toEqual(
+      expect.arrayContaining([
+        { id: 1593, name: "+24 Attack Power" },
+        { id: 2724, name: "Scope (+28 Critical Strike Rating)" },
+      ]),
+    );
+  });
+
+  it("keeps an imported set's wording over a resolved one", () => {
+    // The set knows the applying item too, which a resolved name never does.
+    const withResolved = buildEnchantReference(sets, classOf, { 3003: "+34 Attack Power" });
+    expect(withResolved.names.find((e) => e.id === 3003)).toEqual({
+      id: 3003,
+      name: "Glyph of Ferocity",
+      itemId: 29192,
+    });
+  });
+
+  it("ignores a blank resolved name rather than showing an empty enchant", () => {
+    const withResolved = buildEnchantReference(sets, classOf, { 4242: "   " });
+    expect(withResolved.names.find((e) => e.id === 4242)).toBeUndefined();
+  });
+
   it("takes the most-picked wishlist enchant per class and slot as the consensus", () => {
     const head = reference.consensus.find((c) => c.wowClass === "Warrior" && c.slot === "head")!;
     expect(head).toMatchObject({ enchantId: 3003, name: "Glyph of Ferocity", sets: 2, totalSets: 3 });

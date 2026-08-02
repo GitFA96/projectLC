@@ -93,8 +93,12 @@ function upkeepAverages(rows: WclPlayerFight[]): ComparedUpkeep[] {
  * re-buy across a night longer than they last. Raid span and early/late pulls
  * are approximated from the character's own pulls (compare inputs don't carry
  * the whole raid).
+ *
+ * Exported because the loot-priority drawer asks the same question of a
+ * contender ("what does this raider actually spend on a night?") and there
+ * should only ever be one answer to it.
  */
-function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
+export function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
   if (rows.length === 0) return undefined;
   const byReport = new Map<string, WclPlayerFight[]>();
   for (const r of rows) {

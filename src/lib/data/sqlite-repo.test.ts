@@ -175,6 +175,86 @@ describe("sqlite repo", () => {
       expect((await repo.getCharacterBundle("zugzug"))!.current).toBeUndefined();
     });
 
+    it("writes many slots at once, leaving hand-set ones alone", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      // An officer's deliberate correction, made before the bulk pass.
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: 111, itemName: "Hand-set Helm" },
+        "manual",
+      );
+
+      const bulk = await repo.setCurrentGearOverrides(
+        thrainn.id,
+        [
+          { slot: "head", itemId: 222, itemName: "Logged Helm" },
+          { slot: "feet", itemId: 333, itemName: "Logged Boots" },
+          { slot: "waist", itemId: 444, itemName: "Logged Belt" },
+        ],
+        "logs",
+      );
+      expect(bulk).toMatchObject({ ok: true, written: 2, kept: 1 });
+
+      const bundle = (await repo.getCharacterBundle("thrainn"))!;
+      const bySlot = new Map(bundle.current!.slots.map((s) => [s.slot, s]));
+      // The hand-set slot survived the sweep; the other two were filled.
+      expect(bySlot.get("head")!.itemId).toBe(111);
+      expect(bySlot.get("feet")!.itemId).toBe(333);
+      expect(bySlot.get("waist")!.itemId).toBe(444);
+    });
+
+    it("overwrites hand-set slots when the caller asks for a replace", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: 111, itemName: "Hand-set Helm" },
+        "manual",
+      );
+      const bulk = await repo.setCurrentGearOverrides(
+        thrainn.id,
+        [{ slot: "head", itemId: 222, itemName: "Logged Helm" }],
+        "logs",
+        { replace: true },
+      );
+      expect(bulk).toMatchObject({ ok: true, written: 1, kept: 0 });
+
+      const bundle = (await repo.getCharacterBundle("thrainn"))!;
+      expect(bundle.current!.slots.find((s) => s.slot === "head")!.itemId).toBe(222);
+      expect(bundle.currentOverrides.find((o) => o.item.slot === "head")!.source).toBe("logs");
+    });
+
+    it("records where a pinned slot was picked from", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      // Gear won on an unlogged night has no log to validate against — the
+      // manual source is how it gets recorded at all.
+      const manual = await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "feet", itemId: 28747, itemName: "Battlescar Boots" },
+        "manual",
+      );
+      expect(manual).toMatchObject({ ok: true });
+      if (!manual.ok) throw new Error("unreachable");
+      expect(manual.override.source).toBe("manual");
+
+      const bundle = (await repo.getCharacterBundle("thrainn"))!;
+      expect(bundle.currentOverrides.find((o) => o.item.slot === "feet")?.source).toBe("manual");
+    });
+
+    it("teaches the item cache whatever a hand-picked slot knew", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      expect(await repo.getItem(99123)).toBeUndefined();
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "waist", itemId: 99123, itemName: "Belt of Testing" },
+        "manual",
+      );
+      expect(await repo.getItem(99123)).toMatchObject({ name: "Belt of Testing", slot: "waist" });
+    });
+
     it("goes with the character when one is deleted", async () => {
       const repo = getSqliteRepo();
       const thrainn = (await repo.findCharacterByName("Thrainn"))!;
@@ -186,6 +266,129 @@ describe("sqlite repo", () => {
       expect((await repo.deleteCharacter(thrainn.id)).ok).toBe(true);
       // A dangling override would fail validateStore on the next model rebuild.
       expect(await repo.getCharacterBundle("thrainn")).toBeNull();
+    });
+
+    it("keeps the off-spec kit out of everything loot is judged on", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      const OFFSPEC_HELM = 28963;
+
+      // Same slot, both kits — the whole point of the second set.
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: OFFSPEC_HELM, itemName: "Warbringer Battle-Helm" },
+        "logs",
+        "off",
+      );
+      const bundle = (await repo.getCharacterBundle("thrainn"))!;
+
+      expect(bundle.offSpecCurrent!.slots).toEqual([
+        { slot: "head", itemId: OFFSPEC_HELM, itemName: "Warbringer Battle-Helm" },
+      ]);
+      expect(bundle.offSpecOverrides.map((o) => o.item.slot)).toEqual(["head"]);
+      // The main-spec answer is untouched: still the imported helm, no pins...
+      expect(bundle.current!.slots.find((s) => s.slot === "head")!.itemId).toBe(FELSTEEL_HELM);
+      expect(bundle.currentOverrides).toEqual([]);
+      // ...so his P1 head row is still open and he still contends for the tier helm.
+      expect(
+        bundle.wishlists.find((w) => w.phase === 1)!.rows.find((r) => r.slot === "head")!.state,
+      ).toBe("open");
+      const contention = (await repo.getItemContention(TIER_HELM))!;
+      expect(contention.wishers.find((w) => w.character.id === thrainn.id)!.satisfied).toBe(false);
+    });
+
+    it("clears one kit without touching the other", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: TIER_HELM, itemName: "Helm of the Fallen Defender" },
+        "logs",
+      );
+      await repo.setCurrentGearOverride(
+        thrainn.id,
+        { slot: "head", itemId: 28963, itemName: "Warbringer Battle-Helm" },
+        "logs",
+        "off",
+      );
+
+      // A main-spec clear names the main-spec row only.
+      expect(await repo.clearCurrentGearOverride(thrainn.id, "head")).toBe(true);
+      expect(await repo.clearCurrentGearOverride(thrainn.id, "head")).toBe(false);
+      const afterMain = (await repo.getCharacterBundle("thrainn"))!;
+      expect(afterMain.currentOverrides).toEqual([]);
+      expect(afterMain.offSpecOverrides).toHaveLength(1);
+
+      expect(await repo.clearCurrentGearOverrides(thrainn.id, "off")).toBe(1);
+      const afterOff = (await repo.getCharacterBundle("thrainn"))!;
+      expect(afterOff.offSpecOverrides).toEqual([]);
+      expect(afterOff.offSpecCurrent).toBeUndefined();
+    });
+  });
+
+  describe("editable loot policy", () => {
+    it("seeds every item's spec priority from the guild's sheet", async () => {
+      const repo = getSqliteRepo();
+      const rule = await repo.getItemPriorityRule(0, "Madness of the Betrayer");
+      expect(rule).toMatchObject({ origin: "sheet", source: "The Illidari Council" });
+      expect(rule!.tiers.map((t) => t.tags)).toEqual([
+        ["Hunter"],
+        ["DPS Warrior"],
+        ["MS"],
+        ["OS"],
+      ]);
+    });
+
+    it("lets an officer override a chain and hand it back again", async () => {
+      const repo = getSqliteRepo();
+      const saved = await repo.setItemPriorityRule(
+        "Madness of the Betrayer",
+        "Rogue > Hunter > MS > OS",
+      );
+      expect(saved.ok).toBe(true);
+
+      const edited = await repo.getItemPriorityRule(0, "Madness of the Betrayer");
+      expect(edited).toMatchObject({ origin: "officer", chain: "Rogue > Hunter > MS > OS" });
+
+      // An empty chain is how the sheet takes the item back.
+      expect((await repo.setItemPriorityRule("Madness of the Betrayer", "")).ok).toBe(true);
+      expect((await repo.getItemPriorityRule(0, "Madness of the Betrayer"))!.origin).toBe("sheet");
+    });
+
+    it("matches an override by name however it's punctuated", async () => {
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule("kazrogals hardened heart", "Prot Warrior > MS > OS");
+      // The sheet spells it "Kaz'rogal's Hardened Heart" — same item.
+      const rule = await repo.getItemPriorityRule(0, "Kaz'rogal's Hardened Heart");
+      expect(rule).toMatchObject({ origin: "officer" });
+    });
+
+    it("rejects an override with nothing to match on", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.setItemPriorityRule("   ", "Rogue > MS")).toMatchObject({ ok: false });
+      expect(await repo.setItemPriorityRule("???", "Rogue > MS")).toMatchObject({ ok: false });
+    });
+
+    it("stores the council's weighting and defaults the rest", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.getLootPriorityWeights()).toMatchObject({ attendance: 35, lootDebt: 30 });
+
+      expect((await repo.setLootPriorityWeights({ attendance: 50 })).ok).toBe(true);
+      const weights = await repo.getLootPriorityWeights();
+      expect(weights.attendance).toBe(50);
+      // Untouched factors keep the code default rather than dropping to zero.
+      expect(weights.performance).toBe(20);
+    });
+
+    it("refuses a weighting where nothing counts", async () => {
+      const repo = getSqliteRepo();
+      const result = await repo.setLootPriorityWeights({
+        attendance: 0,
+        lootDebt: 0,
+        performance: 0,
+        preparation: 0,
+      });
+      expect(result.ok).toBe(false);
     });
   });
 
@@ -209,6 +412,33 @@ describe("sqlite repo", () => {
         status: "main",
       });
       expect(dup.ok).toBe(false);
+    });
+
+    it("records a second spec they raid in, and clears it again", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      const base = {
+        name: thrainn.name,
+        class: thrainn.class,
+        spec: thrainn.spec,
+        role: thrainn.role,
+        status: thrainn.status,
+      };
+
+      const saved = await repo.updateCharacter(thrainn.id, {
+        ...base,
+        offSpec: "Fury",
+        offSpecRole: "Melee DPS",
+      });
+      expect(saved).toMatchObject({ ok: true });
+      const withOffSpec = (await repo.getCharacterBundle("thrainn"))!.character;
+      expect(withOffSpec).toMatchObject({ offSpec: "Fury", offSpecRole: "Melee DPS" });
+
+      // Omitting it is how an officer says "they only play the one spec now".
+      await repo.updateCharacter(thrainn.id, base);
+      const cleared = (await repo.getCharacterBundle("thrainn"))!.character;
+      expect(cleared.offSpec).toBeUndefined();
+      expect(cleared.offSpecRole).toBeUndefined();
     });
 
     it("updates a character; gear sets and awards follow the id through a rename", async () => {

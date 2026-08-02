@@ -24,6 +24,9 @@ const characterFormSchema = z.object({
   class: z.enum(WOW_CLASSES, "Pick a class."),
   spec: z.string().trim().min(1, "Spec is required (e.g. Protection)."),
   role: z.enum(ROLES, "Pick a role."),
+  /** A second spec they actually raid in; blank when they only play one. */
+  offSpec: z.string().trim().optional(),
+  offSpecRole: z.string().trim().optional(),
   race: z.string().trim().optional(),
   status: z.enum(CHARACTER_STATUSES),
   /** Selected main when status is "alt" (a character id); empty otherwise. */
@@ -42,16 +45,26 @@ export async function saveCharacter(
   formData: FormData,
 ): Promise<CharacterFormState> {
   const raw = Object.fromEntries(
-    ["id", "name", "class", "spec", "role", "race", "status", "mainCharacterId", "note"].map((k) => [
-      k,
-      (formData.get(k) ?? "").toString(),
-    ]),
+    [
+      "id", "name", "class", "spec", "role", "offSpec", "offSpecRole", "race", "status",
+      "mainCharacterId", "note",
+    ].map((k) => [k, (formData.get(k) ?? "").toString()]),
   );
   const parsed = characterFormSchema.safeParse(raw);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid character.", values: raw };
   }
-  const { id, mainCharacterId, ...fields } = parsed.data;
+  const { id, mainCharacterId, offSpec, offSpecRole, ...fields } = parsed.data;
+  // An off-spec role without an off-spec means nothing, so they travel together.
+  const secondSpec = offSpec || undefined;
+  const secondRole = secondSpec
+    ? (ROLES as readonly string[]).includes(offSpecRole ?? "")
+      ? (offSpecRole as (typeof ROLES)[number])
+      : undefined
+    : undefined;
+  if (secondSpec && secondSpec.toLowerCase() === fields.spec.toLowerCase()) {
+    return { error: "The off-spec has to differ from the main spec.", values: raw };
+  }
   // The main link only applies to alts; clear it for any other status. An alt
   // can't be its own main.
   const main = fields.status === "alt" ? (mainCharacterId || null) : null;
@@ -60,6 +73,8 @@ export async function saveCharacter(
   }
   const draft = {
     ...fields,
+    offSpec: secondSpec,
+    offSpecRole: secondRole,
     race: fields.race || undefined,
     mainCharacterId: main,
     note: fields.note || undefined,

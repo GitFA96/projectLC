@@ -5,6 +5,7 @@ import {
   GEAR_OVERRIDE_SOURCES,
   GEAR_SET_KINDS,
   GEAR_SET_SOURCES,
+  GEAR_SPECS,
   PHASE_IDS,
   QUALITIES,
   ROLES,
@@ -41,6 +42,15 @@ export const characterSchema = z.object({
   class: z.enum(WOW_CLASSES),
   spec: z.string().min(1),
   role: z.enum(ROLES),
+  /**
+   * A second spec they actually raid in — the shadow priest who heals
+   * progression, the fury warrior who tanks Hydross. Their logs show both, so
+   * without recording it the app reads every off-spec night as a roster error.
+   * Optional: most raiders only ever play one.
+   */
+  offSpec: z.string().min(1).optional(),
+  /** What that second spec does in the raid; only meaningful with `offSpec`. */
+  offSpecRole: z.enum(ROLES).optional(),
   race: z.string().optional(),
   status: z.enum(CHARACTER_STATUSES),
   /**
@@ -132,16 +142,21 @@ export const gearSetSchema = z
  * "currently" on a wishlist row, wishlist completion and item contention all
  * follow reality without waiting for the raider to re-export.
  *
- * One per character × slot (the slot lives on `item`); clearing it hands the
- * slot back to the imported set. Enchant and gems are deliberately not stored:
- * the item is what loot decisions turn on, and the logs already render the
- * worn enchant and gems on the gear panel — inventing names here would be
- * worse than pointing at the pull that has them.
+ * One per character × spec × slot (the slot lives on `item`); clearing it
+ * hands the slot back to the imported set. Enchant and gems are deliberately
+ * not stored: the item is what loot decisions turn on, and the logs already
+ * render the worn enchant and gems on the gear panel — inventing names here
+ * would be worse than pointing at the pull that has them.
  */
 export const currentGearOverrideSchema = z.object({
   characterId: z.string().min(1),
   item: slotItemSchema,
   source: z.enum(GEAR_OVERRIDE_SOURCES),
+  /**
+   * Which kit the slot belongs to. Absent means "main", so every override
+   * written before off-spec gear existed keeps its meaning.
+   */
+  spec: z.enum(GEAR_SPECS).default("main"),
   /** ISO timestamp the officer pinned it. */
   setAt: z.string().min(1),
 });

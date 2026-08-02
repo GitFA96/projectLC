@@ -3,7 +3,8 @@ import { GEAR_SLOT_LABELS, wowheadEnchantSearchUrl, wowheadItemUrl } from "@/lib
 import { QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
 import { itemDisplayName, normalizeIcon } from "@/lib/items/item-data";
 import { gradeEnchant, type EnchantGrade, type EnchantRef, type EnchantReference } from "@/lib/analysis/enchants";
-import type { GearSet, Item, Quality, WclGearItem, WowClass } from "@/lib/types";
+import { gradeGem, type GemGrade } from "@/lib/analysis/gems";
+import type { GearSet, Item, Phase, Quality, WclGearItem, WowClass } from "@/lib/types";
 import { ItemIcon } from "@/components/item-icon";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -78,30 +79,53 @@ export function WornItemLink({
  * One socketed gem: its icon comes from the log, its name from the item cache
  * (filled by the import page's backfill). An unnamed gem shows its id rather
  * than a fake name — the icon and the hover tooltip still identify it.
+ *
+ * A gem worth replacing is marked here rather than only in a summary, because
+ * the answer is per-socket: which piece, which cut. The badge is deliberately
+ * quiet — this is a nudge for the raider, not a verdict on the pull.
  */
-function GemChip({ gem, cached }: { gem: { id: number; icon?: string }; cached?: Item }) {
+function GemChip({
+  gem,
+  cached,
+  grade,
+}: {
+  gem: { id: number; icon?: string };
+  cached?: Item;
+  grade?: GemGrade;
+}) {
   const quality = cached?.quality;
   return (
-    <a
-      href={wowheadItemUrl(gem.id)}
-      target="_blank"
-      rel="noreferrer"
-      data-wowhead={`item=${gem.id}&domain=tbc`}
-      className="inline-flex min-w-0 items-center gap-1 hover:underline"
-      title={cached?.name ?? `Gem ${gem.id} — hover for the Wowhead tooltip`}
-    >
-      <ItemIcon icon={normalizeIcon(gem.icon) ?? cached?.icon} quality={quality ?? "common"} size={16} />
-      {cached?.name ? (
-        <span
-          className="truncate text-xs"
-          style={quality ? { color: QUALITY_TEXT_COLORS[quality] } : undefined}
+    <span className="flex min-w-0 items-center gap-1">
+      <a
+        href={wowheadItemUrl(gem.id)}
+        target="_blank"
+        rel="noreferrer"
+        data-wowhead={`item=${gem.id}&domain=tbc`}
+        className="inline-flex min-w-0 items-center gap-1 hover:underline"
+        title={cached?.name ?? `Gem ${gem.id} — hover for the Wowhead tooltip`}
+      >
+        <ItemIcon icon={normalizeIcon(gem.icon) ?? cached?.icon} quality={quality ?? "common"} size={16} />
+        {cached?.name ? (
+          <span
+            className="truncate text-xs"
+            style={quality ? { color: QUALITY_TEXT_COLORS[quality] } : undefined}
+          >
+            {cached.name}
+          </span>
+        ) : (
+          <span className="truncate text-xs tabular-nums text-muted-foreground">#{gem.id}</span>
+        )}
+      </a>
+      {grade?.verdict === "upgrade" && (
+        <Badge
+          variant="warning"
+          className="shrink-0 px-1 py-0 text-[10px] font-normal"
+          title={grade.reason}
         >
-          {cached.name}
-        </span>
-      ) : (
-        <span className="truncate text-xs tabular-nums text-muted-foreground">#{gem.id}</span>
+          {grade.quality === "rare" ? "epic available" : "green"}
+        </Badge>
       )}
-    </a>
+    </span>
   );
 }
 
@@ -211,6 +235,7 @@ export function GearTable({
   wowClass,
   ownWishlists,
   enchants,
+  activePhase,
   /** Slot indexes worn differently on the most recent snapshot — marked "swap". */
   swappedSlots,
 }: {
@@ -220,6 +245,8 @@ export function GearTable({
   /** The character's own wishlists — the first reference for "is this BiS". */
   ownWishlists: GearSet[];
   enchants: EnchantReference;
+  /** The guild's phase — decides which gear is worth an epic gem. */
+  activePhase: Phase;
   swappedSlots?: Set<number>;
 }) {
   const expectedEnchant = new Set(ENCHANTABLE_GEAR_SLOTS.map((s) => s.index));
@@ -298,7 +325,17 @@ export function GearTable({
                 {g.gems.length > 0 ? (
                   <span className="flex flex-col gap-0.5">
                     {g.gems.map((gem, i) => (
-                      <GemChip key={`${gem.id}-${i}`} gem={gem} cached={itemsById.get(gem.id)} />
+                      <GemChip
+                        key={`${gem.id}-${i}`}
+                        gem={gem}
+                        cached={itemsById.get(gem.id)}
+                        grade={gradeGem({
+                          gemId: gem.id,
+                          cached: itemsById.get(gem.id),
+                          item: { ilvl: g.ilvl, phase: itemsById.get(g.id)?.phase },
+                          activePhase,
+                        })}
+                      />
                     ))}
                   </span>
                 ) : (

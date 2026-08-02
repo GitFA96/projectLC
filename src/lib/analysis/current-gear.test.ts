@@ -1,17 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { applyCurrentGearOverrides, loggedSlotOptions } from "@/lib/analysis/current-gear";
+import {
+  applyCurrentGearOverrides,
+  loggedSlotOptions,
+  offSpecGearSet,
+  reportsInSpec,
+} from "@/lib/analysis/current-gear";
 import { buildLoggedGear, type LoggedGearReport } from "@/lib/analysis/logged-gear";
-import type { CurrentGearOverride, GearSet, SlotId, WclGearItem, WclPlayerFight } from "@/lib/types";
+import type {
+  CurrentGearOverride,
+  GearSet,
+  GearSpec,
+  SlotId,
+  WclGearItem,
+  WclPlayerFight,
+} from "@/lib/types";
 
 const HEAD = 0;
 const RING1 = 10;
 const RING2 = 11;
 
-function pin(slot: SlotId, itemId: number, itemName: string): CurrentGearOverride {
+function pin(
+  slot: SlotId,
+  itemId: number,
+  itemName: string,
+  spec: GearSpec = "main",
+): CurrentGearOverride {
   return {
     characterId: "c1",
     item: { slot, itemId, itemName },
     source: "logs",
+    spec,
     setAt: "2026-07-21T10:00:00.000Z",
   };
 }
@@ -68,8 +86,14 @@ describe("applyCurrentGearOverrides", () => {
 });
 
 /** One pull carrying just the gear a test cares about. */
-function pull(fightId: number, encounterName: string, gear: Partial<WclGearItem>[]): WclPlayerFight {
+function pull(
+  fightId: number,
+  encounterName: string,
+  gear: Partial<WclGearItem>[],
+  spec?: string,
+): WclPlayerFight {
   return {
+    spec,
     id: `f${fightId}`,
     reportCode: "code",
     fightId,
@@ -143,5 +167,63 @@ describe("loggedSlotOptions", () => {
 
   it("has no entry for a slot nothing was logged in", () => {
     expect(options.has("trinket1")).toBe(false);
+  });
+});
+
+describe("offSpecGearSet", () => {
+  it("is undefined until something is pinned to the off-spec kit", () => {
+    expect(offSpecGearSet("c1", [])).toBeUndefined();
+    expect(offSpecGearSet("c1", [pin("head", 999, "New Helm")])).toBeUndefined();
+  });
+
+  it("builds a set from the off-spec pins alone, in canonical slot order", () => {
+    const set = offSpecGearSet("c1", [
+      pin("head", 111, "Main Helm"),
+      pin("feet", 777, "Tanking Boots", "off"),
+      pin("head", 888, "Tanking Helm", "off"),
+    ])!;
+    expect(set.slots).toEqual([
+      { slot: "head", itemId: 888, itemName: "Tanking Helm" },
+      { slot: "feet", itemId: 777, itemName: "Tanking Boots" },
+    ]);
+    // A distinct id from the main-spec set — they coexist for one character.
+    expect(set.id).not.toBe(applyCurrentGearOverrides(undefined, [pin("head", 111, "Main Helm")])!.id);
+  });
+});
+
+describe("reportsInSpec", () => {
+  const night: LoggedGearReport = {
+    report: { code: "n1", title: "Night", startTime: "2026-07-20T18:00:00.000Z" },
+    rows: [
+      pull(1, "Hydross", [{ slot: HEAD, id: 111, name: "Tanking Helm" }], "Protection"),
+      pull(2, "Lurker", [{ slot: HEAD, id: 222, name: "Fury Helm" }], "Fury"),
+    ],
+  };
+  const quiet: LoggedGearReport = {
+    report: { code: "n2", title: "Fury only", startTime: "2026-07-13T18:00:00.000Z" },
+    rows: [pull(3, "Gruul", [{ slot: HEAD, id: 222, name: "Fury Helm" }], "Fury")],
+  };
+
+  it("keeps only the pulls played in that spec", () => {
+    const scoped = reportsInSpec([night, quiet], "Protection");
+    expect(scoped.map((r) => r.report.code)).toEqual(["n1"]);
+    expect(scoped[0].rows.map((r) => r.fightId)).toEqual([1]);
+  });
+
+  it("matches specs however they were typed", () => {
+    expect(reportsInSpec([night], "protection")[0].rows).toHaveLength(1);
+  });
+
+  it("passes everything through when no spec is asked for", () => {
+    expect(reportsInSpec([night, quiet])).toEqual([night, quiet]);
+  });
+
+  it("leaves the main-spec picker showing the whole night", () => {
+    // The point of the filter: a warrior's off-spec kit must not offer the
+    // helm they wore on the pulls they spent as Fury.
+    const off = loggedSlotOptions(buildLoggedGear(reportsInSpec([night, quiet], "Protection")));
+    expect(off.get("head")!.map((o) => o.itemId)).toEqual([111]);
+    const main = loggedSlotOptions(buildLoggedGear([night, quiet]));
+    expect(main.get("head")!.map((o) => o.itemId)).toEqual([222, 111]);
   });
 });

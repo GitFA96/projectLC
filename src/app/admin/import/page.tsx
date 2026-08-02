@@ -5,6 +5,7 @@ import { hasWclCredentials } from "@/lib/wcl/client";
 import { PageHeader } from "@/components/page-header";
 import { ImportTabs, type ImportPrefill } from "@/components/import/import-tabs";
 import { ItemCacheCard } from "@/components/import/item-cache-card";
+import { EnchantNamesCard } from "@/components/import/enchant-names-card";
 import { PHASES } from "@/lib/constants/wow";
 
 export const metadata: Metadata = { title: "Import" };
@@ -27,13 +28,15 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items, sessions, wclReports, unresolvedItems] = await Promise.all([
-    repo.listCharacters(),
-    repo.listItems(),
-    repo.listRaidSessions(),
-    repo.listWclReports(),
-    repo.listUnresolvedItemIds(),
-  ]);
+  const [characters, items, sessions, wclReports, unresolvedItems, unnamedEnchants] =
+    await Promise.all([
+      repo.listCharacters(),
+      repo.listItems(),
+      repo.listRaidSessions(),
+      repo.listWclReports(),
+      repo.listUnresolvedItemIds(),
+      repo.listUnnamedEnchantIds(),
+    ]);
 
   return (
     <div>
@@ -64,8 +67,9 @@ export default async function ImportPage({
         }))}
         prefill={prefill}
       />
-      <div className="mt-4">
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
         <ItemCacheCard unresolved={unresolvedItems.length} />
+        <EnchantNamesCard unnamed={unnamedEnchants.length} />
       </div>
     </div>
   );

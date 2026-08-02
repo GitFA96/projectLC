@@ -37,6 +37,8 @@ export default async function RosterPage() {
     name: s.character.name,
     wowClass: s.character.class,
     spec: s.character.spec,
+    offSpec: s.character.offSpec,
+    offSpecRole: s.character.offSpecRole,
     role: s.character.role,
     status: s.character.status,
     completions: s.completionByPhase.map((c) => ({ phase: c.phase, pct: c.completion.pct })),

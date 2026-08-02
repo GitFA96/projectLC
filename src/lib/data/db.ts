@@ -26,6 +26,7 @@ import type {
   Guild,
   Item,
   LootAward,
+  LootPriorityWeights,
   RaidSession,
   WclPlayerFight,
   WclReport,
@@ -60,6 +61,8 @@ CREATE TABLE IF NOT EXISTS characters (
   class             TEXT NOT NULL,
   spec              TEXT NOT NULL,
   role              TEXT NOT NULL,
+  off_spec          TEXT,
+  off_spec_role     TEXT,
   race              TEXT,
   status            TEXT NOT NULL,
   main_character_id TEXT,
@@ -98,14 +101,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS gear_sets_one_wishlist_per_phase
 -- What an officer says a raider ACTUALLY has in one slot right now, pinned
 -- from their recent logs. Overrides that slot of the imported set (and stands
 -- alone when there is no import); deleting the row hands the slot back.
+-- The spec column splits the main-spec kit from the off-spec one: a raider who
+-- tanks on the side has two answers for the same slot, and only the main one
+-- is what loot gets judged on.
 CREATE TABLE IF NOT EXISTS current_gear_overrides (
   character_id TEXT NOT NULL REFERENCES characters(id),
+  spec         TEXT NOT NULL DEFAULT 'main',
   slot         TEXT NOT NULL,
   item_id      INTEGER NOT NULL,
   item_name    TEXT NOT NULL,
   source       TEXT NOT NULL,
   set_at       TEXT NOT NULL,
-  PRIMARY KEY (character_id, slot)
+  PRIMARY KEY (character_id, spec, slot)
+);
+-- SpellItemEnchantment id -> the effect text an item tooltip shows for it.
+-- Its own id space, so it can't share the items table. Filled one lookup per
+-- unknown id, ever; an id nothing can name simply has no row.
+CREATE TABLE IF NOT EXISTS enchant_names (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  resolved_at TEXT NOT NULL
+);
+-- Officer edits to the council's spec priority sheet. Keyed by NORMALIZED item
+-- name, not id: a sheet covers everything a boss can drop, most of which the
+-- item cache has never heard of. Absent = the seeded sheet stands.
+CREATE TABLE IF NOT EXISTS item_priority_rules (
+  item_key   TEXT PRIMARY KEY,
+  item_name  TEXT NOT NULL,
+  chain      TEXT NOT NULL,
+  note       TEXT,
+  updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS raid_sessions (
   id         TEXT PRIMARY KEY,
@@ -243,11 +268,42 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("characters", "main_character_id", "main_character_id TEXT");
+  addColumn("characters", "off_spec", "off_spec TEXT");
+  addColumn("characters", "off_spec_role", "off_spec_role TEXT");
   addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
   addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
   relaxItemColumns(db);
+  splitGearOverridesBySpec(db);
+}
+
+/**
+ * Current-gear pins used to be one row per character × slot. Off-spec gear
+ * needs two answers for the same slot, so the key gains `spec` — which SQLite
+ * can't do with ALTER TABLE. Rebuilt once; every existing pin is main-spec.
+ */
+function splitGearOverridesBySpec(db: DatabaseSync): void {
+  const cols = db.prepare("PRAGMA table_info(current_gear_overrides)").all() as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "spec")) return;
+  db.exec(`
+    CREATE TABLE current_gear_overrides_spec (
+      character_id TEXT NOT NULL REFERENCES characters(id),
+      spec         TEXT NOT NULL DEFAULT 'main',
+      slot         TEXT NOT NULL,
+      item_id      INTEGER NOT NULL,
+      item_name    TEXT NOT NULL,
+      source       TEXT NOT NULL,
+      set_at       TEXT NOT NULL,
+      PRIMARY KEY (character_id, spec, slot)
+    );
+    INSERT INTO current_gear_overrides_spec
+        (character_id, spec, slot, item_id, item_name, source, set_at)
+      SELECT character_id, 'main', slot, item_id, item_name, source, set_at
+        FROM current_gear_overrides;
+    DROP TABLE current_gear_overrides;
+    ALTER TABLE current_gear_overrides_spec RENAME TO current_gear_overrides;
+  `);
 }
 
 /**
@@ -400,6 +456,114 @@ export function setReportExcludedFights(db: DatabaseSync, code: string, fightIds
   ).run(excludedFightsKey(code), JSON.stringify(sanitizeFightIds(fightIds)));
 }
 
+/* The council's loot policy: the factor weighting, and per-item overrides of
+   the seeded spec priority sheet. Both are settings rather than entities —
+   the weighting lives in meta, the overrides in their own small table. */
+
+const WEIGHTS_KEY = "loot_priority_weights";
+
+/** Keep only sane percentages so a hand-edited blob can't break a ranking. */
+function sanitizeWeights(raw: unknown): Partial<LootPriorityWeights> {
+  if (raw === null || typeof raw !== "object") return {};
+  const out: Partial<LootPriorityWeights> = {};
+  for (const key of ["attendance", "lootDebt", "performance", "preparation"] as const) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100) {
+      out[key] = Math.round(value);
+    }
+  }
+  return out;
+}
+
+/** The council's weighting. Empty means the code defaults are in force. */
+export function getLootPriorityWeights(db: DatabaseSync): Partial<LootPriorityWeights> {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(WEIGHTS_KEY) as
+    | { value: string }
+    | undefined;
+  if (!row) return {};
+  try {
+    return sanitizeWeights(JSON.parse(row.value));
+  } catch {
+    return {};
+  }
+}
+
+/** Replace the weighting. An empty object hands it back to the code defaults. */
+export function setLootPriorityWeights(db: DatabaseSync, weights: Partial<LootPriorityWeights>): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(WEIGHTS_KEY, JSON.stringify(sanitizeWeights(weights)));
+}
+
+export interface StoredPriorityRule {
+  itemName: string;
+  chain: string;
+  note?: string;
+}
+
+/** Every officer-edited chain, keyed by normalized item name. */
+export function getItemPriorityRules(db: DatabaseSync): Record<string, StoredPriorityRule> {
+  const rows = db.prepare("SELECT item_key, item_name, chain, note FROM item_priority_rules").all() as {
+    item_key: string;
+    item_name: string;
+    chain: string;
+    note: string | null;
+  }[];
+  const out: Record<string, StoredPriorityRule> = {};
+  for (const r of rows) {
+    out[r.item_key] = { itemName: r.item_name, chain: r.chain, note: r.note ?? undefined };
+  }
+  return out;
+}
+
+export function setItemPriorityRule(
+  db: DatabaseSync,
+  itemKey: string,
+  rule: StoredPriorityRule,
+): void {
+  db.prepare(
+    `INSERT INTO item_priority_rules (item_key, item_name, chain, note, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(item_key) DO UPDATE SET
+       item_name = excluded.item_name, chain = excluded.chain,
+       note = excluded.note, updated_at = excluded.updated_at`,
+  ).run(itemKey, rule.itemName, rule.chain, rule.note ?? null, new Date().toISOString());
+}
+
+/** Drop an override so the seeded sheet takes the item back. */
+export function deleteItemPriorityRule(db: DatabaseSync, itemKey: string): boolean {
+  return Number(db.prepare("DELETE FROM item_priority_rules WHERE item_key = ?").run(itemKey).changes) > 0;
+}
+
+/** Every enchant id the app has resolved a name for. */
+export function getEnchantNames(db: DatabaseSync): Record<number, string> {
+  const rows = db.prepare("SELECT id, name FROM enchant_names").all() as {
+    id: number;
+    name: string;
+  }[];
+  const out: Record<number, string> = {};
+  for (const r of rows) out[r.id] = r.name;
+  return out;
+}
+
+/**
+ * Record resolved enchant names. A name already known is left alone: the first
+ * one recorded is as good as any later one, and nothing should churn.
+ */
+export function addEnchantNames(db: DatabaseSync, names: { id: number; name: string }[]): number {
+  const stmt = db.prepare(
+    "INSERT OR IGNORE INTO enchant_names (id, name, resolved_at) VALUES (?, ?, ?)",
+  );
+  const at = new Date().toISOString();
+  let written = 0;
+  for (const { id, name } of names) {
+    if (!Number.isInteger(id) || id <= 0 || !name.trim()) continue;
+    written += Number(stmt.run(id, name.trim(), at).changes);
+  }
+  return written;
+}
+
 /* Entity <-> row mapping. SQLite has no undefined: optionals become NULL and
    are stripped again on load so zod sees exactly the canonical shapes. */
 
@@ -417,9 +581,12 @@ export function insertGuild(db: DatabaseSync, g: Guild): void {
 
 export function insertCharacter(db: DatabaseSync, c: Character): void {
   db.prepare(
-    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, race, status, main_character_id, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(c.id, c.guildId, c.name, c.class, c.spec, c.role, c.race ?? null, c.status, c.mainCharacterId ?? null, c.note ?? null);
+    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, off_spec, off_spec_role, race, status, main_character_id, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    c.id, c.guildId, c.name, c.class, c.spec, c.role, c.offSpec ?? null, c.offSpecRole ?? null,
+    c.race ?? null, c.status, c.mainCharacterId ?? null, c.note ?? null,
+  );
 }
 
 export function insertAttendanceExemption(db: DatabaseSync, e: AttendanceExemption): void {
@@ -491,12 +658,12 @@ export function insertGearSet(db: DatabaseSync, s: GearSet): void {
   );
 }
 
-/** Pin one slot (replacing whatever was pinned there before). */
+/** Pin one slot of one kit (replacing whatever was pinned there before). */
 export function insertCurrentGearOverride(db: DatabaseSync, o: CurrentGearOverride): void {
   db.prepare(
-    `INSERT OR REPLACE INTO current_gear_overrides (character_id, slot, item_id, item_name, source, set_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(o.characterId, o.item.slot, o.item.itemId, o.item.itemName, o.source, o.setAt);
+    `INSERT OR REPLACE INTO current_gear_overrides (character_id, spec, slot, item_id, item_name, source, set_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(o.characterId, o.spec, o.item.slot, o.item.itemId, o.item.itemName, o.source, o.setAt);
 }
 
 export function insertRaidSession(db: DatabaseSync, s: RaidSession): void {
@@ -552,7 +719,8 @@ function rowToGuild(r: Row): unknown {
 function rowToCharacter(r: Row): unknown {
   return {
     id: r.id, guildId: r.guild_id, name: r.name, class: r.class, spec: r.spec,
-    role: r.role, race: opt(r.race), status: r.status,
+    role: r.role, offSpec: opt(r.off_spec), offSpecRole: opt(r.off_spec_role),
+    race: opt(r.race), status: r.status,
     mainCharacterId: (r.main_character_id as string | null) ?? null, note: opt(r.note),
   };
 }
@@ -589,6 +757,7 @@ function rowToCurrentGearOverride(r: Row): unknown {
     characterId: r.character_id,
     item: { slot: r.slot, itemId: r.item_id, itemName: r.item_name },
     source: r.source,
+    spec: r.spec ?? "main",
     setAt: r.set_at,
   };
 }

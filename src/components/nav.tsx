@@ -8,8 +8,14 @@ import { QuickSearch } from "@/components/quick-search";
 import type { QuickSearchItem } from "@/lib/analysis/quick-search";
 import { cn } from "@/lib/utils";
 
+/**
+ * "Guild" rather than "Dashboard": the page is the guild's own profile —
+ * identity, season standing and loot policy — and naming it after the subject
+ * rather than the layout is what survives the move to many guilds. See
+ * docs/guild-and-player-profiles.md.
+ */
 const LINKS = [
-  { href: "/", label: "Dashboard" },
+  { href: "/", label: "Guild" },
   { href: "/roster", label: "Roster" },
   { href: "/loot", label: "Loot" },
   { href: "/logs", label: "Logs" },

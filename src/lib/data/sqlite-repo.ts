@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  addEnchantNames,
   bumpDataVersion,
   getDataVersion,
+  deleteItemPriorityRule,
   getAllExcludedFights,
   getDb,
+  getEnchantNames,
+  getItemPriorityRules,
+  getLootPriorityWeights,
   getReportConsumablePrices,
   getReportExcludedFights,
   insertAttendanceExemption,
@@ -17,11 +22,15 @@ import {
   insertWclReport,
   loadStore,
   mergeItems,
+  setItemPriorityRule,
+  setLootPriorityWeights,
   setReportConsumablePrices,
   setReportExcludedFights,
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
+import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
 import {
   characterCommentSchema,
@@ -50,6 +59,7 @@ import type {
   RaidSessionDraft,
   ResolveAwardResult,
   SetCurrentGearOverrideResult,
+  SetCurrentGearOverridesResult,
   UpsertGearSetResult,
   WclPlayerFightDraft,
   WclReportDraft,
@@ -62,8 +72,10 @@ import type {
   CurrentGearOverride,
   GearOverrideSource,
   GearSet,
+  GearSpec,
   Item,
   LootAward,
+  LootPriorityWeights,
   RaidSession,
   SlotId,
   SlotItem,
@@ -96,7 +108,12 @@ function readModel(): CachedModel {
   const model: CachedModel = {
     dbPath,
     version,
-    repo: createRepoFromStore(store, { excludedFightsByCode: getAllExcludedFights(db) }),
+    repo: createRepoFromStore(store, {
+      excludedFightsByCode: getAllExcludedFights(db),
+      lootPriorityWeights: getLootPriorityWeights(db),
+      itemPriorityRules: getItemPriorityRules(db),
+      enchantNames: getEnchantNames(db),
+    }),
     store,
   };
   globalCache.__projectlcModel = model;
@@ -183,6 +200,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     characterId: string,
     item: SlotItem,
     source: GearOverrideSource,
+    spec: GearSpec = "main",
   ): Promise<SetCurrentGearOverrideResult> {
     if (!readModel().store.roster.some((c) => c.id === characterId)) {
       return { ok: false, error: "Character not found." };
@@ -191,6 +209,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       characterId,
       item,
       source,
+      spec,
       setAt: new Date().toISOString(),
     } satisfies CurrentGearOverride);
     if (!parsed.success) {
@@ -207,25 +226,131 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true, override: parsed.data };
   },
 
-  async clearCurrentGearOverride(characterId: string, slot: SlotId): Promise<boolean> {
+  async setCurrentGearOverrides(
+    characterId: string,
+    items: SlotItem[],
+    source: GearOverrideSource,
+    opts: { replace?: boolean; spec?: GearSpec } = {},
+  ): Promise<SetCurrentGearOverridesResult> {
+    if (!readModel().store.roster.some((c) => c.id === characterId)) {
+      return { ok: false, error: "Character not found." };
+    }
+    const spec = opts.spec ?? "main";
+    const alreadyPinned = new Set(
+      readModel()
+        .store.currentGearOverrides.filter((o) => o.characterId === characterId && o.spec === spec)
+        .map((o) => o.item.slot),
+    );
+    const setAt = new Date().toISOString();
+    const parsed: CurrentGearOverride[] = [];
+    let kept = 0;
+    for (const item of items) {
+      // A slot an officer set by hand outranks a bulk pass — it's the more
+      // deliberate statement of the two.
+      if (!opts.replace && alreadyPinned.has(item.slot)) {
+        kept++;
+        continue;
+      }
+      const result = currentGearOverrideSchema.safeParse({
+        characterId,
+        item,
+        source,
+        spec,
+        setAt,
+      } satisfies CurrentGearOverride);
+      if (!result.success) {
+        return { ok: false, error: result.error.issues[0]?.message ?? "Invalid gear override." };
+      }
+      parsed.push(result.data);
+    }
+    if (parsed.length === 0) return { ok: true, written: 0, kept };
+
+    const db = getDb();
+    withTx(db, () => {
+      for (const override of parsed) insertCurrentGearOverride(db, override);
+      mergeItems(
+        db,
+        parsed.map((o) => ({ id: o.item.itemId, name: o.item.itemName, slot: o.item.slot })),
+      );
+      bumpDataVersion(db);
+    });
+    return { ok: true, written: parsed.length, kept };
+  },
+
+  async clearCurrentGearOverride(
+    characterId: string,
+    slot: SlotId,
+    spec: GearSpec = "main",
+  ): Promise<boolean> {
     const db = getDb();
     let cleared = false;
     withTx(db, () => {
       cleared = Number(
-        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ? AND slot = ?").run(characterId, slot)
-          .changes,
+        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ? AND spec = ? AND slot = ?")
+          .run(characterId, spec, slot).changes,
       ) > 0;
       if (cleared) bumpDataVersion(db);
     });
     return cleared;
   },
 
-  async clearCurrentGearOverrides(characterId: string): Promise<number> {
+  async setLootPriorityWeights(weights: Partial<LootPriorityWeights>) {
+    const values = Object.values(weights).filter((v) => typeof v === "number");
+    if (values.length > 0 && values.every((v) => v === 0)) {
+      return { ok: false as const, error: "At least one factor has to carry some weight." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      setLootPriorityWeights(db, weights);
+      // The weighting is baked into the read model — force a rebuild.
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
+  async setItemPriorityRule(itemName: string, chain: string, note?: string) {
+    const name = itemName.trim();
+    if (!name) return { ok: false as const, error: "An item name is required." };
+    const key = normalizeItemName(name);
+    if (!key) return { ok: false as const, error: "That item name has nothing to match on." };
+
+    const db = getDb();
+    const trimmed = chain.trim();
+    // An empty chain is how an officer says "use the guild's sheet again".
+    if (!trimmed) {
+      withTx(db, () => {
+        if (deleteItemPriorityRule(db, key)) bumpDataVersion(db);
+      });
+      return { ok: true as const };
+    }
+
+    const parsed = parsePriorityChain(trimmed);
+    if (parsed.tiers.length === 0) {
+      return { ok: false as const, error: "Write the chain as “Hunter > DPS Warrior > MS > OS”." };
+    }
+    withTx(db, () => {
+      setItemPriorityRule(db, key, { itemName: name, chain: trimmed, note: note?.trim() || undefined });
+      bumpDataVersion(db);
+    });
+    return {
+      ok: true as const,
+      rule: {
+        itemName: name,
+        chain: trimmed,
+        tiers: parsed.tiers,
+        note: note?.trim() || undefined,
+        origin: "officer" as const,
+      },
+    };
+  },
+
+  async clearCurrentGearOverrides(characterId: string, spec: GearSpec = "main"): Promise<number> {
     const db = getDb();
     let cleared = 0;
     withTx(db, () => {
       cleared = Number(
-        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ?").run(characterId).changes,
+        db.prepare("DELETE FROM current_gear_overrides WHERE character_id = ? AND spec = ?")
+          .run(characterId, spec).changes,
       );
       if (cleared > 0) bumpDataVersion(db);
     });
@@ -663,6 +788,18 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return this.addItemsIfMissing(harvestItemFacts(store));
   },
 
+  async addEnchantNames(names: { id: number; name: string }[]): Promise<number> {
+    if (names.length === 0) return 0;
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = addEnchantNames(db, names);
+      // The names are baked into the read model's enchant reference.
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
   async repairPlaceholderAwardNames(): Promise<number> {
     const db = getDb();
     const byId = new Map(readModel().store.items.map((i) => [i.id, i]));
@@ -719,6 +856,9 @@ export function getSqliteRepo(): WriteRepo {
     getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
     getEnchantReference: () => readModel().repo.getEnchantReference(),
+    listUnnamedEnchantIds: () => readModel().repo.listUnnamedEnchantIds(),
+    getLootPriorityWeights: () => readModel().repo.getLootPriorityWeights(),
+    getItemPriorityRule: (itemId, ...names) => readModel().repo.getItemPriorityRule(itemId, ...names),
   };
   return { ...readDelegate, ...writeMethods };
 }

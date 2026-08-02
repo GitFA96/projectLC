@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
+import { equipLoggedGearAction } from "@/app/characters/[name]/current-gear-actions";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { CHARACTER_STATUSES, WOW_CLASSES, type Role, type WowClass } from "@/lib/constants/wow";
 
@@ -9,6 +10,37 @@ export type RosterActionResult = { ok: boolean; message: string };
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+const equipFromLogsSchema = z.object({
+  characterIds: z.array(z.string().min(1)).min(1),
+});
+
+/**
+ * Fill the selected raiders' current gear from their logs — the roster-setup
+ * pass a new guild starts with.
+ *
+ * Deliberately non-destructive here, unlike the same button on one character's
+ * page: a slot an officer already set by hand survives a bulk sweep. Reaching
+ * for this on a 25-raider selection should never be the thing that quietly
+ * undoes somebody's careful correction.
+ */
+export async function equipRosterFromLogs(input: {
+  characterIds: string[];
+}): Promise<RosterActionResult> {
+  const parsed = equipFromLogsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Select at least one character." };
+  try {
+    const repo = await getWriteRepo();
+    const byId = new Map((await repo.listCharacters()).map((s) => [s.character.id, s.character]));
+    const names = parsed.data.characterIds
+      .map((id) => byId.get(id)?.name)
+      .filter((n): n is string => n !== undefined);
+    if (names.length === 0) return { ok: false, message: "None of those characters exist." };
+    return await equipLoggedGearAction({ characterNames: names, replace: false });
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Reading the logs failed." };
+  }
 }
 
 const setStatusSchema = z.object({

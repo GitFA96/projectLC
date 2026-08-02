@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { Activity } from "lucide-react";
+import { Activity, Wand2 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
@@ -26,8 +26,9 @@ import {
   useRosterAction,
   useSelection,
 } from "@/components/roster-actions";
-import { deleteCharacters, setCharactersStatus } from "@/app/roster/actions";
+import { deleteCharacters, equipRosterFromLogs, setCharactersStatus } from "@/app/roster/actions";
 import { attendanceTitle } from "@/lib/analysis/performance";
+import { sameSpec } from "@/lib/utils";
 import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
 import type { AttendanceSummary, Phase, Role, WowClass } from "@/lib/types";
 
@@ -36,6 +37,9 @@ export interface RosterRow {
   name: string;
   wowClass: WowClass;
   spec: string;
+  /** A second spec they actually raid in, when an officer recorded one. */
+  offSpec?: string;
+  offSpecRole?: Role;
   role: Role;
   status: CharacterStatus;
   completions: { phase: Phase; pct: number }[];
@@ -141,17 +145,28 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         accessorKey: "wowClass",
         header: "Class & spec",
         cell: ({ row }) => {
-          const { wowClass, spec, loggedSpec } = row.original;
+          const { wowClass, spec, offSpec, offSpecRole, loggedSpec } = row.original;
+          // An off-spec night is expected once it's recorded — only a spec the
+          // roster knows nothing about is worth a warning.
           const mismatch =
             loggedSpec !== undefined &&
-            loggedSpec.replace(/\s/g, "").toLowerCase() !== spec.replace(/\s/g, "").toLowerCase();
+            !sameSpec(loggedSpec, spec) &&
+            !sameSpec(loggedSpec, offSpec);
           return (
             <span className="flex items-center gap-1.5">
               <ClassBadge wowClass={wowClass} spec={spec} />
+              {offSpec && (
+                <Badge
+                  variant="muted"
+                  title={`Also raids as ${offSpec}${offSpecRole ? ` (${offSpecRole})` : ""}`}
+                >
+                  OS: {offSpec}
+                </Badge>
+              )}
               {mismatch && (
                 <Badge
                   variant="warning"
-                  title={`Recent logs show ${loggedSpec}, but the roster entry says ${spec} — worth updating (or they respecced).`}
+                  title={`Recent logs show ${loggedSpec}, which is neither their main spec (${spec}) nor a recorded off-spec — worth updating, or record it as their off-spec.`}
                 >
                   logs: {loggedSpec}
                 </Badge>
@@ -302,6 +317,16 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5">
           <span className="text-xs tabular-nums text-muted-foreground">{selected.size} selected</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-xs"
+            disabled={pending}
+            onClick={() => run(() => equipRosterFromLogs({ characterIds: selectedIds }))}
+            title="Fill each raider's empty gear slots from what they were last logged wearing"
+          >
+            <Wand2 className="h-3.5 w-3.5" /> Gear from logs
+          </Button>
           <Button
             variant="outline"
             size="sm"

@@ -3,11 +3,18 @@ import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ExternalLink } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
+import Link from "next/link";
+import { ItemPriorityEditor } from "@/components/loot/priority-editor";
+import { buildAwardContext, buildAwardTarget } from "@/lib/loot/award-context";
 import { QUALITY_TEXT_COLORS, SLOT_LABELS, wowheadItemUrl } from "@/lib/constants/wow";
 import { ItemIcon } from "@/components/item-icon";
-import { ItemLink } from "@/components/item-link";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
-import { RoleBadge } from "@/components/role-badge";
+import { AwardItemButton } from "@/components/award-item-controls";
+import {
+  ContenderTable,
+  PriorityScore,
+  type ContenderView,
+} from "@/components/loot/contender-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -18,6 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ItemRef } from "@/components/item-link";
+import type { Repo } from "@/lib/data/repo";
+import type { SlotItem } from "@/lib/types";
 
 type Params = { itemId: string };
 
@@ -28,17 +38,59 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   return { title: item?.name ?? `Item #${itemId}` };
 }
 
+/** Resolve a "currently using" item against the cache, for the client table. */
+async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef> {
+  const cached = await repo.getItem(slot.itemId);
+  return {
+    itemId: slot.itemId,
+    name: cached?.name ?? slot.itemName,
+    quality: cached?.quality,
+    icon: cached?.icon,
+  };
+}
+
 export default async function ItemPage({ params }: { params: Promise<Params> }) {
   const { itemId: itemIdRaw } = await params;
   const itemId = Number(itemIdRaw);
   if (!Number.isInteger(itemId) || itemId <= 0) notFound();
 
   const repo = await getRepo();
-  const contention = await repo.getItemContention(itemId);
+  const [contention, guild, sessions, weights] = await Promise.all([
+    repo.getItemContention(itemId),
+    repo.getGuild(),
+    repo.listRaidSessions(),
+    repo.getLootPriorityWeights(),
+  ]);
   if (!contention) notFound();
   const { item, itemName, wishers, awards, openCount } = contention;
   const quality = item?.quality ?? "common";
   const received = awards.filter((a) => !a.award.offspec && a.award.characterId !== null).length;
+  const prefill = { itemId, name: itemName, quality: item?.quality, icon: item?.icon };
+  const top = wishers.find((w) => w.rank === 1);
+
+  const contenders: ContenderView[] = await Promise.all(
+    wishers.map(async (w) => ({
+      characterId: w.character.id,
+      name: w.character.name,
+      wowClass: w.character.class,
+      spec: w.character.spec,
+      role: w.character.role,
+      status: w.character.status,
+      rank: w.rank,
+      satisfied: w.satisfied,
+      phases: w.phases,
+      priorityTier: w.priorityTier,
+      priorityTierLabel: w.priorityTierLabel,
+      priority: w.priority,
+      onSpecAwardsActivePhase: w.onSpecAwardsActivePhase,
+      awardsThisPhase: w.awardsThisPhase,
+      totalOnSpecAwards: w.totalOnSpecAwards,
+      attendance: w.metrics?.attendance,
+      career: w.metrics?.career,
+      goldPerRaid: w.metrics?.goldPerRaid,
+      currentInSlot: await Promise.all(w.currentInSlot.map((s) => toItemRef(repo, s))),
+    })),
+  );
 
   return (
     <div className="space-y-5">
@@ -80,66 +132,70 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
         </div>
       </div>
 
+      {top && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-4 py-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Top of the list
+          </span>
+          <CharacterLink name={top.character.name} wowClass={top.character.class} />
+          <ClassBadge wowClass={top.character.class} spec={top.character.spec} />
+          <PriorityScore priority={top.priority} />
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {top.priority?.factors
+              .filter((f) => f.score !== undefined)
+              .map((f) => f.detail)
+              .join(" · ")}
+          </span>
+          <AwardItemButton
+            ctx={buildAwardContext(top.character, guild, sessions)}
+            prefill={prefill}
+            label={`Award to ${top.character.name}`}
+            variant="default"
+          />
+        </div>
+      )}
+
       <Card>
-        <CardHeader>
-          <CardTitle>Wishlisted by</CardTitle>
+        <CardHeader className="space-y-2">
+          <CardTitle>Who should get it</CardTitle>
+          <ItemPriorityEditor itemName={itemName} rule={contention.priorityRule} />
+          {contention.manualTiers.length > 0 && (
+            <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+              The sheet puts{" "}
+              {contention.manualTiers.map((tier, i) => (
+                <span key={tier}>
+                  {i > 0 && ", then "}
+                  <strong>{tier}</strong>
+                </span>
+              ))}{" "}
+              above everything below — that&apos;s a call for the council, not the app, so nobody is
+              ranked into it.
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
-            Open demand first, then fewest on-spec awards this phase — the council&apos;s priority order.
+            The sheet&apos;s spec priority decides the order; the score below only breaks ties
+            inside a rung. It weighs attendance ({weights.attendance}%), loot owed this phase (
+            {weights.lootDebt}%), median parse ({weights.performance}%) and preparation (
+            {weights.preparation}%), then adjusts for roster standing and slots already filled. A
+            metric nobody has logged yet is left out of the average rather than counted as zero —
+            hover a score for the full arithmetic.{" "}
+            <Link href="/" className="font-medium text-foreground underline-offset-2 hover:underline">
+              Change the weighting
+            </Link>{" "}
+            on the guild page.
           </p>
         </CardHeader>
         <CardContent>
-          {wishers.length === 0 ? (
+          {contenders.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">No one has this on a wishlist.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Character</TableHead>
-                  <TableHead>Wants for</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Currently using</TableHead>
-                  <TableHead className="text-right">Awards this phase</TableHead>
-                  <TableHead className="w-28">Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {wishers.map((w) => (
-                  <TableRow key={w.character.id}>
-                    <TableCell>
-                      <span className="flex items-center gap-2">
-                        <CharacterLink name={w.character.name} wowClass={w.character.class} />
-                        <ClassBadge wowClass={w.character.class} spec={w.character.spec} />
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm tabular-nums">
-                      {w.phases.map((p) => `P${p}`).join(", ")}
-                    </TableCell>
-                    <TableCell>
-                      <RoleBadge role={w.character.role} />
-                    </TableCell>
-                    <TableCell>
-                      {w.currentInSlot.length > 0 ? (
-                        <span className="flex flex-wrap gap-x-3 gap-y-1">
-                          {w.currentInSlot.map((s) => (
-                            <CurrentItem key={`${s.slot}-${s.itemId}`} itemId={s.itemId} fallback={s.itemName} />
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/50">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{w.onSpecAwardsActivePhase}</TableCell>
-                    <TableCell>
-                      {w.satisfied ? (
-                        <Badge variant="success">Satisfied</Badge>
-                      ) : (
-                        <Badge variant="warning">Open</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <ContenderTable
+              contenders={contenders}
+              awardTarget={buildAwardTarget(guild, sessions)}
+              prefill={prefill}
+              activePhase={guild.activePhase}
+              hasChain={contention.priorityRule !== undefined}
+            />
           )}
         </CardContent>
       </Card>
@@ -203,18 +259,5 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-/** Resolve a "currently using" item against the cache server-side. */
-async function CurrentItem({ itemId, fallback }: { itemId: number; fallback: string }) {
-  const repo = await getRepo();
-  const item = await repo.getItem(itemId);
-  return (
-    <ItemLink
-      item={{ itemId, name: item?.name ?? fallback, quality: item?.quality, icon: item?.icon }}
-      size="sm"
-      className="opacity-75"
-    />
   );
 }

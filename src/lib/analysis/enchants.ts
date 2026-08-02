@@ -18,8 +18,13 @@ import type { GearSet, SlotId, WowClass } from "@/lib/types";
  *      one whose set it came from;
  *   2. a standard — what that character is supposed to be wearing in that slot.
  *
- * Coverage therefore grows with each list imported, and nothing is invented:
- * an enchant no imported set has ever named stays an id.
+ * Imported sets only cover what somebody put on a list, though — never the
+ * scope on a hunter's bow or the resistance enchant worn for one fight. Those
+ * come from the resolved-name cache (lib/items/enchant-names), which reads the
+ * enchantment table itself. Sets still win where both know an id: a set's name
+ * is the guild's own wording and carries the applying item's icon with it.
+ *
+ * Nothing is invented at any point: an enchant no source can name stays an id.
  */
 
 /** One enchant the guild's lists know by name. */
@@ -57,6 +62,8 @@ export interface EnchantReference {
 export function buildEnchantReference(
   gearSets: GearSet[],
   classOf: (characterId: string) => WowClass | undefined,
+  /** Names resolved from the enchantment table, for ids no set lists. */
+  resolvedNames: Record<number, string> = {},
 ): EnchantReference {
   const names = new Map<number, EnchantRef>();
   /** `${class}|${slot}` → enchant id → sets picking it. */
@@ -94,9 +101,14 @@ export function buildEnchantReference(
     });
   }
 
-  // The hand-curated table fills gaps the imported sets leave — weapon enchants
-  // in particular rarely show up in a SixtyUpgrades list. Imported sets win:
-  // they came from the guild itself and carry the applying item too.
+  // Then the gaps imported sets leave, in order of how much they know:
+  // resolved names come from the enchantment table itself and cover anything
+  // ever worn, the hand-curated table is the last few we're confident of.
+  // Imported sets win over both — they carry the applying item's icon too.
+  for (const [id, name] of Object.entries(resolvedNames)) {
+    const enchantId = Number(id);
+    if (name.trim() && !names.has(enchantId)) names.set(enchantId, { id: enchantId, name });
+  }
   for (const [id, name] of Object.entries(ENCHANT_NAMES)) {
     const enchantId = Number(id);
     if (!names.has(enchantId)) names.set(enchantId, { id: enchantId, name });
