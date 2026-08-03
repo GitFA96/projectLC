@@ -185,9 +185,13 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
             on the guild page.
           </p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
           {contenders.length === 0 ? (
-            <p className="py-2 text-sm text-muted-foreground">No one has this on a wishlist.</p>
+            <p className="py-2 text-sm text-muted-foreground">
+              {contention.altWishers.length > 0
+                ? "Only alts have this on a wishlist."
+                : "No one has this on a wishlist."}
+            </p>
           ) : (
             <ContenderTable
               contenders={contenders}
@@ -196,6 +200,16 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
               activePhase={guild.activePhase}
               hasChain={contention.priorityRule !== undefined}
             />
+          )}
+          {contention.altWishers.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Also listed by{" "}
+              <span className="font-medium text-foreground">
+                {contention.altWishers.join(", ")}
+              </span>{" "}
+              — {contention.altWishers.length === 1 ? "an alt, so it doesn't" : "alts, so they don't"}{" "}
+              contend here. Loot goes to the person&apos;s main.
+            </p>
           )}
         </CardContent>
       </Card>

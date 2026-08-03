@@ -116,6 +116,7 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
         raidSessionId: parsed.data.raidSessionId || null,
       },
       normalized.rows,
+      normalized.offPull,
     );
     if (!saved.ok) return { status: "error", message: saved.error };
 

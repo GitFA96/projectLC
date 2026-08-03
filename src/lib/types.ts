@@ -12,6 +12,7 @@ import type {
   slotItemSchema,
   statBlockSchema,
   wclPlayerFightSchema,
+  wclPlayerOffPullSchema,
   wclReportSchema,
   wclRoleSchema,
 } from "@/lib/import/schemas";
@@ -40,6 +41,7 @@ export type RaidSession = z.infer<typeof raidSessionSchema>;
 export type LootAward = z.infer<typeof lootAwardSchema>;
 export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
+export type WclPlayerOffPull = z.infer<typeof wclPlayerOffPullSchema>;
 export type WclGearItem = WclPlayerFight["gear"][number];
 /** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
 export type WclUpkeepTarget = NonNullable<WclPlayerFight["upkeep"][number]["targets"]>[number];
@@ -300,6 +302,8 @@ export interface ItemContention {
   wishers: ContentionWisher[];
   awards: AwardWithContext[];
   openCount: number;
+  /** Alts that list the item. Never ranked — noted so the want isn't invisible. */
+  altWishers: string[];
   /** The council's spec priority for this item, when the sheet covers it. */
   priorityRule?: ItemPriorityRule;
   /** Rungs a human has to rule on ("Set completion") — shown, never applied. */
@@ -349,6 +353,10 @@ export interface PerformanceSummary {
   spec?: string;
   /** % of pulls covered: flask or at least one elixir / food / temp weapon buff. */
   flaskOrElixirsPct: number;
+  /** The flask half of `flaskOrElixirsPct` — a night-long buff that survives death. */
+  flaskPct: number;
+  /** The elixir half — cheaper, shorter, and gone the moment they die. */
+  elixirsPct: number;
   foodPct: number;
   weaponBuffPct: number;
   /** Both flask-or-elixirs AND food up — the headline preparation number. */
@@ -369,6 +377,8 @@ export interface PerformanceReportView {
   session?: RaidSession;
   rows: WclPlayerFight[];
   summary: PerformanceSummary;
+  /** What they used away from the boss pulls that night. Absent = nothing logged. */
+  offPull?: WclPlayerOffPull;
   /** Total boss pulls in the report (all players) — rows.length of them attended. */
   reportPulls: number;
 }
@@ -379,6 +389,8 @@ export interface CharacterPerformance {
   reports: PerformanceReportView[];
   /** Rollup across every report the character appears in (undefined when none). */
   career?: PerformanceSummary;
+  /** Off-pull consumable records, one per report that had any. */
+  offPull: WclPlayerOffPull[];
   /** Undefined until at least one report is imported. */
   attendance?: AttendanceSummary;
 }
@@ -648,6 +660,28 @@ export interface RaiderUsage {
   prepBreakdown: { name: string; count: number }[];
 }
 
+/**
+ * An officer's correction to one raider's consumable count for one raid.
+ *
+ * The log is evidence, not gospel: it can't see a flask drunk before the pull
+ * timer, a potion on the run back, or a night somebody's client dropped. This
+ * records the difference rather than editing the log, so it can always be
+ * undone and always be shown as what it is — a judgement call, with a name on
+ * it.
+ */
+export interface ConsumableAdjustment {
+  /** The raider's logged actor name. */
+  actorName: string;
+  /** Consumable name — matches the breakdown and price lists. */
+  name: string;
+  /** Uses added (+) or removed (-). Never zero. */
+  delta: number;
+  /** Why the officer changed it. */
+  note?: string;
+  /** ISO timestamp it was recorded. */
+  at: string;
+}
+
 export interface RaidCooldownRow {
   name: string;
   uses: number;
@@ -711,6 +745,8 @@ export interface SeasonReportInput {
   upkeep: RaidUpkeepRow[];
   /** This raid's logged consumable prices (empty → code defaults). */
   overrides: Record<string, ConsumablePrice>;
+  /** This raid's hand corrections to consumable counts. */
+  adjustments?: ConsumableAdjustment[];
 }
 
 /** One raider's cross-raid tallies, with per-raid medians (robust to a wild night). */
@@ -804,6 +840,9 @@ export interface ComparedCharacter {
   /* Consumables (coverage across logged pulls) */
   preparedPct: number;
   flaskOrElixirsPct: number;
+  /** Split out, because a flask and one cheap elixir are not the same night. */
+  flaskPct: number;
+  elixirsPct: number;
   foodPct: number;
   weaponBuffPct: number;
   potionsPerFight: number;

@@ -52,9 +52,13 @@ export function computeWishlistRows(
       slot: wished.slot,
       wished,
       current: currentBySlot.get(wished.slot),
+      // Being worn is the stronger statement about the slot, so it wins the
+      // state — but the award still travels with the row. Dropping it once the
+      // item was equipped left the loot record with nothing pointing at it:
+      // no date to read, and no handle to correct or clear it by.
       state: equippedMatch ? "equipped" : award ? "awarded" : "open",
-      awardedAt: !equippedMatch && award ? award.awardedAt : undefined,
-      awardId: !equippedMatch && award ? award.id : undefined,
+      awardedAt: award?.awardedAt,
+      awardId: award?.id,
     } satisfies WishlistRow;
   });
 }

@@ -5,6 +5,7 @@ import {
   classifyAura,
   classifyCast,
   isNonConsumableAura,
+  scrollCastName,
 } from "@/lib/wcl/consumables";
 import { normalizeIcon, qualityFromId } from "@/lib/items/item-data";
 import type { Quality } from "@/lib/types";
@@ -287,6 +288,37 @@ export interface UnclassifiedAura {
   count: number;
 }
 
+/**
+ * What one player did with consumables away from the boss pulls.
+ *
+ * A raid night is mostly not boss pulls: trash, running back, buffing up. A
+ * potion drunk clearing to Vashj costs the same gold as one drunk on her, and
+ * pet food is a twenty-minute buff nobody applies mid-pull — so scoping
+ * consumable tracking to encounter windows quietly under-counted both.
+ *
+ * One record per player per report rather than per pull, because there are no
+ * pulls to hang it on: "what did they get through tonight" is the question
+ * this answers.
+ */
+export interface NormalizedPlayerOffPull {
+  actorName: string;
+  className?: string;
+  /** Combat potions drunk outside a boss pull. */
+  potions: string[];
+  /** Other consumable casts outside a boss pull (runes, healthstones, drums…). */
+  otherCasts: string[];
+  drums: number;
+  runes: number;
+  healthstones: number;
+  sappers: number;
+  /**
+   * Consumables put on their PET — food and scrolls, whenever they were fed.
+   * Kept whole rather than split by window: a hunter feeds the pet once for
+   * the night, and which side of a pull it landed on says nothing useful.
+   */
+  petConsumables: string[];
+}
+
 export interface NormalizedReport {
   title: string;
   zone?: string;
@@ -294,6 +326,8 @@ export interface NormalizedReport {
   startTime: string;
   endTime: string;
   rows: NormalizedPlayerFight[];
+  /** Per-player consumable use away from the boss pulls. */
+  offPull: NormalizedPlayerOffPull[];
   /** Diagnostics for the import result panel. */
   warnings: string[];
   /** Combatant-info events outside boss pulls (trash combat), inspectable. */
@@ -610,7 +644,28 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (row) row.deaths++;
   }
 
-  /* 4. In-fight consumable casts (server-filtered to the tracked spell ids). */
+  /* 4. Consumable casts (server-filtered to the tracked spell ids). */
+  /** Per-player tallies for everything outside a boss pull, built on demand. */
+  const offPullByActor = new Map<string, NormalizedPlayerOffPull>();
+  const offPullFor = (actorName: string, className?: string): NormalizedPlayerOffPull => {
+    let entry = offPullByActor.get(actorName);
+    if (!entry) {
+      entry = {
+        actorName,
+        className,
+        potions: [],
+        otherCasts: [],
+        drums: 0,
+        runes: 0,
+        healthstones: 0,
+        sappers: 0,
+        petConsumables: [],
+      };
+      offPullByActor.set(actorName, entry);
+    }
+    return entry;
+  };
+
   for (const rawEvent of events.casts) {
     const parsed = rawCastEventSchema.safeParse(rawEvent);
     if (!parsed.success) continue;
@@ -618,11 +673,56 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (event.type === "begincast" || event.sourceID === undefined) continue;
     const fight = bossFightOf(event);
     const actor = actorById.get(event.sourceID);
-    if (!fight || !actor) continue;
-    const row = rows.get(keyOf(fight.id, actor.name));
-    if (!row) continue;
+    if (!actor) continue;
     const abilityId = event.ability?.guid ?? event.abilityGameID;
+
+    /*
+     * A scroll read onto a pet. Self-scrolls arrive as auras at the pull and
+     * are counted there, so only the pet-targeted ones are taken from the cast
+     * stream — otherwise every raider's own scroll would be counted twice.
+     */
+    const scroll = scrollCastName(abilityId);
+    if (scroll) {
+      const target = event.targetID !== undefined ? anyActorById.get(event.targetID) : undefined;
+      if (target?.petOwner === event.sourceID) {
+        offPullFor(actor.name, actor.subType).petConsumables.push(scroll);
+      }
+      continue;
+    }
+
     const hit = classifyCast(abilityId, event.ability?.name);
+    /*
+     * Pet food is a night-long buff applied between pulls, so it's recorded
+     * per player rather than per pull — and recorded wherever it happened,
+     * since "did they feed the pet tonight" has one answer either way.
+     */
+    if (hit?.category === "pet") {
+      offPullFor(actor.name, actor.subType).petConsumables.push(hit.name);
+      continue;
+    }
+
+    const row = fight ? rows.get(keyOf(fight.id, actor.name)) : undefined;
+
+    /*
+     * No pull to hang it on: trash, running back, buffing up — or a pull this
+     * player has no ranked row for. Same gold and the same habit either way,
+     * and dropping it (which is what used to happen) made a raider who potions
+     * hard through the trash read as one who never potions at all.
+     */
+    if (!row) {
+      if (!hit) continue;
+      const off = offPullFor(actor.name, actor.subType);
+      if (hit.category === "potion") off.potions.push(hit.name);
+      else {
+        off.otherCasts.push(hit.name);
+        if (hit.category === "drums") off.drums++;
+        else if (hit.category === "rune") off.runes++;
+        else if (hit.category === "healthstone") off.healthstones++;
+        else if (hit.category === "sapper") off.sappers++;
+      }
+      continue;
+    }
+    if (!fight) continue; // unreachable: a row implies its fight
     if (!hit) {
       // Not a consumable — maybe a tracked class cooldown or a totem drop.
       const cooldown = abilityId !== undefined ? COOLDOWN_BY_ID.get(abilityId) : undefined;
@@ -757,6 +857,15 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     startTime: new Date(raw.startTime).toISOString(),
     endTime: new Date(raw.endTime).toISOString(),
     rows: allRows,
+    // Only players who actually used something off-pull get a record — an
+    // empty one would claim we looked and found nothing, which is the same
+    // shape as never having looked.
+    offPull: [...offPullByActor.values()]
+      .filter(
+        (o) =>
+          o.potions.length > 0 || o.otherCasts.length > 0 || o.petConsumables.length > 0,
+      )
+      .sort((a, b) => a.actorName.localeCompare(b.actorName)),
     warnings,
     ignoredCombatantInfo: {
       total: orphanCombatantInfo,

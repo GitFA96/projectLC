@@ -1,5 +1,11 @@
-import { costPerUseMap, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
+import { costPerUseMap } from "@/lib/wcl/consumable-prices";
+import {
+  adjustmentsFor,
+  applyAdjustments,
+  goldOfLines,
+} from "@/lib/analysis/consumable-adjustments";
 import type {
+  ConsumableAdjustment,
   RaiderUsage,
   SeasonNotable,
   SeasonRaiderStat,
@@ -26,9 +32,19 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** One raider's total gold for a report: in-fight items + prep buffs. */
-function reportGold(u: RaiderUsage, costPerUse: Record<string, number>): number {
-  return goldOfBreakdown(u.itemBreakdown, costPerUse) + goldOfBreakdown(u.prepBreakdown, costPerUse);
+/**
+ * One raider's total gold for a report: in-fight items + prep buffs, with the
+ * night's hand corrections applied. The season view has to agree with the raid
+ * page it's summing, or the same night reads two different ways.
+ */
+function reportGold(
+  u: RaiderUsage,
+  costPerUse: Record<string, number>,
+  adjustments: ConsumableAdjustment[],
+): number {
+  const logged = [...u.itemBreakdown, ...u.prepBreakdown];
+  const adjusted = applyAdjustments(logged, adjustmentsFor(adjustments, u.name));
+  return Math.max(0, goldOfLines(adjusted, costPerUse));
 }
 
 const KIND_ORDER = { debuff: 0, selfbuff: 1, buff: 1 } as const;
@@ -61,6 +77,9 @@ export function summarizeSeason(reports: SeasonReportInput[]): SeasonRankingsVie
       for (const b of u.itemBreakdown) names.add(b.name);
       for (const b of u.prepBreakdown) names.add(b.name);
     }
+    // A hand-added consumable still needs a price, even if the log never saw it.
+    const adjustments = report.adjustments ?? [];
+    for (const a of adjustments) names.add(a.name);
     const costPerUse = costPerUseMap(names, report.overrides);
 
     for (const u of report.usage) {
@@ -70,7 +89,7 @@ export function summarizeSeason(reports: SeasonReportInput[]): SeasonRankingsVie
         { name: u.name, slug: u.slug, className: u.className, role: u.role, golds: [], consumes: [], deaths: [] };
       acc.slug = u.slug ?? acc.slug;
       acc.className = u.className ?? acc.className;
-      acc.golds.push(reportGold(u, costPerUse));
+      acc.golds.push(reportGold(u, costPerUse, adjustments));
       acc.consumes.push(u.consumablesTotal);
       acc.deaths.push(u.deaths);
       byRaider.set(key, acc);

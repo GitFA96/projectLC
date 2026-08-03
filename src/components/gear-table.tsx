@@ -4,7 +4,7 @@ import { QUALITY_TEXT_COLORS } from "@/lib/constants/wow";
 import { itemDisplayName, normalizeIcon } from "@/lib/items/item-data";
 import { gradeEnchant, type EnchantGrade, type EnchantRef, type EnchantReference } from "@/lib/analysis/enchants";
 import { gradeGem, type GemGrade } from "@/lib/analysis/gems";
-import type { GearSet, Item, Phase, Quality, WclGearItem, WowClass } from "@/lib/types";
+import type { GearSet, Item, Phase, Quality, Role, WclGearItem, WowClass } from "@/lib/types";
 import { ItemIcon } from "@/components/item-icon";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -233,6 +233,7 @@ export function GearTable({
   gear,
   itemsById,
   wowClass,
+  role,
   ownWishlists,
   enchants,
   activePhase,
@@ -242,6 +243,8 @@ export function GearTable({
   gear: WclGearItem[];
   itemsById: Map<number, Item>;
   wowClass: WowClass;
+  /** Which of their class's lists set the standard for them. */
+  role: Role;
   /** The character's own wishlists — the first reference for "is this BiS". */
   ownWishlists: GearSet[];
   enchants: EnchantReference;
@@ -303,6 +306,7 @@ export function GearTable({
                     wornEnchantId: g.enchant,
                     enchantable: expectsEnchant,
                     wowClass,
+                    role,
                     ownWishlists,
                     reference: enchants,
                   })}

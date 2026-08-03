@@ -20,6 +20,12 @@ export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Ironshield Potion": { gold: 2, charges: 1 },
   "Super Mana Potion": { gold: 2, charges: 1 },
   "Fel Mana Potion": { gold: 12, charges: 1 },
+  /* Reputation / instance-vendor restores — bought with rep or badges, so the
+     gold price is the vendor cost rather than an auction-house one. */
+  "Cenarion Mana Salve": { gold: 1, charges: 1 },
+  "Cenarion Healing Salve": { gold: 1, charges: 1 },
+  "Bottled Nethergon Energy": { gold: 1, charges: 1 },
+  "Bottled Nethergon Vapor": { gold: 1, charges: 1 },
   "Super Healing Potion": { gold: 6, charges: 1 },
   "Mighty Rage Potion": { gold: 10, charges: 1 },
   "Major Mana Potion": { gold: 1, charges: 1 },
@@ -50,10 +56,22 @@ export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Kreeg's Stout Beatdown": { gold: 1, charges: 1 },
   "Eye of the Night": { gold: 30, charges: 5 },
   Enlightened: { gold: 5, charges: 1 },
+  /* Pet consumables — a hunter's pet is part of their damage. */
+  "Kibler's Bits": { gold: 1, charges: 1 },
+  "Pet Biscuit": { gold: 1, charges: 1 },
   /* Flasks (occupy both elixir slots — the priciest staples) */
   "Flask of Blinding Light": { gold: 120, charges: 1 },
   "Flask of Pure Death": { gold: 95, charges: 1 },
   "Flask of Relentless Assault": { gold: 82, charges: 1 },
+  /* Unstable Flasks are bought with Apexis Shards, not gold. Priced at 0 so a
+     raider running them isn't credited with spending they didn't do — the
+     effort is real, but this column measures gold and only gold. */
+  "Unstable Flask of the Beast": { gold: 0, charges: 1 },
+  "Unstable Flask of the Bandit": { gold: 0, charges: 1 },
+  "Unstable Flask of the Elder": { gold: 0, charges: 1 },
+  "Unstable Flask of the Physician": { gold: 0, charges: 1 },
+  "Unstable Flask of the Soldier": { gold: 0, charges: 1 },
+  "Unstable Flask of the Sorcerer": { gold: 0, charges: 1 },
   /* Battle & guardian elixirs */
   "Elixir of Major Agility": { gold: 5, charges: 1 },
   "Elixir of Major Shadow Power": { gold: 6, charges: 1 },

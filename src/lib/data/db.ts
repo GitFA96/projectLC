@@ -12,12 +12,14 @@ import {
   lootAwardSchema,
   raidSessionSchema,
   wclPlayerFightSchema,
+  wclPlayerOffPullSchema,
   wclReportSchema,
 } from "@/lib/import/schemas";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
 import type {
   AttendanceExemption,
+  ConsumableAdjustment,
   Character,
   CharacterComment,
   ConsumablePrice,
@@ -29,6 +31,7 @@ import type {
   LootPriorityWeights,
   RaidSession,
   WclPlayerFight,
+  WclPlayerOffPull,
   WclReport,
 } from "@/lib/types";
 
@@ -114,6 +117,24 @@ CREATE TABLE IF NOT EXISTS current_gear_overrides (
   set_at       TEXT NOT NULL,
   PRIMARY KEY (character_id, spec, slot)
 );
+-- Consumables used away from the boss pulls: trash, running back, buffing up.
+-- One row per player per report — there is no fight to hang them on, and a
+-- potion drunk on trash costs the same gold as one drunk on the boss. Pet food
+-- and pet scrolls live here too, whenever in the night they were applied.
+CREATE TABLE IF NOT EXISTS wcl_player_offpull (
+  id                   TEXT PRIMARY KEY,
+  report_code          TEXT NOT NULL REFERENCES wcl_reports(code),
+  actor_name           TEXT NOT NULL,
+  character_id         TEXT,
+  potions_json         TEXT NOT NULL DEFAULT '[]',
+  other_casts_json     TEXT NOT NULL DEFAULT '[]',
+  drums                INTEGER NOT NULL DEFAULT 0,
+  runes                INTEGER NOT NULL DEFAULT 0,
+  healthstones         INTEGER NOT NULL DEFAULT 0,
+  sappers              INTEGER NOT NULL DEFAULT 0,
+  pet_consumables_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS wcl_player_offpull_report ON wcl_player_offpull(report_code);
 -- SpellItemEnchantment id -> the effect text an item tooltip shows for it.
 -- Its own id space, so it can't share the items table. Filled one lookup per
 -- unknown id, ever; an id nothing can name simply has no row.
@@ -402,6 +423,74 @@ export function setReportConsumablePrices(
     `INSERT INTO meta (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(consumablePriceKey(code), JSON.stringify(sanitizePrices(prices)));
+}
+
+/* Per-report consumable adjustments: an officer's corrections to what the log
+   says each raider got through. Same meta-table pattern as prices; absent
+   means the raid's gold is exactly what the log implied. */
+
+const consumableAdjustmentKey = (code: string) => `consumable_adjustments:${code}`;
+
+/** Drop anything malformed so a hand-edited blob can't crash a read. */
+function sanitizeAdjustments(raw: unknown): ConsumableAdjustment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ConsumableAdjustment[] = [];
+  for (const value of raw) {
+    if (value === null || typeof value !== "object") continue;
+    const { actorName, name, delta, note, at } = value as Record<string, unknown>;
+    if (typeof actorName !== "string" || actorName.trim() === "") continue;
+    if (typeof name !== "string" || name.trim() === "") continue;
+    if (typeof delta !== "number" || !Number.isInteger(delta) || delta === 0) continue;
+    out.push({
+      actorName: actorName.trim(),
+      name: name.trim(),
+      delta,
+      note: typeof note === "string" && note.trim() !== "" ? note.trim() : undefined,
+      at: typeof at === "string" && at !== "" ? at : new Date(0).toISOString(),
+    });
+  }
+  return out;
+}
+
+/** One report's hand adjustments (empty when nobody has corrected anything). */
+export function getReportConsumableAdjustments(db: DatabaseSync, code: string): ConsumableAdjustment[] {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(consumableAdjustmentKey(code)) as
+    | { value: string }
+    | undefined;
+  if (!row) return [];
+  try {
+    return sanitizeAdjustments(JSON.parse(row.value));
+  } catch {
+    return [];
+  }
+}
+
+/** Every report's adjustments in one query — the career gold rollup needs them all. */
+export function getAllConsumableAdjustments(db: DatabaseSync): Record<string, ConsumableAdjustment[]> {
+  const rows = db
+    .prepare("SELECT key, value FROM meta WHERE key LIKE 'consumable_adjustments:%'")
+    .all() as { key: string; value: string }[];
+  const out: Record<string, ConsumableAdjustment[]> = {};
+  for (const { key, value } of rows) {
+    try {
+      out[key.slice("consumable_adjustments:".length)] = sanitizeAdjustments(JSON.parse(value));
+    } catch {
+      // A mangled blob just means "nothing adjusted" for that report.
+    }
+  }
+  return out;
+}
+
+/** Replace a report's adjustments (an empty list clears them all). */
+export function setReportConsumableAdjustments(
+  db: DatabaseSync,
+  code: string,
+  adjustments: ConsumableAdjustment[],
+): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(consumableAdjustmentKey(code), JSON.stringify(sanitizeAdjustments(adjustments)));
 }
 
 /* Per-report excluded pulls: the fight ids an officer switched off for a raid
@@ -712,6 +801,35 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
   );
 }
 
+export function insertWclPlayerOffPull(db: DatabaseSync, o: WclPlayerOffPull): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO wcl_player_offpull (
+       id, report_code, actor_name, character_id, potions_json, other_casts_json,
+       drums, runes, healthstones, sappers, pet_consumables_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    o.id, o.reportCode, o.actorName, o.characterId,
+    JSON.stringify(o.potions), JSON.stringify(o.otherCasts),
+    o.drums, o.runes, o.healthstones, o.sappers, JSON.stringify(o.petConsumables),
+  );
+}
+
+function rowToWclPlayerOffPull(r: Row): unknown {
+  return {
+    id: r.id,
+    reportCode: r.report_code,
+    actorName: r.actor_name,
+    characterId: (r.character_id as string | null) ?? null,
+    potions: JSON.parse(r.potions_json as string),
+    otherCasts: JSON.parse(r.other_casts_json as string),
+    drums: r.drums,
+    runes: r.runes,
+    healthstones: r.healthstones,
+    sappers: r.sappers,
+    petConsumables: JSON.parse(r.pet_consumables_json as string),
+  };
+}
+
 function rowToGuild(r: Row): unknown {
   return { id: r.id, name: r.name, realm: r.realm, faction: r.faction, activePhase: r.active_phase };
 }
@@ -838,6 +956,7 @@ export function loadStore(db: DatabaseSync): EntityStore {
     lootAwards: parseAll("loot_awards", lootAwardSchema, (db.prepare("SELECT * FROM loot_awards").all() as Row[]).map(rowToLootAward)),
     wclReports: parseAll("wcl_reports", wclReportSchema, (db.prepare("SELECT * FROM wcl_reports").all() as Row[]).map(rowToWclReport)),
     wclPlayerFights: parseAll("wcl_player_fights", wclPlayerFightSchema, (db.prepare("SELECT * FROM wcl_player_fights").all() as Row[]).map(rowToWclPlayerFight)),
+    wclPlayerOffPull: parseAll("wcl_player_offpull", wclPlayerOffPullSchema, (db.prepare("SELECT * FROM wcl_player_offpull").all() as Row[]).map(rowToWclPlayerOffPull)),
     attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
     characterComments: parseAll("character_comments", characterCommentSchema, (db.prepare("SELECT * FROM character_comments ORDER BY created_at DESC").all() as Row[]).map(rowToCharacterComment)),
   };
@@ -860,6 +979,7 @@ function seedIfEmpty(db: DatabaseSync): void {
       for (const a of seed.lootAwards) insertLootAward(db, a);
       for (const r of seed.wclReports) insertWclReport(db, r);
       for (const f of seed.wclPlayerFights) insertWclPlayerFight(db, f);
+      for (const o of seed.wclPlayerOffPull) insertWclPlayerOffPull(db, o);
       for (const e of seed.attendanceExemptions) insertAttendanceExemption(db, e);
       for (const c of seed.characterComments) insertCharacterComment(db, c);
       bumpDataVersion(db);

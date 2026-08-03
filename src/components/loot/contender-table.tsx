@@ -261,13 +261,25 @@ function performanceRows(c: PerformanceSummary): StatRow[] {
 
 function preparationRows(c: PerformanceSummary, goldPerRaid?: number): StatRow[] {
   return [
-    { label: "Flask or elixir", value: `${c.flaskOrElixirsPct}%` },
+    // The scored number treats a flask and one cheap elixir as the same thing,
+    // so both halves are shown next to it: two raiders on 100% can be running
+    // very different nights.
+    {
+      label: "Flask",
+      value: `${c.flaskPct}%`,
+      title: "Pulls with a flask up — lasts the night and survives a death",
+    },
+    {
+      label: "Elixirs",
+      value: `${c.elixirsPct}%`,
+      title: "Pulls with at least one elixir up — cheaper, and lost on death",
+    },
     { label: "Food", value: `${c.foodPct}%` },
     {
-      label: "Both, per pull",
+      label: "Flask-or-elixir + food",
       value: `${c.preparedPct}%`,
       scored: true,
-      title: "Flask-or-elixir AND food up at the pull — the number the score uses",
+      title: "Flask-or-elixir AND food up at the pull — the number the score uses. A flask and a single elixir count the same here; the two rows above are where they differ.",
     },
     { label: "Weapon buff", value: `${c.weaponBuffPct}%`, title: "Oil, stone, poison or imbue" },
     {

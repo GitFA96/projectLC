@@ -7,6 +7,7 @@ import type {
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
+  ConsumableAdjustment,
   ConsumablePrice,
   CurrentGearOverride,
   DashboardData,
@@ -26,6 +27,7 @@ import type {
   SlotItem,
   UntrackedLogPlayer,
   WclPlayerFight,
+  WclPlayerOffPull,
   WclReport,
   WclReportView,
 } from "@/lib/types";
@@ -74,6 +76,11 @@ export interface Repo {
    * means the whole night counts — see WriteRepo.setReportExcludedFights.
    */
   getReportExcludedFights(code: string): Promise<number[]>;
+  /**
+   * An officer's corrections to what one raid's logs say each raider used —
+   * the counts, not the prices. Empty when nobody has changed anything.
+   */
+  getReportConsumableAdjustments(code: string): Promise<ConsumableAdjustment[]>;
   /**
    * Items the UI has to render as a bare id: referenced by loot, a wishlist or
    * the cache itself, but still missing a name or an icon. The (bounded) work
@@ -207,6 +214,8 @@ export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId"> & {
   raidSessionId?: string | null;
 };
 export type WclPlayerFightDraft = Omit<WclPlayerFight, "id" | "reportCode" | "characterId">;
+/** One player's off-pull consumables, before identity/roster matching. */
+export type WclPlayerOffPullDraft = Omit<WclPlayerOffPull, "id" | "reportCode" | "characterId">;
 
 export type WclSaveResult =
   | {
@@ -322,7 +331,12 @@ export interface WriteRepo extends Repo {
    * characters by name (like Gargul winners); re-saving the same report code
    * replaces it wholesale, so refetching is the update flow.
    */
-  saveWclReport(report: WclReportDraft, rows: WclPlayerFightDraft[]): Promise<WclSaveResult>;
+  saveWclReport(
+    report: WclReportDraft,
+    rows: WclPlayerFightDraft[],
+    /** Consumables used away from the boss pulls, per player. */
+    offPull?: WclPlayerOffPullDraft[],
+  ): Promise<WclSaveResult>;
   /** Remove one fetched report and all its per-player rows (wrongful import). */
   deleteWclReport(code: string): Promise<{ ok: true; rowsRemoved: number } | { ok: false; error: string }>;
   /**
@@ -345,6 +359,12 @@ export interface WriteRepo extends Repo {
    * whole night again.
    */
   setReportExcludedFights(code: string, fightIds: number[]): Promise<void>;
+  /**
+   * Replace a raid's hand corrections to consumable counts. Each entry adds or
+   * removes uses for one raider and one consumable; an empty list hands the
+   * night back to exactly what the log said.
+   */
+  setReportConsumableAdjustments(code: string, adjustments: ConsumableAdjustment[]): Promise<void>;
   /**
    * Mark (or clear) one reset week as an excused absence for a character, so it
    * doesn't count toward their attendance markup. weekStart is the reset-week

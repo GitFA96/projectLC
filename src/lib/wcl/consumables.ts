@@ -43,6 +43,19 @@ interface AuraDef {
  * ("Major Agility"), vanilla ones usually keep the full item name.
  */
 const AURA_DEFS: AuraDef[] = [
+  /*
+   * Unstable Flasks — the Ogri'la / Blade's Edge apexis flasks. Bought with
+   * Apexis Shards rather than gold, which is why they don't show up in a
+   * shopping list, but in the log they behave exactly like any other flask and
+   * their buff name matches the item name. Curated by id anyway so they can
+   * never fall through to the generic "…flask of…" guess.
+   */
+  { label: "Unstable Flask of the Beast", category: "flask", ids: [40572] },
+  { label: "Unstable Flask of the Bandit", category: "flask", ids: [40567] },
+  { label: "Unstable Flask of the Elder", category: "flask", ids: [40568] },
+  { label: "Unstable Flask of the Physician", category: "flask", ids: [40573] },
+  { label: "Unstable Flask of the Soldier", category: "flask", ids: [40575] },
+  { label: "Unstable Flask of the Sorcerer", category: "flask", ids: [40576] },
   /* Battle elixirs */
   { label: "Elixir of Major Agility", category: "battleElixir", ids: [28497], buffNames: ["Major Agility"] },
   { label: "Elixir of Major Strength", category: "battleElixir", buffNames: ["Major Strength"] },
@@ -107,6 +120,20 @@ const SCROLL_RANK_V_IDS: Record<number, string> = {
   33081: "Scroll of Stamina V",
   33082: "Scroll of Strength V",
 };
+
+/**
+ * Reading a scroll casts the same spell that shows up as the aura, so these
+ * ids serve twice: as a buff at the pull (the raider scrolled themselves) and
+ * as a CAST, which is the only way to see a hunter scrolling their pet. A
+ * self-cast is already covered by the pull aura, so only the pet-targeted ones
+ * are recorded from the cast stream.
+ */
+export const SCROLL_CAST_IDS = Object.keys(SCROLL_RANK_V_IDS).map(Number);
+
+/** The scroll a cast id names, when it is one. */
+export function scrollCastName(abilityId: number | undefined): string | undefined {
+  return abilityId === undefined ? undefined : SCROLL_RANK_V_IDS[abilityId];
+}
 
 /** Bare-stat buff name → generic scroll label (rank unknown without the id). */
 const SCROLL_BUFF_NAMES: Record<string, string> = {
@@ -204,7 +231,16 @@ export function classifyAura(name: string, abilityId?: number): ClassifiedAura |
   return undefined;
 }
 
-export type CastCategory = "potion" | "drums" | "rune" | "healthstone" | "gem" | "sapper" | "other";
+export type CastCategory =
+  | "potion"
+  | "drums"
+  | "rune"
+  | "healthstone"
+  | "gem"
+  | "sapper"
+  /** Fed to the hunter's pet, not the hunter — tracked separately for that reason. */
+  | "pet"
+  | "other";
 
 export interface TrackedCast {
   id: number;
@@ -222,9 +258,21 @@ export const TRACKED_CASTS: TrackedCast[] = [
   { id: 28494, name: "Insane Strength Potion", category: "potion" },
   { id: 28506, name: "Heroic Potion", category: "potion" },
   { id: 28515, name: "Ironshield Potion", category: "potion" },
+  // 28499 is "Restore Mana" — shared by the Super Mana Potion AND the Auchenai
+  // Mana Potion, which are the same restore. Nothing in the cast event tells
+  // them apart, so they're counted under one label rather than guessed at.
   { id: 28499, name: "Super Mana Potion", category: "potion" },
   { id: 38929, name: "Fel Mana Potion", category: "potion" },
   { id: 28495, name: "Super Healing Potion", category: "potion" },
+  /*
+   * The reputation / instance-vendor restores. Each has its own use-spell, so
+   * unlike the Auchenai potion these are distinguishable — and being cheap or
+   * free they're what a well-drilled raider actually burns through a night.
+   */
+  { id: 41617, name: "Cenarion Mana Salve", category: "potion" },
+  { id: 41618, name: "Bottled Nethergon Energy", category: "potion" },
+  { id: 41619, name: "Cenarion Healing Salve", category: "potion" },
+  { id: 41620, name: "Bottled Nethergon Vapor", category: "potion" },
   { id: 17528, name: "Mighty Rage Potion", category: "potion" },
   { id: 17531, name: "Major Mana Potion", category: "potion" },
   { id: 6615, name: "Free Action Potion", category: "potion" },
@@ -252,6 +300,13 @@ export const TRACKED_CASTS: TrackedCast[] = [
   { id: 10052, name: "Mana Jade", category: "gem" },
   { id: 5405, name: "Mana Agate", category: "gem" },
   { id: 28726, name: "Nightmare Seed", category: "other" },
+  /*
+   * Pet food. A hunter buffing their pet is preparation the raid benefits from
+   * — the pet is a chunk of their damage — but it's cast ON the pet, so it
+   * would otherwise be invisible next to the hunter's own consumables.
+   */
+  { id: 43771, name: "Kibler's Bits", category: "pet" },
+  { id: 46168, name: "Pet Biscuit", category: "pet" },
   // Engineering explosives — the item on-use spell WCL records on the throw.
   // The casts query ALSO matches these by name (see SAPPER_CAST_NAMES), so a
   // wrong/aliased rank id still counts; the classifyCast name fallback buckets it.

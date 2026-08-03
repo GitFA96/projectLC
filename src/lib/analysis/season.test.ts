@@ -55,6 +55,42 @@ const reports: SeasonReportInput[] = [
   },
 ];
 
+describe("summarizeSeason — hand adjustments", () => {
+  const at = "2026-08-02T20:00:00.000Z";
+
+  it("carries a raid's corrections into the cross-raid totals", () => {
+    // One extra flask on Kaz's first night: R1 112 → 194, so total 254 → 336.
+    const adjusted = summarizeSeason([
+      {
+        ...reports[0],
+        adjustments: [{ actorName: "Kaz", name: "Flask of Relentless Assault", delta: 1, at }],
+      },
+      reports[1],
+    ]);
+    const kaz = adjusted.raiders.find((r) => r.name === "Kaz")!;
+    expect(kaz.goldTotal).toBe(336);
+    // Morg wasn't touched, so his figure is unchanged.
+    expect(adjusted.raiders.find((r) => r.name === "Morg")!.goldTotal).toBe(15);
+  });
+
+  it("prices a consumable the log never saw on that night", () => {
+    const adjusted = summarizeSeason([
+      { ...reports[0], adjustments: [{ actorName: "Morg", name: "Dark Rune", delta: 2, at }] },
+      reports[1],
+    ]);
+    // Morg: 15 logged + 2 Dark Runes at 6g = 27.
+    expect(adjusted.raiders.find((r) => r.name === "Morg")!.goldTotal).toBe(27);
+  });
+
+  it("never lets a removal drive a night below zero", () => {
+    const adjusted = summarizeSeason([
+      { ...reports[0], adjustments: [{ actorName: "Morg", name: "Haste Potion", delta: -9, at }] },
+      reports[1],
+    ]);
+    expect(adjusted.raiders.find((r) => r.name === "Morg")!.goldTotal).toBe(0);
+  });
+});
+
 describe("summarizeSeason", () => {
   const view = summarizeSeason(reports);
 

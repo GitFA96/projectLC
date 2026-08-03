@@ -94,6 +94,12 @@ export function summarizePerformance(rows: WclPlayerFight[]): PerformanceSummary
     role: dominant<WclRole>(rows.map((r) => r.role)) ?? "dps",
     spec: dominant(rows.map((r) => r.spec)),
     flaskOrElixirsPct: pct(flaskOrElixirs, rows.length),
+    // The two halves of that number, kept apart. A flask lasts the night and
+    // survives a death; a single cheap elixir does neither, and lumping them
+    // together hides the difference between the raider who buys a 100g flask
+    // every week and the one who drinks an Elixir of Mastery on pull one.
+    flaskPct: pct(rows.filter((r) => r.flask !== undefined).length, rows.length),
+    elixirsPct: pct(rows.filter((r) => r.elixirs.length >= 1).length, rows.length),
     foodPct: pct(fed, rows.length),
     weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
     preparedPct: pct(prepared, rows.length),

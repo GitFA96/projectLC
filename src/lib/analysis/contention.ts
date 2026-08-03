@@ -63,6 +63,11 @@ export function computeItemContention(input: ContentionInput): ItemContention {
     .sort((a, b) => b.award.awardedAt.localeCompare(a.award.awardedAt));
 
   const wishers: ContentionWisher[] = [];
+  // Alts don't contend. An alt's wishlist is a real statement of want, but the
+  // council awards to the person's main — ranking one against the mains would
+  // put an alt above a raider who shows up on theirs. They're counted so the
+  // item page can say the list exists, and left out of the contest entirely.
+  const altWishers: string[] = [];
   // The slot the drop fills: the cache when it knows, otherwise the first list
   // that names the item — which is typed by a person and exact.
   let contestedSlot: SlotId | undefined = item?.slot ?? undefined;
@@ -71,6 +76,10 @@ export function computeItemContention(input: ContentionInput): ItemContention {
     const wishlists = sets.filter((s) => s.kind === "wishlist");
     const wishedIn = wishlists.filter((w) => w.slots.some((s) => s.itemId === itemId));
     if (wishedIn.length === 0) continue;
+    if (character.status === "alt") {
+      altWishers.push(character.name);
+      continue;
+    }
 
     const phases = wishedIn
       .map((w) => w.phase)
@@ -149,6 +158,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
     wishers: ranked,
     awards: itemAwards,
     openCount: ranked.filter((w) => !w.satisfied).length,
+    altWishers: altWishers.sort((a, b) => a.localeCompare(b)),
     priorityRule: input.priorityRule,
     manualTiers: chain ? manualTiers(chain) : [],
   };

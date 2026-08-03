@@ -565,6 +565,110 @@ describe("normalizeWclReport — raid buffs and totem drops", () => {
   });
 });
 
+/**
+ * A raid night is mostly not boss pulls. These cover the casts that land
+ * between them, and the ones a hunter aims at their pet.
+ */
+describe("normalizeWclReport — off-pull consumables and pets", () => {
+  const offPullReport = {
+    title: "Trash night",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 900_000,
+    zone: { name: "Serpentshrine Cavern" },
+    masterData: {
+      actors: [
+        { id: 1, name: "Sylvaria", type: "Player", subType: "Hunter" },
+        { id: 2, name: "Kazrak", type: "Player", subType: "Warrior" },
+        { id: 9, name: "Wolfie", type: "Pet", subType: "Pet", petOwner: 1 },
+        { id: 10, name: "Someone Else's Pet", type: "Pet", subType: "Pet", petOwner: 2 },
+      ],
+    },
+    // One boss pull, 300s–600s. Everything outside that is trash.
+    fights: [{ id: 1, encounterID: 623, name: "Hydross", kill: true, startTime: 300_000, endTime: 600_000 }],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: {
+            dps: {
+              characters: [
+                { name: "Sylvaria", class: "Hunter", spec: "Beast Mastery", amount: 800, rankPercent: 70 },
+                { name: "Kazrak", class: "Warrior", spec: "Fury", amount: 700, rankPercent: 60 },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const result = normalizeWclReport(offPullReport, {
+    combatantInfo: [
+      { timestamp: 299_000, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+      { timestamp: 299_000, type: "combatantinfo", sourceID: 2, auras: [], gear: [] },
+    ],
+    deaths: [],
+    casts: [
+      // Before the pull — clearing trash.
+      { timestamp: 100_000, type: "cast", sourceID: 1, ability: { name: "Restore Mana", guid: 28499 } },
+      { timestamp: 120_000, type: "cast", sourceID: 2, ability: { name: "Super Healing Potion", guid: 28495 } },
+      { timestamp: 130_000, type: "cast", sourceID: 2, ability: { name: "Drums of Battle", guid: 35476 } },
+      // During the pull — belongs to the fight row, not the off-pull tally.
+      { timestamp: 450_000, type: "cast", sourceID: 1, ability: { name: "Haste Potion", guid: 28507 } },
+      // After the pull — running back.
+      { timestamp: 700_000, type: "cast", sourceID: 2, ability: { name: "Dark Rune", guid: 27869 } },
+      // Pet food, fed between pulls.
+      { timestamp: 90_000, type: "cast", sourceID: 1, targetID: 9, ability: { name: "Well Fed", guid: 43771 } },
+      // A scroll read onto their own pet.
+      { timestamp: 95_000, type: "cast", sourceID: 1, targetID: 9, ability: { name: "Agility", guid: 33077 } },
+      // A scroll the hunter read on THEMSELVES — already counted as a pull
+      // aura, so it must not be double-counted from the cast stream.
+      { timestamp: 96_000, type: "cast", sourceID: 1, targetID: 1, ability: { name: "Agility", guid: 33077 } },
+      // A scroll aimed at somebody else's pet is that person's business.
+      { timestamp: 97_000, type: "cast", sourceID: 2, targetID: 10, ability: { name: "Strength", guid: 33082 } },
+    ],
+    debuffs: [],
+    buffs: [],
+  });
+
+  const off = (name: string) => result.offPull.find((o) => o.actorName === name);
+
+  it("counts consumables used between pulls, and leaves in-pull ones on the pull", () => {
+    expect(off("Kazrak")).toMatchObject({
+      potions: ["Super Healing Potion"],
+      otherCasts: ["Drums of Battle", "Dark Rune"],
+      drums: 1,
+      runes: 1,
+    });
+    // The trash mana potion is off-pull; the Haste Potion on Hydross is not.
+    expect(off("Sylvaria")!.potions).toEqual(["Super Mana Potion"]);
+    const pull = result.rows.find((r) => r.actorName === "Sylvaria")!;
+    expect(pull.potions).toEqual(["Haste Potion"]);
+  });
+
+  it("records what a hunter puts on their pet, and only their own pet", () => {
+    expect(off("Sylvaria")!.petConsumables).toEqual(["Kibler's Bits", "Scroll of Agility V"]);
+    // Kazrak's scroll went to a pet he owns, so it's his — and his alone.
+    expect(off("Kazrak")!.petConsumables).toEqual(["Scroll of Strength V"]);
+  });
+
+  it("never counts a self-cast scroll — the pull aura already has it", () => {
+    // Sylvaria read two Agility scrolls: one on the pet, one on herself.
+    expect(off("Sylvaria")!.petConsumables.filter((c) => c === "Scroll of Agility V")).toHaveLength(1);
+  });
+
+  it("keeps no record for a raider who used nothing off-pull", () => {
+    const quiet = normalizeWclReport(offPullReport, {
+      combatantInfo: [{ timestamp: 299_000, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+      deaths: [],
+      casts: [{ timestamp: 450_000, type: "cast", sourceID: 1, ability: { name: "Haste Potion", guid: 28507 } }],
+      debuffs: [],
+      buffs: [],
+    });
+    expect(quiet.offPull).toEqual([]);
+  });
+});
+
 describe("consumable classification", () => {
   it("classifies auras by name", () => {
     expect(classifyAura("Flask of Supreme Power")?.category).toBe("flask");

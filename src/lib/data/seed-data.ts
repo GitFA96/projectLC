@@ -52,6 +52,9 @@ export function loadSeedStore(): EntityStore {
     lootAwards: parse("loot-awards.json", seedLootAwardsSchema, lootAwardsJson),
     wclReports: parse("wcl-reports.json", seedWclReportsSchema, wclReportsJson),
     wclPlayerFights: parse("wcl-player-fights.json", seedWclPlayerFightsSchema, wclPlayerFightsJson),
+    // Off-pull consumables come from real imports only — the demo's fights are
+    // hand-written pulls with no trash between them.
+    wclPlayerOffPull: [],
     attendanceExemptions: parse("attendance-exemptions.json", seedAttendanceExemptionsSchema, attendanceExemptionsJson),
     characterComments: parse("character-comments.json", seedCharacterCommentsSchema, characterCommentsJson),
   };

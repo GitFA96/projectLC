@@ -56,3 +56,48 @@ export async function saveReportFightFilter(input: SaveFightFilterInput): Promis
     return { ok: false, message: e instanceof Error ? e.message : "Could not save the pull selection." };
   }
 }
+
+const adjustmentSchema = z.object({
+  actorName: z.string().min(1).max(60),
+  name: z.string().min(1).max(80),
+  // Zero would be a no-op pretending to be a correction.
+  delta: z.number().int().refine((d) => d !== 0, "An adjustment has to add or remove something."),
+  note: z.string().max(200).optional(),
+  at: z.string().min(1),
+});
+
+const adjustmentsSchema = z.object({
+  code: z.string().min(1),
+  adjustments: z.array(adjustmentSchema).max(500),
+});
+
+export type SaveAdjustmentsInput = z.infer<typeof adjustmentsSchema>;
+export type SaveAdjustmentsResult = { ok: boolean; message: string };
+
+/**
+ * Correct what this raid's logs say a raider got through.
+ *
+ * The whole set is replaced each save, so removing an entry is how you undo
+ * one — the logged counts are never edited, which is what makes an undo
+ * exact rather than approximate.
+ */
+export async function saveReportConsumableAdjustments(
+  input: SaveAdjustmentsInput,
+): Promise<SaveAdjustmentsResult> {
+  const parsed = adjustmentsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "That adjustment doesn't look valid." };
+  }
+  try {
+    const repo = await getWriteRepo();
+    await repo.setReportConsumableAdjustments(parsed.data.code, parsed.data.adjustments);
+    refreshAfterWrite("/", "layout");
+    const n = parsed.data.adjustments.length;
+    return {
+      ok: true,
+      message: n === 0 ? "Cleared every adjustment — back to what the log says." : `Saved ${n} adjustment${n === 1 ? "" : "s"}.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not save the adjustments." };
+  }
+}

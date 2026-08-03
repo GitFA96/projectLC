@@ -199,8 +199,10 @@ function ComparisonMatrix({
         <SectionLabel cols={cols} label="Consumables" />
         <MetricRow cols={cols} label="Prepared" title="Flask/elixirs AND food at pull"
           values={chars.map((c) => (c.hasLogs ? c.preparedPct : undefined))} dir="high" format={(v) => `${v}%`} />
-        <MetricRow cols={cols} label="Flask / elixirs"
-          values={chars.map((c) => (c.hasLogs ? c.flaskOrElixirsPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Flask" title="Pulls with a flask up — lasts the night and survives a death"
+          values={chars.map((c) => (c.hasLogs ? c.flaskPct : undefined))} dir="high" format={(v) => `${v}%`} />
+        <MetricRow cols={cols} label="Elixirs" title="Pulls with at least one elixir up — cheaper, and lost on death"
+          values={chars.map((c) => (c.hasLogs ? c.elixirsPct : undefined))} dir="high" format={(v) => `${v}%`} />
         <MetricRow cols={cols} label="Food"
           values={chars.map((c) => (c.hasLogs ? c.foodPct : undefined))} dir="high" format={(v) => `${v}%`} />
         <MetricRow cols={cols} label="Weapon buff" title="Oil / stone / poison / imbue at pull"

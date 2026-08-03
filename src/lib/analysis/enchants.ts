@@ -1,5 +1,5 @@
 import { ENCHANT_NAMES, GEAR_SLOT_IDS } from "@/lib/wcl/enchants";
-import type { GearSet, SlotId, WowClass } from "@/lib/types";
+import type { GearSet, Role, SlotId, WowClass } from "@/lib/types";
 
 /**
  * Reading a raider's enchants out of a log — by name, and against what their
@@ -35,13 +35,22 @@ export interface EnchantRef {
   itemId?: number;
 }
 
-/** What the guild's lists agree on for one class + slot. */
+/**
+ * What the guild's lists agree on for one class + role + slot.
+ *
+ * Role, not just class, because a class's specs want opposite things in the
+ * same slot: three Enhancement lists asking for Mongoose on a weapon must not
+ * become the standard a Restoration shaman is judged against. Role is the
+ * right width — it separates the physical-damage answer from the caster and
+ * healer ones while keeping enough lists per bucket to mean something.
+ */
 export interface EnchantConsensus {
   wowClass: WowClass;
+  role: Role;
   slot: SlotId;
   enchantId: number;
   name: string;
-  /** Wishlists of that class picking this enchant, out of those covering the slot. */
+  /** Lists of that class+role picking this enchant, out of those covering the slot. */
   sets: number;
   totalSets: number;
 }
@@ -61,25 +70,26 @@ export interface EnchantReference {
  */
 export function buildEnchantReference(
   gearSets: GearSet[],
-  classOf: (characterId: string) => WowClass | undefined,
+  /** The owner's class and role — the bucket their list votes in. */
+  ownerOf: (characterId: string) => { class: WowClass; role: Role } | undefined,
   /** Names resolved from the enchantment table, for ids no set lists. */
   resolvedNames: Record<number, string> = {},
 ): EnchantReference {
   const names = new Map<number, EnchantRef>();
-  /** `${class}|${slot}` → enchant id → sets picking it. */
+  /** `${class}|${role}|${slot}` → enchant id → sets picking it. */
   const picks = new Map<string, Map<number, number>>();
   const slotTotals = new Map<string, number>();
 
   for (const set of gearSets) {
-    const wowClass = classOf(set.characterId);
+    const owner = ownerOf(set.characterId);
     for (const slot of set.slots) {
       const enchant = slot.enchant;
       if (!enchant?.id) continue;
       if (!names.has(enchant.id)) {
         names.set(enchant.id, { id: enchant.id, name: enchant.name, itemId: enchant.itemId });
       }
-      if (set.kind !== "wishlist" || !wowClass) continue;
-      const key = `${wowClass}|${slot.slot}`;
+      if (set.kind !== "wishlist" || !owner) continue;
+      const key = `${owner.class}|${owner.role}|${slot.slot}`;
       const byEnchant = picks.get(key) ?? new Map<number, number>();
       byEnchant.set(enchant.id, (byEnchant.get(enchant.id) ?? 0) + 1);
       picks.set(key, byEnchant);
@@ -89,10 +99,11 @@ export function buildEnchantReference(
 
   const consensus: EnchantConsensus[] = [];
   for (const [key, byEnchant] of picks) {
-    const [wowClass, slot] = key.split("|") as [WowClass, SlotId];
+    const [wowClass, role, slot] = key.split("|") as [WowClass, Role, SlotId];
     const [enchantId, sets] = [...byEnchant].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
     consensus.push({
       wowClass,
+      role,
       slot,
       enchantId,
       name: names.get(enchantId)?.name ?? `Enchant #${enchantId}`,
@@ -116,7 +127,12 @@ export function buildEnchantReference(
 
   return {
     names: [...names.values()].sort((a, b) => a.id - b.id),
-    consensus: consensus.sort((a, b) => a.wowClass.localeCompare(b.wowClass) || a.slot.localeCompare(b.slot)),
+    consensus: consensus.sort(
+      (a, b) =>
+        a.wowClass.localeCompare(b.wowClass) ||
+        a.role.localeCompare(b.role) ||
+        a.slot.localeCompare(b.slot),
+    ),
   };
 }
 
@@ -150,18 +166,31 @@ export interface GradeInput {
   /** True when this slot is expected to carry a permanent enchant. */
   enchantable: boolean;
   wowClass: WowClass;
+  /** Their role — which of the class's lists speak for them. */
+  role: Role;
   /** The character's own wishlist slots (active phase first). */
   ownWishlists: GearSet[];
   reference: EnchantReference;
 }
 
 export function gradeEnchant(input: GradeInput): EnchantGrade {
-  const { slotIndex, wornEnchantId, enchantable, wowClass, ownWishlists, reference } = input;
+  const { slotIndex, wornEnchantId, enchantable, wowClass, role, ownWishlists, reference } = input;
   const byId = new Map(reference.names.map((e) => [e.id, e]));
   const worn = wornEnchantId !== undefined ? (byId.get(wornEnchantId) ?? { id: wornEnchantId, name: "" }) : undefined;
   const slot = GEAR_SLOT_IDS[slotIndex];
 
   if (!enchantable && wornEnchantId === undefined) return { verdict: "not-enchantable" };
+  /**
+   * A slot outside the expected set gets named, never judged.
+   *
+   * The off-hand is the case that matters: a log records a shield, a stat
+   * stick and a second weapon identically, so the only reference available —
+   * what the class's lists put in "offHand" — is a weapon enchant as often as
+   * not. Telling a shaman holding a shield that their list wants Mongoose is
+   * worse than saying nothing, and the same reasoning covers rings (enchanter
+   * only) and the ranged slot.
+   */
+  if (!enchantable) return { verdict: "unknown", worn };
 
   // Their own list wins; failing that, what their class's other lists chose.
   const own = slot
@@ -171,7 +200,7 @@ export function gradeEnchant(input: GradeInput): EnchantGrade {
     ? { id: own.enchant.id, name: own.enchant.name, itemId: own.enchant.itemId }
     : undefined;
   const consensus = slot
-    ? reference.consensus.find((c) => c.wowClass === wowClass && c.slot === slot)
+    ? reference.consensus.find((c) => c.wowClass === wowClass && c.role === role && c.slot === slot)
     : undefined;
   const wanted = ownWanted ?? (consensus ? (byId.get(consensus.enchantId) ?? undefined) : undefined);
   const source = ownWanted ? ("own-list" as const) : consensus ? ("guild-lists" as const) : undefined;

@@ -16,7 +16,9 @@ import type {
   Item,
   PerformanceReportView,
   Phase,
+  Role,
   WclPlayerFight,
+  WclPlayerOffPull,
   WowClass,
 } from "@/lib/types";
 import { FightRows } from "@/components/performance/fight-rows";
@@ -498,8 +500,14 @@ export default async function PerformancePage({
                         total={active.rows.length}
                       />
                     )}
+                    <OffPullRows offPull={active.offPull} />
                   </TableBody>
                 </Table>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Everything above the divider was up at a boss pull. Off-pull counts are
+                  everything else the night held — trash, running back, buffing up — which is
+                  where most of a raid actually happens.
+                </p>
               </CardContent>
             </Card>
 
@@ -511,6 +519,7 @@ export default async function PerformancePage({
             missingEnchants={active.summary.missingEnchants}
             itemsById={itemsById}
             wowClass={character.class}
+            role={character.role}
             ownWishlists={ownWishlists}
             enchants={enchants}
             activePhase={guild.activePhase}
@@ -691,6 +700,45 @@ function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
 }
 
 /**
+ * Consumables used away from the boss pulls, plus anything fed to a pet.
+ *
+ * Boss pulls are a minority of a raid night, so a raider who potions hard on
+ * trash used to read as one who didn't potion at all. Pet food sits here for
+ * the same reason: it's a twenty-minute buff, applied between pulls by anyone
+ * who bothers.
+ */
+function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
+  if (!offPull) return null;
+  const tally = (names: string[]) => {
+    const counts = new Map<string, number>();
+    for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  };
+  const groups: { label: string; entries: [string, number][] }[] = [
+    { label: "Off-pull potions", entries: tally(offPull.potions) },
+    { label: "Off-pull items", entries: tally(offPull.otherCasts) },
+    { label: "Pet", entries: tally(offPull.petConsumables) },
+  ].filter((g) => g.entries.length > 0);
+  if (groups.length === 0) return null;
+
+  return (
+    <>
+      {groups.map((group, groupIndex) =>
+        group.entries.map(([name, count], i) => (
+          <TableRow key={`${group.label}-${name}`} className={groupIndex === 0 && i === 0 ? "border-t-2" : undefined}>
+            <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {i === 0 ? group.label : ""}
+            </TableCell>
+            <TableCell className="text-sm">{name}</TableCell>
+            <TableCell className="text-right text-sm tabular-nums">×{count}</TableCell>
+          </TableRow>
+        )),
+      )}
+    </>
+  );
+}
+
+/**
  * Where a raider's gems stand, in one line.
  *
  * Two separate asks, kept separate: a green gem is worth replacing whatever
@@ -747,6 +795,7 @@ function GearPanel({
   missingEnchants,
   itemsById,
   wowClass,
+  role,
   ownWishlists,
   enchants,
   activePhase,
@@ -755,6 +804,7 @@ function GearPanel({
   missingEnchants: string[];
   itemsById: Map<number, Item>;
   wowClass: WowClass;
+  role: Role;
   /** The character's own wishlists — the first reference for "is this BiS". */
   ownWishlists: GearSet[];
   enchants: EnchantReference;
@@ -795,6 +845,7 @@ function GearPanel({
               gear={latest.gear}
               itemsById={itemsById}
               wowClass={wowClass}
+              role={role}
               ownWishlists={ownWishlists}
               enchants={enchants}
               activePhase={activePhase}

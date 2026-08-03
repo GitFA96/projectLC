@@ -4,9 +4,12 @@ import {
   bumpDataVersion,
   getDataVersion,
   deleteItemPriorityRule,
+  getAllConsumableAdjustments,
   getAllExcludedFights,
   getDb,
   getEnchantNames,
+  getReportConsumableAdjustments,
+  setReportConsumableAdjustments,
   getItemPriorityRules,
   getLootPriorityWeights,
   getReportConsumablePrices,
@@ -19,6 +22,7 @@ import {
   insertLootAward,
   insertRaidSession,
   insertWclPlayerFight,
+  insertWclPlayerOffPull,
   insertWclReport,
   loadStore,
   mergeItems,
@@ -39,6 +43,7 @@ import {
   gearSetSchema,
   lootAwardSchema,
   wclPlayerFightSchema,
+  wclPlayerOffPullSchema,
   wclReportSchema,
 } from "@/lib/import/schemas";
 import type {
@@ -62,6 +67,7 @@ import type {
   SetCurrentGearOverridesResult,
   UpsertGearSetResult,
   WclPlayerFightDraft,
+  WclPlayerOffPullDraft,
   WclReportDraft,
   WclSaveResult,
   WriteRepo,
@@ -80,6 +86,7 @@ import type {
   SlotId,
   SlotItem,
   WclPlayerFight,
+  WclPlayerOffPull,
 } from "@/lib/types";
 
 /**
@@ -113,6 +120,7 @@ function readModel(): CachedModel {
       lootPriorityWeights: getLootPriorityWeights(db),
       itemPriorityRules: getItemPriorityRules(db),
       enchantNames: getEnchantNames(db),
+      consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     }),
     store,
   };
@@ -410,6 +418,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       result.unlinkedLogRows = Number(
         db.prepare("UPDATE wcl_player_fights SET character_id = NULL WHERE character_id = ?").run(id).changes,
       );
+      db.prepare("UPDATE wcl_player_offpull SET character_id = NULL WHERE character_id = ?").run(id);
       result.deletedGearSets = Number(
         db.prepare("DELETE FROM gear_sets WHERE character_id = ?").run(id).changes,
       );
@@ -604,7 +613,11 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true, deletedAwards, unlinkedReports };
   },
 
-  async saveWclReport(reportDraft: WclReportDraft, rowDrafts: WclPlayerFightDraft[]): Promise<WclSaveResult> {
+  async saveWclReport(
+    reportDraft: WclReportDraft,
+    rowDrafts: WclPlayerFightDraft[],
+    offPullDrafts: WclPlayerOffPullDraft[] = [],
+  ): Promise<WclSaveResult> {
     const model = readModel();
     if (reportDraft.raidSessionId && !model.store.raidSessions.some((s) => s.id === reportDraft.raidSessionId)) {
       return { ok: false, error: "The selected raid session no longer exists." };
@@ -636,12 +649,25 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       } satisfies WclPlayerFight);
     });
 
+    // Same name matching as the pulls, so a raider's trash potions land on the
+    // same character their boss pulls did.
+    const offPull = offPullDrafts.map((draft) =>
+      wclPlayerOffPullSchema.parse({
+        ...draft,
+        id: `${report.code}:${draft.actorName.toLowerCase()}`,
+        reportCode: report.code,
+        characterId: characterByName(draft.actorName)?.id ?? null,
+      } satisfies WclPlayerOffPull),
+    );
+
     const db = getDb();
     const existed = model.store.wclReports.some((r) => r.code === report.code);
     withTx(db, () => {
       db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(report.code);
+      db.prepare("DELETE FROM wcl_player_offpull WHERE report_code = ?").run(report.code);
       insertWclReport(db, report); // INSERT OR REPLACE keyed on code
       for (const row of rows) insertWclPlayerFight(db, row);
+      for (const off of offPull) insertWclPlayerOffPull(db, off);
       // Every logged pull carries a gear snapshot with icons (and sometimes
       // names) — the cheapest item data there is, so it lands in the cache
       // instead of staying buried in per-row JSON.
@@ -667,9 +693,11 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     withTx(db, () => {
       // Seed WCL report (and its rows) go entirely.
       db.prepare("DELETE FROM wcl_player_fights WHERE report_code = 'SEEDsscProgress1'").run();
+      db.prepare("DELETE FROM wcl_player_offpull WHERE report_code = 'SEEDsscProgress1'").run();
       removed.wclReports = Number(db.prepare("DELETE FROM wcl_reports WHERE code = 'SEEDsscProgress1'").run().changes);
       // Real reports/rows that point at demo rows get unlinked, never deleted.
       db.prepare("UPDATE wcl_player_fights SET character_id = NULL WHERE character_id LIKE 'c-%'").run();
+      db.prepare("UPDATE wcl_player_offpull SET character_id = NULL WHERE character_id LIKE 'c-%'").run();
       db.prepare("UPDATE wcl_reports SET raid_session_id = NULL WHERE raid_session_id LIKE 'rs-%'").run();
       // Demo awards: the seeded ones and anything inside a demo session.
       removed.lootAwards = Number(
@@ -714,6 +742,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     let rowsRemoved = 0;
     withTx(db, () => {
       rowsRemoved = Number(db.prepare("DELETE FROM wcl_player_fights WHERE report_code = ?").run(code).changes);
+      db.prepare("DELETE FROM wcl_player_offpull WHERE report_code = ?").run(code);
       db.prepare("DELETE FROM wcl_reports WHERE code = ?").run(code);
       bumpDataVersion(db);
     });
@@ -831,6 +860,15 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
   },
+
+  async setReportConsumableAdjustments(code, adjustments) {
+    const db = getDb();
+    withTx(db, () => {
+      setReportConsumableAdjustments(db, code, adjustments);
+      // Career gold reads these, and it's baked into the model.
+      bumpDataVersion(db);
+    });
+  },
 };
 
 export function getSqliteRepo(): WriteRepo {
@@ -854,6 +892,7 @@ export function getSqliteRepo(): WriteRepo {
     // Prices live in the meta table, not the derived model — read them directly.
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
     getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
+    getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
     getEnchantReference: () => readModel().repo.getEnchantReference(),
     listUnnamedEnchantIds: () => readModel().repo.listUnnamedEnchantIds(),

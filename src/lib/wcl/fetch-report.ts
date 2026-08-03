@@ -1,5 +1,5 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
-import { SAPPER_CAST_NAMES, TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
+import { SAPPER_CAST_NAMES, SCROLL_CAST_IDS, TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
 import {
   BUFF_TRACK_NAMES,
   COOLDOWN_CAST_IDS,
@@ -127,7 +127,9 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       "Casts",
       reportDuration,
       // Sappers and totems are matched by name — one entry covers every rank.
-      `ability.id IN (${[...TRACKED_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS])})`,
+      // Scrolls ride along so a hunter buffing their PET is visible; a raider
+      // scrolling themselves is already read off the auras at the pull.
+      `ability.id IN (${[...TRACKED_CAST_IDS, ...SCROLL_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS])})`,
     ),
     soft(
       "Debuff-uptime tracking (curses, Thunder Clap…)",

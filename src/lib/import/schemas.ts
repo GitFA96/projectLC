@@ -347,6 +347,31 @@ export const wclPlayerFightSchema = z.object({
 });
 
 /**
+ * One player's consumable use away from the boss pulls, for one report.
+ *
+ * Boss pulls are a minority of a raid night. A potion drunk clearing trash
+ * costs the same gold and shows the same habit as one drunk on the boss, and
+ * pet food is applied between pulls by definition — neither has a fight row to
+ * live on, so they get one record per player per report instead.
+ */
+export const wclPlayerOffPullSchema = z.object({
+  /** `${reportCode}|${lowercased actor name}` — one per player per report. */
+  id: z.string().min(1),
+  reportCode: z.string().min(1),
+  actorName: z.string().min(1),
+  /** Roster match, null when the name belongs to nobody tracked. */
+  characterId: z.string().nullable(),
+  potions: z.array(z.string()).default([]),
+  otherCasts: z.array(z.string()).default([]),
+  drums: z.number().int().nonnegative().default(0),
+  runes: z.number().int().nonnegative().default(0),
+  healthstones: z.number().int().nonnegative().default(0),
+  sappers: z.number().int().nonnegative().default(0),
+  /** Food and scrolls put on their pet, whenever in the night it happened. */
+  petConsumables: z.array(z.string()).default([]),
+});
+
+/**
  * One officer comment on a character — a timestamped log entry, richer than the
  * single inline `note`. Free-form body with an optional author and a category
  * for filing/coloring. Multiple per character, newest first when rendered.
@@ -385,6 +410,7 @@ export const seedRaidSessionsSchema = z.array(raidSessionSchema);
 export const seedLootAwardsSchema = z.array(lootAwardSchema);
 export const seedWclReportsSchema = z.array(wclReportSchema);
 export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
+export const seedWclPlayerOffPullSchema = z.array(wclPlayerOffPullSchema);
 export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
 export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 

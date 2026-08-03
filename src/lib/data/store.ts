@@ -32,6 +32,7 @@ import type {
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
+  ConsumableAdjustment,
   ConsumablePrice,
   CurrentGearOverride,
   FairnessGroup,
@@ -50,6 +51,7 @@ import type {
   RaiderMetrics,
   UntrackedLogPlayer,
   WclPlayerFight,
+  WclPlayerOffPull,
   WclReport,
   WclReportView,
 } from "@/lib/types";
@@ -71,6 +73,8 @@ export interface EntityStore {
   lootAwards: LootAward[];
   wclReports: WclReport[];
   wclPlayerFights: WclPlayerFight[];
+  /** Consumables used away from the boss pulls, one record per player per report. */
+  wclPlayerOffPull: WclPlayerOffPull[];
   attendanceExemptions: AttendanceExemption[];
   characterComments: CharacterComment[];
 }
@@ -113,6 +117,14 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: WCL player fight ${row.id} references unknown characterId ${row.characterId}`);
     }
   }
+  for (const row of store.wclPlayerOffPull) {
+    if (!reportCodes.has(row.reportCode)) {
+      throw new Error(`${sourceLabel}: off-pull record ${row.id} references unknown reportCode ${row.reportCode}`);
+    }
+    if (row.characterId !== null && !charIds.has(row.characterId)) {
+      throw new Error(`${sourceLabel}: off-pull record ${row.id} references unknown characterId ${row.characterId}`);
+    }
+  }
   for (const exemption of store.attendanceExemptions) {
     if (!charIds.has(exemption.characterId)) {
       throw new Error(`${sourceLabel}: attendance exemption references unknown characterId ${exemption.characterId}`);
@@ -150,6 +162,8 @@ export interface StoreConfig {
   itemPriorityRules?: Record<string, { itemName: string; chain: string; note?: string }>;
   /** Enchant ids resolved from the enchantment table, for the gear panel. */
   enchantNames?: Record<number, string>;
+  /** Officer corrections to consumable counts, keyed by report code. */
+  consumableAdjustmentsByCode?: Record<string, ConsumableAdjustment[]>;
 }
 
 /** The guild's written sheet, parsed once per process — it never changes at runtime. */
@@ -160,7 +174,7 @@ function seededSheet(): Map<string, PrioritySheetRule> {
 }
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
-  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, attendanceExemptions, characterComments } = store;
+  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -317,7 +331,11 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         metricsByCharacter.set(character.id, {
           attendance: computeAttendance(character.id),
           career: summarizePerformance(rows),
-          goldPerRaid: goldPerRaid(rows),
+          goldPerRaid: goldPerRaid(
+            rows,
+            offPullOf(character.id),
+            config.consumableAdjustmentsByCode ?? {},
+          ),
         } satisfies RaiderMetrics);
       }
     }
@@ -463,6 +481,20 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       weeksTracked: countedWeeks.length,
       weeksExcused: weeks.length - countedWeeks.length,
     };
+  }
+
+  /**
+   * A character's off-pull records. Matched by roster link where the import
+   * made one, else by name — the same two-step the pulls use, so a raider
+   * imported before they were on the roster still lines up.
+   */
+  function offPullOf(characterId: string): WclPlayerOffPull[] {
+    const character = charactersById.get(characterId);
+    if (!character) return [];
+    const slug = character.name.toLowerCase();
+    return wclPlayerOffPull.filter(
+      (o) => o.characterId === characterId || (o.characterId === null && o.actorName.toLowerCase() === slug),
+    );
   }
 
   /** Every logged pull for a character, oldest report first then by pull order. */
@@ -655,7 +687,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     async getEnchantReference(): Promise<EnchantReference> {
       return buildEnchantReference(
         gearSets,
-        (characterId) => charactersById.get(characterId)?.class,
+        (characterId) => {
+          const owner = charactersById.get(characterId);
+          return owner ? { class: owner.class, role: owner.role } : undefined;
+        },
         config.enchantNames,
       );
     },
@@ -717,11 +752,16 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return {};
     },
 
+    async getReportConsumableAdjustments(code: string): Promise<ConsumableAdjustment[]> {
+      return config.consumableAdjustmentsByCode?.[code] ?? [];
+    },
+
     async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {
       const character = charactersBySlug.get(slug.toLowerCase());
       if (!character) return null;
       const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === character.id);
       const reportPulls = pullsByReport();
+      const myOffPull = offPullOf(character.id);
       const reports: PerformanceReportView[] = [...wclReports]
         .sort((a, b) => b.startTime.localeCompare(a.startTime))
         .map((report): PerformanceReportView | undefined => {
@@ -735,6 +775,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
                 session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
                 rows,
                 summary,
+                offPull: myOffPull.find((o) => o.reportCode === report.code),
                 reportPulls: reportPulls.get(report.code) ?? rows.length,
               }
             : undefined;
@@ -747,6 +788,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         character,
         reports,
         career: summarizePerformance(chronological),
+        offPull: myOffPull,
         attendance: computeAttendance(character.id),
       };
     },
@@ -787,6 +829,12 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           character,
           rows,
           availableReports,
+          // Scoped to the reports actually being compared, so gold matches the
+          // pulls shown rather than the whole career.
+          offPull: offPullOf(character.id).filter((o) =>
+            rows.some((r) => r.reportCode === o.reportCode),
+          ),
+          adjustmentsByCode: config.consumableAdjustmentsByCode ?? {},
           // Attendance is inherently cross-week — always all-time, never per-log.
           attendance: computeAttendance(character.id),
           comments: commentsOf(character.id),

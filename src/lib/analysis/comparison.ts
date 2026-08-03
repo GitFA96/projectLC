@@ -1,15 +1,18 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { PREP_HOURS, prepApplications } from "@/lib/analysis/raid-report";
 import { costPerUseMap } from "@/lib/wcl/consumable-prices";
+import { adjustmentsFor, applyAdjustments } from "@/lib/analysis/consumable-adjustments";
 import type {
   AttendanceSummary,
   Character,
   CharacterComment,
   CharacterComparisonView,
   ComparedCharacter,
+  ConsumableAdjustment,
   ComparedReportRef,
   ComparedUpkeep,
   WclPlayerFight,
+  WclPlayerOffPull,
   WclRole,
 } from "@/lib/types";
 
@@ -98,7 +101,13 @@ function upkeepAverages(rows: WclPlayerFight[]): ComparedUpkeep[] {
  * contender ("what does this raider actually spend on a night?") and there
  * should only ever be one answer to it.
  */
-export function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
+export function goldPerRaid(
+  rows: WclPlayerFight[],
+  /** Consumables used away from the boss pulls — same gold, no fight row. */
+  offPull: WclPlayerOffPull[] = [],
+  /** Officer corrections per report code, applied on top of the logged counts. */
+  adjustmentsByCode: Record<string, ConsumableAdjustment[]> = {},
+): number | undefined {
   if (rows.length === 0) return undefined;
   const byReport = new Map<string, WclPlayerFight[]>();
   for (const r of rows) {
@@ -106,6 +115,7 @@ export function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
     list.push(r);
     byReport.set(r.reportCode, list);
   }
+  const offPullByReport = new Map(offPull.map((o) => [o.reportCode, o] as const));
 
   let total = 0;
   for (const reportRows of byReport.values()) {
@@ -154,9 +164,15 @@ export function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
       for (const p of r.potions) itemCounts.set(p, (itemCounts.get(p) ?? 0) + 1);
       for (const c of r.otherCasts) itemCounts.set(c, (itemCounts.get(c) ?? 0) + 1);
     });
+    // A potion drunk on trash is bought and paid for exactly like one drunk on
+    // the boss; pet food is the hunter's own gold too.
+    const off = offPullByReport.get(ordered[0].reportCode);
+    for (const name of [...(off?.potions ?? []), ...(off?.otherCasts ?? []), ...(off?.petConsumables ?? [])]) {
+      itemCounts.set(name, (itemCounts.get(name) ?? 0) + 1);
+    }
     const apps = (kind: keyof typeof PREP_HOURS, persistsDeath: boolean) =>
       prepApplications({ durationHours: PREP_HOURS[kind], persistsDeath, spanHours, deaths, ...present[kind] });
-    const lines = [
+    const logged = [
       ...[...itemCounts].map(([name, count]) => ({ name, count })),
       ...[...flaskNames].map((name) => ({ name, count: apps("flask", true) })),
       ...[...elixirNames].map((name) => ({ name, count: apps("elixir", false) })),
@@ -165,8 +181,14 @@ export function goldPerRaid(rows: WclPlayerFight[]): number | undefined {
       ...(anyFood ? [{ name: "Food", count: apps("food", false) }] : []),
       ...(anyWeapon ? [{ name: "Weapon oil/stone", count: apps("weapon", false) }] : []),
     ];
+    // The officer's corrections for this night, so career gold agrees with what
+    // the raid page shows rather than quietly disagreeing with it.
+    const lines = applyAdjustments(
+      logged,
+      adjustmentsFor(adjustmentsByCode[ordered[0].reportCode] ?? [], ordered[0].actorName),
+    );
     const costPerUse = costPerUseMap(new Set(lines.map((l) => l.name)), {});
-    total += lines.reduce((s, l) => s + (costPerUse[l.name] ?? 0) * l.count, 0);
+    total += Math.max(0, lines.reduce((s, l) => s + (costPerUse[l.name] ?? 0) * l.count, 0));
   }
   return Math.round(total / byReport.size);
 }
@@ -181,6 +203,10 @@ export interface ComparisonInput {
   rows: WclPlayerFight[];
   /** Every report the character appears in (newest first) — the picker options. */
   availableReports: ComparedReportRef[];
+  /** Off-pull consumables for the reports in `rows`. */
+  offPull?: WclPlayerOffPull[];
+  /** Officer corrections to consumable counts, keyed by report code. */
+  adjustmentsByCode?: Record<string, ConsumableAdjustment[]>;
   attendance?: AttendanceSummary;
   comments: CharacterComment[];
   loggedSpec?: string;
@@ -228,6 +254,8 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
       attendance,
       preparedPct: pct(prepared, rows.length),
       flaskOrElixirsPct: pct(flaskOrElixirs, rows.length),
+      flaskPct: pct(rows.filter((r) => r.flask !== undefined).length, rows.length),
+      elixirsPct: pct(rows.filter((r) => r.elixirs.length >= 1).length, rows.length),
       foodPct: pct(rows.filter((r) => r.food).length, rows.length),
       weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
       potionsPerFight: rows.length === 0 ? 0 : Math.round((potionsTotal / rows.length) * 10) / 10,
@@ -241,7 +269,7 @@ export function summarizeComparison(inputs: ComparisonInput[]): CharacterCompari
       healthstones: rows.reduce((s, r) => s + r.healthstones, 0),
       runes: rows.reduce((s, r) => s + r.runes, 0),
       drums: rows.reduce((s, r) => s + r.drums, 0),
-      goldPerRaid: goldPerRaid(rows),
+      goldPerRaid: goldPerRaid(rows, input.offPull ?? [], input.adjustmentsByCode ?? {}),
       upkeep: upkeepAverages(rows),
       comments,
     } satisfies ComparedCharacter;

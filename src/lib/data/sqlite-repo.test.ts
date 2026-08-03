@@ -975,6 +975,90 @@ describe("sqlite repo", () => {
       expect(none.career).toBeUndefined();
     });
 
+    it("keeps a raid's consumable adjustments, and lets them be undone", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.getReportConsumableAdjustments("NOPE")).toEqual([]);
+
+      const at = "2026-08-02T20:00:00.000Z";
+      await repo.setReportConsumableAdjustments("RAID1", [
+        { actorName: "Thrainn", name: "Flask of Relentless Assault", delta: 1, note: "flasked pre-log", at },
+        { actorName: "Pyrelia", name: "Super Mana Potion", delta: -2, at },
+      ]);
+      const saved = await repo.getReportConsumableAdjustments("RAID1");
+      expect(saved).toHaveLength(2);
+      expect(saved[0]).toMatchObject({ actorName: "Thrainn", delta: 1, note: "flasked pre-log" });
+      expect(saved[1].note).toBeUndefined();
+
+      // A zero delta is a no-op pretending to be a correction — dropped on read.
+      await repo.setReportConsumableAdjustments("RAID1", [
+        { actorName: "Thrainn", name: "Food", delta: 0, at },
+      ]);
+      expect(await repo.getReportConsumableAdjustments("RAID1")).toEqual([]);
+
+      // Adjustments are scoped to their own raid.
+      await repo.setReportConsumableAdjustments("RAID2", [
+        { actorName: "Thrainn", name: "Food", delta: 3, at },
+      ]);
+      expect(await repo.getReportConsumableAdjustments("RAID1")).toEqual([]);
+      expect(await repo.getReportConsumableAdjustments("RAID2")).toHaveLength(1);
+    });
+
+    it("stores off-pull consumables against the raider who used them", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      const saved = await repo.saveWclReport(
+        { code: "OFFPULL1", title: "Trash night", zone: "Serpentshrine Cavern", startTime: "2026-07-01T18:00:00.000Z", endTime: "2026-07-01T22:00:00.000Z" },
+        [fightDraft({ fightId: 1, actorName: "Thrainn" })],
+        [
+          {
+            actorName: "Thrainn",
+            potions: ["Super Mana Potion", "Super Mana Potion"],
+            otherCasts: ["Dark Rune"],
+            drums: 0,
+            runes: 1,
+            healthstones: 0,
+            sappers: 0,
+            petConsumables: [],
+          },
+          // A name nobody on the roster answers to still gets stored — it just
+          // hangs off no character, exactly like an unmatched pull.
+          {
+            actorName: "Randompug",
+            potions: ["Haste Potion"],
+            otherCasts: [],
+            drums: 0,
+            runes: 0,
+            healthstones: 0,
+            sappers: 0,
+            petConsumables: ["Kibler's Bits"],
+          },
+        ],
+      );
+      expect(saved.ok).toBe(true);
+
+      const perf = (await repo.getCharacterPerformance("thrainn"))!;
+      const offPull = perf.offPull.find((o) => o.reportCode === "OFFPULL1")!;
+      expect(offPull.characterId).toBe(thrainn.id);
+      expect(offPull.potions).toEqual(["Super Mana Potion", "Super Mana Potion"]);
+      expect(offPull.runes).toBe(1);
+      // It rides along on the report view too, for the per-night panel.
+      expect(perf.reports.find((r) => r.report.code === "OFFPULL1")!.offPull).toEqual(offPull);
+
+      // Re-importing the report replaces the off-pull rows rather than doubling them.
+      await repo.saveWclReport(
+        { code: "OFFPULL1", title: "Trash night", zone: "Serpentshrine Cavern", startTime: "2026-07-01T18:00:00.000Z", endTime: "2026-07-01T22:00:00.000Z" },
+        [fightDraft({ fightId: 1, actorName: "Thrainn" })],
+        [{ actorName: "Thrainn", potions: ["Haste Potion"], otherCasts: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, petConsumables: [] }],
+      );
+      const after = (await repo.getCharacterPerformance("thrainn"))!;
+      expect(after.offPull.filter((o) => o.reportCode === "OFFPULL1")).toHaveLength(1);
+      expect(after.offPull.find((o) => o.reportCode === "OFFPULL1")!.potions).toEqual(["Haste Potion"]);
+
+      // And they go when the report does — a dangling row fails validateStore.
+      expect((await repo.deleteWclReport("OFFPULL1")).ok).toBe(true);
+      expect((await repo.getCharacterPerformance("thrainn"))!.offPull).toEqual([]);
+    });
+
     it("saves a fetched report, matching players to the roster by name", async () => {
       const repo = getSqliteRepo();
       const saved = await repo.saveWclReport(reportDraft, [

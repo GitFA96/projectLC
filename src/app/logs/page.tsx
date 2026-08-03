@@ -4,6 +4,7 @@ import { format, parseISO } from "date-fns";
 import { Coins, ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import type {
+  ConsumableAdjustment,
   ConsumablePrice,
   ImprovementSeverity,
   RaidReportView,
@@ -11,6 +12,11 @@ import type {
   WclRole,
 } from "@/lib/types";
 import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
+import {
+  adjustmentGold,
+  adjustmentsFor,
+  applyAdjustments,
+} from "@/lib/analysis/consumable-adjustments";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
@@ -19,6 +25,7 @@ import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
 import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
+import { ConsumableAdjustmentsPanel } from "@/components/logs/consumable-adjustments-panel";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
@@ -67,6 +74,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
 
   let raid: RaidReportView | null = null;
   let priceOverrides: Record<string, ConsumablePrice> = {};
+  let adjustments: ConsumableAdjustment[] = [];
   let seasonInputs: SeasonReportInput[] = [];
 
   if (seasonMode) {
@@ -74,7 +82,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
       reports.map(async ({ report }): Promise<SeasonReportInput | null> => {
         const view = await repo.getRaidReport(report.code);
         if (!view) return null;
-        const overrides = await repo.getReportConsumablePrices(report.code);
+        const [overrides, reportAdjustments] = await Promise.all([
+          repo.getReportConsumablePrices(report.code),
+          repo.getReportConsumableAdjustments(report.code),
+        ]);
         return {
           code: report.code,
           title: report.title,
@@ -85,6 +96,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           // per-fight timeline breakdown before it crosses to the client.
           upkeep: view.upkeep.map((u) => ({ ...u, perFight: undefined })),
           overrides,
+          adjustments: reportAdjustments,
         };
       }),
     );
@@ -92,6 +104,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   } else {
     raid = await repo.getRaidReport(requested);
     priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
+    adjustments = raid ? await repo.getReportConsumableAdjustments(raid.report.code) : [];
   }
 
   return (
@@ -124,7 +137,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
               />
             )
           ) : raid ? (
-            <RaidDashboard raid={raid} priceOverrides={priceOverrides} />
+            <RaidDashboard raid={raid} priceOverrides={priceOverrides} adjustments={adjustments} />
           ) : (
             <EmptyState
               title="Report not found"
@@ -162,9 +175,11 @@ function ReportPicker({ reports, activeCode }: { reports: WclReportList; activeC
 function RaidDashboard({
   raid,
   priceOverrides,
+  adjustments,
 }: {
   raid: RaidReportView;
   priceOverrides: Record<string, ConsumablePrice>;
+  adjustments: ConsumableAdjustment[];
 }) {
   const { report, session, prep, fights } = raid;
   const counted = fights.filter((f) => !f.excluded);
@@ -221,7 +236,7 @@ function RaidDashboard({
       <RaidLogTabs
         overview={<OverviewPanel raid={raid} />}
         rankings={<RankingsPanel raid={raid} overrides={priceOverrides} />}
-        gold={<GoldPanel raid={raid} overrides={priceOverrides} />}
+        gold={<GoldPanel raid={raid} overrides={priceOverrides} adjustments={adjustments} />}
       />
     </>
   );
@@ -515,9 +530,11 @@ function RankingsPanel({
 function GoldPanel({
   raid,
   overrides,
+  adjustments,
 }: {
   raid: RaidReportView;
   overrides: Record<string, ConsumablePrice>;
+  adjustments: ConsumableAdjustment[];
 }) {
   const { usage } = raid;
   // Union of every consumable this raid touched — in-fight casts + prep buffs.
@@ -526,6 +543,8 @@ function GoldPanel({
     for (const b of u.itemBreakdown) names.add(b.name);
     for (const b of u.prepBreakdown) names.add(b.name);
   }
+  // A hand-added consumable needs a price too, even if nobody was logged using it.
+  for (const a of adjustments) names.add(a.name);
   const costPerUse = costPerUseMap(names, overrides);
   const usingDefault = Object.keys(overrides).length === 0;
   const priceRows = [...names].sort().map((name) => ({ name, price: effectivePrice(name, overrides) }));
@@ -535,16 +554,25 @@ function GoldPanel({
     .map((u) => {
       const inFight = goldOfBreakdown(u.itemBreakdown, costPerUse);
       const prep = goldOfBreakdown(u.prepBreakdown, costPerUse);
-      // Merge both breakdowns for the "includes" column, priciest first.
-      const lines = [...u.itemBreakdown, ...u.prepBreakdown]
-        .filter((it) => goldOfName(it.name, it.count) > 0)
+      // Merge both breakdowns for the "includes" column, then let the officer's
+      // corrections move the counts. The logged in-fight/prep columns stay as
+      // the log reported them, so the adjustment column shows exactly what a
+      // person changed rather than hiding it inside a bigger number.
+      const logged = [...u.itemBreakdown, ...u.prepBreakdown];
+      const mine = adjustmentsFor(adjustments, u.name);
+      const adjusted = applyAdjustments(logged, mine);
+      const delta = adjustmentGold(logged, adjusted, costPerUse);
+      const lines = adjusted
+        .filter((it) => goldOfName(it.name, it.count) > 0 || it.delta !== undefined)
         .sort((a, b) => goldOfName(b.name, b.count) - goldOfName(a.name, a.count));
-      return { u, inFight, prep, total: inFight + prep, lines };
+      return { u, inFight, prep, delta, total: inFight + prep + delta, lines, adjusted: mine.length };
     })
-    .filter((x) => x.total > 0)
+    .filter((x) => x.total > 0 || x.adjusted > 0)
     .sort((a, b) => b.total - a.total || a.u.name.localeCompare(b.u.name));
 
   const raidTotal = ranked.reduce((s, x) => s + x.total, 0);
+  const adjustmentTotal = ranked.reduce((s, x) => s + x.delta, 0);
+  const anyAdjusted = ranked.some((x) => x.adjusted > 0);
 
   return (
     <>
@@ -556,6 +584,18 @@ function GoldPanel({
             <span className="text-sm font-normal text-muted-foreground">
               ≈ {Math.round(raidTotal).toLocaleString("en-US")}g across the raid
             </span>
+            {anyAdjusted && adjustmentTotal !== 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                  adjustmentTotal > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700",
+                )}
+                title="Net change from this raid's manual adjustments — listed in full below"
+              >
+                {adjustmentTotal > 0 ? "+" : "−"}
+                {Math.abs(Math.round(adjustmentTotal)).toLocaleString("en-US")}g adjusted
+              </span>
+            )}
           </CardTitle>
           <p className="text-xs text-muted-foreground">
             Estimated gold per raider across everything — in-fight potions/sappers plus prep buffs
@@ -581,12 +621,17 @@ function GoldPanel({
                   <TableHead>Raider</TableHead>
                   <TableHead className="w-20 text-right">In-fight</TableHead>
                   <TableHead className="w-16 text-right">Prep</TableHead>
+                  {anyAdjusted && (
+                    <TableHead className="w-20 text-right" title="Net gold from manual adjustments">
+                      Adjusted
+                    </TableHead>
+                  )}
                   <TableHead className="w-20 text-right">Total</TableHead>
                   <TableHead>Includes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ranked.map(({ u, inFight, prep, total, lines }, i) => (
+                {ranked.map(({ u, inFight, prep, delta, total, lines }, i) => (
                   <TableRow key={u.name} className={cn(i === 0 && "bg-amber-50/70 hover:bg-amber-50/70")}>
                     <TableCell>
                       <RankBadge rank={i + 1} />
@@ -600,6 +645,22 @@ function GoldPanel({
                     <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                       {Math.round(prep).toLocaleString("en-US")}g
                     </TableCell>
+                    {anyAdjusted && (
+                      <TableCell
+                        className={cn(
+                          "text-right text-sm tabular-nums",
+                          delta === 0
+                            ? "text-muted-foreground/40"
+                            : delta > 0
+                              ? "text-amber-700"
+                              : "text-emerald-700",
+                        )}
+                      >
+                        {delta === 0
+                          ? "—"
+                          : `${delta > 0 ? "+" : "−"}${Math.abs(Math.round(delta)).toLocaleString("en-US")}g`}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right text-sm font-semibold tabular-nums">
                       {Math.round(total).toLocaleString("en-US")}g
                     </TableCell>
@@ -613,6 +674,15 @@ function GoldPanel({
           )}
         </CardContent>
       </Card>
+
+      <ConsumableAdjustmentsPanel
+        key={`adj-${raid.report.code}`}
+        code={raid.report.code}
+        adjustments={adjustments}
+        raiders={usage.map((u) => u.name).sort((a, b) => a.localeCompare(b))}
+        consumables={[...names].sort((a, b) => a.localeCompare(b))}
+        goldDelta={adjustmentTotal}
+      />
 
       <ConsumablePricePanel
         key={raid.report.code}

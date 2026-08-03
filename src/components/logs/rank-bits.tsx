@@ -60,14 +60,31 @@ export function RankBadge({ rank }: { rank: number }) {
 }
 
 /** "What they used" — every item as a badge, wrapping down (no truncation). */
-export function BreakdownBadges({ items }: { items: { name: string; count: number }[] }) {
+export function BreakdownBadges({
+  items,
+}: {
+  /** `delta` marks a line an officer moved by hand — flagged, never silent. */
+  items: { name: string; count: number; delta?: number; added?: boolean }[];
+}) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground/50">—</span>;
   return (
     <span className="flex flex-wrap gap-1">
       {items.map((it) => (
-        <Badge key={it.name} variant="secondary" className="font-normal">
+        <Badge
+          key={it.name}
+          variant={it.delta === undefined ? "secondary" : "warning"}
+          className="font-normal"
+          title={
+            it.delta === undefined
+              ? undefined
+              : `${it.added ? "Added by hand" : "Adjusted by hand"}: ${it.delta > 0 ? "+" : "−"}${Math.abs(it.delta)} use${Math.abs(it.delta) === 1 ? "" : "s"}`
+          }
+        >
           {it.name}
-          {it.count > 1 && <span className="ml-1 text-muted-foreground">×{it.count}</span>}
+          {it.count > 1 && <span className="ml-1 opacity-70">×{it.count}</span>}
+          {it.delta !== undefined && (
+            <span className="ml-1 font-medium">({it.delta > 0 ? "+" : "−"}{Math.abs(it.delta)})</span>
+          )}
         </Badge>
       ))}
     </span>

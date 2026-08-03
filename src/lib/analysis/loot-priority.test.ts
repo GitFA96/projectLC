@@ -56,6 +56,8 @@ function career(opts: { medianParse?: number; preparedPct?: number }): Performan
     medianParse: opts.medianParse,
     role: "dps",
     flaskOrElixirsPct: 100,
+    flaskPct: 100,
+    elixirsPct: 0,
     foodPct: 100,
     weaponBuffPct: 100,
     preparedPct: opts.preparedPct ?? 0,

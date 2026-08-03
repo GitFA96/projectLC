@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildEnchantReference, gradeEnchant, type EnchantReference } from "@/lib/analysis/enchants";
-import type { GearSet, SlotId, WowClass } from "@/lib/types";
+import type { GearSet, Role, SlotId, WowClass } from "@/lib/types";
 
 /** A gear set with just the slots a test cares about. */
 function set(
@@ -24,8 +24,14 @@ function set(
 }
 
 const HEAD = 0; // WCL gear-array index for the head slot.
-const classOf = (id: string): WowClass | undefined =>
-  id.startsWith("war") ? "Warrior" : id.startsWith("mage") ? "Mage" : undefined;
+const OFF_HAND = 16;
+/** war* are Melee DPS warriors, wtank* tanking ones, mage* casters. */
+const ownerOf = (id: string): { class: WowClass; role: Role } | undefined => {
+  if (id.startsWith("wtank")) return { class: "Warrior", role: "Tank" };
+  if (id.startsWith("war")) return { class: "Warrior", role: "Melee DPS" };
+  if (id.startsWith("mage")) return { class: "Mage", role: "Ranged DPS" };
+  return undefined;
+};
 
 describe("buildEnchantReference", () => {
   const sets = [
@@ -36,8 +42,10 @@ describe("buildEnchantReference", () => {
     set({ characterId: "mage1", kind: "current", slots: [{ slot: "head", enchant: { id: 3096, name: "Glyph of Power" } }] }),
     // An enchant with no id can't be matched against a log — dictionary only skips it.
     set({ characterId: "war1", kind: "wishlist", slots: [{ slot: "back", enchant: { name: "Greater Agility" } }] }),
+    // Same class, different job: tanks want something else in the same slot.
+    set({ characterId: "wtank1", kind: "wishlist", slots: [{ slot: "head", enchant: { id: 2999, name: "Glyph of the Defender" } }] }),
   ];
-  const reference = buildEnchantReference(sets, classOf);
+  const reference = buildEnchantReference(sets, ownerOf);
 
   it("names every enchant any imported set knows, current gear included", () => {
     expect(reference.names).toEqual(
@@ -56,7 +64,7 @@ describe("buildEnchantReference", () => {
 
   it("names the ids nobody wishlists from the resolved enchantment table", () => {
     // A scope is worn by every hunter and listed by none of them.
-    const withResolved = buildEnchantReference(sets, classOf, {
+    const withResolved = buildEnchantReference(sets, ownerOf, {
       2724: "Scope (+28 Critical Strike Rating)",
       1593: "+24 Attack Power",
     });
@@ -70,7 +78,7 @@ describe("buildEnchantReference", () => {
 
   it("keeps an imported set's wording over a resolved one", () => {
     // The set knows the applying item too, which a resolved name never does.
-    const withResolved = buildEnchantReference(sets, classOf, { 3003: "+34 Attack Power" });
+    const withResolved = buildEnchantReference(sets, ownerOf, { 3003: "+34 Attack Power" });
     expect(withResolved.names.find((e) => e.id === 3003)).toEqual({
       id: 3003,
       name: "Glyph of Ferocity",
@@ -79,15 +87,25 @@ describe("buildEnchantReference", () => {
   });
 
   it("ignores a blank resolved name rather than showing an empty enchant", () => {
-    const withResolved = buildEnchantReference(sets, classOf, { 4242: "   " });
+    const withResolved = buildEnchantReference(sets, ownerOf, { 4242: "   " });
     expect(withResolved.names.find((e) => e.id === 4242)).toBeUndefined();
   });
 
-  it("takes the most-picked wishlist enchant per class and slot as the consensus", () => {
-    const head = reference.consensus.find((c) => c.wowClass === "Warrior" && c.slot === "head")!;
-    expect(head).toMatchObject({ enchantId: 3003, name: "Glyph of Ferocity", sets: 2, totalSets: 3 });
+  it("takes the most-picked wishlist enchant per class, role and slot", () => {
+    const dps = reference.consensus.find(
+      (c) => c.wowClass === "Warrior" && c.role === "Melee DPS" && c.slot === "head",
+    )!;
+    expect(dps).toMatchObject({ enchantId: 3003, name: "Glyph of Ferocity", sets: 2, totalSets: 3 });
     // Current gear doesn't vote, so the mage's slot has no consensus at all.
     expect(reference.consensus.some((c) => c.wowClass === "Mage")).toBe(false);
+  });
+
+  it("keeps a class's roles apart so one spec's pick can't speak for another", () => {
+    // The three dps warriors must not make Glyph of Ferocity the tank standard.
+    const tank = reference.consensus.find(
+      (c) => c.wowClass === "Warrior" && c.role === "Tank" && c.slot === "head",
+    )!;
+    expect(tank).toMatchObject({ enchantId: 2999, sets: 1, totalSets: 1 });
   });
 });
 
@@ -98,13 +116,21 @@ describe("gradeEnchant", () => {
       { id: 2999, name: "Glyph of the Defender" },
     ],
     consensus: [
-      { wowClass: "Warrior", slot: "head", enchantId: 3003, name: "Glyph of Ferocity", sets: 2, totalSets: 3 },
+      { wowClass: "Warrior", role: "Melee DPS", slot: "head", enchantId: 3003, name: "Glyph of Ferocity", sets: 2, totalSets: 3 },
+      // What an Enhancement shaman's list puts on a weapon, in the off-hand.
+      { wowClass: "Shaman", role: "Melee DPS", slot: "offHand", enchantId: 2673, name: "Mongoose", sets: 3, totalSets: 3 },
     ],
   };
   const ownList = [
     set({ characterId: "war1", kind: "wishlist", slots: [{ slot: "head", enchant: { id: 2999, name: "Glyph of the Defender" } }] }),
   ];
-  const base = { slotIndex: HEAD, enchantable: true, wowClass: "Warrior" as WowClass, reference };
+  const base = {
+    slotIndex: HEAD,
+    enchantable: true,
+    wowClass: "Warrior" as WowClass,
+    role: "Melee DPS" as Role,
+    reference,
+  };
 
   it("calls it BiS when it matches the character's own list", () => {
     const grade = gradeEnchant({ ...base, wornEnchantId: 2999, ownWishlists: ownList });
@@ -150,5 +176,44 @@ describe("gradeEnchant", () => {
   it("stays quiet about slots that take no enchant", () => {
     expect(gradeEnchant({ ...base, slotIndex: 1, enchantable: false, wornEnchantId: undefined, ownWishlists: [] }))
       .toEqual({ verdict: "not-enchantable" });
+  });
+
+  it("names an off-hand enchant without holding it to a weapon's standard", () => {
+    // A Restoration shaman with a shield. The log can't tell a shield from a
+    // stat stick from a weapon, and the class's Enhancement lists put Mongoose
+    // in that slot — so the shield enchant is reported and nothing is claimed.
+    const grade = gradeEnchant({
+      ...base,
+      slotIndex: OFF_HAND,
+      enchantable: false,
+      wowClass: "Shaman",
+      role: "Healer",
+      wornEnchantId: 2673,
+      ownWishlists: [],
+    });
+    expect(grade.verdict).toBe("unknown");
+    expect(grade.wanted).toBeUndefined();
+  });
+
+  it("does not offer a melee spec's off-hand pick to their own melee twin either", () => {
+    // Even the Enhancement shaman the consensus came from: the off-hand is not
+    // a slot the app judges, whoever is holding it.
+    const grade = gradeEnchant({
+      ...base,
+      slotIndex: OFF_HAND,
+      enchantable: false,
+      wowClass: "Shaman",
+      role: "Melee DPS",
+      wornEnchantId: 3003,
+      ownWishlists: [],
+    });
+    expect(grade).toMatchObject({ verdict: "unknown" });
+    expect(grade.wanted).toBeUndefined();
+  });
+
+  it("will not let one role's standard judge another", () => {
+    // A Restoration shaman's head, against a Melee DPS consensus: no match.
+    const grade = gradeEnchant({ ...base, role: "Healer", wornEnchantId: 3003, ownWishlists: [] });
+    expect(grade.verdict).toBe("unknown");
   });
 });

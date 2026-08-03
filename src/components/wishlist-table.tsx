@@ -93,11 +93,18 @@ export function WishlistTable({
             </TableCell>
             {award && (
               <TableCell>
+                {/* No award recorded is the case that needs a button, whether
+                    the slot is open or already being worn — an item won before
+                    loot tracking started has no other way to be filed. */}
                 {row.awardId ? (
                   <ClearAwardButton awardId={row.awardId} />
-                ) : row.state === "open" ? (
-                  <AwardItemButton ctx={award} prefill={row.wished} />
-                ) : null}
+                ) : (
+                  <AwardItemButton
+                    ctx={award}
+                    prefill={row.wished}
+                    label={row.state === "equipped" ? "Record" : "Award"}
+                  />
+                )}
               </TableCell>
             )}
             <TableCell>
