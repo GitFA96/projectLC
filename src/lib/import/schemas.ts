@@ -232,6 +232,13 @@ export const wclReportSchema = z.object({
   startTime: z.string().min(1),
   endTime: z.string().min(1),
   fetchedAt: z.string().min(1),
+  /**
+   * The aura names this app asked WCL for when the report was fetched. Absence
+   * of an aura from a report's rows only means "the raid didn't have it" if the
+   * aura is in here; otherwise it means the report predates that track.
+   * Empty on reports imported before this was recorded.
+   */
+  upkeepTracks: z.array(z.string()).default([]),
   /** Optional link to the Gargul raid session covering the same night. */
   raidSessionId: z.string().nullable().default(null),
 });
@@ -344,6 +351,15 @@ export const wclPlayerFightSchema = z.object({
   missingEnchants: z.array(z.string()).default([]),
   /** Full worn-gear snapshot at the pull (empty for pre-gear-tracking imports). */
   gear: z.array(wclGearItemSchema).default([]),
+  /**
+   * Points per talent tree at the pull, in the game's tree order — the build as
+   * actually played (a Warrior's [33,28,0] and [21,40,0] are different specs
+   * wearing the same class name). Empty for imports predating talent capture.
+   *
+   * Opaque on purpose: compare arrays for equality, never infer which abilities
+   * a build could use — see the note in wcl/normalize.
+   */
+  talents: z.array(z.number()).default([]),
 });
 
 /**

@@ -15,6 +15,8 @@ import {
   wclPlayerOffPullSchema,
   wclReportSchema,
 } from "@/lib/import/schemas";
+import type { AbilityInfo } from "@/lib/items/ability-data";
+import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
 import type {
@@ -135,6 +137,23 @@ CREATE TABLE IF NOT EXISTS wcl_player_offpull (
   pet_consumables_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS wcl_player_offpull_report ON wcl_player_offpull(report_code);
+-- Ability names resolved from Wowhead, so a simulation's actions have names.
+-- Warcraft Logs only names what somebody cast, which leaves exactly the
+-- interesting rows ("the sim used Execute, you never did") as bare ids.
+-- "spell" and "item" are separate id spaces that overlap (23827 is a sapper
+-- charge AND Master Demonologist), so the kind is half the key.
+CREATE TABLE IF NOT EXISTS abilities (
+  kind          TEXT NOT NULL,
+  id            INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  icon          TEXT,
+  description   TEXT,
+  -- For an item: the spell its Use effect casts, which is what the combat log
+  -- records. Without it the same click is two rows in the sim comparison.
+  use_spell_id  INTEGER,
+  resolved_at   TEXT NOT NULL,
+  PRIMARY KEY (kind, id)
+);
 -- SpellItemEnchantment id -> the effect text an item tooltip shows for it.
 -- Its own id space, so it can't share the items table. Filled one lookup per
 -- unknown id, ever; an id nothing can name simply has no row.
@@ -176,13 +195,15 @@ CREATE TABLE IF NOT EXISTS loot_awards (
 CREATE INDEX IF NOT EXISTS loot_awards_dedupe
   ON loot_awards(item_id, raw_winner_name COLLATE NOCASE, awarded_at);
 CREATE TABLE IF NOT EXISTS wcl_reports (
-  code            TEXT PRIMARY KEY,
-  title           TEXT NOT NULL,
-  zone            TEXT,
-  start_time      TEXT NOT NULL,
-  end_time        TEXT NOT NULL,
-  fetched_at      TEXT NOT NULL,
-  raid_session_id TEXT
+  code               TEXT PRIMARY KEY,
+  title              TEXT NOT NULL,
+  zone               TEXT,
+  start_time         TEXT NOT NULL,
+  end_time           TEXT NOT NULL,
+  fetched_at         TEXT NOT NULL,
+  -- Aura names requested at fetch time; see TRACKED_AURA_NAMES.
+  upkeep_tracks_json TEXT NOT NULL DEFAULT '[]',
+  raid_session_id    TEXT
 );
 CREATE TABLE IF NOT EXISTS wcl_player_fights (
   id                    TEXT PRIMARY KEY,
@@ -217,6 +238,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   cast_times_json       TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
+  talents_json          TEXT NOT NULL DEFAULT '[]',
   drums                 INTEGER NOT NULL DEFAULT 0,
   runes                 INTEGER NOT NULL DEFAULT 0,
   healthstones          INTEGER NOT NULL DEFAULT 0,
@@ -288,6 +310,7 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "cast_times_json", "cast_times_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("wcl_player_fights", "talents_json", "talents_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("characters", "main_character_id", "main_character_id TEXT");
   addColumn("characters", "off_spec", "off_spec TEXT");
   addColumn("characters", "off_spec_role", "off_spec_role TEXT");
@@ -295,8 +318,58 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
+  addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
+  backfillUpkeepTracks(db);
   relaxItemColumns(db);
+  addAbilityKind(db);
   splitGearOverridesBySpec(db);
+}
+
+/**
+ * Reports imported before the track list was recorded get a **lower bound**:
+ * every aura that actually appears in their rows was, provably, collected.
+ *
+ * Deliberately not a guess at the whole list. A track that was requested but
+ * never landed can't be distinguished from one that was never requested, so it
+ * stays out — that report will say "refetch to check" for it, which is true.
+ * What this does buy is the common case: an aura the raid used all night is
+ * confirmed as tracked without asking the officer to refetch everything again.
+ */
+function backfillUpkeepTracks(db: DatabaseSync): void {
+  const stale = db
+    .prepare("SELECT code FROM wcl_reports WHERE upkeep_tracks_json = '[]' OR upkeep_tracks_json IS NULL")
+    .all() as { code: string }[];
+  if (stale.length === 0) return;
+  const rowsFor = db.prepare("SELECT upkeep_json FROM wcl_player_fights WHERE report_code = ?");
+  const update = db.prepare("UPDATE wcl_reports SET upkeep_tracks_json = ? WHERE code = ?");
+  for (const { code } of stale) {
+    const seen = new Set<string>();
+    for (const r of rowsFor.all(code) as Row[]) {
+      for (const track of JSON.parse((r.upkeep_json as string | null) ?? "[]") as { name: string }[]) {
+        // Rows store the display label; the stamp is in track names.
+        const known = UPTIME_TRACK_BY_LABEL.get(track.name.toLowerCase());
+        seen.add(known?.name ?? track.name);
+      }
+    }
+    if (seen.size > 0) update.run(JSON.stringify([...seen].sort()), code);
+  }
+}
+
+/**
+ * The Wowhead name cache used to be keyed on a bare id, which cannot hold both
+ * spell 23827 and item 23827 — and looking every sim action up as a spell is
+ * how Bloodlust Brooch came back named "Holy Light".
+ *
+ * Dropped rather than copied across. Its descriptions came from a parser that
+ * read a spell tooltip's requirements instead of its effect, and rows are never
+ * overwritten once written — so migrating them would preserve wrong text
+ * permanently, with no way to ask again. It is a cache of public data behind
+ * one button press, and re-resolving it is cheap.
+ */
+function addAbilityKind(db: DatabaseSync): void {
+  const old = db.prepare("PRAGMA table_info(spells)").all() as { name: string }[];
+  if (old.length === 0) return;
+  db.exec("DROP TABLE spells;");
 }
 
 /**
@@ -423,6 +496,72 @@ export function setReportConsumablePrices(
     `INSERT INTO meta (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(consumablePriceKey(code), JSON.stringify(sanitizePrices(prices)));
+}
+
+/* Per-character wowsims setup: the decoded export a raider's comparison runs
+   against. Same meta-table pattern as prices, keyed by character slug — a
+   build, a rotation and a buff set belong to one raider, not to the guild.
+   Absent means that character has no sim configured yet. */
+
+export function getAbilities(db: DatabaseSync): AbilityInfo[] {
+  return (
+    db.prepare("SELECT kind, id, name, icon, description, use_spell_id FROM abilities").all() as Row[]
+  ).map((r) => ({
+    kind: r.kind === "item" ? "item" : "spell",
+    id: Number(r.id),
+    name: String(r.name),
+    icon: (r.icon as string | null) ?? undefined,
+    description: (r.description as string | null) ?? undefined,
+    useSpellId: (r.use_spell_id as number | null) ?? undefined,
+  }));
+}
+
+/** Record resolved abilities. Refs already known are left alone. */
+export function addAbilities(db: DatabaseSync, abilities: AbilityInfo[]): number {
+  const stmt = db.prepare(
+    `INSERT INTO abilities (kind, id, name, icon, description, use_spell_id, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(kind, id) DO NOTHING`,
+  );
+  const now = new Date().toISOString();
+  let written = 0;
+  for (const a of abilities) {
+    if (!Number.isFinite(a.id) || a.id <= 0 || !a.name) continue;
+    written += Number(
+      stmt.run(a.kind, a.id, a.name, a.icon ?? null, a.description ?? null, a.useSpellId ?? null, now)
+        .changes,
+    );
+  }
+  return written;
+}
+
+const simSettingsKey = (slug: string) => `sim_settings:${slug.toLowerCase()}`;
+
+export function getSimSettings(db: DatabaseSync, slug: string): string | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(simSettingsKey(slug)) as
+    | { value: string }
+    | undefined;
+  if (!row) return undefined;
+  // Stored as the raw protojson the CLI printed. Parsed on read so a corrupted
+  // blob reads as "not configured" rather than crashing the page.
+  try {
+    JSON.parse(row.value);
+    return row.value;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Save (or clear, with undefined) one character's sim setup. */
+export function setSimSettings(db: DatabaseSync, slug: string, json: string | undefined): void {
+  if (json === undefined) {
+    db.prepare("DELETE FROM meta WHERE key = ?").run(simSettingsKey(slug));
+    return;
+  }
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(simSettingsKey(slug), json);
 }
 
 /* Per-report consumable adjustments: an officer's corrections to what the log
@@ -773,9 +912,19 @@ export function insertLootAward(db: DatabaseSync, a: LootAward): void {
 
 export function insertWclReport(db: DatabaseSync, r: WclReport): void {
   db.prepare(
-    `INSERT OR REPLACE INTO wcl_reports (code, title, zone, start_time, end_time, fetched_at, raid_session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(r.code, r.title, r.zone ?? null, r.startTime, r.endTime, r.fetchedAt, r.raidSessionId);
+    `INSERT OR REPLACE INTO wcl_reports
+       (code, title, zone, start_time, end_time, fetched_at, upkeep_tracks_json, raid_session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    r.code,
+    r.title,
+    r.zone ?? null,
+    r.startTime,
+    r.endTime,
+    r.fetchedAt,
+    JSON.stringify(r.upkeepTracks ?? []),
+    r.raidSessionId,
+  );
 }
 
 export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void {
@@ -785,9 +934,9 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
-       upkeep_json, gear_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
+       upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -796,7 +945,8 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
     JSON.stringify(f.upkeep),
-    JSON.stringify(f.gear), f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
+    JSON.stringify(f.gear), JSON.stringify(f.talents),
+    f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
     f.fightStartMs ?? null, f.bossParsePercent ?? null, f.bossAmount ?? null,
   );
 }
@@ -899,6 +1049,7 @@ function rowToWclReport(r: Row): unknown {
   return {
     code: r.code, title: r.title, zone: opt(r.zone), startTime: r.start_time,
     endTime: r.end_time, fetchedAt: r.fetched_at,
+    upkeepTracks: JSON.parse((r.upkeep_tracks_json as string | null) ?? "[]"),
     raidSessionId: (r.raid_session_id as string | null) ?? null,
   };
 }
@@ -923,6 +1074,7 @@ function rowToWclPlayerFight(r: Row): unknown {
     castTimes: JSON.parse((r.cast_times_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
+    talents: JSON.parse((r.talents_json as string | null) ?? "[]"),
     drums: r.drums, runes: r.runes,
     healthstones: r.healthstones, sappers: r.sappers ?? 0,
     missingEnchants: JSON.parse(r.missing_enchants_json as string),

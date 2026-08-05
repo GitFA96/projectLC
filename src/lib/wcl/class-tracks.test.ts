@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANY_CLASS,
   CLASS_COOLDOWNS,
   COOLDOWN_CAST_IDS,
   UPTIME_TRACKS,
@@ -26,8 +27,28 @@ describe("class tracks", () => {
   });
 
   it("every entry belongs to a real class", () => {
+    // A cooldown is always somebody's button.
     for (const c of CLASS_COOLDOWNS) expect(WCL_CLASSES.has(c.wowClass)).toBe(true);
-    for (const t of UPTIME_TRACKS) expect(WCL_CLASSES.has(t.wowClass)).toBe(true);
+    for (const t of UPTIME_TRACKS) {
+      expect(WCL_CLASSES.has(t.wowClass) || t.wowClass === ANY_CLASS).toBe(true);
+    }
+  });
+
+  it("never marks a selfbuff class-less", () => {
+    // A selfbuff is credited only when provider === the buffed player, which
+    // normalize resolves through the class when the log names no source. That
+    // is meaningless for ANY_CLASS, so such a track could never be credited.
+    // Consumable debuffs and item-sourced party buffs are fine: an un-sourced
+    // instance stays unattributed rather than being pinned on the wrong player.
+    for (const t of UPTIME_TRACKS) {
+      if (t.wowClass === ANY_CLASS) expect(t.kind).not.toBe("selfbuff");
+    }
+  });
+
+  it("keeps class-less tracks out of every class's toolkit", () => {
+    for (const c of ["Warrior", "Druid", "Priest"]) {
+      expect(uptimeTracksForClass(c).some((t) => t.wowClass === ANY_CLASS)).toBe(false);
+    }
   });
 
   it("class lookups return that class's toolkit", () => {

@@ -752,8 +752,22 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return {};
     },
 
+    // Sim setups are persisted config like prices — the seed backend has none.
+    async getSimSettings(): Promise<string | undefined> {
+      return undefined;
+    },
+
     async getReportConsumableAdjustments(code: string): Promise<ConsumableAdjustment[]> {
       return config.consumableAdjustmentsByCode?.[code] ?? [];
+    },
+
+    // Resolved abilities are persisted config like prices; the seed model has none.
+    async listAbilities() {
+      return [];
+    },
+
+    async listPullRows(reportCode: string, fightId: number): Promise<WclPlayerFight[]> {
+      return wclPlayerFights.filter((r) => r.reportCode === reportCode && r.fightId === fightId);
     },
 
     async getCharacterPerformance(slug: string): Promise<CharacterPerformance | null> {

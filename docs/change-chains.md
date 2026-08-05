@@ -36,9 +36,28 @@ report zero uses forever.
   snapshot and match **by name first**, so those degrade more gracefully — but
   they still only appear in reports fetched after the name was known.
 
+**Uptime tracks record their own staleness.** Every report stores the aura names
+it was fetched with (`WclReport.upkeepTracks`, stamped in `saveWclReport`), so a
+reader can tell "the raid never applied this" from "this report predates the
+track" — the sim context audit turns that into either a finding or a "refetch
+this report", and it can only do so because the record exists. Nothing else is
+self-describing this way: cast ids, consumables and totems still need the rule
+above.
+
 **Never add a spell id or aura name from memory.** WCL matches auras by exact
 name and TBC buff names routinely differ from item names (Elixir of Major
 Agility applies `Major Agility`). Probe a real report first.
+
+**Quote names with double quotes in a filter expression.** `ability.name IN
+('Rend')` matches nothing and reports no error — the query succeeds and returns
+zero rows, which reads exactly like "the raid never did this". A probe built
+that way once looked like proof that a debuff was absent.
+
+**The escape hatch: fetch live for one pull.** `fight-casts.ts` and
+`fight-upkeep.ts` query WCL at the moment somebody asks, unfiltered by the
+curated lists, for a single fight. A question asked that way answers for reports
+imported long before the question existed — no refetch. It costs a round trip
+per pull, so it suits a panel someone opened, not a page everyone loads.
 
 ## 2. Add a persisted field
 

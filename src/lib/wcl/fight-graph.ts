@@ -57,7 +57,7 @@ const OVERVIEW_QUERY = `
 query FightGraphOverview($code: String!) {
   reportData {
     report(code: $code) {
-      masterData { actors { id name type subType } }
+      masterData { actors { id name type subType } abilities { gameID name } }
       fights { id name kill startTime endTime enemyNPCs { id } }
     }
   }
@@ -116,6 +116,9 @@ const overviewSchema = z.looseObject({
                   subType: z.string().optional(),
                 }),
               )
+              .nullish(),
+            abilities: z
+              .array(z.looseObject({ gameID: z.number().optional(), name: z.string().optional() }))
               .nullish(),
           })
           .nullish(),
@@ -236,12 +239,90 @@ async function fetchOverview(code: string): Promise<z.infer<typeof overviewSchem
   const cached = cache.get(code);
   if (cached) return cached;
   const overview = overviewSchema.parse(await wclQuery<unknown>(OVERVIEW_QUERY, { code }));
+
+  /*
+   * Refuse to cache a report that came back without fights.
+   *
+   * Every field here is nullish, because WCL's shape varies — which means a
+   * degraded response (`report: null`, an empty fight list under load) PARSES,
+   * and used to be cached forever. Every later lookup then reported "Fight 63
+   * was not found in report X" about a fight that plainly exists, and stayed
+   * wrong until the server restarted. A failed fetch has to look like a failed
+   * fetch, not like missing data.
+   */
+  const fights = overview.reportData.report?.fights;
+  if (!fights || fights.length === 0) {
+    throw new WclError(
+      `Warcraft Logs returned no fights for report ${code} — it may be rate-limiting or still processing. Try again in a moment.`,
+    );
+  }
+
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
   cache.set(code, overview);
   return overview;
+}
+
+/**
+ * Every ability named anywhere in a report: spell id → name.
+ *
+ * A simulation reports spell ids and this app reports names, so comparing the
+ * two needs a dictionary. The report already carries one — over a thousand
+ * entries for a raid night — and it rides on the overview fetch that's cached
+ * per report, so it costs nothing extra. An id the report never saw stays
+ * unnamed rather than being guessed at.
+ */
+export async function fetchReportAbilities(code: string): Promise<Record<number, string>> {
+  const overview = await fetchOverview(code);
+  const out: Record<number, string> = {};
+  for (const ability of overview.reportData.report?.masterData?.abilities ?? []) {
+    if (ability.gameID !== undefined && ability.name) out[ability.gameID] ??= ability.name;
+  }
+  return out;
+}
+
+/** One pull and one player inside it, resolved against the cached overview. */
+export interface ResolvedFightActor {
+  fightStart: number;
+  fightEnd: number;
+  durationMs: number;
+  actorId: number;
+  encounterName: string;
+  kill: boolean;
+}
+
+/**
+ * Locate a (pull, player) pair in a report. Shared with the rotation fetch so
+ * both features pay for the overview once per report rather than once each.
+ */
+export async function resolveFightActor(
+  code: string,
+  fightId: number,
+  actorName: string,
+): Promise<ResolvedFightActor> {
+  const overview = await fetchOverview(code);
+  const report = overview.reportData.report;
+  const fight = (report?.fights ?? []).find((f) => f.id === fightId);
+  // Reached only when the report really has no such fight: an incomplete
+  // fetch is rejected in fetchOverview rather than reaching here.
+  if (!fight)
+    throw new WclError(
+      `Fight ${fightId} is not in report ${code} any more — the log was probably re-uploaded, which renumbers its fights. Refetch the report.`,
+    );
+  const actor = (report?.masterData?.actors ?? []).find(
+    (a) => (a.type === undefined || a.type === "Player") && a.name.toLowerCase() === actorName.toLowerCase(),
+  );
+  if (!actor) throw new WclError(`"${actorName}" is not in this report's player list.`);
+  return {
+    fightStart: fight.startTime,
+    fightEnd: fight.endTime,
+    durationMs: Math.max(1, fight.endTime - fight.startTime),
+    actorId: actor.id,
+    encounterName: fight.name ?? `Fight ${fightId}`,
+    kill: fight.kill === true,
+  };
 }
 
 export async function fetchFightGraph(code: string, fightId: number, actorName: string): Promise<FightGraphView> {
@@ -253,7 +334,12 @@ export async function fetchFightGraph(code: string, fightId: number, actorName: 
   const overview = await fetchOverview(code);
   const report = overview.reportData.report;
   const fight = (report?.fights ?? []).find((f) => f.id === fightId);
-  if (!fight) throw new WclError(`Fight ${fightId} was not found in report ${code}.`);
+  // Reached only when the report really has no such fight: an incomplete
+  // fetch is rejected in fetchOverview rather than reaching here.
+  if (!fight)
+    throw new WclError(
+      `Fight ${fightId} is not in report ${code} any more — the log was probably re-uploaded, which renumbers its fights. Refetch the report.`,
+    );
   const actors = report?.masterData?.actors ?? [];
   const actor = actors.find((a) => (a.type === undefined || a.type === "Player") && a.name.toLowerCase() === actorName.toLowerCase());
   if (!actor) throw new WclError(`"${actorName}" is not in this report's player list.`);

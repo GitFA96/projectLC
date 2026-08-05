@@ -122,6 +122,7 @@ function pull(
     missingEnchants: [],
     upkeep: [],
     gear: gear.map((g) => ({ slot: HEAD, id: 1, gems: [], ...g })) as WclGearItem[],
+    talents: [],
   } as WclPlayerFight;
 }
 

@@ -57,6 +57,97 @@ export async function deleteWclReportAction(input: { code: string }): Promise<{ 
   }
 }
 
+/**
+ * Re-fetch a report that's already imported, keeping everything an officer
+ * curated about it.
+ *
+ * Everything a report can show is fixed at import time — tracked consumables,
+ * class auras, talents, gear detail — so gaining anything added since means
+ * fetching it again. The code is already stored, so nothing needs pasting.
+ *
+ * The catch is metadata. A plain import defaults the title and zone to whatever
+ * Warcraft Logs says and the session link to null, so re-running it would erase
+ * a rename, a corrected raid label ("SSC/TK" over WCL's multi-zone guess) and
+ * the Gargul session the night is linked to — quietly, and with no way back
+ * short of redoing it by hand. So the stored values are read first and passed
+ * back in.
+ *
+ * The pull data itself needs no protection: saveWclReport deletes the old rows
+ * and replaces the report wholesale, which is the existing update flow.
+ */
+export async function refetchWclReport(input: { code: string }): Promise<WclImportActionResult> {
+  const parsed = deleteInputSchema.safeParse(input);
+  if (!parsed.success) return { status: "error", message: "Invalid report code." };
+
+  const repo = await getWriteRepo();
+  const existing = (await repo.listWclReports()).find((r) => r.report.code === parsed.data.code);
+  if (!existing) {
+    return { status: "error", message: "That report isn't imported — paste its URL to import it." };
+  }
+
+  return importWclReport({
+    report: existing.report.code,
+    title: existing.report.title,
+    zone: existing.report.zone,
+    raidSessionId: existing.report.raidSessionId ?? undefined,
+  });
+}
+
+const deleteManySchema = z.object({ codes: z.array(z.string().min(1)).min(1) });
+
+/**
+ * Remove several reports at once — the checkbox flow on the imported list.
+ *
+ * Each delete stands alone: one failure doesn't roll back the ones that already
+ * succeeded, and the caller is told exactly which codes failed. A partial
+ * result is honest here; pretending the whole batch failed would send the
+ * officer looking for reports that are already gone.
+ */
+export async function deleteWclReportsAction(input: {
+  codes: string[];
+}): Promise<{ ok: boolean; message: string; deleted: string[]; failed: string[] }> {
+  const parsed = deleteManySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "No reports selected.", deleted: [], failed: [] };
+
+  const deleted: string[] = [];
+  const failed: string[] = [];
+  let rowsRemoved = 0;
+  try {
+    const repo = await getWriteRepo();
+    for (const code of parsed.data.codes) {
+      try {
+        const result = await repo.deleteWclReport(code);
+        if (result.ok) {
+          deleted.push(code);
+          rowsRemoved += result.rowsRemoved;
+        } else failed.push(code);
+      } catch {
+        failed.push(code);
+      }
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Delete failed.",
+      deleted,
+      failed: [...failed, ...parsed.data.codes.filter((c) => !deleted.includes(c) && !failed.includes(c))],
+    };
+  }
+
+  // Refresh once for the whole batch rather than once per report.
+  if (deleted.length > 0) refreshAfterWrite("/", "layout");
+  const plural = deleted.length === 1 ? "report" : "reports";
+  return {
+    ok: failed.length === 0,
+    message:
+      failed.length === 0
+        ? `Removed ${deleted.length} ${plural} (${rowsRemoved} player-pull rows).`
+        : `Removed ${deleted.length} ${plural}; ${failed.length} could not be deleted (${failed.join(", ")}).`,
+    deleted,
+    failed,
+  };
+}
+
 const updateMetaSchema = z.object({
   code: z.string().min(1),
   title: z.string().min(1, "The title can't be empty."),

@@ -9,6 +9,7 @@ const report: WclReport = {
   startTime: "2026-06-10T19:00:00.000Z",
   endTime: "2026-06-10T23:00:00.000Z",
   fetchedAt: "2026-06-11T08:00:00.000Z",
+  upkeepTracks: [],
   raidSessionId: null,
 };
 
@@ -44,6 +45,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     sappers: 0,
     missingEnchants: [],
     gear: [],
+    talents: [],
     ...rest,
   };
 }

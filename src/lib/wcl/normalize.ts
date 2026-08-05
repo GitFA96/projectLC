@@ -118,6 +118,13 @@ const rawCombatantInfoEventSchema = z.looseObject({
   fight: z.number().optional(),
   sourceID: z.number().optional(),
   gear: z.array(rawGearItemSchema).nullish(),
+  /**
+   * Points spent per talent tree, in the game's tree order (Warrior:
+   * Arms/Fury/Protection). Verified against a real report — WCL ships one entry
+   * per tree with the tree's point total in `id`, and repeats the class icon in
+   * every entry, so only `id` is worth keeping.
+   */
+  talents: z.array(z.looseObject({ id: z.number().optional() })).nullish(),
   auras: z
     .array(
       z.looseObject({
@@ -217,6 +224,17 @@ export interface NormalizedPlayerFight {
   }[];
   /** Full worn-gear snapshot at the pull. */
   gear: NormalizedGearItem[];
+  /**
+   * Points per talent tree at the pull, in the game's tree order — the build
+   * as actually played. Empty when the log didn't carry it.
+   *
+   * This is an opaque fingerprint, deliberately: two raiders are comparable
+   * when their arrays match and aren't when they don't. Do NOT derive "which
+   * abilities were available" from it — that needs the talent tree's real
+   * layout, which this app has no business guessing (a 33/28/0 warrior turned
+   * out to have Death Wish when a plausible reading said otherwise).
+   */
+  talents: number[];
   drums: number;
   runes: number;
   healthstones: number;
@@ -426,6 +444,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         castTimes: [],
         upkeep: [],
         gear: [],
+        talents: [],
         drums: 0,
         runes: 0,
         healthstones: 0,
@@ -598,6 +617,12 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         if (!row.extras.includes(hit.label)) row.extras.push(hit.label);
       } else if (!row.elixirs.includes(hit.label)) row.elixirs.push(hit.label);
     }
+
+    // Points per tree. Trees with 0 points are still listed, so an all-zero
+    // array means "logged but unspent" and an empty one means "not logged" —
+    // keep the difference rather than collapsing both to nothing.
+    const talents = (event.talents ?? []).map((t) => t.id ?? 0);
+    if (talents.length > 0) row.talents = talents;
 
     const gear = (event.gear ?? []).map((g) => rawGearItemSchema.parse(g));
     if (gear.length > 0) {

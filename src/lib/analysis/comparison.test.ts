@@ -45,6 +45,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     sappers: 0,
     missingEnchants: [],
     gear: [],
+    talents: [],
     ...rest,
   };
 }

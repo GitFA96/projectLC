@@ -36,6 +36,7 @@ function pull(fightId: number, encounterName: string, gear: Partial<WclGearItem>
     missingEnchants: [],
     upkeep: [],
     gear: gear.map((g) => ({ slot: HEAD, id: 1, gems: [], ...g })) as WclGearItem[],
+    talents: [],
   } as WclPlayerFight;
 }
 

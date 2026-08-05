@@ -58,6 +58,7 @@ export default async function ImportPage({
           title: r.report.title,
           zone: r.report.zone,
           startTime: r.report.startTime,
+          fetchedAt: r.report.fetchedAt,
           playerCount: r.playerCount,
           encounterCount: r.encounterCount,
           killCount: r.killCount,

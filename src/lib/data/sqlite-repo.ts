@@ -13,6 +13,8 @@ import {
   getItemPriorityRules,
   getLootPriorityWeights,
   getReportConsumablePrices,
+  getSimSettings,
+  getAbilities,
   getReportExcludedFights,
   insertAttendanceExemption,
   insertCharacter,
@@ -29,6 +31,8 @@ import {
   setItemPriorityRule,
   setLootPriorityWeights,
   setReportConsumablePrices,
+  setSimSettings,
+  addAbilities,
   setReportExcludedFights,
   withTx,
 } from "@/lib/data/db";
@@ -36,6 +40,7 @@ import { createRepoFromStore } from "@/lib/data/store";
 import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
+import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
   characterCommentSchema,
   characterSchema,
@@ -629,6 +634,13 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     const parsedReport = wclReportSchema.safeParse({
       ...reportDraft,
       fetchedAt: new Date().toISOString(),
+      /*
+       * Stamped here rather than by the fetcher: this is the one place every
+       * import and refetch passes through, so the record can't drift from what
+       * was actually stored. It's what lets a later reader tell "the raid never
+       * had Blood Frenzy" from "this report predates the Blood Frenzy track".
+       */
+      upkeepTracks: TRACKED_AURA_NAMES,
       raidSessionId: reportDraft.raidSessionId ?? null,
     });
     if (!parsedReport.success) {
@@ -852,6 +864,24 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     });
   },
 
+  async addAbilities(abilities) {
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = addAbilities(db, abilities);
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
+  async setSimSettings(slug, json) {
+    const db = getDb();
+    withTx(db, () => {
+      setSimSettings(db, slug, json);
+      bumpDataVersion(db);
+    });
+  },
+
   async setReportExcludedFights(code, fightIds) {
     const db = getDb();
     withTx(db, () => {
@@ -892,6 +922,9 @@ export function getSqliteRepo(): WriteRepo {
     // Prices live in the meta table, not the derived model — read them directly.
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
     getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
+    getSimSettings: async (slug) => getSimSettings(getDb(), slug),
+    listPullRows: (code, fightId) => readModel().repo.listPullRows(code, fightId),
+    listAbilities: async () => getAbilities(getDb()),
     getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
     getEnchantReference: () => readModel().repo.getEnchantReference(),

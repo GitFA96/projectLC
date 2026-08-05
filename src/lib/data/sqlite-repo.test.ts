@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { getSqliteRepo } from "@/lib/data/sqlite-repo";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import type { GearSetDraft, WclPlayerFightDraft } from "@/lib/data/repo";
+import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 
 /** Each test gets a fresh database file; the repo re-opens per path. */
 beforeEach(() => {
@@ -697,7 +698,7 @@ describe("sqlite repo", () => {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
             actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
             prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [], upkeep: [],
-            deaths: 0, drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [],
+            deaths: 0, drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
           },
         ],
       );
@@ -782,6 +783,54 @@ describe("sqlite repo", () => {
     // Seeded toolkit data round-trips through its JSON columns.
     expect(perf.reports[0].rows.some((r) => r.cooldowns.includes("Death Wish"))).toBe(true);
     expect(perf.reports[0].rows.some((r) => r.upkeep.some((u) => u.name === "Battle Shout" && u.pct > 0))).toBe(true);
+  });
+
+  it("migrates a database created before talents were captured", async () => {
+    // The one bug class a from-scratch suite is blind to: a column added to the
+    // CREATE TABLE block alone works on a fresh database and throws on the
+    // user's real one. Only migrate() reaches an existing database.
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE wcl_player_fights (
+      id TEXT PRIMARY KEY, report_code TEXT NOT NULL, fight_id INTEGER NOT NULL,
+      encounter_id INTEGER NOT NULL, encounter_name TEXT NOT NULL, kill INTEGER NOT NULL,
+      fight_percentage REAL, duration_ms INTEGER NOT NULL, actor_name TEXT NOT NULL,
+      character_id TEXT, class_name TEXT, spec TEXT, role TEXT NOT NULL,
+      parse_percent REAL, bracket_percent REAL, amount REAL, deaths INTEGER NOT NULL DEFAULT 0,
+      flask TEXT, elixirs_json TEXT NOT NULL DEFAULT '[]', food INTEGER NOT NULL DEFAULT 0,
+      weapon_buff INTEGER NOT NULL DEFAULT 0, prepot INTEGER NOT NULL DEFAULT 0,
+      potions_json TEXT NOT NULL DEFAULT '[]', drums INTEGER NOT NULL DEFAULT 0,
+      runes INTEGER NOT NULL DEFAULT 0, healthstones INTEGER NOT NULL DEFAULT 0,
+      gear_json TEXT NOT NULL DEFAULT '[]',
+      missing_enchants_json TEXT NOT NULL DEFAULT '[]'
+    )`);
+    old.close();
+
+    const repo = getSqliteRepo(); // boots, runs migrate(), seeds
+    const perf = (await repo.getCharacterPerformance("kazrak"))!;
+    // Pre-talent rows read back as an empty array, never undefined — callers
+    // treat that as "unknown build" rather than crashing.
+    expect(perf.reports[0].rows.every((r) => Array.isArray(r.talents))).toBe(true);
+  });
+
+  it("round-trips a pull's talent split", async () => {
+    const repo = getSqliteRepo();
+    const code = "TALENT0000000001";
+    const saved = await repo.saveWclReport(
+      { code, title: "Talent night", startTime: "2026-06-18T19:00:00Z", endTime: "2026-06-18T22:00:00Z", raidSessionId: null },
+      [
+        {
+          fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
+          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
+          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          missingEnchants: [], gear: [], talents: [33, 28, 0],
+        },
+      ],
+    );
+    expect(saved.ok).toBe(true);
+    const perf = (await repo.getCharacterPerformance("thrainn"))!;
+    const row = perf.reports.flatMap((r) => r.rows).find((r) => r.encounterName === "Void Reaver")!;
+    expect(row.talents).toEqual([33, 28, 0]);
   });
 
   it("addItemsIfMissing never overwrites existing cache entries", async () => {
@@ -906,13 +955,45 @@ describe("sqlite repo", () => {
           actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
-          missingEnchants: [],
+          missingEnchants: [], talents: [],
           // The snapshot spells icons with an extension; the cache stores them bare.
           gear: [{ slot: 0, id: 99953, icon: "inv_helmet_15.jpg", gems: [] }],
         },
       ],
     );
     expect(await repo.getItem(99953)).toMatchObject({ icon: "inv_helmet_15" });
+  });
+
+  it("records which uptime tracks the report was fetched with", async () => {
+    /*
+     * Without this, an aura missing from a report is ambiguous forever: the
+     * raid didn't have it, or we hadn't started asking for it. The sim audit
+     * spent a release calling both "not tracked by this app" — on data that had
+     * just been refetched. See docs/change-chains.md §1.
+     */
+    const repo = getSqliteRepo();
+    const saved = await repo.saveWclReport(
+      {
+        code: "TRACKSTAMP",
+        title: "Track stamp",
+        startTime: "2026-06-11T18:00:00.000Z",
+        endTime: "2026-06-11T22:00:00.000Z",
+      },
+      [
+        {
+          fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
+          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
+          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          missingEnchants: [], talents: [], gear: [],
+        },
+      ],
+    );
+    expect(saved.ok).toBe(true);
+    // Stamped from the live list rather than passed in, so it can't drift.
+    expect(TRACKED_AURA_NAMES).toContain("Blood Frenzy");
+    const stored = (await repo.listWclReports()).find((r) => r.report.code === "TRACKSTAMP")!;
+    expect(stored.report.upkeepTracks).toEqual(TRACKED_AURA_NAMES);
   });
 
   describe("warcraft logs performance", () => {
@@ -926,6 +1007,7 @@ describe("sqlite repo", () => {
         durationMs: 200000,
         role: "dps",
         deaths: 0,
+        talents: [],
         elixirs: [],
         scrolls: [],
         food: true,

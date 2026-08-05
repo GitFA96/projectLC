@@ -104,6 +104,119 @@ export const PHASES: { phase: Phase; name: string; short: string; zones: string[
   { phase: 5, name: "Phase 5", short: "P5", zones: ["Sunwell Plateau"] },
 ];
 
+/**
+ * TBC raid instances in progression order, with their bosses.
+ *
+ * Used to group boss lists by the raid they belong to. A report's own zone
+ * can't do this: Warcraft Logs routinely labels a multi-zone night with one
+ * zone (which is why the import page offers a raid-label override), so the
+ * boss itself has to say where it comes from.
+ *
+ * Names are matched loosely (case and punctuation insensitive) because
+ * apostrophes vary between sources — `Kael'thas` and `Kael’thas` are the same
+ * boss. Anything unmatched falls into an "Other" group rather than vanishing,
+ * so a wrong or missing entry here is visible and harmless.
+ *
+ * SSC, Tempest Keep and Gruul's Lair are verified against this guild's own
+ * imported encounter names. The rest follow the standard TBC rosters so older
+ * and future content lands correctly without another change here.
+ */
+export const TBC_RAIDS: { name: string; short: string; bosses: string[] }[] = [
+  {
+    name: "Karazhan",
+    short: "Kara",
+    bosses: [
+      "Attumen the Huntsman",
+      "Moroes",
+      "Maiden of Virtue",
+      "Opera Hall",
+      "The Curator",
+      "Shade of Aran",
+      "Terestian Illhoof",
+      "Netherspite",
+      "Chess Event",
+      "Prince Malchezaar",
+      "Nightbane",
+    ],
+  },
+  { name: "Gruul's Lair", short: "Gruul", bosses: ["High King Maulgar", "Gruul the Dragonkiller"] },
+  { name: "Magtheridon's Lair", short: "Mag", bosses: ["Magtheridon"] },
+  {
+    name: "Serpentshrine Cavern",
+    short: "SSC",
+    bosses: [
+      "Hydross the Unstable",
+      "The Lurker Below",
+      "Leotheras the Blind",
+      "Fathom-Lord Karathress",
+      "Morogrim Tidewalker",
+      "Lady Vashj",
+    ],
+  },
+  {
+    name: "Tempest Keep",
+    short: "TK",
+    bosses: ["Al'ar", "Void Reaver", "High Astromancer Solarian", "Kael'thas Sunstrider"],
+  },
+  {
+    name: "Black Temple",
+    short: "BT",
+    bosses: [
+      "High Warlord Naj'entus",
+      "Supremus",
+      "Shade of Akama",
+      "Teron Gorefiend",
+      "Gurtogg Bloodboil",
+      "Reliquary of Souls",
+      "Mother Shahraz",
+      "The Illidari Council",
+      "Illidan Stormrage",
+    ],
+  },
+  {
+    name: "Mount Hyjal",
+    short: "MH",
+    bosses: ["Rage Winterchill", "Anetheron", "Kaz'rogal", "Azgalor", "Archimonde"],
+  },
+  {
+    name: "Zul'Aman",
+    short: "ZA",
+    bosses: ["Nalorakk", "Akil'zon", "Jan'alai", "Halazzi", "Hex Lord Malacrass", "Zul'jin"],
+  },
+  {
+    name: "Sunwell Plateau",
+    short: "SWP",
+    bosses: ["Kalecgos", "Brutallus", "Felmyst", "The Eredar Twins", "M'uru", "Kil'jaeden"],
+  },
+];
+
+/** Loose key so apostrophe and casing differences between sources still match. */
+function bossKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const RAID_BY_BOSS = new Map<string, (typeof TBC_RAIDS)[number]>(
+  TBC_RAIDS.flatMap((raid) => raid.bosses.map((boss) => [bossKey(boss), raid] as const)),
+);
+
+/** The raid a boss belongs to, or undefined for anything not in the table. */
+export function raidOfBoss(encounterName: string): (typeof TBC_RAIDS)[number] | undefined {
+  return RAID_BY_BOSS.get(bossKey(encounterName));
+}
+
+/** Progression rank for sorting; unknown bosses sort last. */
+export function raidOrder(encounterName: string): number {
+  const raid = raidOfBoss(encounterName);
+  return raid ? TBC_RAIDS.indexOf(raid) : TBC_RAIDS.length;
+}
+
+/** Kill order within its raid; unknown bosses keep a stable position. */
+export function bossOrder(encounterName: string): number {
+  const raid = raidOfBoss(encounterName);
+  if (!raid) return 0;
+  return raid.bosses.findIndex((b) => bossKey(b) === bossKey(encounterName));
+}
+
 export const ZONE_TO_PHASE: Record<string, Phase> = Object.fromEntries(
   PHASES.flatMap((p) => p.zones.map((z) => [z, p.phase])),
 );

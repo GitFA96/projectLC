@@ -92,9 +92,40 @@ export interface UptimeTrack {
   wowClass: string;
 }
 
+/**
+ * Owner of a track no single class provides — a consumable debuff or an
+ * item-sourced party buff, which anyone can bring.
+ *
+ * Such a track is still collected and still has uptime; it just isn't part of
+ * any class's expectations, so `uptimeTracksForClass` correctly returns it for
+ * nobody.
+ *
+ * On a buff this also changes attribution, deliberately. normalize falls back
+ * to "a class-matching recipient must have buffed themself" only when the log
+ * doesn't name a source; no class can match ANY_CLASS, so those instances stay
+ * unattributed instead of being credited to whoever happened to be standing
+ * there. For an item buff that is the correct answer — you cannot tell who wore
+ * the neck from an aura with no source, and a wrong provider is worse than
+ * none. Sourced instances attribute normally.
+ *
+ * Not valid on `selfbuff`, which is class-personal by definition.
+ */
+export const ANY_CLASS = "Any";
+
 export const UPTIME_TRACKS: UptimeTrack[] = [
   /* Warrior — fury keeps Rampage rolling; tanks stack Sunder and hold TC/Demo. */
   { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior" },
+  /**
+   * Arms talent debuff (spell 29859) — +4% physical damage taken, applied by
+   * the warrior's own Rend and Deep Wounds ticks. Raid-wide value, so whether
+   * an Arms warrior specs it is a raid question, not a personal one.
+   *
+   * Verified absent from all five reports fetched so far, searched by id rather
+   * than name — while Rend (36991) and Deep Wounds (12721) are both present.
+   * The procs that would apply it are landing, so the talent simply isn't
+   * taken. Sims assume it, which quietly flatters every melee comparison.
+   */
+  { name: "Blood Frenzy", kind: "debuff", wowClass: "Warrior" },
   { name: "Thunder Clap", kind: "debuff", wowClass: "Warrior" },
   { name: "Demoralizing Shout", kind: "debuff", wowClass: "Warrior" },
   { name: "Battle Shout", kind: "buff", wowClass: "Warrior" },
@@ -159,6 +190,27 @@ export const UPTIME_TRACKS: UptimeTrack[] = [
    * instead; see SHAMAN_TOTEM_CASTS.
    */
   { name: "Innervate", kind: "buff", wowClass: "Druid" },
+  /*
+   * Consumable-sourced raid debuff: the elixir is drunk (usually by a tank) and
+   * procs a debuff on whatever they're tanking. So it belongs to no class, and
+   * the raider it helps is never the raider who provides it — a DPS reading
+   * their own numbers can't be blamed for its absence, but a sim assumes it.
+   *
+   * Verified present in this guild's logs as spell 11374, not added from memory.
+   */
+  { name: "Gift of Arthas", kind: "debuff", wowClass: ANY_CLASS },
+  /*
+   * Jewelcrafting party necks. One person's equipped item buffs their whole
+   * group, so coverage depends on who is standing in which party — a raid can
+   * own all three and still leave a group uncovered, which no gear check would
+   * reveal. Sims switch these on by default (wowsims: partyBuffs), so an
+   * unchecked assumption here silently flatters the sim.
+   *
+   * All three verified present in this guild's logs by id: 31025, 31035, 31033.
+   */
+  { name: "Braided Eternium Chain", kind: "buff", wowClass: ANY_CLASS },
+  { name: "Chain of the Twilight Owl", kind: "buff", wowClass: ANY_CLASS },
+  { name: "Eye of the Night", kind: "buff", wowClass: ANY_CLASS },
 ];
 
 /**
@@ -215,6 +267,19 @@ export const UPTIME_TRACK_BY_LABEL = new Map<string, UptimeTrack>(
 export const DEBUFF_TRACK_NAMES = UPTIME_TRACKS.filter((t) => t.kind === "debuff").map((t) => t.name);
 /** Names for the server-side buff-events filter (uptime on friendlies). */
 export const BUFF_TRACK_NAMES = UPTIME_TRACKS.filter((t) => t.kind !== "debuff").map((t) => t.name);
+
+/**
+ * Every aura this app asks Warcraft Logs for, recorded ON each report at import
+ * so later readers can tell two very different silences apart:
+ *
+ *   - "we asked for Blood Frenzy and the raid never applied it" — a finding.
+ *   - "this report was fetched before Blood Frenzy was tracked" — refetch it.
+ *
+ * Without the record both look identical (no rows), and the audit has to say
+ * "not tracked" even for auras it now follows perfectly well — which is exactly
+ * what it did, on data that had already been refetched.
+ */
+export const TRACKED_AURA_NAMES: string[] = UPTIME_TRACKS.map((t) => t.name);
 
 export function trackLabel(track: UptimeTrack): string {
   return track.label ?? track.name;

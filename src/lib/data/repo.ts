@@ -1,4 +1,5 @@
 import type { EnchantReference } from "@/lib/analysis/enchants";
+import type { AbilityInfo } from "@/lib/items/ability-data";
 import type {
   AwardWithContext,
   Character,
@@ -71,6 +72,22 @@ export interface Repo {
    * view. Empty means the raid hasn't set prices and the code defaults apply.
    */
   getReportConsumablePrices(code: string): Promise<Record<string, ConsumablePrice>>;
+  /**
+   * One character's saved wowsims setup, as protojson. Undefined means they
+   * have no sim configured — the comparison offers to add one instead.
+   */
+  getSimSettings(slug: string): Promise<string | undefined>;
+  /**
+   * Every player's row for one boss pull.
+   *
+   * getCharacterPerformance answers "how did this raider do" and returns only
+   * their rows — which cannot answer "did the raid have Misery up", because a
+   * debuff is recorded against whoever applied it. Anything raid-wide about a
+   * single pull needs all of them.
+   */
+  listPullRows(reportCode: string, fightId: number): Promise<WclPlayerFight[]>;
+  /** Every ability resolved from Wowhead so far (spells and items both). */
+  listAbilities(): Promise<AbilityInfo[]>;
   /**
    * The pulls an officer excluded from a report's rollups (fight ids). Empty
    * means the whole night counts — see WriteRepo.setReportExcludedFights.
@@ -209,8 +226,12 @@ export type DeleteSessionResult =
   | { ok: true; deletedAwards: number; unlinkedReports: number }
   | { ok: false; error: string };
 
-/** A fetched report ready to persist: identity fields are derived at save time. */
-export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId"> & {
+/**
+ * A fetched report ready to persist: identity fields are derived at save time.
+ * `upkeepTracks` is stamped there too — the fetcher shouldn't have to remember
+ * to state what it asked for, and a drifting record would be worse than none.
+ */
+export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId" | "upkeepTracks"> & {
   raidSessionId?: string | null;
 };
 export type WclPlayerFightDraft = Omit<WclPlayerFight, "id" | "reportCode" | "characterId">;
@@ -352,6 +373,10 @@ export interface WriteRepo extends Repo {
    * whole set for the report; an empty map clears it back to code defaults.
    */
   setReportConsumablePrices(code: string, prices: Record<string, ConsumablePrice>): Promise<void>;
+  /** Save a character's decoded wowsims setup; undefined clears it. */
+  setSimSettings(slug: string, json: string | undefined): Promise<void>;
+  /** Record abilities resolved from Wowhead. Refs already known are left alone. */
+  addAbilities(abilities: AbilityInfo[]): Promise<number>;
   /**
    * Choose which of a report's pulls feed its rollups: the given fight ids are
    * excluded from preparation coverage, consumable/cooldown counts, uptime and

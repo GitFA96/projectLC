@@ -24,6 +24,8 @@ import type {
 import { FightRows } from "@/components/performance/fight-rows";
 import { FightGraphPanel } from "@/components/performance/fight-graph";
 import { PerformanceTabs } from "@/components/performance/performance-tabs";
+import { SimPanel } from "@/components/performance/sim-panel";
+import { simConfigured } from "@/lib/sim/run";
 import { AttendanceWeeks } from "@/components/performance/attendance-weeks";
 import { GearTable } from "@/components/gear-table";
 import { SpecBadge } from "@/components/spec-badge";
@@ -106,6 +108,12 @@ export default async function PerformancePage({
   const repo = await getRepo();
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
+  // The saved wowsims setup is per character; the binary is a deployment
+  // setting. Both only gate the Sim tab, so neither blocks the page.
+  // Characters are addressed by lowercased name throughout the app.
+  const slug = perf.character.name.toLowerCase();
+  const simSettings = await repo.getSimSettings(slug);
+  const simReady = simConfigured();
   const { character, reports, career, attendance } = perf;
   const [items, enchants, bundle, guild] = await Promise.all([
     repo.listItems(),
@@ -538,6 +546,27 @@ export default async function PerformancePage({
                     kill: r.kill,
                     fightPercentage: r.fightPercentage,
                   }))}
+              />
+            }
+            sim={
+              <SimPanel
+                slug={slug}
+                configured={simReady}
+                hasSim={simSettings !== undefined}
+                pulls={perf.reports.flatMap((rep) =>
+                  rep.rows
+                    .filter((r) => r.kill)
+                    .map((r) => ({
+                      reportCode: r.reportCode,
+                      fightId: r.fightId,
+                      actorName: r.actorName,
+                      encounterName: r.encounterName,
+                      durationMs: r.durationMs,
+                      parsePercent: r.parsePercent,
+                      // The night the pull belongs to — the picker's other axis.
+                      raidDate: rep.report.startTime,
+                    })),
+                )}
               />
             }
           />

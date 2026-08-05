@@ -113,6 +113,12 @@ const combatantInfo = [
       { name: "Commanding Shout", ability: 469 },
     ],
     gear: gear({ 15: { temporaryEnchant: 2713 }, 0: { gems: [{ id: 24027, icon: "inv_jewelcrafting_livingruby_03.jpg" }, {}] } }),
+    // Points per tree, with the class icon repeated in every entry (as WCL sends it).
+    talents: [
+      { id: 33, icon: "inv_axe_02.jpg" },
+      { id: 28, icon: "inv_axe_02.jpg" },
+      { id: 0, icon: "inv_axe_02.jpg" },
+    ],
   },
   {
     timestamp: 100060,
@@ -239,6 +245,16 @@ describe("normalizeWclReport", () => {
     expect(result.rows).toHaveLength(6);
     expect(result.rows.every((r) => r.encounterId !== 0)).toBe(true);
     expect(result.rows.some((r) => r.actorName === "Wolfie")).toBe(false);
+  });
+
+  it("records the talent split as played, dropping the repeated class icon", () => {
+    expect(row(7, "Thrainn").talents).toEqual([33, 28, 0]);
+  });
+
+  it("leaves talents empty when the log didn't carry them", () => {
+    // Older reports have no talents field — that must read as "unknown build",
+    // not as an all-zero build that would compare equal to another unknown.
+    expect(row(7, "Pyrelia").talents).toEqual([]);
   });
 
   it("assigns roles and parses from the right rankings (healers on hps)", () => {
