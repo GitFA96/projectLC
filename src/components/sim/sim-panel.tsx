@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,16 +20,25 @@ import {
 import { bossOrder, raidOfBoss, raidOrder } from "@/lib/constants/wow";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  adoptSimSetting,
   resolveSimAbilities,
   runSimComparison,
-  saveSimSettings,
+  saveSimProfile,
   type AbilityLink,
   type SimComparisonResult,
-} from "@/app/characters/[name]/performance/sim-actions";
+} from "@/app/sim/actions";
 import type { SetupRow } from "@/lib/sim/setup";
 import type { TimedEvent } from "@/lib/sim/result";
 import type { ContextRow } from "@/lib/sim/context";
-import { RotationTimeline } from "@/components/performance/rotation-timeline";
+import type { SimPullView, StrandedSimSetting } from "@/lib/types";
+import type { IndividualSimSettings } from "@/lib/sim/request";
+import {
+  fingerprintsFromRows,
+  profileCheck,
+  type ProfileCheckRow,
+  type SpecFingerprintRow,
+} from "@/lib/sim/profile";
+import { RotationTimeline } from "@/components/sim/rotation-timeline";
 
 /**
  * One raider's pulls against their own wowsims setup.
@@ -68,12 +78,12 @@ function pullStats(p: SimPull): string {
 
 export type BrowseMode = "boss" | "night";
 
-interface PullGroup {
+interface PullGroup<T extends SimPull = SimPull> {
   key: string;
   label: string;
   /** Raid instance heading this group sits under; unset on the night axis. */
   section?: string;
-  pulls: SimPull[];
+  pulls: T[];
 }
 
 /**
@@ -86,8 +96,8 @@ interface PullGroup {
  * good and bad kills of one fight is what that axis is for; within a night,
  * pulls stay in the order they happened.
  */
-export function groupPulls(pulls: SimPull[], mode: BrowseMode): PullGroup[] {
-  const byKey = new Map<string, PullGroup>();
+export function groupPulls<T extends SimPull>(pulls: readonly T[], mode: BrowseMode): PullGroup<T>[] {
+  const byKey = new Map<string, PullGroup<T>>();
   for (const p of pulls) {
     const key = mode === "boss" ? p.encounterName : p.raidDate;
     const label = mode === "boss" ? p.encounterName : shortDate(p.raidDate);
@@ -122,8 +132,10 @@ export function groupPulls(pulls: SimPull[], mode: BrowseMode): PullGroup[] {
 }
 
 /** Consecutive groups sharing a section, for rendering one heading each. */
-export function sectionsOf(groups: PullGroup[]): { section?: string; groups: PullGroup[] }[] {
-  const out: { section?: string; groups: PullGroup[] }[] = [];
+export function sectionsOf<T extends SimPull>(
+  groups: PullGroup<T>[],
+): { section?: string; groups: PullGroup<T>[] }[] {
+  const out: { section?: string; groups: PullGroup<T>[] }[] = [];
   for (const g of groups) {
     const last = out[out.length - 1];
     if (last && last.section === g.section) last.groups.push(g);
@@ -588,36 +600,52 @@ function RotationSection({ result }: { result: Extract<SimComparisonResult, { st
   );
 }
 
-function SimSetup({
-  slug,
+function SpecSetup({
+  wowClass,
+  spec,
   configured,
-  hasSim,
+  hasProfile,
+  stranded,
 }: {
-  slug: string;
+  wowClass: string;
+  spec: string;
   configured: boolean;
-  hasSim: boolean;
+  hasProfile: boolean;
+  stranded: StrandedSimSetting[];
 }) {
   const [link, setLink] = React.useState("");
   const [msg, setMsg] = React.useState<{ ok: boolean; message: string } | null>(null);
   const [pending, start] = React.useTransition();
+  const router = useRouter();
 
   const save = (value: string) =>
     start(async () => {
-      const res = await saveSimSettings({ slug, link: value });
+      const res = await saveSimProfile({ wowClass, spec, link: value });
       setMsg(res);
-      if (res.ok) setLink("");
+      if (res.ok) {
+        setLink("");
+        router.refresh();
+      }
+    });
+
+  const adopt = (slug: string) =>
+    start(async () => {
+      const res = await adoptSimSetting({ wowClass, spec, slug });
+      setMsg(res);
+      if (res.ok) router.refresh();
     });
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">
-          {hasSim ? "Replace this raider's sim setup" : "Add a sim setup"}
+          {hasProfile ? `Replace the ${spec} setup` : `Add a ${spec} setup`}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          In wowsims, build the character and use <strong>Export → Link</strong>, then paste the
-          whole URL here. Gear, talents and fight length are taken from each logged pull instead, so
-          the setup only supplies the rotation, buffs and consumables you consider standard.{" "}
+          One setup per spec, shared by everyone who plays it. In wowsims, build the character and
+          use <strong>Export &rarr; Link</strong>, then paste the whole URL here. Gear, talents and
+          fight length come from each logged pull instead, so the setup only supplies the rotation,
+          buffs and consumables you consider standard for {spec} {wowClass}s.{" "}
           <a
             href="https://github.com/wowsims/tbc-new"
             target="_blank"
@@ -655,13 +683,45 @@ function SimSetup({
                 {pending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save setup
               </Button>
-              {hasSim && (
+              {hasProfile && (
                 <Button size="sm" variant="outline" disabled={pending} onClick={() => save("")}>
                   Remove
                 </Button>
               )}
             </div>
           </>
+        )}
+        {/*
+          Setups saved per raider before profiles existed. The unambiguous ones
+          were promoted automatically; these are the builds this guild's logs
+          name more than one way, where only an officer can say where they go.
+        */}
+        {stranded.length > 0 && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-2.5 text-xs text-sky-900">
+            <p className="font-medium">Saved setups from before spec profiles</p>
+            <ul className="mt-1.5 space-y-1">
+              {stranded.map((s) => (
+                <li key={s.slug} className="flex flex-wrap items-center gap-2">
+                  <span className="capitalize">{s.slug}</span>
+                  {s.build && <span className="tabular-nums text-sky-700">{s.build}</span>}
+                  {s.specs.length > 1 && (
+                    <span className="text-sky-700">
+                      logged as {s.specs.join(", ")} — which is why it wasn&apos;t placed for you
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6"
+                    disabled={pending}
+                    onClick={() => adopt(s.slug)}
+                  >
+                    Use for {spec}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {msg && (
           <p className={msg.ok ? "text-xs text-emerald-700" : "text-xs text-red-700"}>{msg.message}</p>
@@ -671,21 +731,98 @@ function SimSetup({
   );
 }
 
+/**
+ * What the shared setup assumes, against what this pull actually recorded.
+ *
+ * The cost of one setup per spec rather than one per raider: race, professions
+ * and the exact build stop being facts about the person being simmed and become
+ * assumptions. Stated here rather than buried, and never used to block a run —
+ * "what would he have done as Fury" is a question worth being able to ask.
+ */
+function ProfileCheckCard({ rows }: { rows: ProfileCheckRow[] }) {
+  if (rows.length === 0) return null;
+  const differing = rows.filter((r) => r.state === "differs").length;
+
+  return (
+    <div className="rounded-md border border-border">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="text-xs font-medium">This raider against the shared setup</span>
+        <span className="text-xs text-muted-foreground">
+          {differing === 0
+            ? "Nothing disagrees — the setup describes this pull."
+            : `${differing} disagreement${differing === 1 ? "" : "s"} — the comparison still runs, read it with these in mind.`}
+        </span>
+      </div>
+      <div className="grid gap-x-6 gap-y-1 px-3 py-2 sm:grid-cols-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline gap-2 text-xs" title={r.note}>
+            <span
+              className={`mt-px h-3 w-0.5 shrink-0 rounded-full ${
+                r.state === "match"
+                  ? "bg-emerald-500"
+                  : r.state === "differs"
+                    ? "bg-amber-500"
+                    : "bg-muted-foreground/30"
+              }`}
+            />
+            <span className="w-20 shrink-0 text-muted-foreground">{r.label}</span>
+            <span className="font-medium">{r.profile}</span>
+            <span className="text-muted-foreground">vs</span>
+            <span className={r.state === "differs" ? "font-medium text-amber-700" : ""}>
+              {r.logged}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SimPanel({
-  slug,
+  wowClass,
+  spec,
   pulls,
+  fingerprints,
+  stranded,
   configured,
-  hasSim,
+  hasProfile,
+  player,
+  profile,
 }: {
-  slug: string;
-  pulls: SimPull[];
+  wowClass: string;
+  spec: string;
+  pulls: SimPullView[];
+  fingerprints: SpecFingerprintRow[];
+  stranded: StrandedSimSetting[];
   configured: boolean;
-  hasSim: boolean;
+  hasProfile: boolean;
+  /** The raider chosen in the URL, if any — the page's own selection. */
+  player?: string;
+  /** The saved setup, for the pre-run check. Absent until one is pasted. */
+  profile?: IndividualSimSettings;
 }) {
+  const router = useRouter();
   const [mode, setMode] = React.useState<BrowseMode>("boss");
-  const [pick, setPick] = React.useState(pulls[0] ? pullId(pulls[0]) : "");
+  const mine = React.useMemo(
+    () => (player ? pulls.filter((p) => p.actorName === player) : []),
+    [pulls, player],
+  );
+  const [picked, setPick] = React.useState("");
   const [result, setResult] = React.useState<SimComparisonResult | null>(null);
   const [pending, start] = React.useTransition();
+
+  /*
+   * The chosen pull is DERIVED, not synced. Saving a setup refreshes the page
+   * and can change the pull list underneath a selection; resolving that during
+   * render means there is never a frame holding a pull this raider doesn't
+   * have. (Changing raider is a navigation, and the page remounts this
+   * component on it, which is what clears the previous comparison.)
+   */
+  const pick = mine.some((p) => pullId(p) === picked)
+    ? picked
+    : mine[0]
+      ? pullId(mine[0])
+      : "";
 
   /*
    * The selection is the pull itself, never the path taken to it — so flipping
@@ -693,8 +830,8 @@ export function SimPanel({
    * whatever is already chosen instead of resetting it. That's the whole point
    * of having both axes: they're two routes to the same thing.
    */
-  const groups = React.useMemo(() => groupPulls(pulls, mode), [pulls, mode]);
-  const chosen = pulls.find((p) => pullId(p) === pick);
+  const groups = React.useMemo(() => groupPulls(mine, mode), [mine, mode]);
+  const chosen = mine.find((p) => pullId(p) === pick);
   const activeGroup =
     (chosen && groups.find((g) => g.pulls.some((p) => pullId(p) === pick))) ?? groups[0];
 
@@ -704,13 +841,45 @@ export function SimPanel({
     if (group?.pulls[0]) setPick(pullId(group.pulls[0]));
   };
 
+  /** Raiders who played this spec, most kills first — the picker's first axis. */
+  const raiders = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of pulls) counts.set(p.actorName, (counts.get(p.actorName) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [pulls]);
+
+  /*
+   * The raider lives in the URL so a link one officer pastes at another opens on
+   * the same raider. The pull stays client state deliberately: it changes on
+   * every dropdown press and nothing rendered on the server depends on it.
+   */
+  const pickPlayer = (name: string) =>
+    router.replace(
+      `/sim/${encodeURIComponent(wowClass)}/${encodeURIComponent(spec)}?player=${encodeURIComponent(name)}`,
+    );
+
+  const check = React.useMemo(
+    () =>
+      profile && chosen
+        ? profileCheck({
+            settings: profile,
+            spec,
+            wowClass,
+            pull: chosen,
+            fingerprints: fingerprintsFromRows(fingerprints),
+          })
+        : [],
+    [profile, chosen, spec, wowClass, fingerprints],
+  );
+
   const run = () => {
     if (!chosen) return;
     setResult(null);
     start(async () => {
       setResult(
         await runSimComparison({
-          slug,
+          wowClass,
+          spec,
           reportCode: chosen.reportCode,
           fightId: chosen.fightId,
           actorName: chosen.actorName,
@@ -721,9 +890,17 @@ export function SimPanel({
 
   return (
     <div className="space-y-4">
-      {(!hasSim || !configured) && <SimSetup slug={slug} configured={configured} hasSim={hasSim} />}
+      {(!hasProfile || !configured) && (
+        <SpecSetup
+          wowClass={wowClass}
+          spec={spec}
+          configured={configured}
+          hasProfile={hasProfile}
+          stranded={stranded}
+        />
+      )}
 
-      {hasSim && configured && (
+      {hasProfile && configured && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Compare a pull against the sim</CardTitle>
@@ -748,7 +925,23 @@ export function SimPanel({
               ))}
             </div>
             <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-56 flex-1 space-y-1">
+              <div className="min-w-44 flex-1 space-y-1">
+                <Label className="text-xs">Raider</Label>
+                <Select value={player ?? ""} onValueChange={pickPlayer}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a raider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {raiders.map(([name, kills]) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                        <span className="ml-2 text-xs text-muted-foreground">{kills} kills</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-44 flex-1 space-y-1">
                 <Label className="text-xs">{mode === "boss" ? "Boss" : "Raid night"}</Label>
                 <Select value={activeGroup?.key ?? ""} onValueChange={pickGroup}>
                   <SelectTrigger>
@@ -771,7 +964,7 @@ export function SimPanel({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="min-w-56 flex-1 space-y-1">
+              <div className="min-w-44 flex-1 space-y-1">
                 <Label className="text-xs">{mode === "boss" ? "Kill" : "Boss"}</Label>
                 <Select value={pick} onValueChange={setPick}>
                   <SelectTrigger>
@@ -792,19 +985,42 @@ export function SimPanel({
                 Run comparison
               </Button>
             </div>
-            {pulls.length === 0 && (
+            {/* What the shared setup assumes about THIS raider, before it runs. */}
+            <ProfileCheckCard rows={check} />
+
+            {pulls.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No boss kills imported for this character yet.
+                No boss kills logged on this spec yet.
               </p>
+            ) : (
+              !player && (
+                <p className="text-sm text-muted-foreground">
+                  Pick a raider to compare — {raiders.length} played this spec.
+                </p>
+              )
             )}
           </CardContent>
         </Card>
       )}
 
       {result?.status === "not-configured" && (
-        <SimSetup slug={slug} configured={false} hasSim={hasSim} />
+        <SpecSetup
+          wowClass={wowClass}
+          spec={spec}
+          configured={false}
+          hasProfile={hasProfile}
+          stranded={stranded}
+        />
       )}
-      {result?.status === "no-sim" && <SimSetup slug={slug} configured={configured} hasSim={false} />}
+      {result?.status === "no-sim" && (
+        <SpecSetup
+          wowClass={wowClass}
+          spec={spec}
+          configured={configured}
+          hasProfile={false}
+          stranded={stranded}
+        />
+      )}
       {result?.status === "error" && (
         <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {result.message}

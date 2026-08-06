@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CircleAlert, CircleCheck, FileUp, Loader2, MoveRight, Pencil } from "lucide-react";
+import { CircleAlert, CircleCheck, ExternalLink, FileUp, Loader2, MoveRight, Pencil } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -971,7 +971,19 @@ function ImportedReportRow({
           <>
             <span className="text-sm font-medium">{r.title}</span>
             {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
-            <span className="ml-2 font-mono text-[11px] text-muted-foreground/60">{r.code}</span>
+            {/* The code doubles as the way out to the source report — this is
+                the page where an officer is already checking what got imported,
+                so "go look at the log itself" is one click, not a copy-paste. */}
+            <a
+              href={`https://classic.warcraftlogs.com/reports/${encodeURIComponent(r.code)}`}
+              target="_blank"
+              rel="noreferrer"
+              title={`Open ${r.code} on Warcraft Logs`}
+              className="ml-2 inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {r.code}
+              <ExternalLink className="h-2.5 w-2.5" />
+            </a>
             <button
               type="button"
               aria-label={`Rename ${r.title}`}

@@ -12,8 +12,14 @@ import {
   setReportConsumableAdjustments,
   getItemPriorityRules,
   getLootPriorityWeights,
+  getGuildRoster,
+  getRaidBoard,
   getReportConsumablePrices,
-  getSimSettings,
+  getTemplateBoard,
+  listGuildRosters,
+  getSimProfile,
+  listSimProfiles,
+  listStrandedSimSettings,
   getAbilities,
   getReportExcludedFights,
   insertAttendanceExemption,
@@ -30,8 +36,13 @@ import {
   mergeItems,
   setItemPriorityRule,
   setLootPriorityWeights,
+  setGuildRoster,
+  updateGuildRoster,
+  deleteGuildRoster,
+  setRaidBoard,
   setReportConsumablePrices,
-  setSimSettings,
+  setTemplateBoard,
+  setSimProfile,
   addAbilities,
   setReportExcludedFights,
   withTx,
@@ -864,6 +875,48 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     });
   },
 
+  /*
+   * The board writes are the only ones here that deliberately do NOT call
+   * bumpDataVersion, and the reason is worth stating because every neighbour
+   * does (change-chains §4).
+   *
+   * That bump exists to rebuild the derived read model. Nothing derived reads a
+   * board — every getter goes straight to the meta table, exactly like
+   * consumable prices — so a bump would rebuild the whole model (every pull row
+   * of every report) and change not one byte of the result. These boards
+   * autosave as an officer drags people around, which turns that from waste
+   * into lag.
+   *
+   * If a board ever starts feeding something derived, this stops being
+   * true and the bump has to come back.
+   */
+  async setRaidBoard(code, board) {
+    const db = getDb();
+    withTx(db, () => setRaidBoard(db, code, board));
+  },
+
+  async setTemplateBoard(board) {
+    const db = getDb();
+    withTx(db, () => setTemplateBoard(db, board));
+  },
+
+  async createGuildRoster(board) {
+    const db = getDb();
+    withTx(db, () => setGuildRoster(db, board));
+  },
+
+  /* Read-modify-write, inside the transaction: three controls edit three
+     different parts of one row. See updateGuildRoster in db.ts. */
+  async updateGuildRoster(id, patch) {
+    const db = getDb();
+    withTx(db, () => updateGuildRoster(db, id, patch));
+  },
+
+  async deleteGuildRoster(id) {
+    const db = getDb();
+    withTx(db, () => deleteGuildRoster(db, id));
+  },
+
   async addAbilities(abilities) {
     const db = getDb();
     let written = 0;
@@ -874,10 +927,10 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return written;
   },
 
-  async setSimSettings(slug, json) {
+  async setSimProfile(wowClass, spec, json) {
     const db = getDb();
     withTx(db, () => {
-      setSimSettings(db, slug, json);
+      setSimProfile(db, wowClass, spec, json);
       bumpDataVersion(db);
     });
   },
@@ -921,8 +974,71 @@ export function getSqliteRepo(): WriteRepo {
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
     // Prices live in the meta table, not the derived model — read them directly.
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
+    getRaidBoard: async (code) => getRaidBoard(getDb(), code),
+    getTemplateBoard: async () => getTemplateBoard(getDb()),
+    listGuildRosters: async () => listGuildRosters(getDb()),
+    getGuildRoster: async (id) => getGuildRoster(getDb(), id),
     getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
-    getSimSettings: async (slug) => getSimSettings(getDb(), slug),
+    /*
+     * The spec index is counted off the pull rows in the read model; whether a
+     * setup is saved for a spec lives in the meta table. Neither knows about the
+     * other, so the two are joined here — and a spec with a saved setup but no
+     * logged kills still has to appear, or a link pasted for a spec nobody has
+     * raided yet would vanish without explanation.
+     */
+    listSimSpecs: async () => {
+      const specs = await readModel().repo.listSimSpecs();
+      const saved = listSimProfiles(getDb());
+      const byKey = new Map(specs.map((s) => [`${s.wowClass}|${s.spec}`, s]));
+      for (const p of saved) {
+        const hit = byKey.get(`${p.wowClass}|${p.spec}`);
+        if (hit) hit.hasProfile = true;
+        else
+          byKey.set(`${p.wowClass}|${p.spec}`, {
+            wowClass: p.wowClass,
+            spec: p.spec,
+            hasProfile: true,
+            kills: 0,
+            raiders: [],
+          });
+      }
+      return [...byKey.values()].sort(
+        (a, b) => a.wowClass.localeCompare(b.wowClass) || a.spec.localeCompare(b.spec),
+      );
+    },
+    getSimSpec: async (wowClass, spec) => {
+      const db = getDb();
+      const profile = getSimProfile(db, wowClass, spec);
+      const detail = await readModel().repo.getSimSpec(wowClass, spec);
+      // A saved setup keeps its page reachable even before anyone raids the spec.
+      const base = detail ?? {
+        wowClass,
+        spec,
+        pulls: [],
+        fingerprints: [],
+        stranded: [],
+      };
+      if (!detail && profile === undefined) return null;
+      return {
+        ...base,
+        profile,
+        /*
+         * Setups from before spec profiles that no migration could place, shown
+         * on every spec their build has ever been called so the officer can
+         * adopt one where it belongs.
+         *
+         * One that IS already this profile drops out — the common case is the
+         * setup the migration promoted, and offering to adopt what is already
+         * saved reads as an unfinished step that can never be finished.
+         */
+        stranded: listStrandedSimSettings(db).filter(
+          (s) =>
+            s.wowClass === wowClass &&
+            s.json !== profile &&
+            (s.specs.length === 0 || s.specs.includes(spec)),
+        ),
+      };
+    },
     listPullRows: (code, fightId) => readModel().repo.listPullRows(code, fightId),
     listAbilities: async () => getAbilities(getDb()),
     getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),

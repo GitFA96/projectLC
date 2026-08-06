@@ -56,6 +56,10 @@ export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Kreeg's Stout Beatdown": { gold: 1, charges: 1 },
   "Eye of the Night": { gold: 30, charges: 5 },
   Enlightened: { gold: 5, charges: 1 },
+  /* Rogue-only, and not an auction-house staple the way a Haste Potion is —
+     priced at 0 rather than guessed at, on the same reasoning as the Unstable
+     Flasks. If this guild does buy them, a per-raid override is the answer. */
+  "Thistle Tea": { gold: 0, charges: 1 },
   /* Pet consumables — a hunter's pet is part of their damage. */
   "Kibler's Bits": { gold: 1, charges: 1 },
   "Pet Biscuit": { gold: 1, charges: 1 },

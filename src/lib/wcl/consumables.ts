@@ -301,6 +301,20 @@ export const TRACKED_CASTS: TrackedCast[] = [
   { id: 5405, name: "Mana Agate", category: "gem" },
   { id: 28726, name: "Nightmare Seed", category: "other" },
   /*
+   * Thistle Tea — a rogue's in-fight energy burst, spent to fund an Expose
+   * Armor or an extra finisher. The log calls it "Restore Energy", not the item
+   * name, so nothing but the id will catch it; probed from this guild's own
+   * reports (93 casts, every one from a rogue) rather than taken from memory.
+   *
+   * NOT category "potion", despite playing like one. Potions are audited as a
+   * RATE against the two-minute cooldown (see potionRow in sim/context.ts), and
+   * tea does not share that cooldown — the same rogue casts tea and a Haste
+   * Potion 0.2s apart in these logs. Counting it as a potion would let a rogue
+   * who drank two teas and skipped their damage potion read as "3 of 3 the
+   * fight allowed". As "other" it is still counted, listed and priced.
+   */
+  { id: 9512, name: "Thistle Tea", category: "other" },
+  /*
    * Pet food. A hunter buffing their pet is preparation the raid benefits from
    * — the pet is a chunk of their damage — but it's cast ON the pet, so it
    * would otherwise be invisible next to the hunter's own consumables.

@@ -158,7 +158,10 @@ export function describeSetup(input: {
         .filter(Boolean)
         .join(" · ") || "default",
       detail: armor === undefined ? "armour not set" : `${armor.toLocaleString("en-US")} armour`,
-      note: "Armour decides how much of a melee hit lands — the single biggest lever on a physical sim.",
+      // Stated as what armour does rather than as what it's worth: it is the
+      // biggest lever on a physical sim and none at all on a caster's, and this
+      // row is now read on every spec's page.
+      note: "Armour reduces the physical damage the target takes; spell damage ignores it entirely.",
       state: "single",
     },
     {

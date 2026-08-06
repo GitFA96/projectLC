@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { lanesOf, ticksOf, type TimelineTrack } from "@/components/performance/rotation-timeline";
+import { lanesOf, ticksOf, type TimelineTrack } from "@/components/sim/rotation-timeline";
 
 const track = (label: string, tone: "log" | "sim", names: string[]): TimelineTrack => ({
   label,

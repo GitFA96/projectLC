@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bloodFrenzyEvidence } from "@/lib/sim/inference";
+import { bloodFrenzyEvidence, modelsBloodFrenzy } from "@/lib/sim/inference";
 import type { WclPlayerFight } from "@/lib/types";
 import type { DebuffUpkeep } from "@/lib/wcl/fight-upkeep";
 
@@ -95,5 +95,33 @@ describe("bloodFrenzyEvidence", () => {
       kind: "no-bleed",
       by: "Dëltâ",
     });
+  });
+});
+
+describe("modelsBloodFrenzy", () => {
+  /*
+   * The gate that keeps a warrior question off every other class's bill. The
+   * audit only ever rendered a Blood Frenzy row for a sim that models it, but
+   * the Warcraft Logs query behind it ran regardless — so a warlock comparison
+   * spent a round trip measuring two warrior bleeds and then discarded the
+   * answer.
+   */
+  it("is on for a sim that was given the debuff", () => {
+    expect(modelsBloodFrenzy({ debuffs: { bloodFrenzy: true } })).toBe(true);
+  });
+
+  it("is off for a caster's sim, which has no reason to model it", () => {
+    expect(modelsBloodFrenzy({ debuffs: { misery: true, curseOfElements: true } })).toBe(false);
+  });
+
+  it("is off for a sim with no debuff block at all", () => {
+    expect(modelsBloodFrenzy({})).toBe(false);
+  });
+
+  it("reads wowsims' tristate strings the way the audit does", () => {
+    // The same wording enabled() accepts in sim/context, so the row and the
+    // query can never disagree about whether the sim modelled it.
+    expect(modelsBloodFrenzy({ debuffs: { bloodFrenzy: "TristateEffectRegular" } })).toBe(true);
+    expect(modelsBloodFrenzy({ debuffs: { bloodFrenzy: "TristateEffectMissing" } })).toBe(false);
   });
 });

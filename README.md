@@ -130,6 +130,10 @@ Expand any boss row for that pull's detail.
 - **Attendance** — a per-reset check (one dot per raid week the guild logged),
   with excused absences an officer can mark.
 
+The sim comparison used to be a tab here; it lives at [`/sim`](#sim-sim) now,
+because a wowsims setup describes a spec rather than a person. The header keeps a
+**Sim** button that opens it with this raider already chosen.
+
 ## Raid logs `/logs`
 
 One raid night at a time, or **All raids** ranked, in three tabs.
@@ -144,9 +148,111 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   usage, and a worst-first improvements list.
 - **Rankings** — the whole raid as parse boards, one table per role, a column per
   boss kill, switchable between all-damage and boss-only.
+- **Groups** — which groups *this* night was run in, seeded with everyone the
+  log caught on a pull, and saved against this raid alone. Warcraft Logs records
+  no group assignments, so it's the officer's record rather than an import — but
+  the log gives some of it away, and **Suggest from log** offers what it gives.
+  Same board as [`/raid-planner`](#raid-planner-raid-planner), editing the same
+  record.
 - **Gold spent** — the night priced, with editable per-raid consumable prices and
   **manual adjustments**: add or remove uses the log got wrong, each logged with
   a reason and undoable, flowing through to every other gold figure.
+
+## Raid planner `/raid-planner`
+
+Eight groups of five, a bench, and what each arrangement actually buys. TBC pays
+for grouping — shouts, totems, Bloodlust and a shadow priest's mana all stop at
+the party line — so who stands where is a decision, and this is the page that
+shows it changing as you drag.
+
+Two tabs. **Rosters & raids** is about people and opens first; **Template** is
+about classes. Which board is open lives in `?board=` — `template`,
+`roster:<id>`, or a raid's report code.
+
+### Rosters & raids
+
+Your own raiders, in two forms.
+
+**Rosters** are named boards built from the guild roster — mains and alts. Make
+as many as you run: a main team, a split's second group, next Wednesday. Each is
+renamed in place and owns its own arrangement.
+
+The bench splits into **Mains**, **Alts** and **Trials**, because those are three
+different questions, and each section is **grouped by class** — a raid is read as
+"how many shamans have we got", so the shamans sit together. It is the order the
+pool is built in, so the bench and **Fill in order** can never disagree.
+
+On a roster you can also add **trials** — a name, optionally a class, spec and
+role, for somebody who isn't on the roster yet. They seat and buff like anyone
+else, so you can see whether a second resto shaman actually fixes group four
+before recruiting one, and they're drawn with a dashed border so a board held
+together by people who don't exist can't read as solved. They live on the board
+that invented them and **never become characters**: a trial who has never raided
+must not turn up in attendance or loot priority.
+
+**Raid nights** are the other half: who really stood where, pooled from the log
+with the spec each of them played, saved against that raid alone.
+
+### Template
+
+Designs the *shape*: classes and specs, as many of each as the raid needs, saved
+once for the guild. It is deliberately not built from named raiders — a plan
+pinned to people goes stale the moment somebody can't come, and "two shadow
+priests with the casters" is the decision actually being made. Any slot can be
+renamed, so "Feral" can be filed as "OT Bear".
+
+**Share plan** puts the whole board in a link — groups, their names, every
+slot's label, and the bench. Whoever opens it sees exactly what you sent and
+nothing of theirs is touched: a shared board doesn't save until they press
+**Save as our plan**.
+
+### Both
+
+Every board moves people identically, and on every one you can **name a group**
+and **add** one. Each group header carries two controls that are deliberately
+different: the **trash** left of the count *empties* it — everyone in it goes to
+the bench, the group and its name stay — and the **✕** on the right *deletes*
+the group outright. What differs between boards is where slots come from: the
+template invents archetypes, a roster invents trials, and a raid night invents
+nothing at all, because a twenty-sixth raider on a night that fielded
+twenty-five would make the record a fiction.
+
+Click someone on the bench and they take the first free slot; arrows order them
+inside a group and carry on into the next one at the edges. Drop a raider **onto
+another raider** and the group makes room: with a free slot they slide in above
+and everyone below moves down one; with the group full the two **swap**, because
+the only way into a full group is for somebody to come out. The board says which
+it will be before you let go.
+
+A raider with more than one spec has a **spec icon you can click** — count the
+shadow priest as Holy and watch what the group loses.
+
+Every buff reads in one of three states, and the third one is the point:
+*covered*, *missing*, or **unconfirmed** — either the right class is standing
+there with nothing confirming the talent, or it's one they have to choose
+between. One shaman is one totem per element, not eight.
+
+Where the log can settle it, it does. A buff the log caught someone providing
+counts as brought, whatever the roster says — which is how a jewelcrafting neck,
+which no class predicts, gets counted at all.
+
+**Everything saves itself.** The board writes as you arrange it, so closing the
+tab or reopening the project brings back exactly what you left. **Every board
+owns its own record** — pick a raid and you're editing that raid's, the same one
+the Groups tab on `/logs` shows; pick a roster and you're editing that roster's.
+Switching never carries an arrangement across, because one night's record
+overwriting another's is exactly the history this app exists to keep. The
+template keeps a board of its own and also mirrors into the URL, so a plan is a
+link as well.
+
+**Undo** steps back through the changes you've made, one at a time, and the
+undone board saves itself like any other — so "saved" never means "final".
+Renaming a group undoes as one edit rather than letter by letter. It reaches
+back to how the board opened, and no further: a reload starts a fresh session.
+
+Deleting a roster is the one thing Undo can't take back, since the board it
+lived on goes with it. It's allowed — a plan for a raid that hasn't happened
+isn't history — behind a confirm.
 
 ## Fight graph `/fight-graph`
 
@@ -154,6 +260,35 @@ Pick a (player, raid, pull) — or two — and overlay DPS, cooldown and consuma
 usage, boss health and buff windows on one time axis. Graph data is fetched live
 per view, so this is the one page that talks to Warcraft Logs while you're
 looking at it.
+
+## Sim `/sim`
+
+What perfect play would have produced on a pull that actually happened — the
+raider's own gear, talents and kill time, run through
+[wowsims](https://github.com/wowsims/tbc-new).
+
+Entered by **class and spec**, not by raider: a wowsims export describes a spec's
+rotation, buffs and consumables, and almost nothing about the person, since
+everything personal comes from the pull. So one setup is pasted per spec, and any
+raider who played it can be run against it — pick the spec, then the raider, the
+boss and the night.
+
+- **The pre-run check** states what the shared setup assumes against what the log
+  recorded for that pull — class, spec, build, race, professions — and flags the
+  disagreements without blocking the run. "What would he have done as Fury" is a
+  question worth being able to ask.
+- **The context audit comes before the DPS numbers**, deliberately: a gap
+  explained by a raid buff nobody brought is not a rotation problem.
+- **What the logs say** ranks the differences by the damage behind them, and
+  **Rotation** breaks down casts, damage, a timeline and an action-by-action
+  event log for both sides.
+
+Specs are read off the pulls themselves — boss kills only, since a wipe has no
+number worth comparing. Where Warcraft Logs left a kill unlabelled, the build
+recovers the spec using the naming the logs supplied on pulls they did label; the
+app never maps a talent tree to a spec name on its own, and it says so when a
+build has been logged under more than one name. Needs `wowsimcli` on disk
+(`WOWSIMCLI_PATH`); setups can be pasted without it, but nothing runs.
 
 ## Compare `/compare`
 

@@ -19,6 +19,32 @@ export type WowClass = (typeof WOW_CLASSES)[number];
 export const ROLES = ["Tank", "Healer", "Melee DPS", "Ranged DPS"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * The three talent trees of each TBC class — the palette a board is
+ * planned from.
+ *
+ * Structural, not editorial: these are the trees the game ships, not a judgement
+ * about how anyone plays them. What a spec is *for* is deliberately absent —
+ * Feral is a tank or a cat and Protection Paladin is a tank or nothing, and this
+ * app does not get to decide which. The planner lets an officer rename a slot
+ * ("Feral" filed as "OT Bear") precisely so that call stays theirs.
+ *
+ * The guild's own logs are layered on top of this at read time, so the spec
+ * names Warcraft Logs actually emits for this guild — Warden, Justicar, Feral
+ * Tank — appear alongside without being invented here.
+ */
+export const CLASS_SPECS: Record<WowClass, string[]> = {
+  Druid: ["Balance", "Feral", "Restoration"],
+  Hunter: ["Beast Mastery", "Marksmanship", "Survival"],
+  Mage: ["Arcane", "Fire", "Frost"],
+  Paladin: ["Holy", "Protection", "Retribution"],
+  Priest: ["Discipline", "Holy", "Shadow"],
+  Rogue: ["Assassination", "Combat", "Subtlety"],
+  Shaman: ["Elemental", "Enhancement", "Restoration"],
+  Warlock: ["Affliction", "Demonology", "Destruction"],
+  Warrior: ["Arms", "Fury", "Protection"],
+};
+
 export const QUALITIES = [
   "poor",
   "common",
@@ -275,6 +301,27 @@ export const CLASS_TEXT_COLORS: Record<WowClass, string> = {
   Warlock: "#5B5BD6",
   Warrior: "#8A6A3F",
 };
+
+/**
+ * Class colors as a faint background wash, for panels and chips.
+ *
+ * `CLASS_COLORS` at low alpha for eight of the nine. **Priest is the exception**:
+ * its canonical color is pure white, which washes out to the page it sits on —
+ * a blank panel in a row of tinted ones reads as a rendering fault rather than
+ * as "priest". It borrows the same slate the priest text color comes from. The
+ * canonical color is left alone; it is right everywhere it's used at full
+ * strength.
+ */
+export const CLASS_TINT_COLORS: Record<WowClass, string> = {
+  ...CLASS_COLORS,
+  Priest: "#94A3B8",
+};
+
+/** `CLASS_TINT_COLORS` as a CSS color, or undefined for a class we don't know. */
+export const classTint = (wowClass: string | undefined, alpha = "1f"): string | undefined =>
+  wowClass && wowClass in CLASS_TINT_COLORS
+    ? `${CLASS_TINT_COLORS[wowClass as WowClass]}${alpha}`
+    : undefined;
 
 /** Canonical quality colors — for icon rings and accents. */
 export const QUALITY_COLORS: Record<Quality, string> = {

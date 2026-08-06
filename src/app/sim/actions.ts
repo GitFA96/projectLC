@@ -19,6 +19,7 @@ import {
   type SimContextAudit,
 } from "@/lib/sim/context";
 import { buildRaidSimRequest, talentWarning, type IndividualSimSettings } from "@/lib/sim/request";
+import { classOfSettings } from "@/lib/sim/profile";
 import {
   parseSimEvents,
   representativeRun,
@@ -33,7 +34,7 @@ import { findings, findingsHeadline, type Finding } from "@/lib/sim/findings";
 import { SimError, decodeSimLink, runSim, simConfigured } from "@/lib/sim/run";
 import { fetchFightCasts } from "@/lib/wcl/fight-casts";
 import { fetchFightDebuffUptime, fetchPlayerAuras } from "@/lib/wcl/fight-upkeep";
-import { BLOOD_FRENZY_BLEEDS, bloodFrenzyEvidence } from "@/lib/sim/inference";
+import { BLOOD_FRENZY_BLEEDS, bloodFrenzyEvidence, modelsBloodFrenzy } from "@/lib/sim/inference";
 import { fetchReportAbilities } from "@/lib/wcl/fight-graph";
 import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import { WclError } from "@/lib/wcl/client";
@@ -56,7 +57,8 @@ import {
  */
 
 const runSchema = z.object({
-  slug: z.string().min(1),
+  wowClass: z.string().min(1),
+  spec: z.string().min(1),
   reportCode: z.string().min(1),
   fightId: z.number().int().nonnegative(),
   actorName: z.string().min(1),
@@ -105,7 +107,8 @@ export type SimComparisonResult =
   | { status: "error"; message: string };
 
 export async function runSimComparison(input: {
-  slug: string;
+  wowClass: string;
+  spec: string;
   reportCode: string;
   fightId: number;
   actorName: string;
@@ -114,33 +117,40 @@ export async function runSimComparison(input: {
   if (!parsed.success) return { status: "error", message: "Invalid request." };
   if (!simConfigured()) return { status: "not-configured" };
 
-  const { slug, reportCode, fightId, actorName } = parsed.data;
+  const { wowClass, spec, reportCode, fightId, actorName } = parsed.data;
   const repo = await getRepo();
 
-  const raw = await repo.getSimSettings(slug);
-  if (!raw) return { status: "no-sim" };
+  const detail = await repo.getSimSpec(wowClass, spec);
+  if (!detail?.profile) return { status: "no-sim" };
   let settings: IndividualSimSettings;
   try {
-    settings = JSON.parse(raw) as IndividualSimSettings;
+    settings = JSON.parse(detail.profile) as IndividualSimSettings;
   } catch {
-    return { status: "error", message: "This character's saved sim setup is unreadable — paste the link again." };
+    return {
+      status: "error",
+      message: `The saved setup for ${wowClass} · ${spec} is unreadable — paste the link again.`,
+    };
   }
 
-  const performance = await repo.getCharacterPerformance(slug);
-  const rows = performance?.reports.flatMap((r) => r.rows) ?? [];
-  const pull = rows.find((r) => r.reportCode === reportCode && r.fightId === fightId);
+  /*
+   * The pull row is read from every player's rows for that fight, not from the
+   * chosen raider's performance page. A spec profile is pointed at whoever
+   * played the spec — including names that match no roster character, which the
+   * per-character read could never return.
+   */
+  const pullRows = await repo.listPullRows(reportCode, fightId);
+  const pull = pullRows.find((r) => r.actorName === actorName);
   if (!pull) return { status: "error", message: "That pull is no longer in the imported data." };
 
   /*
-   * Every raider on the pull, not just this one.
+   * `pullRows` above is every raider on the pull, not just this one — a raid
+   * debuff is recorded against whoever applied it and a party buff against its
+   * provider, so filtering to one character's rows answers neither.
    *
-   * A raid debuff is recorded against whoever applied it and a party buff
-   * against its provider, so filtering this character's own rows answers
-   * neither — it silently reported the whole raid's debuff kit as untracked.
+   * What this report was actually asked for — see TrackCoverage in sim/context.
    */
-  const pullRows = await repo.listPullRows(reportCode, fightId);
-  /* What this report was actually asked for — see TrackCoverage in sim/context. */
-  const importedTracks = performance?.reports.find((r) => r.report.code === reportCode)?.report.upkeepTracks;
+  const reports = await repo.listWclReports();
+  const importedTracks = reports.find((r) => r.report.code === reportCode)?.report.upkeepTracks;
 
   try {
     const cached = await repo.listAbilities();
@@ -150,10 +160,17 @@ export async function runSimComparison(input: {
        * Blood Frenzy is not in the combat log, so it has to be reasoned out of
        * the bleeds that carry it. Fetched live rather than tracked at import,
        * which means every already-imported report answers it — see fight-upkeep.
+       *
+       * Asked ONLY when this spec's sim actually models the debuff. The audit
+       * has always been driven by what a given sim models, but the query wasn't:
+       * every warlock and priest comparison was paying a round trip to Warcraft
+       * Logs for two warrior bleeds whose answer it would then discard.
        */
-      fetchFightDebuffUptime(reportCode, fightId, BLOOD_FRENZY_BLEEDS).catch(
-        () => [] as Awaited<ReturnType<typeof fetchFightDebuffUptime>>,
-      ),
+      modelsBloodFrenzy(settings)
+        ? fetchFightDebuffUptime(reportCode, fightId, BLOOD_FRENZY_BLEEDS).catch(
+            () => [] as Awaited<ReturnType<typeof fetchFightDebuffUptime>>,
+          )
+        : Promise.resolve([] as Awaited<ReturnType<typeof fetchFightDebuffUptime>>),
       /*
        * Every buff this raider carried. The stored upkeep tracks only cover
        * auras a player is responsible for, so blessings, drums and Heroism
@@ -227,7 +244,7 @@ export async function runSimComparison(input: {
      * responses, and one of those poisoned the overview cache and made a fight
      * that plainly exists report as missing.
      */
-    for (const code of (performance?.reports ?? []).map((r) => r.report.code)) {
+    for (const code of reports.map((r) => r.report.code)) {
       if (code === reportCode) continue;
       if (simActionRefs(result, names).every((r) => names[refKey(r.ref)])) break;
       const dictionary = await fetchReportAbilities(code).catch(() => ({}) as Record<number, string>);
@@ -424,21 +441,44 @@ export async function resolveSimAbilities(input: {
   }
 }
 
-const saveSchema = z.object({ slug: z.string().min(1), link: z.string().trim() });
+const saveSchema = z.object({
+  wowClass: z.string().min(1),
+  spec: z.string().min(1),
+  link: z.string().trim(),
+});
 
-/** Save (or clear, with an empty link) a character's wowsims setup. */
-export async function saveSimSettings(input: {
-  slug: string;
+/**
+ * Both the spec page and the index, in one call.
+ *
+ * The index is prerendered and carries each spec's "setup saved" badge, so
+ * revalidating only the page that was edited leaves the grid claiming a spec has
+ * no setup right after one was pasted into it.
+ */
+const refreshSim = () => refreshAfterWrite("/sim", "layout");
+
+/**
+ * Save (or clear, with an empty link) one spec's wowsims setup.
+ *
+ * The export states its own class, so a Warrior link pasted onto the Shaman page
+ * is refused outright rather than saved and puzzled over later — that is the one
+ * mismatch which makes every number downstream meaningless. Everything softer
+ * (spec, build, race, professions) is reported by the pre-run check instead,
+ * because an officer may legitimately want to sim a build nobody played.
+ */
+export async function saveSimProfile(input: {
+  wowClass: string;
+  spec: string;
   link: string;
 }): Promise<{ ok: boolean; message: string }> {
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid input." };
+  const { wowClass, spec, link } = parsed.data;
   const repo = await getWriteRepo();
 
-  if (!parsed.data.link) {
-    await repo.setSimSettings(parsed.data.slug, undefined);
-    refreshAfterWrite(`/characters/${parsed.data.slug}/performance`);
-    return { ok: true, message: "Sim setup removed." };
+  if (!link) {
+    await repo.setSimProfile(wowClass, spec, undefined);
+    refreshSim();
+    return { ok: true, message: `Setup removed from ${wowClass} · ${spec}.` };
   }
   if (!simConfigured()) {
     return {
@@ -448,11 +488,49 @@ export async function saveSimSettings(input: {
     };
   }
   try {
-    const json = await decodeSimLink(parsed.data.link);
-    await repo.setSimSettings(parsed.data.slug, json);
-    refreshAfterWrite(`/characters/${parsed.data.slug}/performance`);
-    return { ok: true, message: "Sim setup saved from the link." };
+    const json = await decodeSimLink(link);
+    const stated = classOfSettings(JSON.parse(json) as IndividualSimSettings);
+    if (stated && stated !== wowClass) {
+      return {
+        ok: false,
+        message: `That link is a ${stated} setup, and this is the ${wowClass} · ${spec} profile. Save it under ${stated} instead.`,
+      };
+    }
+    await repo.setSimProfile(wowClass, spec, json);
+    refreshSim();
+    return { ok: true, message: `Setup saved for ${wowClass} · ${spec}.` };
   } catch (e) {
     return { ok: false, message: e instanceof SimError ? e.message : "Could not read that link." };
   }
+}
+
+const adoptSchema = z.object({
+  wowClass: z.string().min(1),
+  spec: z.string().min(1),
+  slug: z.string().min(1),
+});
+
+/**
+ * Adopt a per-character setup left over from before spec profiles.
+ *
+ * Those were promoted automatically wherever the build resolved to exactly one
+ * spec. What reaches this action is the remainder: builds this guild's logs name
+ * more than one way — 0/44/17 is Feral, Guardian *and* Warden — where only the
+ * officer can say which profile it belongs in.
+ */
+export async function adoptSimSetting(input: {
+  wowClass: string;
+  spec: string;
+  slug: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const parsed = adoptSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Invalid input." };
+  const { wowClass, spec, slug } = parsed.data;
+  const repo = await getWriteRepo();
+  const detail = await repo.getSimSpec(wowClass, spec);
+  const stranded = detail?.stranded.find((s) => s.slug === slug);
+  if (!stranded) return { ok: false, message: "That saved setup is no longer available." };
+  await repo.setSimProfile(wowClass, spec, stranded.json);
+  refreshSim();
+  return { ok: true, message: `${slug}'s saved setup is now the ${wowClass} · ${spec} profile.` };
 }

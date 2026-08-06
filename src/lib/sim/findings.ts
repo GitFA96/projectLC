@@ -57,6 +57,29 @@ const RATE_NOISE = 0.5;
 /** Damage worth a sentence: below this it's a rounding error on a raid night. */
 const DAMAGE_FLOOR = 5_000;
 
+/**
+ * Above this many a minute, nobody pressed it.
+ *
+ * The TBC global cooldown is 1.5 seconds, so forty actions a minute is the
+ * ceiling on anything a player chooses — beyond it you are looking at a bleed
+ * ticking, a proc, or a weapon swinging, all of which wowsims emits as actions
+ * and none of which is a button.
+ *
+ * This exists because the curated passive list in sim/result.ts is per class and
+ * says so, and an uncurated spec had no protection at all: the first shaman or
+ * warlock comparison would have opened with "Lightning Overload: 0.0 vs 52.4 per
+ * minute — that's 180k less damage than the sim got from it", which is an
+ * accusation about a passive nobody can press. A rule derived from the global
+ * cooldown covers every class at once and can't rot, where a list of ids has to
+ * be extended before each new spec is safe to look at.
+ */
+const GCD_CEILING_PER_MIN = 40;
+
+/** Only when the log also has no cast events for it — see isNotADecision. */
+function isNotADecision(a: AbilityDelta): boolean {
+  return a.bPerMin > GCD_CEILING_PER_MIN && (a.aCasts === 0 || a.aEstimated === true);
+}
+
 const pretty = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n));
 
@@ -98,8 +121,9 @@ export function findings(input: FindingsInput): Finding[] {
    * (a shout, a stance) is noise; a small gap on the hardest-hitting ability
    * is not.
    */
+  const passives = abilities.filter(isNotADecision);
   const byImpact = abilities
-    .filter((a) => Math.abs(a.perMinDelta) >= RATE_NOISE)
+    .filter((a) => Math.abs(a.perMinDelta) >= RATE_NOISE && !isNotADecision(a))
     .map((a) => {
       const gap = (a.bDamage ?? 0) - (a.aDamage ?? 0);
       return { a, gap };
@@ -126,11 +150,24 @@ export function findings(input: FindingsInput): Finding[] {
    */
   for (const a of abilities) {
     if (a.aCasts > 0 || a.bCasts <= 0 || (a.bDamage ?? 0) < DAMAGE_FLOOR) continue;
+    if (isNotADecision(a)) continue;
     if (out.some((f) => f.text.startsWith(`${a.name}:`))) continue;
     out.push({
       kind: "rotation",
       damage: a.bDamage,
       text: `${a.name} was never used — the sim got ${pretty(a.bDamage ?? 0)} out of it.`,
+    });
+  }
+
+  /*
+   * 5. Say what was set aside, rather than dropping it silently. Left out
+   * entirely, an officer reading a shorter list has no way to tell "the rotation
+   * was clean" from "the tool ignored the biggest row on screen".
+   */
+  if (passives.length > 0) {
+    out.push({
+      kind: "rotation",
+      text: `${passives.map((a) => a.name).join(", ")} ${passives.length === 1 ? "is" : "are"} above one action every 1.5s, so ${passives.length === 1 ? "it isn't" : "they aren't"} something anyone presses — a proc, a tick or a weapon swing. Counted in the damage column, left out of the rotation findings.`,
     });
   }
 

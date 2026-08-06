@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { ArrowLeft, Check, ExternalLink, X } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, FlaskConical, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
@@ -24,8 +24,6 @@ import type {
 import { FightRows } from "@/components/performance/fight-rows";
 import { FightGraphPanel } from "@/components/performance/fight-graph";
 import { PerformanceTabs } from "@/components/performance/performance-tabs";
-import { SimPanel } from "@/components/performance/sim-panel";
-import { simConfigured } from "@/lib/sim/run";
 import { AttendanceWeeks } from "@/components/performance/attendance-weeks";
 import { GearTable } from "@/components/gear-table";
 import { SpecBadge } from "@/components/spec-badge";
@@ -108,12 +106,6 @@ export default async function PerformancePage({
   const repo = await getRepo();
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
-  // The saved wowsims setup is per character; the binary is a deployment
-  // setting. Both only gate the Sim tab, so neither blocks the page.
-  // Characters are addressed by lowercased name throughout the app.
-  const slug = perf.character.name.toLowerCase();
-  const simSettings = await repo.getSimSettings(slug);
-  const simReady = simConfigured();
   const { character, reports, career, attendance } = perf;
   const [items, enchants, bundle, guild] = await Promise.all([
     repo.listItems(),
@@ -169,6 +161,23 @@ export default async function PerformancePage({
           </span>
         }
       >
+        {/*
+          The sim lives in its own section now, keyed by class and spec rather
+          than by raider — this is a shortcut into it with this raider already
+          chosen. Their logged spec wins over the roster's: the sim compares
+          against pulls, and a pull is whatever they actually played.
+        */}
+        {(career?.spec ?? character.spec) && (
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={`/sim/${encodeURIComponent(character.class)}/${encodeURIComponent(
+                career?.spec ?? character.spec!,
+              )}?player=${encodeURIComponent(character.name)}`}
+            >
+              <FlaskConical className="h-3.5 w-3.5" /> Sim
+            </Link>
+          </Button>
+        )}
         <Button asChild variant="outline" size="sm">
           <Link href={`/characters/${encodeURIComponent(character.name.toLowerCase())}`}>
             <ArrowLeft className="h-3.5 w-3.5" /> Profile
@@ -546,27 +555,6 @@ export default async function PerformancePage({
                     kill: r.kill,
                     fightPercentage: r.fightPercentage,
                   }))}
-              />
-            }
-            sim={
-              <SimPanel
-                slug={slug}
-                configured={simReady}
-                hasSim={simSettings !== undefined}
-                pulls={perf.reports.flatMap((rep) =>
-                  rep.rows
-                    .filter((r) => r.kill)
-                    .map((r) => ({
-                      reportCode: r.reportCode,
-                      fightId: r.fightId,
-                      actorName: r.actorName,
-                      encounterName: r.encounterName,
-                      durationMs: r.durationMs,
-                      parsePercent: r.parsePercent,
-                      // The night the pull belongs to — the picker's other axis.
-                      raidDate: rep.report.startTime,
-                    })),
-                )}
               />
             }
           />

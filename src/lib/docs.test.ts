@@ -159,7 +159,13 @@ describe("per-report settings use the meta-key convention", () => {
   it("keeps every documented key in the data layer", () => {
     const db = readFileSync(path.join(root, "src/lib/data/db.ts"), "utf8");
     const chains = readFileSync(path.join(root, "docs/change-chains.md"), "utf8");
-    for (const key of ["consumable_prices", "excluded_fights", "consumable_adjustments"]) {
+    for (const key of [
+      "consumable_prices",
+      "excluded_fights",
+      "consumable_adjustments",
+      "raid_board",
+      "guild_roster",
+    ]) {
       expect(db, `meta key ${key} vanished from db.ts`).toContain(`${key}:`);
       expect(chains, `meta key ${key} is missing from the change-chains table`).toContain(key);
     }

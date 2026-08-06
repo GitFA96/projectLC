@@ -88,7 +88,108 @@ namespaced key. The ones that exist:
 | `consumable_prices:<code>` | `setReportConsumablePrices` |
 | `excluded_fights:<code>` | `setReportExcludedFights` |
 | `consumable_adjustments:<code>` | `setReportConsumableAdjustments` |
+| `raid_board:<code>` | `setRaidBoard` |
+| `template_board` | `setTemplateBoard` (guild-wide, no suffix) |
+| `guild_roster:<id>` | `setGuildRoster` / `updateGuildRoster` (one row per named roster) |
 | `loot_priority_weights` | `setLootPriorityWeights` (guild-wide, no suffix) |
+| `sim_profile:<class>:<spec>` | `setSimProfile` (not per report — per class and spec) |
+
+**`raid_board:<code>` is the one per-report setting that is not a correction to
+something derived.** Warcraft Logs records no group assignments at all, so a
+night's groups exist only if an officer wrote them down — there is nothing for
+the import to fill in and nothing for a refetch to overwrite. Four things to
+know before you touch it:
+
+- A board is **scoped to its raid and nothing else.** The template and each
+  guild roster save to their own keys, and switching pools never carries an
+  arrangement across — otherwise one night's record would overwrite another's on
+  the next save.
+- **A slot's identity is its `id`, falling back to its name.** A raid night's
+  slots are people, so the name *is* the identity and `id` stays absent; the
+  template's are class/spec archetypes, and a raid wants three Resto Druids, so
+  those carry ids. Everything that moves a slot keys on `slotKey`, which is why
+  both boards run through one set of tested primitives. Deduping by name in a
+  new code path would silently collapse the template's twins.
+- **Two encodings, and they are not interchangeable.** `encodePlan`/`decodePlan`
+  is the shareable `?plan=` token — the whole board, base64url'd, with slot ids
+  minted fresh on read rather than transmitted. `boardFingerprint` is what
+  autosave keys on, and it never appears in a URL: it hashes ids and labels,
+  which `encodePlan` deliberately drops. Reaching for the wrong one either
+  leaks private ids into a link or leaves an officer renaming a group and
+  watching "Saved" never move.
+- **A board opened from `?plan=` must not autosave.** The recipient has a plan
+  of their own; overwriting it the first time they nudge a slot is the worst
+  possible way for them to find out. The board takes a `shared` prop and waits
+  for "Save as our plan".
+- **The board writes are the only ones that skip `bumpDataVersion`**, and
+  the exception is deliberate: nothing derived reads a board (both getters go
+  straight to `meta`, like prices), so the bump would rebuild the whole read
+  model to change nothing. The boards autosave as an officer drags people
+  around, which turns that waste into lag. If a board ever feeds something
+  derived, the bump has to come back — see §4.
+- It holds **names, not ids**, so it outlives a deleted character rather than
+  dangling; the board renders the name and flags it as unknown to the pool.
+- **An empty board deletes the row**, so "never laid out" and "laid out, then
+  cleared" are deliberately the same state.
+- Slots grew a `spec` (an officer counting a raider as their off-spec), so a
+  stored slot is `{name, spec?}` — but `sanitizeBoard` still accepts the
+  bare strings boards were saved as before that, and must keep doing so. A
+  stored board is the record of a real raid night; the old shape has no
+  migration and needs none.
+
+**`guild_roster:<id>` breaks two of the rules above, on purpose.** These are the
+guild's own named rosters — several at once, because a guild that runs a split
+has more than one — and they are the only board key that is neither
+per-report nor guild-singular:
+
+- **An empty board keeps its row.** `nothingToRemember` deletes a raid night's
+  cleared board because "never laid out" is worth nothing to store. A roster
+  exists because an officer made and named it, so clearing it must not take the
+  name with it. Don't route these through that helper.
+- **One row, three writers.** The row holds the name, the trials and the
+  board, and each is edited by a different control — the board
+  autosaves as an officer drags, the other two are deliberate edits. They all go
+  through `updateGuildRoster`, which is read-modify-write inside the caller's
+  transaction. A blind full write from any one of them drops the other two, and
+  the officer finds out when a roster they renamed loses its groups.
+- **A deleted board is not resurrected.** `updateGuildRoster` returns silently
+  when the row is gone: an autosave still in flight from another tab must not
+  bring back a roster somebody deleted.
+- **`LIKE 'guild_roster:%'` is wrong** — `_` is a single-character wildcard in
+  SQL LIKE. The listing query escapes it. Nothing writes a key that would
+  collide today, which is exactly why a future one would go unnoticed.
+- **Trials never become characters.** A prospect is a name on one board, with no
+  row anywhere else. Creating a character to answer "would a second resto shaman
+  help" would put somebody who has never raided into attendance, loot priority
+  and every other page that counts the roster.
+
+**`?board=` decides which board is open, and `selectBoard` is the only thing
+that reads it.** `template`, `roster:<id>`, or a bare report code; anything else
+is the default, which is the guild's first roster. **There are no aliases for
+older spellings** — this page has been renamed twice and every legacy value was
+dropped on purpose. Add a kind of board and it goes in that function, with a
+test; a page that parses the parameter itself is how a stale link quietly starts
+opening the wrong thing.
+
+**Renaming a `?board=` value is only safe when the old spelling becomes
+unrecognised.** `roster` used to mean the template and now names the *other*
+tab, so the current value is the plural `rosters` — an old `?board=roster` falls
+through to the default instead of opening a board it never meant. The same rule
+saved `BoardTarget`: `"roster"` changed from the template to a guild roster, and
+it is safe only because the new one carries an `id` the template never had, so a
+stale `{kind: "roster"}` fails the discriminated union rather than writing one
+record over the other. Give any fourth kind a field of its own for that reason —
+bare string literals with no shape between them are one rename from crossing two
+records in silence.
+
+**`sim_settings:<slug>` is retired but not deleted.** Sim setups used to be per
+character. `promoteSimSettingsToProfiles` in `db.ts` copies each one into its
+spec profile on boot, resolving the spec from the setup's talent totals against
+the builds this guild's logs have already named — and copies rather than moves,
+because that fingerprint is genuinely ambiguous for some builds (the logs call
+0/44/17 Feral, Guardian *and* Warden). What it can't place stays put and is
+offered on the spec page for an officer to adopt by hand. Nothing reads the old
+key otherwise; don't add a reader.
 
 Each has a `get…` that returns an **empty value meaning "unset, use defaults"**,
 and a sanitizer that drops junk on read — so a hand-edited or stale row can
@@ -98,6 +199,9 @@ pattern, and add the key to the table above.
 ## 4. Any write, ever
 
 **Chain:** write via `WriteRepo` → `bumpDataVersion(db)` → `refreshAfterWrite(path)`.
+
+> The board writes are the one documented exception to the bump — nothing
+> derived reads them. §3 says why. Don't take it as licence for the next write.
 
 Two independent caches, two independent mistakes:
 

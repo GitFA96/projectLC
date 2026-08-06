@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { groupPulls, pullId, sectionsOf, type SimPull } from "@/components/performance/sim-panel";
+import { groupPulls, pullId, sectionsOf, type SimPull } from "@/components/sim/sim-panel";
 import { TBC_RAIDS, raidOfBoss } from "@/lib/constants/wow";
 
 /** Katzewarr's real Void Reaver spread, plus a second boss on shared nights. */

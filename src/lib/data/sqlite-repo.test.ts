@@ -1212,6 +1212,110 @@ describe("sqlite repo", () => {
       expect(saved["Bad Charges"]).toEqual({ gold: 5, charges: 1 }); // charges clamped to ≥1
     });
 
+    it("round-trips a raid's board, keeping reports independent", async () => {
+      const repo = getSqliteRepo();
+      // Never laid out → an empty board, which is also what the page offers.
+      const blank = await repo.getRaidBoard("RPT1");
+      expect(blank.groups).toHaveLength(8);
+      expect(blank.groups.flat()).toEqual([]);
+
+      await repo.setRaidBoard("RPT1", {
+        groups: [
+          [{ name: "Pyrelia" }, { name: "Velora", spec: "Restoration" }],
+          [{ name: "Katzewarr" }],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+        ],
+      });
+      const saved = await repo.getRaidBoard("RPT1");
+      expect(saved.groups[0]).toEqual([
+        { name: "Pyrelia" },
+        // The officer's "count her as Resto here" survives the round trip.
+        { name: "Velora", spec: "Restoration" },
+      ]);
+      expect(saved.groups[1]).toEqual([{ name: "Katzewarr" }]);
+      expect((await repo.getRaidBoard("RPT2")).groups.flat()).toEqual([]);
+
+      // Clearing the board removes the record entirely — "never laid out" and
+      // "laid out, then cleared" are deliberately the same state.
+      await repo.setRaidBoard("RPT1", { groups: [[], [], [], [], [], [], [], []] });
+      expect((await repo.getRaidBoard("RPT1")).groups.flat()).toEqual([]);
+    });
+
+    it("sanitizes a board on save rather than trusting the board", async () => {
+      const repo = getSqliteRepo();
+      await repo.setRaidBoard("RPT4", {
+        // Six in a group, the same raider twice, and a blank slot.
+        groups: [["A", "B", "C", "D", "E", "F"], ["a", "G", ""], [], [], [], [], [], []],
+      } as never);
+      const saved = await repo.getRaidBoard("RPT4");
+      expect(saved.groups[0].map((s) => s.name)).toEqual(["A", "B", "C", "D", "E"]);
+      // "a" is "A" again — nobody buffs two groups at once.
+      expect(saved.groups[1].map((s) => s.name)).toEqual(["G"]);
+    });
+
+    it("keeps the template's board apart from every raid's", async () => {
+      const repo = getSqliteRepo();
+      expect((await repo.getTemplateBoard()).groups.flat()).toEqual([]);
+
+      await repo.setTemplateBoard({
+        groups: [[{ name: "Pyrelia" }], [], [], [], [], [], [], []],
+      });
+      await repo.setRaidBoard("RPT6", {
+        groups: [[{ name: "Velora" }], [], [], [], [], [], [], []],
+      });
+
+      // A plan for next week and the record of a night that happened are two
+      // different things, and neither may overwrite the other.
+      expect((await repo.getTemplateBoard()).groups[0]).toEqual([{ name: "Pyrelia" }]);
+      expect((await repo.getRaidBoard("RPT6")).groups[0]).toEqual([{ name: "Velora" }]);
+
+      await repo.setTemplateBoard({ groups: [[], [], [], [], [], [], [], []] });
+      expect((await repo.getTemplateBoard()).groups.flat()).toEqual([]);
+      expect((await repo.getRaidBoard("RPT6")).groups[0]).toEqual([{ name: "Velora" }]);
+    });
+
+    it("commits a board to disk, not just to the process", async () => {
+      // The whole point of persisting: arranging 25 people must not be work you
+      // lose to closing the tab. Read back over a second connection, because a
+      // value the in-process cache is holding would pass a same-connection read
+      // whether or not the transaction ever reached the file.
+      await getSqliteRepo().setRaidBoard("RPT7", {
+        groups: [[{ name: "Pyrelia" }, { name: "Velora", spec: "Holy" }], [], [], [], [], [], [], []],
+      });
+
+      const onDisk = new DatabaseSync(process.env.PROJECTLC_DB!, { readOnly: true });
+      const row = onDisk.prepare("SELECT value FROM meta WHERE key = ?").get("raid_board:RPT7") as
+        | { value: string }
+        | undefined;
+      onDisk.close();
+
+      expect(JSON.parse(row!.value).groups[0]).toEqual([
+        { name: "Pyrelia" },
+        { name: "Velora", spec: "Holy" },
+      ]);
+    });
+
+    it("still reads a board saved before spec overrides existed", async () => {
+      // Boards were stored as bare names. A stored board is the record of a real
+      // raid night, so the old shape has to keep reading — forever.
+      const repo = getSqliteRepo();
+      await repo.getGuild(); // opens (and schema-creates) the database
+      const raw = new DatabaseSync(process.env.PROJECTLC_DB!);
+      raw.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(
+        "raid_board:RPT5",
+        JSON.stringify({ groups: [["Pyrelia", "Velora"], [], [], [], [], [], [], []] }),
+      );
+      raw.close();
+
+      const saved = await repo.getRaidBoard("RPT5");
+      expect(saved.groups[0]).toEqual([{ name: "Pyrelia" }, { name: "Velora" }]);
+    });
+
     it("round-trips the excluded pulls of a raid and applies them to its rollup", async () => {
       const repo = getSqliteRepo();
       await repo.saveWclReport(reportDraft, [

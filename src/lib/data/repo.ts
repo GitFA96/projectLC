@@ -1,3 +1,4 @@
+import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
 import type { EnchantReference } from "@/lib/analysis/enchants";
 import type { AbilityInfo } from "@/lib/items/ability-data";
 import type {
@@ -24,6 +25,8 @@ import type {
   LootPriorityWeights,
   RaidReportView,
   RaidSession,
+  SimSpecDetail,
+  SimSpecView,
   SlotId,
   SlotItem,
   UntrackedLogPlayer,
@@ -73,10 +76,33 @@ export interface Repo {
    */
   getReportConsumablePrices(code: string): Promise<Record<string, ConsumablePrice>>;
   /**
-   * One character's saved wowsims setup, as protojson. Undefined means they
-   * have no sim configured — the comparison offers to add one instead.
+   * The groups an officer laid a raid night out in. An empty board means nobody
+   * has recorded them — it is never derived, because Warcraft Logs doesn't
+   * record group assignments at all.
    */
-  getSimSettings(slug: string): Promise<string | undefined>;
+  getRaidBoard(code: string): Promise<Board>;
+  /**
+   * The template's board — one per guild, kept apart from every raid's.
+   * Empty means nobody has planned one yet.
+   */
+  getTemplateBoard(): Promise<Board>;
+  /**
+   * The guild's own named boards — its main roster, a split's second team, next
+   * week's Wednesday. As many as the officers want; empty until they make one.
+   */
+  listGuildRosters(): Promise<GuildRoster[]>;
+  getGuildRoster(id: string): Promise<GuildRoster | undefined>;
+  /**
+   * Every class+spec this guild has raided as, with whether a wowsims setup is
+   * saved for it — the sim section's index.
+   */
+  listSimSpecs(): Promise<SimSpecView[]>;
+  /**
+   * One spec's workbench: its saved setup, the kills available to compare
+   * against, and what this guild's logs call each build. Null when nobody has
+   * logged a pull as that spec and no setup exists for it either.
+   */
+  getSimSpec(wowClass: string, spec: string): Promise<SimSpecDetail | null>;
   /**
    * Every player's row for one boss pull.
    *
@@ -373,8 +399,27 @@ export interface WriteRepo extends Repo {
    * whole set for the report; an empty map clears it back to code defaults.
    */
   setReportConsumablePrices(code: string, prices: Record<string, ConsumablePrice>): Promise<void>;
-  /** Save a character's decoded wowsims setup; undefined clears it. */
-  setSimSettings(slug: string, json: string | undefined): Promise<void>;
+  /**
+   * Record which groups a raid night was run in. Replaces the whole board; a
+   * board with nobody on it clears the record entirely.
+   */
+  setRaidBoard(code: string, board: Board): Promise<void>;
+  /** Save the template's board. An empty board clears it. */
+  setTemplateBoard(board: Board): Promise<void>;
+  /** Make a new guild roster. The caller mints the id. */
+  createGuildRoster(board: GuildRoster): Promise<void>;
+  /**
+   * Change part of a board — its name, its prospects, or its board —
+   * leaving the rest as it was. A board that no longer exists is not recreated.
+   */
+  updateGuildRoster(
+    id: string,
+    patch: Partial<Pick<GuildRoster, "name" | "prospects" | "board">>,
+  ): Promise<void>;
+  /** Throw a guild roster away. Unlike a raid night, it records nothing that happened. */
+  deleteGuildRoster(id: string): Promise<void>;
+  /** Save one spec's decoded wowsims setup; undefined clears it. */
+  setSimProfile(wowClass: string, spec: string, json: string | undefined): Promise<void>;
   /** Record abilities resolved from Wowhead. Refs already known are left alone. */
   addAbilities(abilities: AbilityInfo[]): Promise<number>;
   /**

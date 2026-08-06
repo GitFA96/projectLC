@@ -98,6 +98,56 @@ describe("findings", () => {
     expect(out).toEqual([]);
   });
 
+  it("does not accuse a raider of missing a passive nobody can press", () => {
+    /*
+     * The class-agnostic guard. Deep Wounds is on the curated passive list for
+     * warriors; a spec nobody has curated yet had nothing, so its first
+     * comparison would have opened by blaming the raider for a proc. Fifty-two
+     * actions a minute is one every 1.2s, under a 1.5s global cooldown — it
+     * cannot be a decision, whatever class it belongs to.
+     */
+    const out = findings({
+      ...base,
+      abilities: [
+        ability({
+          name: "Lightning Overload",
+          aCasts: 0,
+          aPerMin: 0,
+          bPerMin: 52.4,
+          perMinDelta: 52.4,
+          bDamage: 180_000,
+        }),
+      ],
+    });
+    expect(out.some((f) => f.text.includes("less damage"))).toBe(false);
+    expect(out.some((f) => f.text.includes("never used"))).toBe(false);
+    expect(out[0].text).toContain("Lightning Overload");
+    expect(out[0].text).toContain("isn't");
+  });
+
+  it("says what it set aside rather than dropping it silently", () => {
+    // A shorter list has to be distinguishable from a clean rotation.
+    const out = findings({
+      ...base,
+      abilities: [
+        ability({ name: "Melee", aCasts: 104, aPerMin: 45, bPerMin: 60, perMinDelta: 15, aEstimated: true, aDamage: 90_000, bDamage: 120_000 }),
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].damage).toBeUndefined();
+  });
+
+  it("still judges a fast ability the player demonstrably pressed", () => {
+    // Under the ceiling and with real cast events: an ordinary rotation row.
+    const out = findings({
+      ...base,
+      abilities: [
+        ability({ name: "Heroic Strike", aCasts: 48, aPerMin: 21, bPerMin: 30, perMinDelta: 9, aDamage: 60_000, bDamage: 96_000 }),
+      ],
+    });
+    expect(out[0].text).toContain("less damage");
+  });
+
   it("reports idle time, which no rotation change recovers", () => {
     const out = findings({
       ...base,

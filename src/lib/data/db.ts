@@ -16,6 +16,16 @@ import {
   wclReportSchema,
 } from "@/lib/import/schemas";
 import type { AbilityInfo } from "@/lib/items/ability-data";
+import {
+  GROUP_COUNT,
+  emptyBoard,
+  isEmptyBoard,
+  sanitizeBoard,
+  sanitizeGuildRoster,
+  type Board,
+  type GuildRoster,
+} from "@/lib/analysis/raid-planner";
+import type { StrandedSimSetting } from "@/lib/types";
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
@@ -323,6 +333,7 @@ function migrate(db: DatabaseSync): void {
   relaxItemColumns(db);
   addAbilityKind(db);
   splitGearOverridesBySpec(db);
+  promoteSimSettingsToProfiles(db);
 }
 
 /**
@@ -498,6 +509,193 @@ export function setReportConsumablePrices(
   ).run(consumablePriceKey(code), JSON.stringify(sanitizePrices(prices)));
 }
 
+/*
+ * Per-report raid board: who stood in which group that night.
+ *
+ * Same meta-table pattern as prices, and it has to be stored rather than
+ * derived, because Warcraft Logs does not record group assignments at all —
+ * the pull rows know everyone who was there and nothing about how they were
+ * arranged. So this is an officer's record, seeded from the log's attendees.
+ *
+ * Absent means nobody has laid the night out yet, which the page offers to do.
+ */
+
+const raidBoardKey = (code: string) => `raid_board:${code}`;
+
+/**
+ * The template's board — guild-wide, so no suffix, like
+ * `loot_priority_weights`. Deliberately a different key from any raid's: a plan
+ * for next Wednesday is not a record of a night that happened, and the two must
+ * never be able to overwrite each other.
+ */
+const TEMPLATE_BOARD_KEY = "template_board";
+
+export function getTemplateBoard(db: DatabaseSync): Board {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(TEMPLATE_BOARD_KEY) as
+    | { value: string }
+    | undefined;
+  return readBoard(row?.value);
+}
+
+export function setTemplateBoard(db: DatabaseSync, comp: Board): void {
+  const clean = sanitizeBoard(comp, { groups: comp.groups.length });
+  if (nothingToRemember(clean)) {
+    db.prepare("DELETE FROM meta WHERE key = ?").run(TEMPLATE_BOARD_KEY);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(TEMPLATE_BOARD_KEY, JSON.stringify(clean));
+}
+
+/*
+ * The guild's own named rosters: `guild_roster:<id>`.
+ *
+ * Several, because a guild that runs a split has more than one roster at once.
+ * One row each rather than one row holding a list, so two officers on two
+ * rosters can't overwrite each other's work — the boards autosave, and a shared
+ * row would make every save a full rewrite of every roster.
+ *
+ * The one rule that differs from every other board here: **an empty board
+ * still gets a row.** A raid night's empty board means "never laid out", which
+ * is worth nothing to store; a roster exists because somebody made and named
+ * it, and deleting it on the first Clear would take the name with it.
+ */
+
+const GUILD_ROSTER_PREFIX = "guild_roster:";
+const guildRosterKey = (id: string) => `${GUILD_ROSTER_PREFIX}${id}`;
+
+/*
+ * `_` is a single-character wildcard in SQL LIKE, so the obvious
+ * `LIKE 'guild_roster:%'` also matches `guildXroster:…`. Nothing writes such a
+ * key today, which is exactly why this would go unnoticed if one ever did.
+ */
+const GUILD_ROSTER_LIKE = "guild\\_roster:%";
+
+/** Every guild roster, oldest first — the order the picker shows them in. */
+export function listGuildRosters(db: DatabaseSync): GuildRoster[] {
+  const rows = db
+    .prepare("SELECT value FROM meta WHERE key LIKE ? ESCAPE '\\'")
+    .all(GUILD_ROSTER_LIKE) as { value: string }[];
+  return rows
+    .map((r) => readGuildRoster(r.value))
+    .filter((b): b is GuildRoster => b !== undefined)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+}
+
+export function getGuildRoster(db: DatabaseSync, id: string): GuildRoster | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(guildRosterKey(id)) as
+    | { value: string }
+    | undefined;
+  return readGuildRoster(row?.value);
+}
+
+function readGuildRoster(value: string | undefined): GuildRoster | undefined {
+  if (!value) return undefined;
+  try {
+    return sanitizeGuildRoster(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
+}
+
+export function setGuildRoster(db: DatabaseSync, board: GuildRoster): void {
+  const clean = sanitizeGuildRoster(board);
+  if (!clean) throw new Error("A roster needs an id and a name.");
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(guildRosterKey(clean.id), JSON.stringify(clean));
+}
+
+/**
+ * Change part of a board, leaving the rest alone.
+ *
+ * Read-modify-write inside the caller's transaction, because the three things a
+ * board holds are edited by three different controls: the board
+ * autosaves as an officer drags, the name as they type it, the prospects when
+ * they add one. A blind full write from any of those would drop the other two.
+ *
+ * A board that has been deleted is not resurrected — the officer who deleted it
+ * meant it, and the autosave still in flight from another tab did not.
+ */
+export function updateGuildRoster(
+  db: DatabaseSync,
+  id: string,
+  patch: Partial<Pick<GuildRoster, "name" | "prospects" | "board">>,
+): void {
+  const existing = getGuildRoster(db, id);
+  if (!existing) return;
+  setGuildRoster(db, { ...existing, ...patch });
+}
+
+export function deleteGuildRoster(db: DatabaseSync, id: string): void {
+  db.prepare("DELETE FROM meta WHERE key = ?").run(guildRosterKey(id));
+}
+
+/** A report's saved board, or an empty board when none was written. */
+export function getRaidBoard(db: DatabaseSync, code: string): Board {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(raidBoardKey(code)) as
+    | { value: string }
+    | undefined;
+  return readBoard(row?.value);
+}
+
+/**
+ * Parse a stored board, keeping the number of groups it was saved with.
+ *
+ * Group count is part of the record now — an officer who runs five groups
+ * shouldn't reopen the page to three empty ones tacked on the end — so it comes
+ * from the blob rather than from the eight a raid frame allows. A missing or
+ * corrupt row reads as an empty board rather than throwing a page.
+ */
+/**
+ * Is this board worth a row?
+ *
+ * Nobody placed *and* nothing else set. A board can be empty of raiders and
+ * still carry work — five groups named for the assignments, or a bench of
+ * planned slots — and dropping that because the groups happen to be empty would
+ * lose an officer's setup the moment they cleared the board to start again.
+ */
+function nothingToRemember(comp: Board): boolean {
+  return (
+    isEmptyBoard(comp) &&
+    !comp.groupNames?.some(Boolean) &&
+    (comp.bench?.length ?? 0) === 0 &&
+    comp.groups.length === GROUP_COUNT
+  );
+}
+
+function readBoard(value: string | undefined): Board {
+  if (!value) return emptyBoard();
+  try {
+    const parsed = JSON.parse(value) as { groups?: unknown };
+    const groups = Array.isArray(parsed?.groups) ? parsed.groups.length : undefined;
+    return sanitizeBoard(parsed, groups ? { groups } : {});
+  } catch {
+    return emptyBoard();
+  }
+}
+
+/**
+ * Persist a report's board (replaces the whole board). A board with
+ * nobody on it deletes the row, so "never laid out" and "laid out, then
+ * cleared" read the same — there is nothing to remember about an empty board.
+ */
+export function setRaidBoard(db: DatabaseSync, code: string, comp: Board): void {
+  const clean = sanitizeBoard(comp, { groups: comp.groups.length });
+  const key = raidBoardKey(code);
+  if (nothingToRemember(clean)) {
+    db.prepare("DELETE FROM meta WHERE key = ?").run(key);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(key, JSON.stringify(clean));
+}
+
 /* Per-character wowsims setup: the decoded export a raider's comparison runs
    against. Same meta-table pattern as prices, keyed by character slug — a
    build, a rotation and a buff set belong to one raider, not to the guild.
@@ -535,15 +733,39 @@ export function addAbilities(db: DatabaseSync, abilities: AbilityInfo[]): number
   return written;
 }
 
-const simSettingsKey = (slug: string) => `sim_settings:${slug.toLowerCase()}`;
+/*
+ * Sim setups belong to a class and spec, not to a raider.
+ *
+ * A wowsims export supplies the rotation, the buffs and the consumables a spec
+ * is expected to run; the gear, the talents and the fight length come from the
+ * pull instead. Almost none of that is personal, so keying it per character —
+ * the `sim_settings:<slug>` rows this replaced — meant every raider needed their
+ * own pasted link before they could be simmed at all. Whatever IS personal, like
+ * race and professions, is stated as an assumption by the pre-run check rather
+ * than silently applied. See src/lib/sim/profile.ts.
+ */
 
-export function getSimSettings(db: DatabaseSync, slug: string): string | undefined {
-  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(simSettingsKey(slug)) as
+const SIM_PROFILE_PREFIX = "sim_profile:";
+/** The per-character key this replaced. Still read, once, by the promotion below. */
+const LEGACY_SIM_SETTINGS_PREFIX = "sim_settings:";
+
+const simProfileKey = (wowClass: string, spec: string) =>
+  `${SIM_PROFILE_PREFIX}${wowClass}:${spec}`;
+
+export interface SimProfileRow {
+  wowClass: string;
+  spec: string;
+  /** The raw protojson the CLI printed. */
+  json: string;
+}
+
+export function getSimProfile(db: DatabaseSync, wowClass: string, spec: string): string | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(simProfileKey(wowClass, spec)) as
     | { value: string }
     | undefined;
   if (!row) return undefined;
-  // Stored as the raw protojson the CLI printed. Parsed on read so a corrupted
-  // blob reads as "not configured" rather than crashing the page.
+  // Parsed on read so a corrupted blob reads as "not configured" rather than
+  // crashing the page.
   try {
     JSON.parse(row.value);
     return row.value;
@@ -552,16 +774,167 @@ export function getSimSettings(db: DatabaseSync, slug: string): string | undefin
   }
 }
 
-/** Save (or clear, with undefined) one character's sim setup. */
-export function setSimSettings(db: DatabaseSync, slug: string, json: string | undefined): void {
+/** Every saved spec profile. The key carries the class and spec verbatim. */
+export function listSimProfiles(db: DatabaseSync): SimProfileRow[] {
+  const rows = db
+    .prepare("SELECT key, value FROM meta WHERE key LIKE ? ORDER BY key")
+    .all(`${SIM_PROFILE_PREFIX}%`) as { key: string; value: string }[];
+  const out: SimProfileRow[] = [];
+  for (const { key, value } of rows) {
+    const rest = key.slice(SIM_PROFILE_PREFIX.length);
+    const sep = rest.indexOf(":");
+    if (sep <= 0 || sep === rest.length - 1) continue;
+    try {
+      JSON.parse(value);
+    } catch {
+      continue;
+    }
+    out.push({ wowClass: rest.slice(0, sep), spec: rest.slice(sep + 1), json: value });
+  }
+  return out;
+}
+
+/** Save (or clear, with undefined) one spec's sim setup. */
+export function setSimProfile(
+  db: DatabaseSync,
+  wowClass: string,
+  spec: string,
+  json: string | undefined,
+): void {
+  const key = simProfileKey(wowClass, spec);
   if (json === undefined) {
-    db.prepare("DELETE FROM meta WHERE key = ?").run(simSettingsKey(slug));
+    db.prepare("DELETE FROM meta WHERE key = ?").run(key);
     return;
   }
   db.prepare(
     `INSERT INTO meta (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run(simSettingsKey(slug), json);
+  ).run(key, json);
+}
+
+/**
+ * The per-character setups, with the spec each one resolves to.
+ *
+ * Resolved the way the app resolves a spec everywhere else: the setup's talent
+ * tree totals, matched against the builds this guild's own logs have already
+ * named (see sim/profile.ts). Nothing is hard-coded — a talent tree is never
+ * assumed here to mean a spec.
+ */
+export function listStrandedSimSettings(db: DatabaseSync): StrandedSimSetting[] {
+  const saved = db
+    .prepare("SELECT key, value FROM meta WHERE key LIKE ?")
+    .all(`${LEGACY_SIM_SETTINGS_PREFIX}%`) as { key: string; value: string }[];
+  if (saved.length === 0) return [];
+
+  /* class + build → the spec names the logs used for it. */
+  const named = db
+    .prepare(
+      `SELECT class_name AS cls, spec, talents_json AS talents, COUNT(*) AS n
+         FROM wcl_player_fights
+        WHERE spec IS NOT NULL AND class_name IS NOT NULL
+        GROUP BY cls, spec, talents`,
+    )
+    .all() as { cls: string; spec: string; talents: string | null; n: number }[];
+  const byBuild = new Map<string, Map<string, number>>();
+  for (const r of named) {
+    const points = parseTreePoints(r.talents);
+    if (!points) continue;
+    const key = `${r.cls}|${points}`;
+    const inner = byBuild.get(key) ?? new Map<string, number>();
+    inner.set(r.spec, (inner.get(r.spec) ?? 0) + Number(r.n));
+    byBuild.set(key, inner);
+  }
+
+  const out: StrandedSimSetting[] = [];
+  for (const { key, value } of saved) {
+    const slug = key.slice(LEGACY_SIM_SETTINGS_PREFIX.length);
+    let settings: { player?: { class?: unknown; talentsString?: unknown } };
+    try {
+      settings = JSON.parse(value) as typeof settings;
+    } catch {
+      continue;
+    }
+    const stated =
+      typeof settings.player?.class === "string"
+        ? settings.player.class.replace(/^Class/, "")
+        : undefined;
+    // The character's own class wins where we have it — an export could have
+    // been pasted onto the wrong raider.
+    const owner = db
+      .prepare("SELECT class FROM characters WHERE lower(name) = ?")
+      .get(slug.toLowerCase()) as { class: string } | undefined;
+    const wowClass = owner?.class ?? stated;
+    const build =
+      typeof settings.player?.talentsString === "string"
+        ? treePointsFromString(settings.player.talentsString)
+        : undefined;
+    const specs =
+      wowClass && build ? [...(byBuild.get(`${wowClass}|${build}`)?.keys() ?? [])].sort() : [];
+    out.push({ slug, json: value, wowClass, build, specs });
+  }
+  return out;
+}
+
+/**
+ * Promote those setups into spec profiles.
+ *
+ * Deliberately a COPY, not a move. Where the build is ambiguous — the logs
+ * genuinely call 0/44/17 Feral, Guardian and Warden — this writes nothing, and
+ * the spec page offers the setup for the officer to adopt by hand instead.
+ * Deleting the only wowsims link they ever pasted because a fingerprint couldn't
+ * decide is not a failure mode worth having.
+ *
+ * Idempotent: an existing profile is never overwritten, so one edited by hand
+ * survives every later boot.
+ */
+function promoteSimSettingsToProfiles(db: DatabaseSync): void {
+  const stranded = listStrandedSimSettings(db);
+  if (stranded.length === 0) return;
+  const existing = new Set(
+    (
+      db.prepare("SELECT key FROM meta WHERE key LIKE ?").all(`${SIM_PROFILE_PREFIX}%`) as {
+        key: string;
+      }[]
+    ).map((r) => r.key),
+  );
+  for (const s of stranded) {
+    if (!s.wowClass || s.specs.length !== 1) continue;
+    const target = simProfileKey(s.wowClass, s.specs[0]);
+    if (existing.has(target)) continue;
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(target, s.json);
+    existing.add(target);
+  }
+}
+
+/** "3400502130201-55000005505012050115" → "21/40/0". */
+function treePointsFromString(talentsString: string): string {
+  return padTrees(
+    talentsString
+      .split("-")
+      .map((tree) => [...tree].reduce((sum, ch) => sum + (Number.parseInt(ch, 10) || 0), 0)),
+  );
+}
+
+/** The logs' `talents_json` in the same shape, or undefined when it has none. */
+function parseTreePoints(json: string | null): string | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+    return padTrees(parsed.map((n) => (typeof n === "number" ? n : 0)));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Both sides padded to three trees. wowsims drops trailing empty ones ("21/40")
+ * and the logs never do ("21/40/0") — compared unpadded they match nothing, and
+ * every setup would look stranded.
+ */
+function padTrees(trees: number[]): string {
+  const width = Math.max(3, trees.length);
+  return Array.from({ length: width }, (_, i) => trees[i] ?? 0).join("/");
 }
 
 /* Per-report consumable adjustments: an officer's corrections to what the log

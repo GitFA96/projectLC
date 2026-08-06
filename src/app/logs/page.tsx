@@ -3,6 +3,15 @@ import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Coins, ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
+import {
+  emptyBoard,
+  partiesFromLogs,
+  poolFromPullRows,
+  withRosterSpecs,
+  type Board,
+  type PoolMember,
+  type RecoveredParty,
+} from "@/lib/analysis/raid-planner";
 import type {
   ConsumableAdjustment,
   ConsumablePrice,
@@ -21,6 +30,7 @@ import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
 import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
+import { RaidBoard } from "@/components/raid-planner/board";
 import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
 import { ParseBoards } from "@/components/logs/parse-boards";
@@ -76,6 +86,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   let priceOverrides: Record<string, ConsumablePrice> = {};
   let adjustments: ConsumableAdjustment[] = [];
   let seasonInputs: SeasonReportInput[] = [];
+  let board: Board = emptyBoard();
+  let pool: PoolMember[] = [];
+  let recovered: RecoveredParty[] = [];
 
   if (seasonMode) {
     const built = await Promise.all(
@@ -105,6 +118,29 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
     raid = await repo.getRaidReport(requested);
     priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
     adjustments = raid ? await repo.getReportConsumableAdjustments(raid.report.code) : [];
+    if (raid) {
+      const code = raid.report.code;
+      /*
+       * The board tab needs every player's row, not this raider's — group
+       * membership is only visible in who a party buff reached, which is
+       * recorded against whoever cast it.
+       */
+      const rows = (
+        await Promise.all(raid.fights.map((f) => repo.listPullRows(code, f.fightId)))
+      ).flat();
+      board = await repo.getRaidBoard(code);
+      // The log says what each raider played; the roster also knows what they
+      // *can* play, which is what makes "count him as his off-spec" possible.
+      pool = withRosterSpecs(
+        poolFromPullRows(rows),
+        (await repo.listCharacters()).map((c) => ({
+          name: c.character.name,
+          spec: c.character.spec,
+          offSpec: c.character.offSpec,
+        })),
+      );
+      recovered = partiesFromLogs(rows);
+    }
   }
 
   return (
@@ -137,7 +173,14 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
               />
             )
           ) : raid ? (
-            <RaidDashboard raid={raid} priceOverrides={priceOverrides} adjustments={adjustments} />
+            <RaidDashboard
+              raid={raid}
+              priceOverrides={priceOverrides}
+              adjustments={adjustments}
+              board={board}
+              pool={pool}
+              recovered={recovered}
+            />
           ) : (
             <EmptyState
               title="Report not found"
@@ -176,10 +219,16 @@ function RaidDashboard({
   raid,
   priceOverrides,
   adjustments,
+  board,
+  pool,
+  recovered,
 }: {
   raid: RaidReportView;
   priceOverrides: Record<string, ConsumablePrice>;
   adjustments: ConsumableAdjustment[];
+  board: Board;
+  pool: PoolMember[];
+  recovered: RecoveredParty[];
 }) {
   const { report, session, prep, fights } = raid;
   const counted = fights.filter((f) => !f.excluded);
@@ -236,9 +285,71 @@ function RaidDashboard({
       <RaidLogTabs
         overview={<OverviewPanel raid={raid} />}
         rankings={<RankingsPanel raid={raid} overrides={priceOverrides} />}
+        board={
+          <GroupsPanel
+            code={report.code}
+            board={board}
+            pool={pool}
+            recovered={recovered}
+          />
+        }
         gold={<GoldPanel raid={raid} overrides={priceOverrides} adjustments={adjustments} />}
       />
     </>
+  );
+}
+
+/**
+ * Which groups the night was run in.
+ *
+ * Recorded rather than derived, and the panel says so: Warcraft Logs stores no
+ * group assignments, so nothing here can be filled in automatically from the
+ * import. What the log *does* give away is the odd party — Battle Shout and the
+ * jewelcrafting necks are party-scoped and are emitted with a source and a
+ * target — and that is what "Suggest from log" offers, as a draft to correct.
+ */
+function GroupsPanel({
+  code,
+  board,
+  pool,
+  recovered,
+}: {
+  code: string;
+  board: Board;
+  pool: PoolMember[];
+  recovered: RecoveredParty[];
+}) {
+  if (pool.length === 0) {
+    return (
+      <EmptyState
+        title="No players on this report"
+        description="This raid has no per-player rows to arrange. Re-fetch it once Warcraft Logs has finished parsing."
+      />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Warcraft Logs doesn&apos;t record which group anyone stood in, so this is the
+        officer&apos;s record — saved against this raid alone, never shared with another night or
+        with a roster. The buffs it does log give some of it away, and a spec the log confirmed
+        turns a &ldquo;?&rdquo; into a &ldquo;✓&rdquo; on its own.{" "}
+        <Link
+          href={`/raid-planner?board=${encodeURIComponent(code)}`}
+          className="underline underline-offset-2"
+        >
+          Open it in the raid planner
+        </Link>
+        .
+      </p>
+      <RaidBoard
+        target={{ kind: "raid", code }}
+        pool={pool}
+        initial={board}
+        recovered={recovered}
+        note={`${pool.length} raiders logged on this night.`}
+      />
+    </div>
   );
 }
 

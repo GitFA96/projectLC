@@ -31,6 +31,25 @@ import type { DebuffUpkeep } from "@/lib/wcl/fight-upkeep";
 export const BLOOD_FRENZY_BLEEDS = ["Rend", "Deep Wounds"];
 
 /**
+ * Whether this spec's sim models Blood Frenzy at all.
+ *
+ * The audit only ever emits a row for a debuff the sim was given, but the
+ * *query* behind this one wasn't gated the same way: every comparison, for every
+ * class, spent a Warcraft Logs round trip measuring two warrior bleeds whose
+ * answer a caster's sim then discarded. A physical spec's export ticks this; a
+ * warlock's doesn't, because 4% physical damage taken does nothing for it.
+ */
+export function modelsBloodFrenzy(settings: {
+  debuffs?: Record<string, unknown>;
+}): boolean {
+  const value = settings.debuffs?.bloodFrenzy;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "string") return value !== "" && !/^TristateEffectMissing$/i.test(value);
+  return false;
+}
+
+/**
  * Specs whose warriors are far enough into Arms to have taken it.
  *
  * Warcraft Logs labels the guild's hybrid "kebab" build as Arms as well, which

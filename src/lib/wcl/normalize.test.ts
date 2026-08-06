@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { normalizeWclReport } from "@/lib/wcl/normalize";
-import { classifyAura, classifyCast, isNonConsumableAura, SAPPER_CAST_NAMES } from "@/lib/wcl/consumables";
+import {
+  classifyAura,
+  classifyCast,
+  isNonConsumableAura,
+  SAPPER_CAST_NAMES,
+  TRACKED_CAST_IDS,
+} from "@/lib/wcl/consumables";
 
 /**
  * Fixture shaped like the v2 API responses: report overview (with dps/hps
@@ -796,6 +802,19 @@ describe("consumable classification", () => {
     expect(classifyCast(99999, "Drums of Speed")?.category).toBe("drums");
     expect(classifyCast(99999, "Shadow Bolt")).toBeUndefined();
     expect(classifyCast(undefined, undefined)).toBeUndefined();
+  });
+
+  it("labels Thistle Tea from its id, which the log calls 'Restore Energy'", () => {
+    // The item name never appears in the log — only the id can catch this.
+    expect(classifyCast(9512, "Restore Energy")).toMatchObject({
+      name: "Thistle Tea",
+      // Deliberately not "potion": tea doesn't share the potion cooldown, and
+      // potions are audited as a rate against it.
+      category: "other",
+    });
+    expect(classifyCast(undefined, "Restore Energy")).toBeUndefined();
+    // It must be in the fetch filter, or the event never leaves Warcraft Logs.
+    expect(TRACKED_CAST_IDS).toContain(9512);
   });
 
   it("counts sapper charges by their on-use spell ids and by name", () => {

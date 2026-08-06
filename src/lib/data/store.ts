@@ -4,6 +4,7 @@ import {
   computeWishlistRows,
   matchAwardToWishlists,
 } from "@/lib/analysis/wishlist";
+import { emptyBoard, type Board, type GuildRoster } from "@/lib/analysis/raid-planner";
 import { computeItemContention } from "@/lib/analysis/contention";
 import { applyCurrentGearOverrides, offSpecGearSet } from "@/lib/analysis/current-gear";
 import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
@@ -22,6 +23,7 @@ import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { resolveWeights } from "@/lib/analysis/loot-priority";
 import { phaseForZones } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
+import { fingerprintRows, specFingerprints, specOfPull } from "@/lib/sim/profile";
 import type {
   AttendanceExemption,
   AttendanceSummary,
@@ -49,6 +51,9 @@ import type {
   RaidReportView,
   RaidSession,
   RaiderMetrics,
+  SimPullView,
+  SimSpecDetail,
+  SimSpecView,
   UntrackedLogPlayer,
   WclPlayerFight,
   WclPlayerOffPull,
@@ -416,6 +421,84 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return charactersBySlug.get(row.actorName.toLowerCase())?.id ?? null;
   }
 
+  /*
+   * The sim section works spec-first, so both of its reads start by asking each
+   * pull which spec it was.
+   *
+   * That is not simply `row.spec`: Warcraft Logs leaves rows unlabelled, and
+   * dropping those would hide real kills from the picker for no reason an
+   * officer could see. The build recovers them, using only the naming the logs
+   * themselves supplied on other pulls — see lib/sim/profile.ts.
+   */
+
+  const reportStartByCode = new Map(wclReports.map((r) => [r.code, r.startTime]));
+
+  /** Kills only: a wipe has no comparable number, and the sim never wipes. */
+  function simKills(): WclPlayerFight[] {
+    return wclPlayerFights.filter((r) => r.kill && r.className);
+  }
+
+  function simSpecs(): SimSpecView[] {
+    const fingerprints = specFingerprints(wclPlayerFights);
+    const byKey = new Map<string, SimSpecView>();
+    for (const row of simKills()) {
+      const { spec } = specOfPull(row, fingerprints);
+      if (!spec) continue;
+      const key = `${row.className}|${spec}`;
+      const view =
+        byKey.get(key) ??
+        ({ wowClass: row.className!, spec, hasProfile: false, kills: 0, raiders: [] } as SimSpecView);
+      view.kills += 1;
+      const raider = view.raiders.find((r) => r.actorName === row.actorName);
+      if (raider) raider.kills += 1;
+      else {
+        const character = charactersById.get(wclRowCharacterId(row) ?? "");
+        view.raiders.push({
+          actorName: row.actorName,
+          slug: character?.name.toLowerCase(),
+          kills: 1,
+        });
+      }
+      const at = reportStartByCode.get(row.reportCode);
+      if (at && (!view.lastKillAt || at > view.lastKillAt)) view.lastKillAt = at;
+      byKey.set(key, view);
+    }
+    for (const view of byKey.values()) {
+      view.raiders.sort((a, b) => b.kills - a.kills || a.actorName.localeCompare(b.actorName));
+    }
+    return [...byKey.values()].sort(
+      (a, b) => a.wowClass.localeCompare(b.wowClass) || a.spec.localeCompare(b.spec),
+    );
+  }
+
+  function simPullsOf(
+    wowClass: string,
+    spec: string,
+    fingerprints: ReturnType<typeof specFingerprints>,
+  ): SimPullView[] {
+    const out: SimPullView[] = [];
+    for (const row of simKills()) {
+      if (row.className !== wowClass) continue;
+      const resolved = specOfPull(row, fingerprints);
+      if (resolved.spec !== spec) continue;
+      out.push({
+        reportCode: row.reportCode,
+        fightId: row.fightId,
+        actorName: row.actorName,
+        encounterName: row.encounterName,
+        durationMs: row.durationMs,
+        parsePercent: row.parsePercent,
+        raidDate: reportStartByCode.get(row.reportCode) ?? "",
+        className: row.className,
+        spec: resolved.spec,
+        specInferred: resolved.inferred,
+        talents: row.talents,
+        sappers: row.sappers,
+      });
+    }
+    return out.sort((a, b) => b.raidDate.localeCompare(a.raidDate) || a.fightId - b.fightId);
+  }
+
   /** Boss pulls per report (across all players) — the attendance denominator. */
   function pullsByReport(): Map<string, number> {
     const pulls = new Map<string, Set<number>>();
@@ -752,9 +835,49 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return {};
     },
 
-    // Sim setups are persisted config like prices — the seed backend has none.
-    async getSimSettings(): Promise<string | undefined> {
+    // Same: a board is something an officer wrote down, not something the
+    // pull rows imply, so the read-only demo has none and offers an empty board.
+    async getRaidBoard(): Promise<Board> {
+      return emptyBoard();
+    },
+
+    async getTemplateBoard(): Promise<Board> {
+      return emptyBoard();
+    },
+
+    // Guild boards are officer-authored too, and there is no seed file for
+    // them: the demo has no rosters until somebody makes one, and it can't.
+    async listGuildRosters(): Promise<GuildRoster[]> {
+      return [];
+    },
+
+    async getGuildRoster(): Promise<GuildRoster | undefined> {
       return undefined;
+    },
+
+    /*
+     * The sim section's two reads. Both are one pass over the pull rows, which
+     * are already fully in memory — a spec index that queried per raider would
+     * be dozens of round trips for a page that is mostly counting.
+     *
+     * Saved setups live in the meta table, not here, so the seed backend reports
+     * every spec as having none. The SQLite backend layers the profiles on.
+     */
+    async listSimSpecs(): Promise<SimSpecView[]> {
+      return simSpecs();
+    },
+
+    async getSimSpec(wowClass: string, spec: string): Promise<SimSpecDetail | null> {
+      const fingerprints = specFingerprints(wclPlayerFights);
+      const known = simSpecs().some((s) => s.wowClass === wowClass && s.spec === spec);
+      if (!known) return null;
+      return {
+        wowClass,
+        spec,
+        pulls: simPullsOf(wowClass, spec, fingerprints),
+        fingerprints: fingerprintRows(fingerprints).filter((f) => f.wowClass === wowClass),
+        stranded: [],
+      };
     },
 
     async getReportConsumableAdjustments(code: string): Promise<ConsumableAdjustment[]> {

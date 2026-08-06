@@ -290,6 +290,30 @@ describe("auditSimContext", () => {
   });
 
   describe("Blood Frenzy, which the combat log never carries", () => {
+    it("says nothing at all for a spec whose sim doesn't model it", () => {
+      /*
+       * The class-agnostic half of the same rule. A caster's export has no
+       * bloodFrenzy — 4% physical damage taken does nothing for it — and the
+       * audit must not manufacture a row about a warrior debuff on a warlock's
+       * page. Paired with modelsBloodFrenzy in sim/inference, which is what
+       * stops the Warcraft Logs query for the bleeds from running at all.
+       */
+      const caster: IndividualSimSettings = {
+        ...settings,
+        debuffs: { misery: true, curseOfElements: "TristateEffectRegular" },
+      };
+      const a = auditSimContext({
+        settings: caster,
+        pull: pull(),
+        bossDebuffs: realDebuffs,
+        tracks: { collected: new Set(["Blood Frenzy"]), atImport: new Set(["Blood Frenzy"]) },
+        bloodFrenzy: { kind: "no-arms-warrior" },
+      });
+      expect(a.rows.some((r) => r.name === "Blood Frenzy")).toBe(false);
+      // And it still reports the debuffs that sim DOES model.
+      expect(a.rows.some((r) => r.name === "Misery")).toBe(true);
+    });
+
     it("reports it as inferred rather than absent", () => {
       const a = auditSimContext({
         settings,
