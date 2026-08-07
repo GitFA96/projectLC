@@ -2,6 +2,8 @@ import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { PREP_HOURS, prepApplications } from "@/lib/analysis/raid-report";
 import { costPerUseMap } from "@/lib/wcl/consumable-prices";
 import { adjustmentsFor, applyAdjustments } from "@/lib/analysis/consumable-adjustments";
+import { hasFlaskOrElixir, isPrepared } from "@/lib/analysis/preparation";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   AttendanceSummary,
   Character,
@@ -215,17 +217,19 @@ export interface ComparisonInput {
 
 const KIND_ORDER = { debuff: 0, selfbuff: 1, buff: 1 } as const;
 
-export function summarizeComparison(inputs: ComparisonInput[]): CharacterComparisonView {
+export function summarizeComparison(
+  inputs: ComparisonInput[],
+  policy: GuildPolicy = DEFAULT_POLICY,
+): CharacterComparisonView {
+  const prep = policy.preparation;
   const characters: ComparedCharacter[] = inputs.map((input) => {
     const { character, rows, attendance, comments } = input;
     const role = dominantRole(rows);
     const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
     const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
     const amounts = rows.map((r) => r.amount).filter((a): a is number => a !== undefined);
-    const flaskOrElixirs = rows.filter((r) => r.flask !== undefined || r.elixirs.length >= 1).length;
-    const prepared = rows.filter(
-      (r) => (r.flask !== undefined || r.elixirs.length >= 1) && r.food,
-    ).length;
+    const flaskOrElixirs = rows.filter((r) => hasFlaskOrElixir(r, prep)).length;
+    const prepared = rows.filter((r) => isPrepared(r, prep)).length;
     const deaths = rows.reduce((s, r) => s + r.deaths, 0);
     const potionsTotal = rows.reduce((s, r) => s + r.potions.length, 0);
 

@@ -309,6 +309,31 @@ Awards whose winner didn't match the roster show amber. Each can be **assigned t
 a character** (typo, rename, late add) or **marked off-roster** (disenchanted,
 banked, PUG) — both reversible, and the raw Gargul name is always kept.
 
+## Priority sheet `/loot/priority`
+
+The council's written spec priority, as a document rather than one item at a
+time — which is the only way to read most of it, since a sheet lists everything
+a boss can drop and the tracker has only heard of the items somebody wishlisted
+or won.
+
+One phase at a time, with the phase in `?phase=`. Rows are drawn as rungs
+because the `>` between tiers is the whole meaning of the notation, and a tier
+the app can't evaluate ("Set completion") is drawn amber to say nobody is ranked
+into it. An officer's per-item edit shows over the sheet's own wording, and
+edits for items the sheet never listed get their own section — they're in force
+either way, so leaving them out would make the page a lie.
+
+**A phase's sheet is pasted here**, stored as the markdown itself so replacing
+next phase's is a paste and the source of every rule stays one glance away. The
+preview states what the text parses to before anything is stored. Saving
+replaces that phase outright; per-item edits survive it, because those are keyed
+by item name and layered on whatever sheet is in force. Deleting a pasted sheet
+reverts the phase to the one the app shipped with.
+
+An item is looked up in the active phase's sheet first and then in every other
+phase's, newest first — a P3 boss still drops P3 loot while the guild farms it
+later, and its chain is still the chain.
+
 ## Items `/items` and `/items/[itemId]`
 
 The "something just dropped" lookup: every known item with wishlist demand, open

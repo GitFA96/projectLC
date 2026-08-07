@@ -1,4 +1,6 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
+import { hasFlaskOrElixir } from "@/lib/analysis/preparation";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   ConsumableTypeRow,
   ImprovementFinding,
@@ -30,7 +32,7 @@ import type {
  * players can deep-link to their performance page.
  */
 
-const SEVERITY_WEIGHT = { high: 100, medium: 40, low: 12 } as const;
+
 
 /** "Hydross, Lurker +2 more" — keeps boss lists short. */
 function bossList(names: string[], cap = 3): string {
@@ -59,11 +61,6 @@ function coveragePct(segments: [number, number][], durationMs: number): number {
   if (durationMs <= 0) return 0;
   const up = mergeSegments(segments).reduce((sum, [from, to]) => sum + (to - from), 0);
   return Math.round(Math.min(100, (up / durationMs) * 100));
-}
-
-function isPrepared(row: WclPlayerFight): boolean {
-  // A flask or any elixir counts — a single battle elixir is still coverage.
-  return row.flask !== undefined || row.elixirs.length >= 1;
 }
 
 /**
@@ -109,10 +106,14 @@ export interface RaidReportInput {
    * improvements.
    */
   excludedFightIds?: number[];
+  /** The council's policy — what counts as prepared, and how gaps are ranked. */
+  policy?: GuildPolicy;
 }
 
 export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   const { report, session, rows: allRows, reportPulls, slugByActor } = input;
+  const policy = input.policy ?? DEFAULT_POLICY;
+  const severity = policy.improvementSeverity;
   const slugOf = (actorName: string) => slugByActor.get(actorName.toLowerCase());
   const excluded = new Set(input.excludedFightIds ?? []);
 
@@ -189,7 +190,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   const prep: RaidPrepStats = {
     rows: rows.length,
     raiders: byActor.size,
-    flaskOrElixirPct: pct(rows.filter(isPrepared).length, rows.length),
+    flaskOrElixirPct: pct(rows.filter((r) => hasFlaskOrElixir(r, policy.preparation)).length, rows.length),
     foodPct: pct(rows.filter((r) => r.food).length, rows.length),
     weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
     prepotPct: pct(prepots, rows.length),
@@ -533,12 +534,13 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     }
 
     // Flask/elixir + food are at-pull facts (fair on wipes too).
-    const noPrep = ordered.filter((r) => !isPrepared(r));
-    if (noPrep.length > 0) {
+    const noFlaskOrElixir = ordered.filter((r) => !hasFlaskOrElixir(r, policy.preparation));
+    if (noFlaskOrElixir.length > 0) {
+      const allNight = noFlaskOrElixir.length === ordered.length;
       findings.push({
-        severity: noPrep.length === ordered.length ? "high" : "medium",
-        label: noPrep.length === ordered.length ? "No flask/elixir all night" : "No flask/elixir",
-        detail: noPrep.length === ordered.length ? undefined : `on ${bossList(noPrep.map((r) => r.encounterName))}`,
+        severity: allNight ? "high" : "medium",
+        label: allNight ? "No flask/elixir all night" : "No flask/elixir",
+        detail: allNight ? undefined : `on ${bossList(noFlaskOrElixir.map((r) => r.encounterName))}`,
       });
     }
     const noFood = ordered.filter((r) => !r.food);
@@ -560,14 +562,14 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     }
 
     if (findings.length === 0) continue;
-    const score = findings.reduce((s, f) => s + SEVERITY_WEIGHT[f.severity], 0);
+    const score = findings.reduce((s, f) => s + severity[f.severity], 0);
     improvements.push({
       name: actorName,
       slug: slugOf(actorName),
       className: latest?.className,
       role: latest?.role ?? "dps",
       score,
-      findings: findings.sort((a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity]),
+      findings: findings.sort((a, b) => severity[b.severity] - severity[a.severity]),
     });
   }
   improvements.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));

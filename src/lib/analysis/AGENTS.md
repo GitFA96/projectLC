@@ -19,7 +19,11 @@ the reverse — analysis must not reach for a repo.
   "mediocre" from a stat model this app doesn't have.
 - **Scoring weights are guild policy, not defaults you get to tune.** Anything
   that changes what a loot score means is the officer's decision — surface it,
-  don't quietly rebalance it.
+  don't quietly rebalance it. Those numbers live in `policy.ts` and are edited
+  on the guild page: **if changing a number changes a verdict, it belongs
+  there**, not as a `const` in the module that happens to use it. Take the
+  policy as an argument with `DEFAULT_POLICY` as the default, so the layer stays
+  pure and a test can pass its own.
 
 ## The duplication to watch
 

@@ -12,16 +12,17 @@ import { computeFairness } from "@/lib/analysis/fairness";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { goldPerRaid, summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
-import { LOOT_PRIORITY_SHEET_MD } from "@/data/seed/loot-priority-p3";
+import { LOOT_PRIORITY_SHEET_MD, LOOT_PRIORITY_SHEET_PHASE } from "@/data/seed/loot-priority-p3";
 import {
+  buildPrioritySheetView,
   indexRules,
   normalizeItemName,
   parsePrioritySheet,
   type PrioritySheetRule,
 } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
-import { resolveWeights } from "@/lib/analysis/loot-priority";
-import { phaseForZones } from "@/lib/constants/wow";
+import { resolvePolicy, type PolicyOverrides } from "@/lib/analysis/policy";
+import { PHASE_IDS, phaseForZones } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
 import { fingerprintRows, specFingerprints, specOfPull } from "@/lib/sim/profile";
 import type {
@@ -168,21 +169,39 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
  */
 export interface StoreConfig {
   excludedFightsByCode?: Record<string, number[]>;
-  /** The council's factor weighting; unset factors fall back to the defaults. */
-  lootPriorityWeights?: Partial<LootPriorityWeights>;
+  /**
+   * The council's policy — every number that encodes a judgement. Anything
+   * unset falls back to the code defaults, so an empty record behaves exactly
+   * as the app did before the record existed.
+   */
+  policy?: PolicyOverrides;
   /** Officer edits to the seeded priority sheet, keyed by normalized item name. */
   itemPriorityRules?: Record<string, { itemName: string; chain: string; note?: string }>;
+  /**
+   * Sheets an officer has pasted, keyed by phase. A phase with none falls back
+   * to the seeded sheet (phase 3) or to nothing at all.
+   */
+  prioritySheetsByPhase?: Record<
+    number,
+    { markdown: string; author?: string; note?: string; updatedAt: string }
+  >;
   /** Enchant ids resolved from the enchantment table, for the gear panel. */
   enchantNames?: Record<number, string>;
   /** Officer corrections to consumable counts, keyed by report code. */
   consumableAdjustmentsByCode?: Record<string, ConsumableAdjustment[]>;
 }
 
-/** The guild's written sheet, parsed once per process — it never changes at runtime. */
-let sheetIndex: Map<string, PrioritySheetRule> | undefined;
-function seededSheet(): Map<string, PrioritySheetRule> {
-  sheetIndex ??= indexRules(parsePrioritySheet(LOOT_PRIORITY_SHEET_MD));
-  return sheetIndex;
+/**
+ * The markdown in force for a phase: what an officer pasted, else the seeded
+ * sheet for the one phase that ships with one, else nothing.
+ *
+ * Deleting a stored sheet is therefore how a phase reverts to the seed —
+ * the same shape as clearing an item rule to hand that item back to the sheet.
+ */
+function sheetMarkdownFor(phase: number, stored: StoreConfig["prioritySheetsByPhase"]): string {
+  const pasted = stored?.[phase]?.markdown;
+  if (pasted !== undefined) return pasted;
+  return phase === LOOT_PRIORITY_SHEET_PHASE ? LOOT_PRIORITY_SHEET_MD : "";
 }
 
 /**
@@ -219,6 +238,38 @@ function memoizeViews(repo: Repo): Repo {
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
   const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, feedback } = store;
+
+  /*
+   * Sheets parsed per READ MODEL, never per process.
+   *
+   * This used to be a module-level singleton, on the reasoning that a seed
+   * module never changes at runtime. Now that a sheet can be pasted, that cache
+   * would outlive the write that replaced it: `data_version` rebuilds the read
+   * model but cannot reach a module-scope variable, so the first paste would
+   * have reported success and changed nothing until the process restarted.
+   * Keeping it here means the cache dies with the model that owns it.
+   */
+  const parsedSheets = new Map<number, PrioritySheetRule[]>();
+  function rulesForPhase(phase: number): PrioritySheetRule[] {
+    let rules = parsedSheets.get(phase);
+    if (!rules) {
+      rules = parsePrioritySheet(sheetMarkdownFor(phase, config.prioritySheetsByPhase));
+      parsedSheets.set(phase, rules);
+    }
+    return rules;
+  }
+  const indexedSheets = new Map<number, Map<string, PrioritySheetRule>>();
+  function sheetForPhase(phase: number): Map<string, PrioritySheetRule> {
+    let index = indexedSheets.get(phase);
+    if (!index) {
+      index = indexRules(rulesForPhase(phase));
+      indexedSheets.set(phase, index);
+    }
+    return index;
+  }
+
+  /** The policy in force, resolved once — every score below reads it. */
+  const policy = resolvePolicy(config.policy);
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -374,7 +425,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         const rows = careerRowsOf(character.id);
         metricsByCharacter.set(character.id, {
           attendance: computeAttendance(character.id),
-          career: summarizePerformance(rows),
+          career: summarizePerformance(rows, policy),
           goldPerRaid: goldPerRaid(
             rows,
             offPullOf(character.id),
@@ -387,10 +438,25 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   }
 
   /**
+   * Which sheets to consult for one item, and in what order: the active phase
+   * first, then every other phase, newest back to oldest.
+   *
+   * Not just the active phase's. An item does not stop existing when the guild
+   * moves on — a P3 boss still drops P3 loot while the roster farms it in P4,
+   * and the council's chain for that item is still the chain. Scoping the
+   * lookup to the active phase silently strips every older item of its priority
+   * the day a new sheet is pasted.
+   */
+  const lookupPhases = [
+    guild.activePhase,
+    ...[...PHASE_IDS].sort((a, b) => b - a).filter((p) => p !== guild.activePhase),
+  ];
+
+  /**
    * The council's spec priority for one item: an officer's edit if there is
-   * one, else the seeded sheet. Matching is by NAME — the sheet lists every
-   * drop a boss has, most of which the item cache has never seen — so any name
-   * the app knows for the item is worth trying.
+   * one, else whichever sheet lists it. Matching is by NAME — a sheet lists
+   * every drop a boss has, most of which the item cache has never seen — so any
+   * name the app knows for the item is worth trying.
    */
   function priorityRuleFor(itemId: number, ...names: (string | undefined)[]): ItemPriorityRule | undefined {
     const keys = names
@@ -409,7 +475,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       }
     }
     for (const key of keys) {
-      const seeded = seededSheet().get(key);
+      const seeded = lookupPhases.reduce<PrioritySheetRule | undefined>(
+        (found, phase) => found ?? sheetForPhase(phase).get(key),
+        undefined,
+      );
       if (seeded) {
         return {
           itemName: seeded.itemName,
@@ -441,7 +510,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         lootAwards.find((a) => a.itemId === itemId)?.itemName,
         gearSets.flatMap((s) => s.slots).find((s) => s.itemId === itemId)?.itemName,
       ),
-      weights: config.lootPriorityWeights,
+      policy,
     });
   }
 
@@ -563,7 +632,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     // Excused weeks drop out of the raid-level markup entirely (not counted as
     // missed); they still surface in the weekly dots so officers see the gap.
     const tracked = since.filter((r) => !exemptWeeks.has(resetWeekStart(r.startTime)));
-    const recent = tracked.slice(-10);
+    const recent = tracked.slice(-policy.attendance.recentRaids);
     const recentAttended = recent.filter((r) => attended.has(r.code)).length;
     const attendedTracked = tracked.filter((r) => attended.has(r.code)).length;
 
@@ -581,7 +650,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     const weeks = [...weekBuckets]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports, excused: exemptWeeks.has(start) }))
-      .slice(-8);
+      .slice(-policy.attendance.weeks);
     const countedWeeks = weeks.filter((w) => !w.excused);
 
     const reportPulls = pullsByReport();
@@ -796,6 +865,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
         slugByActor,
         excludedFightIds: config.excludedFightsByCode?.[report.code],
+        policy,
       });
     },
 
@@ -804,7 +874,43 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     },
 
     async getLootPriorityWeights(): Promise<LootPriorityWeights> {
-      return resolveWeights(config.lootPriorityWeights);
+      return policy.weights;
+    },
+
+    async getGuildPolicy() {
+      return policy;
+    },
+
+    async getPrioritySheet(phase?: number) {
+      const forPhase = phase ?? guild.activePhase;
+      // Every name the cache knows, so a sheet row can link to its item. Built
+      // here rather than in the view builder: which names an item goes by is a
+      // read-model fact, and the builder stays pure.
+      const idByName = new Map<string, number>();
+      for (const item of items) {
+        if (item.name) idByName.set(normalizeItemName(item.name), item.id);
+      }
+      const stored = config.prioritySheetsByPhase?.[forPhase];
+      const view = buildPrioritySheetView({
+        rules: rulesForPhase(forPhase),
+        // Item rules are guild-wide rather than per phase — an officer's chain
+        // for an item is their chain for it, whichever sheet lists it.
+        overrides: config.itemPriorityRules ?? {},
+        itemIdFor: (name) => idByName.get(normalizeItemName(name)),
+      });
+      return {
+        ...view,
+        phase: forPhase,
+        origin: stored
+          ? ("pasted" as const)
+          : forPhase === LOOT_PRIORITY_SHEET_PHASE
+            ? ("seed" as const)
+            : ("none" as const),
+        updatedAt: stored?.updatedAt,
+        author: stored?.author,
+        sheetNote: stored?.note,
+        markdown: sheetMarkdownFor(forPhase, config.prioritySheetsByPhase),
+      };
     },
 
     async getItemPriorityRule(itemId: number, ...names: (string | undefined)[]) {
@@ -956,7 +1062,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           const rows = myRows
             .filter((r) => r.reportCode === report.code)
             .sort((a, b) => a.fightId - b.fightId);
-          const summary = summarizePerformance(rows);
+          const summary = summarizePerformance(rows, policy);
           return summary
             ? {
                 report,
@@ -975,7 +1081,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return {
         character,
         reports,
-        career: summarizePerformance(chronological),
+        career: summarizePerformance(chronological, policy),
         offPull: myOffPull,
         attendance: computeAttendance(character.id),
       };
@@ -1030,7 +1136,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           mainCharacterName: mainNameOf(character),
         };
       });
-      return summarizeComparison(inputs);
+      return summarizeComparison(inputs, policy);
     },
 
     async listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]> {

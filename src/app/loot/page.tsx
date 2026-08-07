@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import Link from "next/link";
+import { ScrollText } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { itemDisplayName } from "@/lib/items/item-data";
 import { PageHeader } from "@/components/page-header";
@@ -49,7 +51,15 @@ export default async function LootPage() {
       <PageHeader
         title="Loot ledger"
         description="Every Gargul-tracked award, matched against the winner's wishlists at view time."
-      />
+      >
+        <Link
+          href="/loot/priority"
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+        >
+          <ScrollText className="h-4 w-4" />
+          Priority sheet
+        </Link>
+      </PageHeader>
       <Suspense>
         <LootView
           rows={rows}

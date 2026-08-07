@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, FlaskConical, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
+import { hasFlaskOrElixir } from "@/lib/analysis/preparation";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
 import { P2_ENCHANT_GUIDE } from "@/lib/wcl/enchants";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
@@ -420,7 +421,7 @@ export default async function PerformancePage({
                           </TableCell>
                           <TableCell>
                             <Mark
-                              ok={row.flask !== undefined || row.elixirs.length >= 1}
+                              ok={hasFlaskOrElixir(row)}
                               title={row.flask ?? (row.elixirs.length > 0 ? row.elixirs.join(" + ") : "no flask or elixirs")}
                             />
                           </TableCell>

@@ -7,7 +7,6 @@ import type {
   Item,
   ItemContention,
   ItemPriorityRule,
-  LootPriorityWeights,
   Phase,
   RaiderMetrics,
   SlotId,
@@ -15,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { SLOT_FAMILIES, slotFamilyMembers } from "@/lib/constants/wow";
 import { rankLootContenders } from "@/lib/analysis/loot-priority";
+import type { GuildPolicy } from "@/lib/analysis/policy";
 import { manualTiers, parsePriorityChain, tierFor } from "@/lib/loot/priority-chain";
 import { itemDisplayName } from "@/lib/items/item-data";
 
@@ -29,8 +29,8 @@ interface ContentionInput {
   metricsOf?: (characterId: string) => RaiderMetrics | undefined;
   /** The council's spec priority for this item, when the sheet covers it. */
   priorityRule?: ItemPriorityRule;
-  /** The council's factor weighting; unset factors fall back to the defaults. */
-  weights?: Partial<LootPriorityWeights>;
+  /** The council's policy; omitted means the code defaults are in force. */
+  policy?: GuildPolicy;
 }
 
 const familyKey = (slot: SlotId): string => SLOT_FAMILIES[slot] ?? slot;
@@ -148,7 +148,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
   // one belt, but two rings — before a second one counts against them.
   const ranked = rankLootContenders(wishers, metricsOf ?? (() => undefined), {
     familySize: contestedSlot ? slotFamilyMembers(contestedSlot).length : 1,
-    weights: input.weights,
+    policy: input.policy,
   });
 
   return {

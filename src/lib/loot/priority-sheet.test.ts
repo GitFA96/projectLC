@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { LOOT_PRIORITY_SHEET_MD } from "@/data/seed/loot-priority-p3";
-import { indexRules, normalizeItemName, parsePrioritySheet } from "@/lib/loot/priority-sheet";
+import {
+  buildPrioritySheetView,
+  indexRules,
+  normalizeItemName,
+  parsePrioritySheet,
+} from "@/lib/loot/priority-sheet";
 import { manualTiers, parsePriorityChain, tierFor } from "@/lib/loot/priority-chain";
 import { canonicalSpecTag, matchesSpecTag, specTagsOf } from "@/lib/loot/spec-tags";
 import type { Character } from "@/lib/types";
@@ -184,5 +189,132 @@ describe("the seeded Phase 3 sheet", () => {
       .flatMap((r) => manualTiers(r.chain).map((tier) => ({ item: r.itemName, tier })))
       .filter((s) => !DELIBERATE.has(s.tier));
     expect(stranded).toEqual([]);
+  });
+});
+
+describe("buildPrioritySheetView", () => {
+  const md = [
+    "### Gurtogg Bloodboil",
+    "| Item | Priority | Slot | Notes |",
+    "|---|---|---|---|",
+    "| Cloak of Fire | Mage > MS > OS | Back | |",
+    "| Band of Ruin | Warlock > MS > OS | Finger | Cursed. |",
+    "### Reliquary of Souls",
+    "| Item | Priority | Slot | Notes |",
+    "|---|---|---|---|",
+    "| Boots of Effort | Resto Druid > MS > OS | Cloth - Feet | |",
+  ].join("\n");
+
+  const rules = () => parsePrioritySheet(md);
+
+  it("keeps the document's sections and their order", () => {
+    const view = buildPrioritySheetView({ rules: rules(), overrides: {} });
+    expect(view.sections.map((s) => s.source)).toEqual(["Gurtogg Bloodboil", "Reliquary of Souls"]);
+    expect(view.sections[0].rows.map((r) => r.itemName)).toEqual(["Cloak of Fire", "Band of Ruin"]);
+    expect(view.ruleCount).toBe(3);
+    expect(view.officerCount).toBe(0);
+  });
+
+  it("folds an officer edit over the sheet, keeping what the sheet said", () => {
+    const view = buildPrioritySheetView({
+      rules: rules(),
+      overrides: { [normalizeItemName("Cloak of Fire")]: { itemName: "Cloak of Fire", chain: "Warlock > MS" } },
+    });
+    const row = view.sections[0].rows[0];
+    expect(row.origin).toBe("officer");
+    expect(row.chain).toBe("Warlock > MS");
+    expect(row.sheetChain).toBe("Mage > MS > OS");
+    expect(row.tiers[0].tags).toEqual(["Warlock"]);
+    // The sheet's slot survives an edit that doesn't mention one.
+    expect(row.slotLabel).toBe("Back");
+    expect(view.officerCount).toBe(1);
+  });
+
+  it("lists officer chains for items the sheet never named", () => {
+    const view = buildPrioritySheetView({
+      rules: rules(),
+      overrides: { [normalizeItemName("Some Trinket")]: { itemName: "Some Trinket", chain: "Hunter > MS" } },
+    });
+    expect(view.unlisted.map((r) => r.itemName)).toEqual(["Some Trinket"]);
+    expect(view.unlisted[0].origin).toBe("officer");
+    expect(view.officerCount).toBe(1);
+  });
+
+  it("flags a duplicate name rather than dropping it — matching only reaches the first", () => {
+    const dupe = md + "\n| Cloak of Fire | Rogue > MS | Back | |";
+    const view = buildPrioritySheetView({ rules: parsePrioritySheet(dupe), overrides: {} });
+    const rows = view.sections.flatMap((s) => s.rows).filter((r) => r.itemName === "Cloak of Fire");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].shadowed).toBeUndefined();
+    expect(rows[1].shadowed).toBe(true);
+    // Exactly what indexRules would have picked.
+    expect(indexRules(parsePrioritySheet(dupe)).get(normalizeItemName("Cloak of Fire"))?.chain.source).toBe(
+      "Mage > MS > OS",
+    );
+  });
+
+  it("links a row when the item cache knows the name", () => {
+    const view = buildPrioritySheetView({
+      rules: rules(),
+      overrides: {},
+      itemIdFor: (name) => (name === "Band of Ruin" ? 30048 : undefined),
+    });
+    const rows = view.sections[0].rows;
+    expect(rows.find((r) => r.itemName === "Band of Ruin")?.itemId).toBe(30048);
+    expect(rows.find((r) => r.itemName === "Cloak of Fire")?.itemId).toBeUndefined();
+  });
+});
+
+describe("per-spec tags", () => {
+  const warrior = (spec: string) => character("Warrior", spec, "Melee DPS");
+  const hunter = (spec: string) => character("Hunter", spec, "Ranged DPS");
+  const lock = (spec: string) => character("Warlock", spec, "Ranged DPS");
+
+  it("splits every class that used to collapse to one tag", () => {
+    expect(matchesSpecTag(warrior("Fury"), "Fury")).toBe(true);
+    expect(matchesSpecTag(warrior("Arms"), "Fury")).toBe(false);
+    expect(matchesSpecTag(hunter("Beast Mastery"), "Beast Mastery")).toBe(true);
+    expect(matchesSpecTag(hunter("Survival"), "Beast Mastery")).toBe(false);
+    expect(matchesSpecTag(lock("Destruction"), "Destruction")).toBe(true);
+    expect(matchesSpecTag(lock("Demonology"), "Destruction")).toBe(false);
+    expect(matchesSpecTag(character("Rogue", "Combat", "Melee DPS"), "Combat")).toBe(true);
+    expect(matchesSpecTag(character("Mage", "Fire", "Ranged DPS"), "Frost")).toBe(false);
+  });
+
+  it("keeps the class-level tag meaning any spec — the guild's sheet is written that way", () => {
+    for (const spec of ["Fury", "Arms"]) {
+      expect(matchesSpecTag(warrior(spec), "DPS Warrior")).toBe(true);
+    }
+    for (const spec of ["Beast Mastery", "Marksmanship", "Survival"]) {
+      expect(matchesSpecTag(hunter(spec), "Hunter")).toBe(true);
+    }
+    for (const spec of ["Affliction", "Demonology", "Destruction"]) {
+      expect(matchesSpecTag(lock(spec), "Warlock")).toBe(true);
+    }
+  });
+
+  it("still ranks a raider whose roster spec is blank, via the class tag", () => {
+    expect(matchesSpecTag(warrior(""), "DPS Warrior")).toBe(true);
+    // ...but the finer tag can't claim them, which is the honest answer.
+    expect(matchesSpecTag(warrior(""), "Fury")).toBe(false);
+  });
+
+  it("reads the wordings a sheet actually uses", () => {
+    expect(canonicalSpecTag("fury warrior")).toBe("Fury");
+    expect(canonicalSpecTag("destro lock")).toBe("Destruction");
+    expect(canonicalSpecTag("BM Hunter")).toBe("Beast Mastery");
+    expect(canonicalSpecTag("mutilate")).toBe("Assassination");
+    expect(canonicalSpecTag("fire mage")).toBe("Fire");
+  });
+
+  it("leaves the guild's own P3 sheet meaning exactly what it did", () => {
+    // Every tag the real sheet uses must still be one the app can evaluate;
+    // splitting specs must not strand a rung nobody can be ranked into.
+    const rules = parsePrioritySheet(LOOT_PRIORITY_SHEET_MD);
+    const used = new Set(rules.flatMap((r) => r.chain.tiers.flatMap((t) => t.tags)));
+    const evaluable = [...used].filter((t) => canonicalSpecTag(t) !== undefined);
+    expect(evaluable).toContain("DPS Warrior");
+    expect(evaluable).toContain("Hunter");
+    expect(evaluable).toContain("Warlock");
   });
 });

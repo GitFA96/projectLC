@@ -8,6 +8,7 @@ import type {
   RaiderMetrics,
 } from "@/lib/types";
 import type { CharacterStatus } from "@/lib/constants/wow";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 
 /**
  * "Who should get it?" — the council's shortlist, argued rather than decreed.
@@ -36,12 +37,7 @@ import type { CharacterStatus } from "@/lib/constants/wow";
  * the one thing here worth arguing about, and they're meant to be edited.
  */
 
-export const LOOT_PRIORITY_WEIGHTS: LootPriorityWeights = {
-  attendance: 35,
-  lootDebt: 30,
-  performance: 20,
-  preparation: 15,
-};
+export const LOOT_PRIORITY_WEIGHTS: LootPriorityWeights = DEFAULT_POLICY.weights;
 
 /** The council's weighting with any unset factor falling back to the default. */
 export function resolveWeights(overrides?: Partial<LootPriorityWeights>): LootPriorityWeights {
@@ -53,11 +49,11 @@ export function resolveWeights(overrides?: Partial<LootPriorityWeights>): LootPr
  * not a percentage, and a main with mediocre metrics should still outrank an
  * alt with perfect ones.
  */
-const STANDING: Record<CharacterStatus, { multiplier: number; note?: string }> = {
-  main: { multiplier: 1 },
-  alt: { multiplier: 0.7, note: "alt — behind mains on equal metrics" },
-  inactive: { multiplier: 0.4, note: "inactive — off the raiding roster" },
-  pug: { multiplier: 0.25, note: "pug — not a guild raider" },
+const STANDING_NOTE: Record<CharacterStatus, string | undefined> = {
+  main: undefined,
+  alt: "alt — behind mains on equal metrics",
+  inactive: "inactive — off the raiding roster",
+  pug: "pug — not a guild raider",
 };
 
 /**
@@ -79,20 +75,18 @@ const STANDING: Record<CharacterStatus, { multiplier: number; note?: string }> =
  * family once and lands exactly where the belt winner did — which is the
  * property that makes the sheet and the metrics agree instead of arguing.
  */
-const SLOT_SERVED_DROP = 0.4;
-const SLOT_SERVED_FLOOR = 0.35;
-
 export function slotServedAdjustment(
   sameSlotOnSpecAwards: number,
   /** How many items the slot family holds — 2 for rings and trinkets, else 1. */
   familySize: number,
+  slotServed: GuildPolicy["slotServed"] = DEFAULT_POLICY.slotServed,
 ): LootPriorityAdjustment | undefined {
   if (sameSlotOnSpecAwards <= 0) return undefined;
   const capacity = Math.max(1, familySize);
   const filled = sameSlotOnSpecAwards / capacity;
   const multiplier = Math.max(
-    SLOT_SERVED_FLOOR,
-    Math.round((1 - SLOT_SERVED_DROP * filled) * 100) / 100,
+    slotServed.floor,
+    Math.round((1 - slotServed.drop * filled) * 100) / 100,
   );
   const items = `${sameSlotOnSpecAwards} item${sameSlotOnSpecAwards === 1 ? "" : "s"}`;
   return {
@@ -138,14 +132,23 @@ function lootDebtFactor(mine: number, peak: number, w: LootPriorityWeights): Loo
   };
 }
 
-function performanceFactor(metrics: RaiderMetrics | undefined, w: LootPriorityWeights): LootPriorityFactor {
-  const parse = metrics?.career?.medianParse;
+function performanceFactor(
+  metrics: RaiderMetrics | undefined,
+  w: LootPriorityWeights,
+  metric: GuildPolicy["performance"]["parseMetric"],
+): LootPriorityFactor {
+  const bracket = metric === "bracket";
+  const parse = bracket ? metrics?.career?.medianBracket : metrics?.career?.medianParse;
+  const label = bracket ? "median bracket parse" : "median parse";
   return {
     key: "performance",
     label: "Performance",
     weight: w.performance,
     score: parse,
-    detail: parse === undefined ? "no parses logged" : `median parse ${parse}`,
+    // Name which percentile this is. The two differ by a lot for a raider in
+    // strong gear, and an officer reading the tooltip has to know which one
+    // they are defending.
+    detail: parse === undefined ? `no ${bracket ? "bracket parses" : "parses"} logged` : `${label} ${parse}`,
   };
 }
 
@@ -169,24 +172,27 @@ export function computeLootPriority(
   onSpecAwardsActivePhase: number,
   peakAwardsActivePhase: number,
   slotServed?: LootPriorityAdjustment,
-  weightOverrides?: Partial<LootPriorityWeights>,
+  policy: GuildPolicy = DEFAULT_POLICY,
 ): LootPriority {
-  const w = resolveWeights(weightOverrides);
+  const w = policy.weights;
   const factors = [
     attendanceFactor(metrics, w),
     lootDebtFactor(onSpecAwardsActivePhase, peakAwardsActivePhase, w),
-    performanceFactor(metrics, w),
+    performanceFactor(metrics, w, policy.performance.parseMetric),
     preparationFactor(metrics, w),
   ];
 
-  const standing = STANDING[character.status];
+  const multiplier = policy.standing[character.status];
+  const note = STANDING_NOTE[character.status];
   const adjustments: LootPriorityAdjustment[] = [];
-  if (standing.note) {
+  // A multiplier of 1 changes nothing, so it earns no line in the arithmetic —
+  // which is also what happens when a council decides alts rank like mains.
+  if (note && multiplier !== 1) {
     adjustments.push({
       key: "standing",
       label: "Roster standing",
-      multiplier: standing.multiplier,
-      note: standing.note,
+      multiplier,
+      note,
     });
   }
   if (slotServed) adjustments.push(slotServed);
@@ -211,8 +217,8 @@ export function computeLootPriority(
 export interface RankOptions {
   /** How many items the contested slot's family holds (2 for rings/trinkets). */
   familySize?: number;
-  /** The council's weighting; unset factors fall back to the defaults. */
-  weights?: Partial<LootPriorityWeights>;
+  /** The council's policy; omitted means the defaults are in force. */
+  policy?: GuildPolicy;
 }
 
 /**
@@ -251,8 +257,8 @@ export function rankLootContenders(
           metrics,
           wisher.onSpecAwardsActivePhase,
           peak,
-          slotServedAdjustment(sameSlot, opts.familySize ?? 1),
-          opts.weights,
+          slotServedAdjustment(sameSlot, opts.familySize ?? 1, opts.policy?.slotServed),
+          opts.policy,
         ),
       };
     })

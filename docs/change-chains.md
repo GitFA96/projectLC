@@ -91,7 +91,7 @@ namespaced key. The ones that exist:
 | `raid_board:<code>` | `setRaidBoard` |
 | `template_board` | `setTemplateBoard` (guild-wide, no suffix) |
 | `guild_roster:<id>` | `setGuildRoster` / `updateGuildRoster` (one row per named roster) |
-| `loot_priority_weights` | `setLootPriorityWeights` (guild-wide, no suffix) |
+| `guild_policy` | `setGuildPolicy` (guild-wide, no suffix) |
 | `sim_profile:<class>:<spec>` | `setSimProfile` (not per report — per class and spec) |
 
 **`raid_board:<code>` is the one per-report setting that is not a correction to
@@ -215,6 +215,15 @@ Two independent caches, two independent mistakes:
    header and it is not stylistic: a throw from the cache layer lands in the
    action's catch, the officer is told the write failed seconds after it
    committed, they retry, and the ledger gains a duplicate award.
+
+There is a third cache that neither of those reaches: **anything memoized at
+module scope**. `data_version` rebuilds the read model, but it cannot clear a
+`let` in a module — that value lives as long as the process. So the moment
+something seeded becomes something writable, its parse cache has to move inside
+`createRepoFromStore`, where it dies with the model that owns it. The priority
+sheet is the worked example: as a seed module a process-lifetime cache was
+correct, and the day it became pasteable that same cache would have made every
+paste report success and change nothing until a restart.
 
 ## 5. Change how a consumable is priced or counted
 

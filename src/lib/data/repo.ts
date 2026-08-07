@@ -1,5 +1,7 @@
 import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
 import type { EnchantReference } from "@/lib/analysis/enchants";
+import type { PrioritySheetDocument } from "@/lib/loot/priority-sheet";
+import type { GuildPolicy, PolicyOverrides } from "@/lib/analysis/policy";
 import type { AbilityInfo } from "@/lib/items/ability-data";
 import type {
   AwardWithContext,
@@ -150,12 +152,20 @@ export interface Repo {
   listUnnamedEnchantIds(): Promise<number[]>;
   /** The council's factor weighting, with unset factors filled from the defaults. */
   getLootPriorityWeights(): Promise<LootPriorityWeights>;
+  /** The whole policy in force — defaults where the council has set nothing. */
+  getGuildPolicy(): Promise<GuildPolicy>;
   /**
    * The spec priority chain for one item — an officer's edit when there is
    * one, else the seeded sheet. Names are matched loosely; pass every name the
    * caller knows for the item.
    */
   getItemPriorityRule(itemId: number, ...names: (string | undefined)[]): Promise<ItemPriorityRule | undefined>;
+  /**
+   * The whole priority sheet as one document, officer edits folded in — what
+   * `getItemPriorityRule` answers one drop at a time. Defaults to the active
+   * phase.
+   */
+  getPrioritySheet(phase?: number): Promise<PrioritySheetDocument>;
 }
 
 /* Write-side inputs: entities minus the fields the repo generates. */
@@ -356,7 +366,12 @@ export interface WriteRepo extends Repo {
    * Set the council's factor weighting. Values are percentages; they need not
    * sum to 100 (the score is a weighted mean, so only ratios matter).
    */
-  setLootPriorityWeights(weights: Partial<LootPriorityWeights>): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Replace the council's policy. Partial: anything unnamed keeps whatever the
+   * record already says, and anything the record never said falls back to the
+   * code defaults.
+   */
+  setGuildPolicy(overrides: PolicyOverrides): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Override one item's spec priority chain, keyed by item name so it covers
    * drops the item cache has never seen. An empty chain clears the override and
@@ -367,6 +382,19 @@ export interface WriteRepo extends Repo {
     chain: string,
     note?: string,
   ): Promise<{ ok: true; rule?: ItemPriorityRule } | { ok: false; error: string }>;
+  /**
+   * Replace a phase's priority sheet with pasted markdown. The text is stored
+   * verbatim and parsed on read, so the stored sheet stays something an officer
+   * can read back and diff — the same reason the seeded one is markdown.
+   */
+  setPrioritySheet(input: {
+    phase: number;
+    markdown: string;
+    author?: string;
+    note?: string;
+  }): Promise<{ ok: true; ruleCount: number } | { ok: false; error: string }>;
+  /** Drop a pasted sheet, reverting the phase to the seed (or to empty). */
+  deletePrioritySheet(phase: number): Promise<{ ok: true } | { ok: false; error: string }>;
   createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult>;
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
   /**

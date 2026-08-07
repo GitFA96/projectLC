@@ -9,6 +9,7 @@ import { ItemLink } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
 import { FairnessPanel } from "@/components/fairness-panel";
 import { LootWeightsEditor } from "@/components/loot/priority-editor";
+import { PolicyEditor } from "@/components/loot/policy-editor";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,11 @@ export const metadata: Metadata = { title: "Guild" };
  */
 export default async function GuildPage() {
   const repo = await getRepo();
-  const [data, weights] = await Promise.all([repo.getDashboard(), repo.getLootPriorityWeights()]);
+  const [data, weights, policy] = await Promise.all([
+    repo.getDashboard(),
+    repo.getLootPriorityWeights(),
+    repo.getGuildPolicy(),
+  ]);
   const phaseMeta = PHASES.find((p) => p.phase === data.guild.activePhase);
 
   return (
@@ -164,12 +169,23 @@ export default async function GuildPage() {
       >
         <LootWeightsEditor weights={weights} />
         <p className="mt-3 text-xs text-muted-foreground">
-          Spec priority chains come from the guild&apos;s Phase 3 sheet and are edited on each{" "}
+          Spec priority chains come from the council&apos;s{" "}
+          <Link href="/loot/priority" className="font-medium text-foreground hover:underline">
+            priority sheet
+          </Link>{" "}
+          — one per phase, read and replaced there — and a single item&apos;s chain is edited on{" "}
           <Link href="/items" className="font-medium text-foreground hover:underline">
-            item&apos;s page
+            its own page
           </Link>
           . The sheet decides who is eligible; these weights only order the contenders inside a rung.
         </p>
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="Loot policy — the rest of the numbers"
+        description="Everything else that encodes a judgement: how far behind an alt sits, what a slot already served costs, how far back “recent” looks, and what counts as prepared. Defaults are the app's, not the council's — until you change them."
+      >
+        <PolicyEditor policy={policy} />
       </CollapsibleCard>
 
       <Card>

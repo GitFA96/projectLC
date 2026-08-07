@@ -11,7 +11,11 @@ import {
   getReportConsumableAdjustments,
   setReportConsumableAdjustments,
   getItemPriorityRules,
-  getLootPriorityWeights,
+  getPrioritySheets,
+  setPrioritySheet,
+  deletePrioritySheet,
+  getGuildPolicy,
+  setGuildPolicy,
   getGuildRoster,
   getRaidBoard,
   getReportConsumablePrices,
@@ -36,7 +40,6 @@ import {
   loadStore,
   mergeItems,
   setItemPriorityRule,
-  setLootPriorityWeights,
   setGuildRoster,
   updateGuildRoster,
   deleteGuildRoster,
@@ -49,8 +52,10 @@ import {
   withTx,
 } from "@/lib/data/db";
 import { createRepoFromStore } from "@/lib/data/store";
-import { normalizeItemName } from "@/lib/loot/priority-sheet";
+import { normalizeItemName, parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
+import { PHASE_IDS } from "@/lib/constants/wow";
+import type { PolicyOverrides } from "@/lib/analysis/policy";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
 import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
@@ -103,7 +108,6 @@ import type {
   GearSpec,
   Item,
   LootAward,
-  LootPriorityWeights,
   RaidSession,
   SlotId,
   SlotItem,
@@ -139,8 +143,9 @@ function readModel(): CachedModel {
     version,
     repo: createRepoFromStore(store, {
       excludedFightsByCode: getAllExcludedFights(db),
-      lootPriorityWeights: getLootPriorityWeights(db),
+      policy: getGuildPolicy(db),
       itemPriorityRules: getItemPriorityRules(db),
+      prioritySheetsByPhase: getPrioritySheets(db),
       enchantNames: getEnchantNames(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     }),
@@ -324,15 +329,21 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return cleared;
   },
 
-  async setLootPriorityWeights(weights: Partial<LootPriorityWeights>) {
-    const values = Object.values(weights).filter((v) => typeof v === "number");
-    if (values.length > 0 && values.every((v) => v === 0)) {
-      return { ok: false as const, error: "At least one factor has to carry some weight." };
+  async setGuildPolicy(overrides: PolicyOverrides) {
+    // A weighting that is zero everywhere would divide by zero and rank nobody.
+    // Every other field is clamped on write, so this is the only cross-field
+    // rule the record has.
+    const weights = overrides.weights;
+    if (weights) {
+      const given = Object.values(weights).filter((v) => typeof v === "number");
+      if (given.length > 0 && given.every((v) => v === 0)) {
+        return { ok: false as const, error: "At least one factor has to carry some weight." };
+      }
     }
     const db = getDb();
     withTx(db, () => {
-      setLootPriorityWeights(db, weights);
-      // The weighting is baked into the read model — force a rebuild.
+      setGuildPolicy(db, overrides);
+      // The policy is baked into the read model — force a rebuild.
       bumpDataVersion(db);
     });
     return { ok: true as const };
@@ -372,6 +383,47 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
         origin: "officer" as const,
       },
     };
+  },
+
+  async setPrioritySheet(input: { phase: number; markdown: string; author?: string; note?: string }) {
+    if (!PHASE_IDS.includes(input.phase as (typeof PHASE_IDS)[number])) {
+      return { ok: false as const, error: `Phase ${input.phase} isn't a phase this app knows.` };
+    }
+    const markdown = input.markdown.trim();
+    if (!markdown) {
+      return { ok: false as const, error: "Paste the sheet's markdown, or reset the phase instead." };
+    }
+    // Parse before storing: a sheet that yields no rows is a paste that went
+    // wrong (the wrong half of a document, a table without its pipes), and
+    // storing it would replace a working sheet with silence.
+    const rules = parsePrioritySheet(markdown);
+    if (rules.length === 0) {
+      return {
+        ok: false as const,
+        error:
+          "Nothing in that text parses as a priority row. Rows need to look like " +
+          "“| Item | Priority | Slot | Notes |”, under a ### heading for the boss.",
+      };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      setPrioritySheet(db, input.phase, {
+        markdown,
+        author: input.author?.trim() || undefined,
+        note: input.note?.trim() || undefined,
+      });
+      // The sheet feeds every contested item's ranking through the read model.
+      bumpDataVersion(db);
+    });
+    return { ok: true as const, ruleCount: rules.length };
+  },
+
+  async deletePrioritySheet(phase: number) {
+    const db = getDb();
+    withTx(db, () => {
+      if (deletePrioritySheet(db, phase)) bumpDataVersion(db);
+    });
+    return { ok: true as const };
   },
 
   async clearCurrentGearOverrides(characterId: string, spec: GearSpec = "main"): Promise<number> {
@@ -1096,6 +1148,8 @@ export function getSqliteRepo(): WriteRepo {
     listUnnamedEnchantIds: () => readModel().repo.listUnnamedEnchantIds(),
     getLootPriorityWeights: () => readModel().repo.getLootPriorityWeights(),
     getItemPriorityRule: (itemId, ...names) => readModel().repo.getItemPriorityRule(itemId, ...names),
+    getPrioritySheet: (phase) => readModel().repo.getPrioritySheet(phase),
+    getGuildPolicy: () => readModel().repo.getGuildPolicy(),
   };
   return { ...readDelegate, ...writeMethods };
 }

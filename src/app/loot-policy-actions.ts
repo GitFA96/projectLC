@@ -4,7 +4,9 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { isSpecTag } from "@/lib/loot/spec-tags";
+import { parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import type { LootPriorityWeights } from "@/lib/types";
+import type { PolicyOverrides } from "@/lib/analysis/policy";
 
 /**
  * Editing the council's loot policy: the factor weighting behind every score,
@@ -56,14 +58,47 @@ export async function saveItemPriorityAction(input: {
 export async function saveLootWeightsAction(
   weights: Partial<LootPriorityWeights>,
 ): Promise<PriorityActionResult> {
+  return savePolicyAction({ weights });
+}
+
+/**
+ * Save any part of the council's policy.
+ *
+ * Partial by design: the weights editor sends weights, the standing editor
+ * sends standing, and neither can clobber the other. Everything unnamed keeps
+ * whatever the record already holds.
+ */
+export async function savePolicyAction(
+  overrides: PolicyOverrides,
+): Promise<PriorityActionResult> {
   try {
     const repo = await getWriteRepo();
-    const result = await repo.setLootPriorityWeights(weights);
+    const current = await repo.getGuildPolicy();
+    // Merge against what's stored, one level deep — the same shape resolvePolicy
+    // uses, so a partial save can never drop a sibling the officer set earlier.
+    const merged: PolicyOverrides = { ...current };
+    for (const [key, value] of Object.entries(overrides) as [keyof PolicyOverrides, object][]) {
+      merged[key] = { ...(current[key] as object), ...value } as never;
+    }
+    const result = await repo.setGuildPolicy(merged);
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
-    return { ok: true, message: "Weighting saved — every contested item re-ranks." };
+    return { ok: true, message: "Policy saved — every contested item re-ranks." };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Saving the weighting failed." };
+    return { ok: false, message: e instanceof Error ? e.message : "Saving the policy failed." };
+  }
+}
+
+/** Hand the whole policy back to the app's defaults. */
+export async function resetPolicyAction(): Promise<PriorityActionResult> {
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.setGuildPolicy({});
+    if (!result.ok) return { ok: false, message: result.error };
+    refreshAfterWrite("/", "layout");
+    return { ok: true, message: "Policy reset to the app's defaults." };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Resetting the policy failed." };
   }
 }
 
@@ -76,5 +111,62 @@ export async function checkPriorityChainAction(
   return {
     tiers: parsed.tiers.map((t) => ({ label: t.tags.join(" = "), manual: t.manual })),
     unknown,
+  };
+}
+
+export interface SheetActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Replace a phase's priority sheet with pasted markdown.
+ *
+ * Overwriting is the update flow here, exactly as it is for gear sets: a sheet
+ * is one document the council rewrites between phases, not a set of rows to
+ * merge. Per-item officer edits survive it, because those are keyed by item
+ * name and layered on top of whatever sheet is in force.
+ */
+export async function savePrioritySheetAction(input: {
+  phase: number;
+  markdown: string;
+  author?: string;
+  note?: string;
+}): Promise<SheetActionResult> {
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.setPrioritySheet(input);
+    if (!result.ok) return { ok: false, message: result.error };
+    refreshAfterWrite("/", "layout");
+    return {
+      ok: true,
+      message: `Phase ${input.phase} sheet saved — ${result.ruleCount} items. Every contested drop re-ranks.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Saving the sheet failed." };
+  }
+}
+
+/** Drop a pasted sheet, handing the phase back to the seeded one (or to empty). */
+export async function resetPrioritySheetAction(phase: number): Promise<SheetActionResult> {
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.deletePrioritySheet(phase);
+    if (!result.ok) return { ok: false, message: result.error };
+    refreshAfterWrite("/", "layout");
+    return { ok: true, message: `Phase ${phase} is back to the sheet it shipped with.` };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Resetting the sheet failed." };
+  }
+}
+
+/** What a pasted sheet would parse to, without storing it — the preview. */
+export async function previewPrioritySheetAction(
+  markdown: string,
+): Promise<{ ruleCount: number; sections: string[] }> {
+  const rules = parsePrioritySheet(markdown);
+  return {
+    ruleCount: rules.length,
+    sections: [...new Set(rules.map((r) => r.source))],
   };
 }

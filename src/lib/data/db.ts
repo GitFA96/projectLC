@@ -42,7 +42,6 @@ import type {
   Guild,
   Item,
   LootAward,
-  LootPriorityWeights,
   RaidSession,
   WclPlayerFight,
   WclPlayerOffPull,
@@ -181,6 +180,22 @@ CREATE TABLE IF NOT EXISTS item_priority_rules (
   item_key   TEXT PRIMARY KEY,
   item_name  TEXT NOT NULL,
   chain      TEXT NOT NULL,
+  note       TEXT,
+  updated_at TEXT NOT NULL
+);
+-- The council's priority sheet per phase, as the markdown an officer pasted.
+-- A document rather than a setting, which is why it earns a table: it is the
+-- source the per-item rules above are layered on top of.
+--
+-- Absent for a phase means "nothing pasted": phase 3 then falls back to the
+-- seeded sheet in src/data/seed, and every other phase is simply empty until
+-- someone pastes one. So deleting a row is how you revert to the seed, exactly
+-- as clearing an item_priority_rules row hands that item back to the sheet.
+CREATE TABLE IF NOT EXISTS priority_sheets (
+  phase      INTEGER PRIMARY KEY,
+  markdown   TEXT NOT NULL,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author     TEXT,
   note       TEXT,
   updated_at TEXT NOT NULL
 );
@@ -356,6 +371,12 @@ function migrate(db: DatabaseSync): void {
   // The feedback table shipped with only bug reports. Existing rows were filed
   // as bugs and the DEFAULT says so, so the backfill is the default itself.
   addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
+  // The four loot weights moved into the `guild_policy` record, which holds
+  // every other number the council can set too. The old value is deliberately
+  // NOT carried across (the officers called it: the project is pre-release, and
+  // a half-migrated policy is worse than a clean default). Dropping the row
+  // rather than leaving it means nobody later mistakes it for live config.
+  db.prepare("DELETE FROM meta WHERE key = ?").run("loot_priority_weights");
   backfillUpkeepTracks(db);
   relaxItemColumns(db);
   addAbilityKind(db);
@@ -1088,40 +1109,92 @@ export function setReportExcludedFights(db: DatabaseSync, code: string, fightIds
    the seeded spec priority sheet. Both are settings rather than entities —
    the weighting lives in meta, the overrides in their own small table. */
 
-const WEIGHTS_KEY = "loot_priority_weights";
+const POLICY_KEY = "guild_policy";
 
-/** Keep only sane percentages so a hand-edited blob can't break a ranking. */
-function sanitizeWeights(raw: unknown): Partial<LootPriorityWeights> {
-  if (raw === null || typeof raw !== "object") return {};
-  const out: Partial<LootPriorityWeights> = {};
-  for (const key of ["attendance", "lootDebt", "performance", "preparation"] as const) {
-    const value = (raw as Record<string, unknown>)[key];
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100) {
-      out[key] = Math.round(value);
-    }
+/** A number the officer may set, clamped to a range that can't break a ranking. */
+function num(raw: unknown, min: number, max: number, round?: "int"): number | undefined {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < min || raw > max) return undefined;
+  return round === "int" ? Math.round(raw) : Math.round(raw * 100) / 100;
+}
+
+function group<T extends string>(
+  raw: unknown,
+  keys: readonly T[],
+  read: (value: unknown) => number | boolean | string | undefined,
+): Partial<Record<T, number | boolean | string>> | undefined {
+  if (raw === null || typeof raw !== "object") return undefined;
+  const out: Partial<Record<T, number | boolean | string>> = {};
+  for (const key of keys) {
+    const value = read((raw as Record<string, unknown>)[key]);
+    if (value !== undefined) out[key] = value;
   }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Drop anything a hand-edited or stale blob shouldn't be able to do.
+ *
+ * Every field is optional on the way in and on the way out: a policy that only
+ * names one number is valid, and the resolver fills the rest from the code
+ * defaults. Junk is discarded rather than rejected, so one bad key can never
+ * take a working policy — or a page — down with it.
+ */
+function sanitizePolicy(raw: unknown): Record<string, unknown> {
+  if (raw === null || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  const weights = group(r.weights, ["attendance", "lootDebt", "performance", "preparation"] as const,
+    (v) => num(v, 0, 100, "int"));
+  if (weights) out.weights = weights;
+
+  // Multipliers, not percentages: 0 would zero a contender out entirely, which
+  // is a ban rather than a ranking, so the floor is deliberately above it.
+  const standing = group(r.standing, ["main", "alt", "inactive", "pug"] as const,
+    (v) => num(v, 0.01, 1));
+  if (standing) out.standing = standing;
+
+  const slotServed = group(r.slotServed, ["drop", "floor"] as const, (v) => num(v, 0, 1));
+  if (slotServed) out.slotServed = slotServed;
+
+  const attendance = group(r.attendance, ["recentRaids", "weeks"] as const,
+    (v) => num(v, 1, 100, "int"));
+  if (attendance) out.attendance = attendance;
+
+  const perf = group(r.performance, ["parseMetric"] as const,
+    (v) => (v === "all" || v === "bracket" ? v : undefined));
+  if (perf) out.performance = perf;
+
+  const preparation = group(r.preparation, ["elixirCounts"] as const,
+    (v) => (typeof v === "boolean" ? v : undefined));
+  if (preparation) out.preparation = preparation;
+
+  const severity = group(r.improvementSeverity, ["high", "medium", "low"] as const,
+    (v) => num(v, 0, 1000, "int"));
+  if (severity) out.improvementSeverity = severity;
+
   return out;
 }
 
-/** The council's weighting. Empty means the code defaults are in force. */
-export function getLootPriorityWeights(db: DatabaseSync): Partial<LootPriorityWeights> {
-  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(WEIGHTS_KEY) as
+/** The council's policy. Empty means the code defaults are in force. */
+export function getGuildPolicy(db: DatabaseSync): Record<string, unknown> {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(POLICY_KEY) as
     | { value: string }
     | undefined;
   if (!row) return {};
   try {
-    return sanitizeWeights(JSON.parse(row.value));
+    return sanitizePolicy(JSON.parse(row.value));
   } catch {
     return {};
   }
 }
 
-/** Replace the weighting. An empty object hands it back to the code defaults. */
-export function setLootPriorityWeights(db: DatabaseSync, weights: Partial<LootPriorityWeights>): void {
+/** Replace the policy. An empty object hands everything back to the defaults. */
+export function setGuildPolicy(db: DatabaseSync, policy: unknown): void {
   db.prepare(
     `INSERT INTO meta (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run(WEIGHTS_KEY, JSON.stringify(sanitizeWeights(weights)));
+  ).run(POLICY_KEY, JSON.stringify(sanitizePolicy(policy)));
 }
 
 export interface StoredPriorityRule {
@@ -1162,6 +1235,56 @@ export function setItemPriorityRule(
 /** Drop an override so the seeded sheet takes the item back. */
 export function deleteItemPriorityRule(db: DatabaseSync, itemKey: string): boolean {
   return Number(db.prepare("DELETE FROM item_priority_rules WHERE item_key = ?").run(itemKey).changes) > 0;
+}
+
+/** A pasted sheet, as stored. The markdown is kept verbatim, never pre-parsed. */
+export interface StoredPrioritySheet {
+  markdown: string;
+  author?: string;
+  note?: string;
+  updatedAt: string;
+}
+
+/** Every pasted sheet, keyed by phase. Phases with none are simply absent. */
+export function getPrioritySheets(db: DatabaseSync): Record<number, StoredPrioritySheet> {
+  const rows = db
+    .prepare("SELECT phase, markdown, author, note, updated_at FROM priority_sheets")
+    .all() as {
+    phase: number;
+    markdown: string;
+    author: string | null;
+    note: string | null;
+    updated_at: string;
+  }[];
+  const out: Record<number, StoredPrioritySheet> = {};
+  for (const r of rows) {
+    out[r.phase] = {
+      markdown: r.markdown,
+      author: r.author ?? undefined,
+      note: r.note ?? undefined,
+      updatedAt: r.updated_at,
+    };
+  }
+  return out;
+}
+
+export function setPrioritySheet(
+  db: DatabaseSync,
+  phase: number,
+  sheet: { markdown: string; author?: string; note?: string },
+): void {
+  db.prepare(
+    `INSERT INTO priority_sheets (phase, markdown, author, note, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(phase) DO UPDATE SET
+       markdown = excluded.markdown, author = excluded.author,
+       note = excluded.note, updated_at = excluded.updated_at`,
+  ).run(phase, sheet.markdown, sheet.author ?? null, sheet.note ?? null, new Date().toISOString());
+}
+
+/** Drop a pasted sheet, handing the phase back to the seed (or to empty). */
+export function deletePrioritySheet(db: DatabaseSync, phase: number): boolean {
+  return Number(db.prepare("DELETE FROM priority_sheets WHERE phase = ?").run(phase).changes) > 0;
 }
 
 /** Every enchant id the app has resolved a name for. */

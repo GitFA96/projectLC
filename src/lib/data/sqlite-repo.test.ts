@@ -340,6 +340,91 @@ describe("sqlite repo", () => {
       ]);
     });
 
+    it("serves the seeded sheet as a whole document", async () => {
+      const repo = getSqliteRepo();
+      const sheet = await repo.getPrioritySheet(3);
+      expect(sheet.origin).toBe("seed");
+      expect(sheet.phase).toBe(3);
+      expect(sheet.ruleCount).toBeGreaterThan(100);
+      expect(sheet.sections.map((s) => s.source)).toContain("The Illidari Council");
+    });
+
+    it("has no sheet for a phase nobody has written one for", async () => {
+      const repo = getSqliteRepo();
+      const sheet = await repo.getPrioritySheet(4);
+      expect(sheet.origin).toBe("none");
+      expect(sheet.ruleCount).toBe(0);
+      expect(sheet.sections).toEqual([]);
+    });
+
+    it("takes a pasted sheet and ranks against it immediately", async () => {
+      const repo = getSqliteRepo();
+      const markdown = [
+        "### Zul'Aman Trash",
+        "| Item | Priority | Slot | Notes |",
+        "|---|---|---|---|",
+        "| Amani Punisher | Rogue > DPS Warrior > MS > OS | Main Hand | |",
+      ].join("\n");
+
+      const saved = await repo.setPrioritySheet({ phase: 4, markdown, author: "Fredrik" });
+      expect(saved).toEqual({ ok: true, ruleCount: 1 });
+
+      // THE point of this feature: the read model must see the new sheet
+      // without a process restart. The parse used to be cached at module
+      // scope, where bumping data_version could not reach it.
+      const sheet = await repo.getPrioritySheet(4);
+      expect(sheet.origin).toBe("pasted");
+      expect(sheet.author).toBe("Fredrik");
+      expect(sheet.ruleCount).toBe(1);
+      expect(sheet.sections[0].rows[0].itemName).toBe("Amani Punisher");
+    });
+
+    it("refuses a paste that parses to nothing rather than storing silence", async () => {
+      const repo = getSqliteRepo();
+      const before = await repo.getPrioritySheet(3);
+      const result = await repo.setPrioritySheet({ phase: 3, markdown: "just some prose" });
+      expect(result.ok).toBe(false);
+      // The working sheet is untouched.
+      expect((await repo.getPrioritySheet(3)).ruleCount).toBe(before.ruleCount);
+    });
+
+    it("reverts to the shipped sheet when a pasted one is dropped", async () => {
+      const repo = getSqliteRepo();
+      const seeded = await repo.getPrioritySheet(3);
+      const markdown = [
+        "### Replaced",
+        "| Item | Priority | Slot | Notes |",
+        "|---|---|---|---|",
+        "| Only Item | MS > OS | Back | |",
+      ].join("\n");
+
+      await repo.setPrioritySheet({ phase: 3, markdown });
+      expect((await repo.getPrioritySheet(3)).ruleCount).toBe(1);
+
+      await repo.deletePrioritySheet(3);
+      const back = await repo.getPrioritySheet(3);
+      expect(back.origin).toBe("seed");
+      expect(back.ruleCount).toBe(seeded.ruleCount);
+    });
+
+    it("keeps per-item officer edits on top of a replaced sheet", async () => {
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule("Amani Punisher", "Enhancement > MS");
+      const markdown = [
+        "### Zul'Aman Trash",
+        "| Item | Priority | Slot | Notes |",
+        "|---|---|---|---|",
+        "| Amani Punisher | Rogue > MS > OS | Main Hand | |",
+      ].join("\n");
+      await repo.setPrioritySheet({ phase: 4, markdown });
+
+      const sheet = await repo.getPrioritySheet(4);
+      const row = sheet.sections[0].rows[0];
+      expect(row.origin).toBe("officer");
+      expect(row.chain).toBe("Enhancement > MS");
+      expect(row.sheetChain).toBe("Rogue > MS > OS");
+    });
+
     it("lets an officer override a chain and hand it back again", async () => {
       const repo = getSqliteRepo();
       const saved = await repo.setItemPriorityRule(
@@ -374,7 +459,7 @@ describe("sqlite repo", () => {
       const repo = getSqliteRepo();
       expect(await repo.getLootPriorityWeights()).toMatchObject({ attendance: 35, lootDebt: 30 });
 
-      expect((await repo.setLootPriorityWeights({ attendance: 50 })).ok).toBe(true);
+      expect((await repo.setGuildPolicy({ weights: { attendance: 50 } })).ok).toBe(true);
       const weights = await repo.getLootPriorityWeights();
       expect(weights.attendance).toBe(50);
       // Untouched factors keep the code default rather than dropping to zero.
@@ -383,13 +468,66 @@ describe("sqlite repo", () => {
 
     it("refuses a weighting where nothing counts", async () => {
       const repo = getSqliteRepo();
-      const result = await repo.setLootPriorityWeights({
-        attendance: 0,
-        lootDebt: 0,
-        performance: 0,
-        preparation: 0,
+      const result = await repo.setGuildPolicy({
+        weights: { attendance: 0, lootDebt: 0, performance: 0, preparation: 0 },
       });
       expect(result.ok).toBe(false);
+    });
+
+    it("defaults every policy group until an officer sets one", async () => {
+      const repo = getSqliteRepo();
+      const policy = await repo.getGuildPolicy();
+      expect(policy.standing).toEqual({ main: 1, alt: 0.7, inactive: 0.4, pug: 0.25 });
+      expect(policy.attendance).toEqual({ recentRaids: 10, weeks: 8 });
+      expect(policy.preparation.elixirCounts).toBe(true);
+      expect(policy.performance.parseMetric).toBe("all");
+    });
+
+    it("stores the parse metric and rejects anything that isn't one", async () => {
+      const repo = getSqliteRepo();
+      await repo.setGuildPolicy({ performance: { parseMetric: "bracket" } });
+      expect((await repo.getGuildPolicy()).performance.parseMetric).toBe("bracket");
+
+      await repo.setGuildPolicy({
+        performance: { parseMetric: "median" as unknown as "all" },
+      });
+      // Junk is discarded, and the group falls back rather than half-saving.
+      expect((await repo.getGuildPolicy()).performance.parseMetric).toBe("all");
+    });
+
+    it("saves one policy group without disturbing another", async () => {
+      const repo = getSqliteRepo();
+      await repo.setGuildPolicy({ standing: { alt: 0.9 } });
+      await repo.setGuildPolicy({ standing: { alt: 0.9 }, attendance: { recentRaids: 6 } });
+
+      const policy = await repo.getGuildPolicy();
+      expect(policy.standing.alt).toBe(0.9);
+      expect(policy.standing.main).toBe(1);
+      expect(policy.attendance.recentRaids).toBe(6);
+      expect(policy.attendance.weeks).toBe(8);
+    });
+
+    it("discards junk rather than letting it reach a ranking", async () => {
+      const repo = getSqliteRepo();
+      await repo.setGuildPolicy({
+        // Out of range, wrong type, and a multiplier of zero — which would be a
+        // ban rather than a ranking.
+        weights: { attendance: 500 },
+        standing: { alt: 0, pug: "nope" as unknown as number },
+      } as never);
+      const policy = await repo.getGuildPolicy();
+      expect(policy.weights.attendance).toBe(35);
+      expect(policy.standing.alt).toBe(0.7);
+      expect(policy.standing.pug).toBe(0.25);
+    });
+
+    it("an alt multiplier the council raised actually moves the score", async () => {
+      const repo = getSqliteRepo();
+      const before = await repo.getGuildPolicy();
+      expect(before.standing.alt).toBe(0.7);
+
+      await repo.setGuildPolicy({ standing: { alt: 1 } });
+      expect((await repo.getGuildPolicy()).standing.alt).toBe(1);
     });
   });
 
