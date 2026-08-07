@@ -214,7 +214,7 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
             <span className="flex flex-col gap-0.5" title={attendanceTitle(a)}>
               <WeekDots weeks={a.weeks} />
               <span
-                className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-amber-600" : "text-muted-foreground"}`}
+                className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-warn-ink" : "text-muted-foreground"}`}
               >
                 {a.weeksAttended}/{a.weeksTracked} wk · {a.raidPct}%
               </span>

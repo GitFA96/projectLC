@@ -29,8 +29,8 @@ export interface TimelineTrack {
 }
 
 const TONE = {
-  log: { dot: "bg-sky-500", text: "text-sky-700" },
-  sim: { dot: "bg-amber-500", text: "text-amber-700" },
+  log: { dot: "bg-info", text: "text-info-ink" },
+  sim: { dot: "bg-warn", text: "text-warn-ink" },
 } as const;
 
 /** Seconds per gridline segment. */

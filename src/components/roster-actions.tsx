@@ -63,7 +63,7 @@ export function ActionResultLine({ result }: { result?: RosterActionResult }) {
   if (!result) return null;
   return (
     <p
-      className={`flex items-start gap-1.5 text-xs ${result.ok ? "text-emerald-700" : "text-amber-700"}`}
+      className={`flex items-start gap-1.5 text-xs ${result.ok ? "text-success-ink" : "text-warn-ink"}`}
     >
       {result.ok ? (
         <CircleCheck className="mt-px h-3.5 w-3.5 shrink-0" />

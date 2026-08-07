@@ -1,9 +1,34 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Light theme only (by design): minimal dashboard, WoW flavor via class/quality accents. */
+/*
+ * Theming lives here, and only here.
+ *
+ * Two rules keep it that way:
+ *
+ * 1. Components never name a palette color (no `bg-amber-50`, no `#b45309`).
+ *    They name a *role* — `bg-warn-soft`, `text-success-ink` — and this file
+ *    decides what that role looks like in each theme. A component written
+ *    against roles is correct in dark mode the day it's written, with no
+ *    `dark:` variant to forget.
+ * 2. Colors applied through inline `style` (class colors, item quality, parse
+ *    percentiles) go through CSS variables for the same reason: a `dark:`
+ *    class cannot reach an inline style, so the variable has to carry the
+ *    theme.
+ *
+ * Role vocabulary, five parts per status:
+ *   `-soft`  panel wash           `-fill`  the stronger chip/pill fill
+ *   `-line`  border for either    `-ink`   text on either
+ *   (bare)   saturated dot, bar, solid fill
+ */
+
+/* `dark:` follows the class the theme script stamps on <html>, not the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --radius: 0.625rem;
+  color-scheme: light;
+
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -23,6 +48,236 @@
   --border: oklch(0.918 0 0);
   --input: oklch(0.918 0 0);
   --ring: oklch(0.708 0 0);
+  --overlay: oklch(0 0 0 / 0.4);
+
+  /* Status roles. Light values are the palette the pages already used. */
+  --success: #10b981;
+  --success-soft: #ecfdf5;
+  --success-fill: #d1fae5;
+  --success-line: #a7f3d0;
+  --success-ink: #047857;
+
+  --warn: #f59e0b;
+  --warn-soft: #fffbeb;
+  --warn-fill: #fef3c7;
+  --warn-line: #fde68a;
+  --warn-ink: #b45309;
+
+  --danger: #ef4444;
+  --danger-soft: #fef2f2;
+  --danger-fill: #fee2e2;
+  --danger-line: #fecaca;
+  --danger-ink: #b91c1c;
+
+  --info: #0ea5e9;
+  --info-soft: #f0f9ff;
+  --info-fill: #e0f2fe;
+  --info-line: #bae6fd;
+  --info-ink: #0369a1;
+
+  /* A fifth hue, for series that must not read as good/bad (uptime, tier sets). */
+  --alt: #8b5cf6;
+  --alt-soft: #f5f3ff;
+  --alt-fill: #ede9fe;
+  --alt-line: #ddd6fe;
+  --alt-ink: #6d28d9;
+
+  /* Podium pips. Metallic by intent — not a status. */
+  --medal-gold: #fbbf24e6;
+  --medal-gold-ink: #451a03;
+  --medal-silver: #cbd5e1;
+  --medal-silver-ink: #1e293b;
+  --medal-bronze: #fdba74cc;
+  --medal-bronze-ink: #431407;
+
+  /*
+   * Class and item-quality text, darkened to stay legible on a light page.
+   * Read through `CLASS_TEXT_COLORS` / `QUALITY_TEXT_COLORS` in
+   * src/lib/constants/wow.ts, which name these variables rather than hex.
+   */
+  --class-text-druid: #b35900;
+  --class-text-hunter: #4c7a1a;
+  --class-text-mage: #0e7490;
+  --class-text-paladin: #c2417e;
+  --class-text-priest: #64748b;
+  --class-text-rogue: #8a7a00;
+  --class-text-shaman: #0061bf;
+  --class-text-warlock: #5b5bd6;
+  --class-text-warrior: #8a6a3f;
+
+  --quality-text-poor: #757575;
+  --quality-text-common: #3f3f46;
+  --quality-text-uncommon: #0f8a00;
+  --quality-text-rare: #0070dd;
+  --quality-text-epic: #a335ee;
+  --quality-text-legendary: #c26000;
+
+  /* Warcraft Logs parse percentiles, same darkening. */
+  --parse-100: #a16207;
+  --parse-99: #c026d3;
+  --parse-95: #c26000;
+  --parse-75: #a335ee;
+  --parse-50: #0070dd;
+  --parse-25: #0f8a00;
+  --parse-0: #757575;
+
+  /*
+   * Fight-graph colors: the validated dataviz categorical slots. Both modes are
+   * *selected* steps of the same hues — never a flip of one into the other —
+   * and both were run through the palette validator against their own surface.
+   * Changing any value here means re-running it. See src/components/performance/graph-utils.ts.
+   */
+  --graph-dps: #2a78d6; /* slot 1 blue */
+  --graph-cooldown: #1baf7a; /* slot 3 aqua */
+  --graph-consumable: #eda100; /* slot 4 yellow */
+  --graph-buff: #008300; /* slot 6 green */
+  --graph-boss: #4a3aa7; /* slot 7 violet */
+
+  --graph-series-1: #2a78d6; /* slot 1 blue */
+  --graph-series-2: #eb6834; /* slot 2 orange */
+  --graph-series-3: #4a3aa7; /* slot 7 violet */
+  --graph-series-4: #e87ba4; /* slot 5 magenta */
+
+  /*
+   * The class-color wash, as alpha over the page. Priest is the exception its
+   * `CLASS_TINT_COLORS` comment describes: pure white washes out to nothing on
+   * a light page, so it borrows slate.
+   */
+  --class-tint-alpha: 0.12;
+  --class-tint-priest: #94a3b8;
+  --class-chip-bg-alpha: 0.17;
+  --class-chip-line-alpha: 0.4;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /*
+   * Neutral, uncolored darks. The page stays grey on purpose: class and item
+   * quality colors are the only saturated things on screen, and a tinted
+   * background would compete with them.
+   */
+  --background: oklch(0.17 0 0); /* #0f0f0f — page, the floor of the stack */
+  --foreground: oklch(0.955 0 0);
+  --card: oklch(0.215 0 0); /* #191919 — lifted off the page, no border needed */
+  --card-foreground: oklch(0.955 0 0);
+  --popover: oklch(0.245 0 0); /* #202020 — above the card again */
+  --popover-foreground: oklch(0.955 0 0);
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.29 0 0);
+  --secondary-foreground: oklch(0.955 0 0);
+  --muted: oklch(0.26 0 0);
+  --muted-foreground: oklch(0.7 0 0);
+  --accent: oklch(0.31 0 0);
+  --accent-foreground: oklch(0.97 0 0);
+  --destructive: oklch(0.62 0.2 25.5);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.285 0 0); /* #2a2a2a */
+  --input: oklch(0.32 0 0);
+  --ring: oklch(0.58 0 0);
+  --overlay: oklch(0 0 0 / 0.65);
+
+  /*
+   * Status roles inverted: `-soft` becomes a dark tint of the hue rather than a
+   * pale one, `-ink` becomes the light end. Same four names, so components do
+   * not change.
+   */
+  --success: oklch(0.7 0.15 162);
+  --success-soft: oklch(0.245 0.042 162);
+  --success-fill: oklch(0.305 0.058 162);
+  --success-line: oklch(0.35 0.068 162);
+  --success-ink: oklch(0.83 0.13 162);
+
+  --warn: oklch(0.76 0.15 72);
+  --warn-soft: oklch(0.255 0.045 72);
+  --warn-fill: oklch(0.315 0.06 72);
+  --warn-line: oklch(0.365 0.07 72);
+  --warn-ink: oklch(0.85 0.13 85);
+
+  --danger: oklch(0.65 0.2 25.5);
+  --danger-soft: oklch(0.245 0.06 25.5);
+  --danger-fill: oklch(0.305 0.08 25.5);
+  --danger-line: oklch(0.36 0.095 25.5);
+  --danger-ink: oklch(0.79 0.14 22);
+
+  --info: oklch(0.7 0.14 236);
+  --info-soft: oklch(0.245 0.05 240);
+  --info-fill: oklch(0.3 0.066 240);
+  --info-line: oklch(0.355 0.08 240);
+  --info-ink: oklch(0.83 0.11 232);
+
+  --alt: oklch(0.66 0.18 295);
+  --alt-soft: oklch(0.255 0.058 295);
+  --alt-fill: oklch(0.315 0.075 295);
+  --alt-line: oklch(0.37 0.09 295);
+  --alt-ink: oklch(0.82 0.12 295);
+
+  --medal-gold: #d4a017e6;
+  --medal-gold-ink: #1a0f00;
+  --medal-silver: #9aa5b1;
+  --medal-bronze: #b9713fcc;
+  --medal-bronze-ink: #1a0800;
+  --medal-silver-ink: #0f172a;
+
+  /*
+   * On a dark page the canonical game colors are the legible ones — that is the
+   * background WoW itself draws them on — so dark mode drops the darkening and
+   * uses them as-is. Two exceptions, both contrast: shaman blue and rare blue
+   * are the same #0070dd, which is too dark against near-black, so they are
+   * lifted toward the same hue.
+   */
+  --class-text-druid: #ff7c0a;
+  --class-text-hunter: #aad372;
+  --class-text-mage: #3fc7eb;
+  --class-text-paladin: #f48cba;
+  --class-text-priest: #e8edf2;
+  --class-text-rogue: #fff468;
+  --class-text-shaman: #4c9eff;
+  --class-text-warlock: #a3a4f5;
+  --class-text-warrior: #c69b6d;
+
+  --quality-text-poor: #9d9d9d;
+  --quality-text-common: #e4e4e7;
+  --quality-text-uncommon: #1eff00;
+  --quality-text-rare: #4c9eff;
+  --quality-text-epic: #c77dff;
+  --quality-text-legendary: #ff8000;
+
+  --parse-100: #e5cc80;
+  --parse-99: #e268a8;
+  --parse-95: #ff8000;
+  --parse-75: #c77dff;
+  --parse-50: #4c9eff;
+  --parse-25: #1eff00;
+  --parse-0: #9d9d9d;
+
+  /*
+   * The same slots stepped for the dark surface. Validated against #191919
+   * (the card these charts sit on), all checks pass; the one caveat is that
+   * buff-green against consumable-yellow lands in the 6–8 CVD band, which is
+   * legal here because both are labeled event bands, not color-only marks.
+   */
+  --graph-dps: #3987e5;
+  --graph-cooldown: #199e70;
+  --graph-consumable: #c98500;
+  --graph-buff: #008300;
+  --graph-boss: #9085e9;
+
+  --graph-series-1: #3987e5;
+  --graph-series-2: #d95926;
+  --graph-series-3: #9085e9;
+  --graph-series-4: #d55181;
+
+  /*
+   * The wash needs more alpha to register against a dark card. Priest reverts
+   * to its canonical white here — the reason it borrowed slate was a light
+   * page to wash out against, and on dark it reads correctly.
+   */
+  --class-tint-alpha: 0.2;
+  --class-tint-priest: #ffffff;
+  --class-chip-bg-alpha: 0.22;
+  --class-chip-line-alpha: 0.45;
 }
 
 @theme inline {
@@ -45,6 +300,45 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-fill: var(--success-fill);
+  --color-success-line: var(--success-line);
+  --color-success-ink: var(--success-ink);
+
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-fill: var(--warn-fill);
+  --color-warn-line: var(--warn-line);
+  --color-warn-ink: var(--warn-ink);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fill: var(--danger-fill);
+  --color-danger-line: var(--danger-line);
+  --color-danger-ink: var(--danger-ink);
+
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-fill: var(--info-fill);
+  --color-info-line: var(--info-line);
+  --color-info-ink: var(--info-ink);
+
+  --color-alt: var(--alt);
+  --color-alt-soft: var(--alt-soft);
+  --color-alt-fill: var(--alt-fill);
+  --color-alt-line: var(--alt-line);
+  --color-alt-ink: var(--alt-ink);
+
+  --color-medal-gold: var(--medal-gold);
+  --color-medal-gold-ink: var(--medal-gold-ink);
+  --color-medal-silver: var(--medal-silver);
+  --color-medal-silver-ink: var(--medal-silver-ink);
+  --color-medal-bronze: var(--medal-bronze);
+  --color-medal-bronze-ink: var(--medal-bronze-ink);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

@@ -436,7 +436,7 @@ export function LootView({
           <p
             className={cn(
               "flex items-start gap-1.5 text-xs",
-              actionResult.ok ? "text-emerald-700" : "text-amber-700",
+              actionResult.ok ? "text-success-ink" : "text-warn-ink",
             )}
           >
             {actionResult.ok ? (

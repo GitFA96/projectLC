@@ -24,7 +24,7 @@ export function StatDeltaPanel({
   return (
     <div>
       {!hasCurrent && (
-        <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
+        <p className="mb-2 rounded-md bg-warn-soft px-2 py-1.5 text-xs text-warn-ink">
           No current gear imported — showing wishlist target values only.
         </p>
       )}
@@ -50,8 +50,8 @@ export function StatDeltaPanel({
               <td
                 className={cn(
                   "py-1 text-right font-semibold tabular-nums",
-                  row.delta > 0 && "text-emerald-600",
-                  row.delta < 0 && "text-red-500",
+                  row.delta > 0 && "text-success-ink",
+                  row.delta < 0 && "text-danger",
                   row.delta === 0 && "text-muted-foreground/50",
                 )}
               >

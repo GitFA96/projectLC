@@ -121,7 +121,7 @@ function makeItemResolver(items: KnownItem[]): ItemResolver {
 function Warnings({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null;
   return (
-    <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+    <ul className="space-y-1 rounded-md border border-warn-line bg-warn-soft p-2 text-xs text-warn-ink">
       {warnings.map((w, i) => (
         <li key={i} className="flex items-start gap-1.5">
           <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
@@ -133,7 +133,7 @@ function Warnings({ warnings }: { warnings: string[] }) {
 }
 
 function ErrorPanel({ message }: { message: string }) {
-  return <p className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{message}</p>;
+  return <p className="rounded-md border border-danger-line bg-danger-soft p-2 text-sm text-danger-ink">{message}</p>;
 }
 
 /** ms into the report → "1:23:45" / "23:45". */
@@ -307,7 +307,7 @@ function SixtyUpgradesTab({
             newParse?.ok &&
             newParse.parsed.phase !== undefined &&
             String(newParse.parsed.phase) !== phase && (
-              <p className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+              <p className="flex flex-wrap items-center gap-2 rounded-md border border-warn-line bg-warn-soft p-2 text-xs text-warn-ink">
                 <CircleAlert className="h-3.5 w-3.5 shrink-0" />
                 The pasted export is built for P{newParse.parsed.phase}, not P{phase}.
                 <Button
@@ -336,24 +336,24 @@ function SixtyUpgradesTab({
           {result?.status === "error" && <ErrorPanel message={result.message} />}
 
           {result?.status === "needs-confirm" && (
-            <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-medium text-amber-800">
+            <div className="space-y-2 rounded-md border border-warn-line bg-warn-soft p-3">
+              <p className="text-sm font-medium text-warn-ink">
                 {target} already has {kind === "wishlist" ? `a P${phase} wishlist` : "current gear"}:{" "}
                 “{result.existing.name}” ({result.existing.slotCount} slots, imported{" "}
                 {result.existing.importedAt.slice(0, 10)})
               </p>
               {confirmDiff.length === 0 ? (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-warn-ink">
                   The new import has identical items — replacing only updates the stats and import date.
                 </p>
               ) : (
-                <div className="space-y-1 text-xs text-amber-800">
+                <div className="space-y-1 text-xs text-warn-ink">
                   <p>Replacing changes {confirmDiff.length} slot{confirmDiff.length === 1 ? "" : "s"}:</p>
                   <ul className="space-y-0.5">
                     {confirmDiff.map((row) => (
                       <li key={row.label} className="flex flex-wrap items-center gap-1.5">
                         <span className="font-medium">{row.label}:</span>
-                        <span className="text-amber-700/80">{row.before.join(" + ") || "—"}</span>
+                        <span className="text-warn-ink/80">{row.before.join(" + ") || "—"}</span>
                         <MoveRight className="h-3 w-3 shrink-0" />
                         <span>{row.after.join(" + ") || "—"}</span>
                       </li>
@@ -373,7 +373,7 @@ function SixtyUpgradesTab({
           )}
 
           {result?.status === "committed" && (
-            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div className="space-y-2 rounded-md border border-success-line bg-success-soft p-3 text-sm text-success-ink">
               <p className="flex items-center gap-1.5 font-medium">
                 <CircleCheck className="h-4 w-4" />
                 {result.replaced ? "Updated" : "Imported"} “{result.setName}” —{" "}
@@ -401,7 +401,7 @@ function SixtyUpgradesTab({
           {preview?.ok && (
             <>
               <p className="flex flex-wrap items-center gap-2 text-sm">
-                <CircleCheck className="h-4 w-4 text-emerald-600" />
+                <CircleCheck className="h-4 w-4 text-success-ink" />
                 <span className="font-medium">{preview.parsed.setName ?? "Unnamed set"}</span>
                 {preview.parsed.character?.name && (
                   <span className="text-muted-foreground">
@@ -618,7 +618,7 @@ function GargulTab({
           {result?.status === "error" && <ErrorPanel message={result.message} />}
 
           {result?.status === "committed" && (
-            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div className="space-y-2 rounded-md border border-success-line bg-success-soft p-3 text-sm text-success-ink">
               {result.inserted > 0 ? (
                 <>
                   <p className="flex items-center gap-1.5 font-medium">
@@ -628,7 +628,7 @@ function GargulTab({
                       `, ${result.skippedDuplicates} already-known award(s) skipped`}
                   </p>
                   {result.unresolved.length > 0 && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-warn-ink">
                       Unresolved winners (kept by name, no roster match):{" "}
                       {result.unresolved.join(", ")} — add them as characters and re-link in a later
                       milestone, or fix the roster and re-import.
@@ -648,7 +648,7 @@ function GargulTab({
                 </>
               ) : (
                 <p className="flex items-center gap-1.5">
-                  <CircleAlert className="h-4 w-4 text-amber-600" />
+                  <CircleAlert className="h-4 w-4 text-warn-ink" />
                   All {result.skippedDuplicates} award(s) in the paste were already recorded — nothing
                   imported, no session created.
                 </p>
@@ -667,7 +667,7 @@ function GargulTab({
           {preview && (
             <>
               <p className="flex flex-wrap items-center gap-2 text-sm">
-                <CircleCheck className="h-4 w-4 text-emerald-600" />
+                <CircleCheck className="h-4 w-4 text-success-ink" />
                 {preview.lines.length} awards parsed
                 {unresolved.length > 0 && (
                   <Badge variant="warning">{unresolved.length} unresolved winner(s)</Badge>
@@ -792,8 +792,8 @@ function ImportQueue({ items, verb = "Imported" }: { items: QueueItem[]; verb?: 
                     : item.state === "running"
                       ? "text-foreground"
                       : ok
-                        ? "text-emerald-700"
-                        : "text-red-700"
+                        ? "text-success-ink"
+                        : "text-danger-ink"
                 }
               >
                 {item.state === "waiting" ? "·" : item.state === "running" ? "…" : ok ? "✓" : "✕"}
@@ -807,10 +807,10 @@ function ImportQueue({ items, verb = "Imported" }: { items: QueueItem[]; verb?: 
                   </>
                 )}
                 {item.state === "done" && item.result?.status === "error" && (
-                  <span className="text-red-700">{item.result.message}</span>
+                  <span className="text-danger-ink">{item.result.message}</span>
                 )}
                 {item.state === "done" && item.result?.status === "not-configured" && (
-                  <span className="text-red-700">Warcraft Logs credentials are not configured.</span>
+                  <span className="text-danger-ink">Warcraft Logs credentials are not configured.</span>
                 )}
               </span>
             </li>
@@ -854,13 +854,13 @@ function RefetchStatus({ items }: { items: QueueItem[] }) {
   }
   if (failed > 0) {
     return (
-      <span className="text-xs font-normal text-red-700">
+      <span className="text-xs font-normal text-danger-ink">
         Refetched {items.length - failed} of {items.length} — {failed} failed
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1 text-xs font-normal text-emerald-700">
+    <span className="flex items-center gap-1 text-xs font-normal text-success-ink">
       <CircleCheck className="h-3.5 w-3.5" />
       Refetched {items.length} report{items.length === 1 ? "" : "s"}
     </span>
@@ -878,7 +878,7 @@ function RefetchFailures({ items }: { items: QueueItem[] }) {
   const failed = failedItems(items);
   if (failed.length === 0 || items.some((i) => i.state !== "done")) return null;
   return (
-    <div className="space-y-1 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+    <div className="space-y-1 rounded-md border border-danger-line bg-danger-soft p-3 text-xs text-danger-ink">
       <p className="font-medium">
         {failed.length} report{failed.length === 1 ? "" : "s"} could not be refetched — everything
         else was updated.
@@ -1231,9 +1231,9 @@ function WclTab({
         </CardHeader>
         <CardContent className="space-y-3">
           {!configured ? (
-            <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="space-y-2 rounded-md border border-warn-line bg-warn-soft p-3 text-sm text-warn-ink">
               <p className="font-medium">Warcraft Logs API credentials aren&apos;t configured.</p>
-              <ol className="list-decimal space-y-1 pl-4 text-xs text-amber-700">
+              <ol className="list-decimal space-y-1 pl-4 text-xs text-warn-ink">
                 <li>
                   Create a (free) API client at{" "}
                   <a
@@ -1247,9 +1247,9 @@ function WclTab({
                   — any name, no redirect URL needed.
                 </li>
                 <li>
-                  Put the pair in <code className="rounded bg-amber-100 px-1 font-mono">.env.local</code>:{" "}
-                  <code className="rounded bg-amber-100 px-1 font-mono">WCL_CLIENT_ID</code> and{" "}
-                  <code className="rounded bg-amber-100 px-1 font-mono">WCL_CLIENT_SECRET</code>
+                  Put the pair in <code className="rounded bg-warn-fill px-1 font-mono">.env.local</code>:{" "}
+                  <code className="rounded bg-warn-fill px-1 font-mono">WCL_CLIENT_ID</code> and{" "}
+                  <code className="rounded bg-warn-fill px-1 font-mono">WCL_CLIENT_SECRET</code>
                 </li>
                 <li>Restart the dev server and reload this page.</li>
               </ol>
@@ -1278,7 +1278,7 @@ function WclTab({
                     : `${parsed.codes.length} report${parsed.codes.length === 1 ? "" : "s"} found`}
                   {parsed.duplicates > 0 && `, ${parsed.duplicates} duplicate skipped`}
                   {parsed.invalid.length > 0 && (
-                    <span className="text-amber-700">
+                    <span className="text-warn-ink">
                       {" "}
                       · ignored: {parsed.invalid.slice(0, 3).join(", ")}
                       {parsed.invalid.length > 3 && ` +${parsed.invalid.length - 3} more`}
@@ -1342,7 +1342,7 @@ function WclTab({
           )}
           {result?.status === "error" && <ErrorPanel message={result.message} />}
           {result?.status === "committed" && (
-            <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div className="space-y-2 rounded-md border border-success-line bg-success-soft p-3 text-sm text-success-ink">
               <p className="flex items-center gap-1.5 font-medium">
                 <CircleCheck className="h-4 w-4" />
                 {result.replaced ? "Updated" : "Imported"} “{result.title}”
@@ -1363,7 +1363,7 @@ function WclTab({
               </p>
               <Warnings warnings={result.warnings} />
               {result.ignored.total > 0 && (
-                <details className="rounded-md border border-emerald-200/60 bg-white/50 p-2 text-xs">
+                <details className="rounded-md border border-success-line/60 bg-background/50 p-2 text-xs">
                   <summary className="cursor-pointer font-medium">
                     Inspect the {result.ignored.total} ignored combatant-info event(s) (
                     {result.ignored.players} player{result.ignored.players === 1 ? "" : "s"})
@@ -1394,7 +1394,7 @@ function WclTab({
                 </details>
               )}
               {result.auraDump.length > 0 && (
-                <details className="rounded-md border border-emerald-200/60 bg-white/50 p-2 text-xs">
+                <details className="rounded-md border border-success-line/60 bg-background/50 p-2 text-xs">
                   <summary className="cursor-pointer font-medium">
                     Consumable-tuning dump: {result.auraDump.length} unrecognized aura name(s) at pulls
                   </summary>

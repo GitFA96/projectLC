@@ -19,10 +19,10 @@ export function WeekDots({ weeks, className }: { weeks: AttendanceWeek[]; classN
           className={cn(
             "inline-block h-2 w-2 rounded-full",
             w.excused
-              ? "border border-dashed border-slate-400 bg-slate-200"
+              ? "border border-dashed border-muted-foreground/50 bg-muted"
               : w.attended
-                ? "bg-emerald-500"
-                : "border border-amber-500/70 bg-transparent",
+                ? "bg-success"
+                : "border border-warn/70 bg-transparent",
           )}
         />
       ))}

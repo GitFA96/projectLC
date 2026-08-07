@@ -48,7 +48,7 @@ export function ConsumableLeaderboard({
       <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-emerald-600" />
+            <FlaskConical className="h-4 w-4 text-success-ink" />
             Consumable usage
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -56,7 +56,7 @@ export function ConsumableLeaderboard({
             they actually used.
             {gold &&
               (usingDefault ? (
-                <span className="ml-1 inline-flex items-center gap-1 text-amber-600">
+                <span className="ml-1 inline-flex items-center gap-1 text-warn-ink">
                   <TriangleAlert className="h-3 w-3" /> default prices — set this raid&apos;s in the
                   Gold tab.
                 </span>
@@ -104,7 +104,7 @@ export function ConsumableLeaderboard({
             </TableHeader>
             <TableBody>
               {ordered.map(({ u, gold: g }, i) => (
-                <TableRow key={u.name} className={cn(i === 0 && "bg-amber-50/70 hover:bg-amber-50/70")}>
+                <TableRow key={u.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
                   <TableCell>
                     <RankBadge rank={i + 1} />
                   </TableCell>

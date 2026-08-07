@@ -119,10 +119,10 @@ export function ConsumablePricePanel({
       <CardHeader className="cursor-pointer" onClick={() => setOpen((o) => !o)}>
         <CardTitle className="flex items-center gap-2">
           <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-90")} />
-          <Coins className="h-4 w-4 text-amber-500" />
+          <Coins className="h-4 w-4 text-warn" />
           Consumable prices — this raid
           {usingDefault && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <span className="inline-flex items-center gap-1 rounded-full bg-warn-fill px-2 py-0.5 text-[11px] font-medium text-warn-ink">
               <TriangleAlert className="h-3 w-3" /> using defaults
             </span>
           )}
@@ -135,7 +135,7 @@ export function ConsumablePricePanel({
       {open && (
         <CardContent className="space-y-3">
           {usingDefault && (
-            <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+            <p className="flex items-start gap-1.5 rounded-md border border-warn-line bg-warn-soft p-2 text-xs text-warn-ink">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               This raid is using default prices — they may not match the week&apos;s economy. Adjust
               and save to log accurate values for this night.

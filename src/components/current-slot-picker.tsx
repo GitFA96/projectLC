@@ -182,7 +182,7 @@ export function CurrentSlotPicker({
           </Select>
         )}
       </span>
-      {error && <span className="text-[11px] text-red-600">{error}</span>}
+      {error && <span className="text-[11px] text-danger-ink">{error}</span>}
     </span>
   );
 }
@@ -219,7 +219,7 @@ export function ResetPinnedSlotsButton({
       >
         {pending ? "Resetting…" : `Reset ${count} slot${count === 1 ? "" : "s"} set by hand`}
       </button>
-      {error && <span className="ml-1 text-red-600">{error}</span>}
+      {error && <span className="ml-1 text-danger-ink">{error}</span>}
     </>
   );
 }

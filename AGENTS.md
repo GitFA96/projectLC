@@ -31,6 +31,10 @@ Concretely, on Next 16 with Turbopack: `params` and `searchParams` are Promises.
    tune. Surface the question; don't answer it in code.
 6. **History is unlinked, never destroyed.** Deleting a character reopens their
    awards under the raw name; past loot decisions must stay explainable.
+7. **Components name a colour's role, never a palette step.** `bg-warn-soft`, not
+   `bg-amber-50`; `var(--class-text-warrior)`, not `#8a6a3f`. There are two
+   themes, and `src/app/globals.css` is the only place that knows what a role
+   looks like in each.
 
 ## Before you change something, read its chain
 

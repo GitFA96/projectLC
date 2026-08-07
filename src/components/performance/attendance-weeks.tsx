@@ -68,10 +68,10 @@ export function AttendanceWeeks({
                       className={cn(
                         "inline-block h-2.5 w-2.5 rounded-full",
                         w.excused
-                          ? "border border-dashed border-slate-400 bg-slate-200"
+                          ? "border border-dashed border-muted-foreground/50 bg-muted"
                           : w.attended
-                            ? "bg-emerald-500"
-                            : "border border-amber-500/70 bg-transparent",
+                            ? "bg-success"
+                            : "border border-warn/70 bg-transparent",
                       )}
                     />
                     <span className="tabular-nums">{format(parseISO(w.start), "d MMM yyyy")}</span>
@@ -79,10 +79,10 @@ export function AttendanceWeeks({
                       className={cn(
                         "text-xs",
                         w.excused
-                          ? "text-slate-500"
+                          ? "text-muted-foreground"
                           : w.attended
-                            ? "text-emerald-700"
-                            : "text-amber-600",
+                            ? "text-success-ink"
+                            : "text-warn-ink",
                       )}
                     >
                       {w.excused ? "excused" : w.attended ? "raided" : "missed"}
@@ -97,7 +97,7 @@ export function AttendanceWeeks({
                     onClick={() => toggle(w.start, !w.excused)}
                     className={cn(
                       "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors hover:bg-accent disabled:opacity-50",
-                      w.excused && "border-slate-300",
+                      w.excused && "border-border",
                     )}
                   >
                     {busy ? (

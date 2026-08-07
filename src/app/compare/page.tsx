@@ -360,7 +360,7 @@ function MetricRow({
           key={i}
           className={cn(
             "text-right text-sm tabular-nums",
-            best.has(i) && "font-semibold text-emerald-700",
+            best.has(i) && "font-semibold text-success-ink",
           )}
         >
           {v === undefined ? <span className="text-muted-foreground/40">—</span> : format(v, i)}
@@ -413,7 +413,7 @@ function AttendanceRow({ cols, chars }: { cols: string; chars: ComparedCharacter
         }
         return (
           <div key={c.character.id} className="flex flex-col items-end gap-0.5" title={attendanceTitle(a)}>
-            <span className={cn("text-sm tabular-nums", best.has(i) && "font-semibold text-emerald-700")}>
+            <span className={cn("text-sm tabular-nums", best.has(i) && "font-semibold text-success-ink")}>
               {a.weeksAttended}/{a.weeksTracked}
             </span>
             <WeekDots weeks={a.weeks} />

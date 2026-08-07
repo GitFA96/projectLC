@@ -289,38 +289,54 @@ export const CLASS_COLORS: Record<WowClass, string> = {
   Warrior: "#C69B6D",
 };
 
-/** Darkened class colors that stay legible as text on a white/light background. */
+/**
+ * Class colors that stay legible as text on the current theme's page.
+ *
+ * These are CSS variables, not hex, because they are applied through inline
+ * `style` — a `dark:` class cannot reach an inline style, so the variable is
+ * what carries the theme. `src/app/globals.css` holds both sets of values:
+ * darkened for the light page, canonical for the dark one.
+ */
 export const CLASS_TEXT_COLORS: Record<WowClass, string> = {
-  Druid: "#B35900",
-  Hunter: "#4C7A1A",
-  Mage: "#0E7490",
-  Paladin: "#C2417E",
-  Priest: "#64748B",
-  Rogue: "#8A7A00",
-  Shaman: "#0061BF",
-  Warlock: "#5B5BD6",
-  Warrior: "#8A6A3F",
+  Druid: "var(--class-text-druid)",
+  Hunter: "var(--class-text-hunter)",
+  Mage: "var(--class-text-mage)",
+  Paladin: "var(--class-text-paladin)",
+  Priest: "var(--class-text-priest)",
+  Rogue: "var(--class-text-rogue)",
+  Shaman: "var(--class-text-shaman)",
+  Warlock: "var(--class-text-warlock)",
+  Warrior: "var(--class-text-warrior)",
 };
 
 /**
  * Class colors as a faint background wash, for panels and chips.
  *
- * `CLASS_COLORS` at low alpha for eight of the nine. **Priest is the exception**:
- * its canonical color is pure white, which washes out to the page it sits on —
- * a blank panel in a row of tinted ones reads as a rendering fault rather than
- * as "priest". It borrows the same slate the priest text color comes from. The
- * canonical color is left alone; it is right everywhere it's used at full
- * strength.
+ * `CLASS_COLORS` for eight of the nine. **Priest is the exception**: its
+ * canonical color is pure white, which washes out to the page it sits on — a
+ * blank panel in a row of tinted ones reads as a rendering fault rather than as
+ * "priest". On the light theme it borrows slate; on the dark one white washes
+ * correctly and the variable gives it back. The canonical color is left alone;
+ * it is right everywhere it's used at full strength.
  */
 export const CLASS_TINT_COLORS: Record<WowClass, string> = {
   ...CLASS_COLORS,
-  Priest: "#94A3B8",
+  Priest: "var(--class-tint-priest)",
 };
 
-/** `CLASS_TINT_COLORS` as a CSS color, or undefined for a class we don't know. */
-export const classTint = (wowClass: string | undefined, alpha = "1f"): string | undefined =>
+/**
+ * `CLASS_TINT_COLORS` as a CSS color, or undefined for a class we don't know.
+ *
+ * The alpha is a variable rather than a literal because a wash that reads as
+ * faint on white disappears entirely on near-black — each theme sets its own.
+ * Pass `alpha` only to override that deliberately.
+ */
+export const classTint = (
+  wowClass: string | undefined,
+  alpha = "var(--class-tint-alpha)",
+): string | undefined =>
   wowClass && wowClass in CLASS_TINT_COLORS
-    ? `${CLASS_TINT_COLORS[wowClass as WowClass]}${alpha}`
+    ? `color-mix(in srgb, ${CLASS_TINT_COLORS[wowClass as WowClass]} calc(${alpha} * 100%), transparent)`
     : undefined;
 
 /** Canonical quality colors — for icon rings and accents. */
@@ -333,14 +349,17 @@ export const QUALITY_COLORS: Record<Quality, string> = {
   legendary: "#FF8000",
 };
 
-/** Quality colors tuned for text on a light background. */
+/**
+ * Quality colors tuned for text on the current theme's background — variables
+ * for the same reason as `CLASS_TEXT_COLORS`.
+ */
 export const QUALITY_TEXT_COLORS: Record<Quality, string> = {
-  poor: "#757575",
-  common: "#3F3F46",
-  uncommon: "#0F8A00",
-  rare: "#0070DD",
-  epic: "#A335EE",
-  legendary: "#C26000",
+  poor: "var(--quality-text-poor)",
+  common: "var(--quality-text-common)",
+  uncommon: "var(--quality-text-uncommon)",
+  rare: "var(--quality-text-rare)",
+  epic: "var(--quality-text-epic)",
+  legendary: "var(--quality-text-legendary)",
 };
 
 /**

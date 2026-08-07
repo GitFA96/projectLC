@@ -115,7 +115,7 @@ export function SpecBadge({
           alt=""
           width={16}
           height={16}
-          className="rounded-sm border border-black/20"
+          className="rounded-sm border border-foreground/20"
         />
       )}
       {!iconOnly && <span style={color ? { color } : undefined}>{specLabel(spec)}</span>}

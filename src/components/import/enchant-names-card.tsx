@@ -31,7 +31,7 @@ export function EnchantNamesCard({ unnamed }: { unnamed: number }) {
           <Sparkles className="h-4 w-4 text-muted-foreground" />
           Enchant names
           {unnamed > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <span className="rounded-full bg-warn-fill px-2 py-0.5 text-[11px] font-medium text-warn-ink">
               {unnamed} showing as an id
             </span>
           )}

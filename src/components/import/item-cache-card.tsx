@@ -28,7 +28,7 @@ export function ItemCacheCard({ unresolved }: { unresolved: number }) {
           <ImageOff className="h-4 w-4 text-muted-foreground" />
           Item names &amp; icons
           {unresolved > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <span className="rounded-full bg-warn-fill px-2 py-0.5 text-[11px] font-medium text-warn-ink">
               {unresolved} missing a name or icon
             </span>
           )}

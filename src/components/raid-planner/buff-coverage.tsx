@@ -24,8 +24,8 @@ import { cn } from "@/lib/utils";
  */
 
 const STATE_STYLE: Record<BuffCoverage["state"], string> = {
-  covered: "border-emerald-300 bg-emerald-50 text-emerald-900",
-  conditional: "border-dashed border-amber-300 bg-amber-50/70 text-amber-900",
+  covered: "border-success-line bg-success-soft text-success-ink",
+  conditional: "border-dashed border-warn-line bg-warn-soft/70 text-warn-ink",
   missing: "border-dashed border-muted-foreground/25 text-muted-foreground/60",
 };
 
@@ -134,7 +134,7 @@ export function GroupBuffPanel({ coverage }: { coverage: BuffCoverage[] }) {
             <ChevronDown className="chevron h-3 w-3 shrink-0 transition-transform" aria-hidden />
             {covered} buff{covered === 1 ? "" : "s"}
             {has.length > covered && (
-              <span className="text-amber-700">+{has.length - covered} possible</span>
+              <span className="text-warn-ink">+{has.length - covered} possible</span>
             )}
           </>
         )}
@@ -152,8 +152,8 @@ export function GroupBuffPanel({ coverage }: { coverage: BuffCoverage[] }) {
 }
 
 const CELL_STYLE: Record<BuffCoverage["state"], string> = {
-  covered: "bg-emerald-100 text-emerald-800",
-  conditional: "bg-amber-100/70 text-amber-800",
+  covered: "bg-success-fill text-success-ink",
+  conditional: "bg-warn-fill/70 text-warn-ink",
   missing: "text-muted-foreground/25",
 };
 

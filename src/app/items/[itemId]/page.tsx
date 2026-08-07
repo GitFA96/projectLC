@@ -160,7 +160,7 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
           <CardTitle>Who should get it</CardTitle>
           <ItemPriorityEditor itemName={itemName} rule={contention.priorityRule} />
           {contention.manualTiers.length > 0 && (
-            <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+            <p className="rounded-md bg-warn-soft px-2 py-1.5 text-xs text-warn-ink">
               The sheet puts{" "}
               {contention.manualTiers.map((tier, i) => (
                 <span key={tier}>

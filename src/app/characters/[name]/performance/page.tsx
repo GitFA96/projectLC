@@ -67,7 +67,7 @@ function fmtAmount(row: WclPlayerFight): string {
 
 function Mark({ ok, title }: { ok: boolean; title?: string }) {
   return ok ? (
-    <Check className="h-3.5 w-3.5 text-emerald-600" aria-label={title ?? "yes"} />
+    <Check className="h-3.5 w-3.5 text-success-ink" aria-label={title ?? "yes"} />
   ) : (
     <X className="h-3.5 w-3.5 text-muted-foreground/40" aria-label={title ?? "no"} />
   );
@@ -277,7 +277,7 @@ export default async function PerformancePage({
                 <p
                   className={cn(
                     "mt-1 text-2xl font-semibold tabular-nums tracking-tight",
-                    active.summary.preparedPct < 80 && "text-amber-600",
+                    active.summary.preparedPct < 80 && "text-warn-ink",
                   )}
                 >
                   {active.summary.preparedPct}%
@@ -438,7 +438,7 @@ export default async function PerformancePage({
                                 ].join(", ")}
                               >
                                 {row.potions.length + row.otherCasts.length + row.sappers}
-                                {row.prepot && <span className="text-emerald-600">+</span>}
+                                {row.prepot && <span className="text-success-ink">+</span>}
                               </span>
                             ) : (
                               <span className="text-muted-foreground/50">0</span>
@@ -452,7 +452,7 @@ export default async function PerformancePage({
               </Table>
               <p className="mt-2 text-[11px] text-muted-foreground">
                 Parses are Warcraft Logs percentiles (healers on HPS, tanks within the tank
-                bracket); wipes don&apos;t parse. A <span className="text-emerald-600">+</span> in
+                bracket); wipes don&apos;t parse. A <span className="text-success-ink">+</span> in
                 Used means a pre-pot was already running at the pull. Click a row for the
                 pull&apos;s items, cooldowns and upkeep.
               </p>
@@ -579,7 +579,7 @@ function UpkeepPct({ pct }: { pct: number }) {
     <span
       className={cn(
         "font-medium tabular-nums",
-        pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : undefined,
+        pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : undefined,
       )}
     >
       {pct}%
@@ -605,7 +605,7 @@ function fightDetail(row: WclPlayerFight): React.ReactNode {
           Items used
         </p>
         <p className="mt-0.5">
-          {row.prepot && <span className="text-emerald-700">pre-pot · </span>}
+          {row.prepot && <span className="text-success-ink">pre-pot · </span>}
           {items.length > 0 ? (
             countedList(items)
           ) : row.prepot ? null : (
@@ -770,14 +770,14 @@ function GemSummaryLine({ summary, activePhase }: { summary: GemSummary; activeP
   return (
     <p className="text-xs text-muted-foreground">
       {flagged === 0 ? (
-        <span className="inline-flex items-center gap-1 text-emerald-700">
+        <span className="inline-flex items-center gap-1 text-success-ink">
           <Check className="h-3.5 w-3.5" /> No gems worth replacing on this snapshot.
         </span>
       ) : (
         <>
           {summary.uncommon > 0 && (
             <>
-              <span className="font-medium text-amber-700">
+              <span className="font-medium text-warn-ink">
                 {summary.uncommon} uncommon gem{summary.uncommon === 1 ? "" : "s"}
               </span>{" "}
               — a rare cut of the same gem is a straight upgrade
@@ -786,7 +786,7 @@ function GemSummaryLine({ summary, activePhase }: { summary: GemSummary; activeP
           {summary.uncommon > 0 && summary.rareInCurrentTier > 0 && " · "}
           {summary.rareInCurrentTier > 0 && (
             <>
-              <span className="font-medium text-amber-700">
+              <span className="font-medium text-warn-ink">
                 {summary.rareInCurrentTier} rare gem{summary.rareInCurrentTier === 1 ? "" : "s"} in
                 phase {activePhase} gear
               </span>{" "}
@@ -837,7 +837,7 @@ function GearPanel({
         <CardTitle>Gear worn{latest ? ` on ${latest.encounterName}` : ""}</CardTitle>
         <p className="text-xs text-muted-foreground">
           {missingEnchants.length === 0 ? (
-            <span className="inline-flex items-center gap-1 text-emerald-700">
+            <span className="inline-flex items-center gap-1 text-success-ink">
               <Check className="h-3.5 w-3.5" /> Every expected slot carries a permanent enchant.
             </span>
           ) : (

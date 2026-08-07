@@ -65,7 +65,7 @@ export default async function GuildPage() {
       {data.unresolvedCount > 0 && (
         <Link
           href="/loot?winner=unresolved"
-          className="flex items-center gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 transition-colors hover:bg-amber-100"
+          className="flex items-center gap-2.5 rounded-lg border border-warn-line bg-warn-soft px-3 py-2.5 text-sm text-warn-ink transition-colors hover:bg-warn-fill"
         >
           <TriangleAlert className="h-4 w-4 shrink-0" />
           <span>

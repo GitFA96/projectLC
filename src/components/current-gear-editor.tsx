@@ -198,7 +198,7 @@ function SlotDialog({
           )}
         </div>
 
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        {error && <p className="text-xs text-danger-ink">{error}</p>}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
           <span className="text-xs text-muted-foreground">
@@ -294,7 +294,7 @@ function EquipFromLogsButton({
             ? "Equip latest off-spec gear from logs"
             : "Equip latest from logs"}
       </Button>
-      <span className={cn("text-xs", result ? (result.ok ? "text-emerald-700" : "text-amber-700") : "text-muted-foreground")}>
+      <span className={cn("text-xs", result ? (result.ok ? "text-success-ink" : "text-warn-ink") : "text-muted-foreground")}>
         {result?.message ??
           `${loggedSlots} slot${loggedSlots === 1 ? "" : "s"} readable from their recent ${spec === "off" ? "off-spec pulls" : "raids"} — this replaces anything set by hand.`}
       </span>

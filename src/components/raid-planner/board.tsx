@@ -273,7 +273,7 @@ function MemberChip({
          */
         held && "opacity-60 outline-2 outline-dashed outline-muted-foreground/50",
         hint === "insert" && "outline-2 outline-primary",
-        hint === "swap" && "outline-2 outline-amber-500",
+        hint === "swap" && "outline-2 outline-warn",
       )}
       title={
         hint === "swap"
@@ -292,8 +292,10 @@ function MemberChip({
       {(hint === "insert" || hint === "swap") && (
         <span
           className={cn(
-            "absolute right-0 z-10 rounded-l px-1 text-[9px] font-semibold text-white",
-            hint === "swap" ? "bg-amber-500" : "bg-primary",
+            "absolute right-0 z-10 rounded-l px-1 text-[9px] font-semibold",
+            // Each fill carries its own ink: `primary` inverts between themes,
+            // so a hardcoded white label would vanish on the light-on-dark one.
+            hint === "swap" ? "bg-warn text-background" : "bg-primary text-primary-foreground",
           )}
         >
           {hint === "swap" ? "swap" : "above"}
@@ -316,7 +318,7 @@ function MemberChip({
               // Sky, deliberately not the primary or amber the drop states use:
               // "an officer changed this raider's spec" is a fact about the
               // board, not something about to happen to it.
-              overridden && "ring-2 ring-sky-500",
+              overridden && "ring-2 ring-info",
             )}
           >
             <SpecBadge spec={member.spec} wowClass={member.wowClass} iconOnly />
@@ -764,10 +766,10 @@ export function RaidBoard({
               // lengths, and this sits in the row above the board.
               "inline-flex w-19 items-center justify-center gap-1 rounded-full border px-2 py-0.5",
               !adopted
-                ? "border-sky-300 bg-sky-50 text-sky-800"
+                ? "border-info-line bg-info-soft text-info-ink"
                 : dirty || pending
                   ? "border-muted-foreground/30 text-muted-foreground"
-                  : "border-emerald-300 bg-emerald-50 text-emerald-800",
+                  : "border-success-line bg-success-soft text-success-ink",
             )}
             title={
               !adopted
@@ -873,13 +875,13 @@ export function RaidBoard({
                           alt={a.name}
                           width={34}
                           height={34}
-                          className="h-8.5 w-8.5 rounded border border-black/30"
+                          className="h-8.5 w-8.5 rounded border border-foreground/25"
                         />
                       ) : (
                         // No talent-tab icon for this name — same footprint, so
                         // one unknown spec can't break the grid.
                         <span
-                          className="flex h-8.5 w-8.5 items-center justify-center rounded border border-black/30 bg-background/60 text-[9px] leading-tight font-medium"
+                          className="flex h-8.5 w-8.5 items-center justify-center rounded border border-foreground/25 bg-background/60 text-[9px] leading-tight font-medium"
                           style={{ color: classColor(a.wowClass) }}
                         >
                           {a.spec.slice(0, 4)}
@@ -1097,7 +1099,7 @@ export function RaidBoard({
       </Card>
 
       {view.unknown.length > 0 && (
-        <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+        <p className="rounded-md border border-warn-line bg-warn-soft p-2 text-xs text-warn-ink">
           {view.unknown.join(", ")} {view.unknown.length === 1 ? "is" : "are"} in this board
           but not in the pool — deleted from the roster, or placed from another night. They stay on
           the board until you move them off.

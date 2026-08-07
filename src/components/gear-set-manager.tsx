@@ -70,7 +70,7 @@ function SetRow({ set, characterName }: { set: GearSetRow; characterName: string
           <Button
             variant="ghost"
             size="sm"
-            className="text-muted-foreground hover:text-red-600"
+            className="text-muted-foreground hover:text-danger-ink"
             onClick={() => setConfirming(true)}
             title="Delete this set"
           >
@@ -78,7 +78,7 @@ function SetRow({ set, characterName }: { set: GearSetRow; characterName: string
           </Button>
         )}
       </span>
-      {error && <p className="w-full text-xs text-red-600">{error}</p>}
+      {error && <p className="w-full text-xs text-danger-ink">{error}</p>}
     </div>
   );
 }

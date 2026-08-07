@@ -181,7 +181,7 @@ function EnchantCell({ grade, itemsById }: { grade: EnchantGrade; itemsById: Map
         </Badge>
       )}
       {verdict === "off-bis" && wanted && (
-        <span className="text-xs text-amber-700">
+        <span className="text-xs text-warn-ink">
           list wants <EnchantName enchant={wanted} itemsById={itemsById} />
           <SourceNote source={source} agreement={agreement} />
         </span>
@@ -316,7 +316,7 @@ export function GearTable({
                   <p
                     className={cn(
                       "mt-0.5 text-xs",
-                      g.temp !== undefined ? "text-emerald-700" : "font-medium text-amber-600",
+                      g.temp !== undefined ? "text-success-ink" : "font-medium text-warn-ink",
                     )}
                   >
                     {g.temp !== undefined

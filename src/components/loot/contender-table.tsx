@@ -101,7 +101,7 @@ export function PriorityScore({ priority }: { priority?: LootPriority }) {
         value={score}
         className="h-1.5 w-16"
         indicatorClassName={
-          score >= 70 ? "bg-emerald-500" : score >= 45 ? "bg-amber-500" : "bg-muted-foreground/40"
+          score >= 70 ? "bg-success" : score >= 45 ? "bg-warn" : "bg-muted-foreground/40"
         }
       />
     </span>
@@ -173,7 +173,7 @@ function Panel({
             >
               <dt className="min-w-0 truncate">
                 {row.label}
-                {row.scored && <span className="ml-1 text-[10px] text-emerald-600">◂ scored</span>}
+                {row.scored && <span className="ml-1 text-[10px] text-success-ink">◂ scored</span>}
               </dt>
               <dd className="shrink-0 tabular-nums">{row.value}</dd>
             </div>
@@ -305,9 +305,9 @@ function preparationRows(c: PerformanceSummary, goldPerRaid?: number): StatRow[]
       label: "Missing enchants",
       value:
         c.missingEnchants.length === 0 ? (
-          <span className="text-emerald-600">none</span>
+          <span className="text-success-ink">none</span>
         ) : (
-          <span className="text-red-600">{c.missingEnchants.join(", ")}</span>
+          <span className="text-danger-ink">{c.missingEnchants.join(", ")}</span>
         ),
       title: "Unenchanted slots on their most recent pull — not scored, but hard to ignore",
     },
@@ -355,7 +355,7 @@ function lootRows(c: ContenderView, activePhase: Phase): StatRow[] {
     rows.push({
       label: "Won for THIS slot",
       value: (
-        <span className="text-amber-700" title={sameSlot.map((a) => a.itemName).join(", ")}>
+        <span className="text-warn-ink" title={sameSlot.map((a) => a.itemName).join(", ")}>
           {sameSlot.length}
         </span>
       ),

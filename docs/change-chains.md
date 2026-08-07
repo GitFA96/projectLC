@@ -258,6 +258,26 @@ Two consequences:
 - `validateStore()` enforces referential integrity and **throws** — a broken
   seed file is a hard boot failure, on purpose.
 
+## 9. Give something a colour
+
+The app has two themes, so a colour is never a one-place change. **Components
+name a role, never a palette step or a hex** — `bg-warn-soft`, `text-success-ink`
+— and `src/app/globals.css` decides what each role looks like per theme. Write a
+component that way and it is right in dark mode without a `dark:` variant.
+
+- **A colour that goes through inline `style` cannot be themed by a class.** That
+  is why class colours, item quality, parse percentiles and the graph series are
+  CSS variables (`var(--class-text-warrior)`) rather than hex — a `dark:` rule
+  can't reach a `style` attribute. Reaching for a hex there breaks dark mode
+  silently, and only in the theme you weren't looking at.
+- **A new status role means adding all five parts** — `-soft`, `-fill`, `-line`,
+  `-ink`, and the bare solid — to *both* `:root` and `.dark`, then mapping it in
+  `@theme inline`. Miss the mapping and the utility just doesn't exist; Tailwind
+  generates nothing and the element renders unstyled.
+- **Chart colours are validated, not chosen.** Both themes' values are selected
+  steps run through the dataviz palette validator against their own surface.
+  Changing one means re-running it, not eyeballing it.
+
 ---
 
 ## Operational chains (things the officer must do, not the code)

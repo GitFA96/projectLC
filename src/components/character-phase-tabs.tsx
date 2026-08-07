@@ -107,7 +107,7 @@ export function CharacterPhaseTabs({
                   </p>
                 </div>
                 <div className="w-32">
-                  <Progress value={tab.completion.pct} indicatorClassName="bg-emerald-500" />
+                  <Progress value={tab.completion.pct} indicatorClassName="bg-success" />
                 </div>
               </CardHeader>
               <CardContent>

@@ -63,7 +63,7 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 const ROLE_LABEL: Record<WclRole, string> = { tank: "Tank", healer: "Healer", dps: "DPS" };
 
 function uptimeClass(pct: number): string {
-  return pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : "";
+  return pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : "";
 }
 
 const SEVERITY_VARIANT: Record<ImprovementSeverity, "destructive" | "warning" | "muted"> = {
@@ -472,7 +472,7 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TriangleAlert className="h-4 w-4 text-amber-600" />
+            <TriangleAlert className="h-4 w-4 text-warn-ink" />
             Player improvements
           </CardTitle>
           <p className="text-xs text-muted-foreground">
@@ -482,7 +482,7 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
         </CardHeader>
         <CardContent>
           {improvements.length === 0 ? (
-            <p className="flex items-center gap-1.5 py-2 text-sm text-emerald-700">
+            <p className="flex items-center gap-1.5 py-2 text-sm text-success-ink">
               Nothing to flag — everyone showed up enchanted, flasked and fed. Clean night.
             </p>
           ) : (
@@ -553,7 +553,7 @@ function RankingsPanel({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-sky-600" />
+              <Sparkles className="h-4 w-4 text-info-ink" />
               Cooldown usage
             </CardTitle>
             <p className="text-xs text-muted-foreground">
@@ -690,7 +690,7 @@ function GoldPanel({
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
-            <Coins className="h-4 w-4 text-amber-500" />
+            <Coins className="h-4 w-4 text-warn" />
             Total gold spent
             <span className="text-sm font-normal text-muted-foreground">
               ≈ {Math.round(raidTotal).toLocaleString("en-US")}g across the raid
@@ -699,7 +699,7 @@ function GoldPanel({
               <span
                 className={cn(
                   "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  adjustmentTotal > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700",
+                  adjustmentTotal > 0 ? "bg-warn-fill text-warn-ink" : "bg-success-fill text-success-ink",
                 )}
                 title="Net change from this raid's manual adjustments — listed in full below"
               >
@@ -714,7 +714,7 @@ function GoldPanel({
             length and deaths: a buff held from an early to a late pull on a night longer than it
             lasts is re-bought (a flask ≈ ×2 past 2 hours), and consumed buffs add one per death.
             {usingDefault && (
-              <span className="ml-1 inline-flex items-center gap-1 text-amber-600">
+              <span className="ml-1 inline-flex items-center gap-1 text-warn-ink">
                 <TriangleAlert className="h-3 w-3" /> using default prices — set this raid&apos;s
                 below.
               </span>
@@ -743,7 +743,7 @@ function GoldPanel({
               </TableHeader>
               <TableBody>
                 {ranked.map(({ u, inFight, prep, delta, total, lines }, i) => (
-                  <TableRow key={u.name} className={cn(i === 0 && "bg-amber-50/70 hover:bg-amber-50/70")}>
+                  <TableRow key={u.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
                     <TableCell>
                       <RankBadge rank={i + 1} />
                     </TableCell>
@@ -763,8 +763,8 @@ function GoldPanel({
                           delta === 0
                             ? "text-muted-foreground/40"
                             : delta > 0
-                              ? "text-amber-700"
-                              : "text-emerald-700",
+                              ? "text-warn-ink"
+                              : "text-success-ink",
                         )}
                       >
                         {delta === 0

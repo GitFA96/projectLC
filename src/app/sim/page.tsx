@@ -73,7 +73,7 @@ export default async function SimIndexPage() {
       />
 
       {!configured && (
-        <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        <p className="rounded-md border border-warn-line bg-warn-soft p-3 text-xs text-warn-ink">
           No simulator configured. Download <code className="font-mono">wowsimcli</code> from the{" "}
           <a
             href="https://github.com/wowsims/tbc-new"

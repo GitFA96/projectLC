@@ -5,6 +5,7 @@ import { getRepo } from "@/lib/data/repo";
 import { Nav } from "@/components/nav";
 import { WowheadRefresher, WowheadScripts } from "@/components/wowhead";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,6 +53,15 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {/*
+          Stamps the theme class on <html> before the browser paints, so a dark
+          reader never gets a white flash. Must stay ahead of the stylesheet's
+          first render — hence a raw inline script rather than next/script,
+          which does not guarantee pre-paint execution.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col font-sans">
         <WowheadScripts />
         <WowheadRefresher />

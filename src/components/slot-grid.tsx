@@ -42,14 +42,14 @@ export function SlotGrid({ slots }: { slots: SlotRowView[] }) {
                   {row.enchant && (
                     <span
                       title={`Enchant: ${row.enchant}`}
-                      className="h-2 w-2 rounded-full bg-emerald-500"
+                      className="h-2 w-2 rounded-full bg-success"
                     />
                   )}
                   {(row.gems ?? []).map((gem, i) => (
                     <span
                       key={i}
                       title={`Gem: ${gem}`}
-                      className="h-2 w-2 rounded-full border border-violet-300 bg-violet-200"
+                      className="h-2 w-2 rounded-full border border-alt-line bg-alt-fill"
                     />
                   ))}
                 </span>

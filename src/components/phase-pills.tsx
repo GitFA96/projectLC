@@ -40,8 +40,8 @@ export function PhasePills({
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-medium tabular-nums",
               pct === undefined && "border-dashed text-muted-foreground/60",
-              pct !== undefined && pct >= 80 && "border-emerald-200 bg-emerald-50 text-emerald-700",
-              pct !== undefined && pct >= 40 && pct < 80 && "border-sky-200 bg-sky-50 text-sky-700",
+              pct !== undefined && pct >= 80 && "border-success-line bg-success-soft text-success-ink",
+              pct !== undefined && pct >= 40 && pct < 80 && "border-info-line bg-info-soft text-info-ink",
               pct !== undefined && pct < 40 && "bg-muted text-muted-foreground",
               activePhase === phase && "ring-1 ring-foreground/30",
             )}

@@ -211,7 +211,7 @@ function SetupGrid({ rows }: { rows: SetupRow[] }) {
             {r.label}
             {r.note && <span className="ml-1">*</span>}
           </p>
-          <p className={`text-sm ${r.state === "differ" ? "font-medium text-amber-700" : ""}`}>
+          <p className={`text-sm ${r.state === "differ" ? "font-medium text-warn-ink" : ""}`}>
             {r.value}
           </p>
           {r.detail && <p className="text-[11px] text-muted-foreground">{r.detail}</p>}
@@ -247,7 +247,7 @@ function AbilityLookup({
   const keys = missing.map((a) => a.key);
   const tone =
     unnamed.length > 0
-      ? "border-amber-200 bg-amber-50 text-amber-800"
+      ? "border-warn-line bg-warn-soft text-warn-ink"
       : "border-border bg-muted/40 text-muted-foreground";
 
   return (
@@ -439,8 +439,8 @@ function EventLog({ logged, sim }: { logged: TimedEvent[]; sim: TimedEvent[] }) 
         Casts only — hide the damage lines
       </label>
       <div className="flex flex-col gap-3 lg:flex-row">
-        {column("Logged", show(logged), "text-sky-700")}
-        {column("Sim", show(sim), "text-amber-700")}
+        {column("Logged", show(logged), "text-info-ink")}
+        {column("Sim", show(sim), "text-warn-ink")}
       </div>
       <p className="text-[11px] text-muted-foreground">
         The sim column is the single representative iteration — the seed whose DPS landed closest to
@@ -659,7 +659,7 @@ function SpecSetup({
       </CardHeader>
       <CardContent className="space-y-2">
         {!configured ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <p className="rounded-md border border-warn-line bg-warn-soft p-3 text-xs text-warn-ink">
             No simulator configured. Download <code className="font-mono">wowsimcli</code> from the
             wowsims releases page and point <code className="font-mono">WOWSIMCLI_PATH</code> at it
             in <code className="font-mono">.env.local</code>, then restart the dev server.
@@ -697,15 +697,15 @@ function SpecSetup({
           name more than one way, where only an officer can say where they go.
         */}
         {stranded.length > 0 && (
-          <div className="rounded-md border border-sky-200 bg-sky-50 p-2.5 text-xs text-sky-900">
+          <div className="rounded-md border border-info-line bg-info-soft p-2.5 text-xs text-info-ink">
             <p className="font-medium">Saved setups from before spec profiles</p>
             <ul className="mt-1.5 space-y-1">
               {stranded.map((s) => (
                 <li key={s.slug} className="flex flex-wrap items-center gap-2">
                   <span className="capitalize">{s.slug}</span>
-                  {s.build && <span className="tabular-nums text-sky-700">{s.build}</span>}
+                  {s.build && <span className="tabular-nums text-info-ink">{s.build}</span>}
                   {s.specs.length > 1 && (
-                    <span className="text-sky-700">
+                    <span className="text-info-ink">
                       logged as {s.specs.join(", ")} — which is why it wasn&apos;t placed for you
                     </span>
                   )}
@@ -724,7 +724,7 @@ function SpecSetup({
           </div>
         )}
         {msg && (
-          <p className={msg.ok ? "text-xs text-emerald-700" : "text-xs text-red-700"}>{msg.message}</p>
+          <p className={msg.ok ? "text-xs text-success-ink" : "text-xs text-danger-ink"}>{msg.message}</p>
         )}
       </CardContent>
     </Card>
@@ -759,16 +759,16 @@ function ProfileCheckCard({ rows }: { rows: ProfileCheckRow[] }) {
             <span
               className={`mt-px h-3 w-0.5 shrink-0 rounded-full ${
                 r.state === "match"
-                  ? "bg-emerald-500"
+                  ? "bg-success"
                   : r.state === "differs"
-                    ? "bg-amber-500"
+                    ? "bg-warn"
                     : "bg-muted-foreground/30"
               }`}
             />
             <span className="w-20 shrink-0 text-muted-foreground">{r.label}</span>
             <span className="font-medium">{r.profile}</span>
             <span className="text-muted-foreground">vs</span>
-            <span className={r.state === "differs" ? "font-medium text-amber-700" : ""}>
+            <span className={r.state === "differs" ? "font-medium text-warn-ink" : ""}>
               {r.logged}
             </span>
           </div>
@@ -1022,7 +1022,7 @@ export function SimPanel({
         />
       )}
       {result?.status === "error" && (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-sm text-danger-ink">
           {result.message}
         </p>
       )}
@@ -1035,8 +1035,8 @@ export function SimPanel({
               <CardTitle className="flex flex-wrap items-baseline justify-between gap-2 text-base">
                 <span>How this comparison was run</span>
                 <span className="text-xs font-normal text-muted-foreground">
-                  <span className="text-amber-600">▍</span> sim and pull differ{" "}
-                  <span className="text-emerald-600">▍</span> they agree · hover * for why
+                  <span className="text-warn-ink">▍</span> sim and pull differ{" "}
+                  <span className="text-success-ink">▍</span> they agree · hover * for why
                 </span>
               </CardTitle>
             </CardHeader>
@@ -1054,7 +1054,7 @@ export function SimPanel({
           >
             <AuditGrid rows={result.audit.rows} />
             {result.notes.length > 0 && (
-              <ul className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+              <ul className="mt-2 space-y-1 rounded-md border border-warn-line bg-warn-soft p-2 text-xs text-warn-ink">
                 {result.notes.map((n, i) => (
                   <li key={i} className="flex items-start gap-1.5">
                     <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
@@ -1084,12 +1084,12 @@ export function SimPanel({
                     <span
                       className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                         f.good
-                          ? "bg-emerald-500"
+                          ? "bg-success"
                           : f.kind === "context"
-                            ? "bg-sky-500"
+                            ? "bg-info"
                             : f.kind === "uptime"
-                              ? "bg-violet-500"
-                              : "bg-amber-500"
+                              ? "bg-alt"
+                              : "bg-warn"
                       }`}
                       title={
                         f.kind === "context"
@@ -1105,10 +1105,10 @@ export function SimPanel({
               </ul>
             )}
             <p className="mt-2 text-[11px] text-muted-foreground">
-              <span className="text-sky-600">●</span> context ·{" "}
-              <span className="text-violet-600">●</span> uptime ·{" "}
-              <span className="text-amber-600">●</span> rotation ·{" "}
-              <span className="text-emerald-600">●</span> ahead of the sim. Measurements, not
+              <span className="text-info-ink">●</span> context ·{" "}
+              <span className="text-alt-ink">●</span> uptime ·{" "}
+              <span className="text-warn-ink">●</span> rotation ·{" "}
+              <span className="text-success-ink">●</span> ahead of the sim. Measurements, not
               verdicts — what to do about them is the officer&apos;s call.
             </p>
           </Section>

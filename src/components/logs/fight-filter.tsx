@@ -65,8 +65,8 @@ export function FightFilter({ code, fights }: { code: string; fights: RaidFight[
                   "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors",
                   on
                     ? f.kill
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
-                      : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                      ? "border-success-line bg-success-soft text-success-ink hover:bg-success-fill"
+                      : "border-warn-line bg-warn-soft text-warn-ink hover:bg-warn-fill"
                     : "border-dashed text-muted-foreground/60 line-through hover:bg-accent",
                 )}
               >

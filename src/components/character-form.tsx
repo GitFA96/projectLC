@@ -169,7 +169,7 @@ export function CharacterForm({
           </Field>
 
           {state.error && (
-            <p className="flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+            <p className="flex items-start gap-1.5 rounded-md border border-danger-line bg-danger-soft p-2 text-sm text-danger-ink">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               {state.error}
             </p>

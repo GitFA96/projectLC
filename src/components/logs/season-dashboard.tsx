@@ -18,7 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 
 function uptimeClass(pct: number): string {
-  return pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : "";
+  return pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : "";
 }
 
 /**
@@ -104,14 +104,14 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
                   key={n.label}
                   className={cn(
                     "rounded-xl border p-3",
-                    n.tone === "positive" ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60",
+                    n.tone === "positive" ? "border-success-line bg-success-soft/60" : "border-warn-line bg-warn-soft/60",
                   )}
                 >
                   <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                     {n.tone === "positive" ? (
-                      <Trophy className="h-3.5 w-3.5 text-emerald-600" />
+                      <Trophy className="h-3.5 w-3.5 text-success-ink" />
                     ) : (
-                      <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />
+                      <TriangleAlert className="h-3.5 w-3.5 text-warn-ink" />
                     )}
                     {n.label}
                   </p>
@@ -127,7 +127,7 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Coins className="h-4 w-4 text-amber-500" />
+                <Coins className="h-4 w-4 text-warn" />
                 Consumable spend across {chosen.length} raid{chosen.length === 1 ? "" : "s"}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
@@ -148,7 +148,7 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
                 </TableHeader>
                 <TableBody>
                   {view.raiders.map((r, i) => (
-                    <TableRow key={r.name} className={cn(i === 0 && "bg-amber-50/70 hover:bg-amber-50/70")}>
+                    <TableRow key={r.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
                       <TableCell>
                         <RankBadge rank={i + 1} />
                       </TableCell>

@@ -102,7 +102,7 @@ export function ConsumableAdjustmentsPanel({
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                goldDelta >= 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700",
+                goldDelta >= 0 ? "bg-warn-fill text-warn-ink" : "bg-success-fill text-success-ink",
               )}
             >
               {rows.length} entr{rows.length === 1 ? "y" : "ies"} ·{" "}
@@ -222,7 +222,7 @@ export function ConsumableAdjustmentsPanel({
                   <TableCell
                     className={cn(
                       "text-right text-sm font-medium tabular-nums",
-                      row.delta > 0 ? "text-amber-700" : "text-emerald-700",
+                      row.delta > 0 ? "text-warn-ink" : "text-success-ink",
                     )}
                   >
                     {signed(row.delta)}

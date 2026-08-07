@@ -1,18 +1,28 @@
 /**
  * Shared helpers for the fight-graph charts (single view and the compare
  * page's overlay). Colors are the validated dataviz categorical slots.
+ *
+ * They are CSS variables rather than hex because these end up in inline
+ * `style`/`stroke` attributes, which no `dark:` class can reach. Each theme
+ * picks its own step of the same hue in src/app/globals.css — the dark values
+ * are selected and separately validated, not a flip of the light ones.
  */
 
 export const GRAPH_COLOR = {
-  dps: "#2a78d6",
-  cooldown: "#1baf7a",
-  consumable: "#eda100",
-  buff: "#008300",
-  boss: "#4a3aa7",
+  dps: "var(--graph-dps)",
+  cooldown: "var(--graph-cooldown)",
+  consumable: "var(--graph-consumable)",
+  buff: "var(--graph-buff)",
+  boss: "var(--graph-boss)",
 } as const;
 
-/** Per-player-instance accents for compare views — validated 4-slot set (worst adjacent CVD ΔE 51.8). */
-export const INSTANCE_COLORS = ["#2a78d6", "#eb6834", "#4a3aa7", "#e87ba4"] as const;
+/** Per-player-instance accents for compare views — validated 4-slot set. */
+export const INSTANCE_COLORS = [
+  "var(--graph-series-1)",
+  "var(--graph-series-2)",
+  "var(--graph-series-3)",
+  "var(--graph-series-4)",
+] as const;
 
 /** "4:12" from ms. */
 export function mmss(ms: number): string {

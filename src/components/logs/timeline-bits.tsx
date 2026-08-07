@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const LANE_GRID = "grid grid-cols-[11rem_1fr_2.75rem] items-center gap-2";
 
 export function uptimeClass(pct: number): string {
-  return pct >= 90 ? "text-emerald-700" : pct < 60 ? "text-amber-600" : "";
+  return pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : "";
 }
 
 /** "4:12" from ms. */

@@ -115,8 +115,8 @@ export function ItemPriorityEditor({
             Reset to sheet
           </Button>
         )}
-        {warning && <p className="w-full text-[11px] text-amber-700">{warning}</p>}
-        {error && <p className="w-full text-[11px] text-red-600">{error}</p>}
+        {warning && <p className="w-full text-[11px] text-warn-ink">{warning}</p>}
+        {error && <p className="w-full text-[11px] text-danger-ink">{error}</p>}
       </div>
     );
   }
@@ -161,7 +161,7 @@ export function ItemPriorityEditor({
         . Common spellings resolve to these — “Holy Priest” and “Disc Priest” both mean Healing
         Priest, which is one loot pool. Anything else is kept and shown, but ranks nobody.
       </p>
-      {error && <p className="text-[11px] text-red-600">{error}</p>}
+      {error && <p className="text-[11px] text-danger-ink">{error}</p>}
     </div>
   );
 }
@@ -243,11 +243,11 @@ export function LootWeightsEditor({ weights }: { weights: LootPriorityWeights })
         >
           Discard
         </Button>
-        <span className={cn("text-xs", saved ? "text-emerald-700" : "text-muted-foreground")}>
+        <span className={cn("text-xs", saved ? "text-success-ink" : "text-muted-foreground")}>
           {saved ??
             "Relative, not a budget — only the ratios matter. Saving re-ranks every contested item."}
         </span>
-        {error && <span className="text-xs text-red-600">{error}</span>}
+        {error && <span className="text-xs text-danger-ink">{error}</span>}
       </div>
     </div>
   );

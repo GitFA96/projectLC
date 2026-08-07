@@ -1,17 +1,18 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Warcraft Logs parse-percentile colors, darkened to stay legible on the
- * light theme (same approach as QUALITY_TEXT_COLORS).
+ * Warcraft Logs parse-percentile colors, as theme variables (same approach as
+ * QUALITY_TEXT_COLORS): darkened for the light theme, canonical for the dark
+ * one. Values live in src/app/globals.css.
  */
 export function parseColor(pct: number): string {
-  if (pct >= 100) return "#A16207"; // artifact gold
-  if (pct >= 99) return "#C026D3"; // pink
-  if (pct >= 95) return "#C26000"; // legendary orange
-  if (pct >= 75) return "#A335EE"; // epic purple
-  if (pct >= 50) return "#0070DD"; // rare blue
-  if (pct >= 25) return "#0F8A00"; // uncommon green
-  return "#757575"; // poor grey
+  if (pct >= 100) return "var(--parse-100)"; // artifact gold
+  if (pct >= 99) return "var(--parse-99)"; // pink
+  if (pct >= 95) return "var(--parse-95)"; // legendary orange
+  if (pct >= 75) return "var(--parse-75)"; // epic purple
+  if (pct >= 50) return "var(--parse-50)"; // rare blue
+  if (pct >= 25) return "var(--parse-25)"; // uncommon green
+  return "var(--parse-0)"; // poor grey
 }
 
 export function ParseBadge({

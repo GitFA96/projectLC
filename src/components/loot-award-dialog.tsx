@@ -147,7 +147,7 @@ export function LootAwardDialog({
             ) : validItemId ? (
               <span className="text-muted-foreground">Not in the item cache — give it a name below.</span>
             ) : itemIdText ? (
-              <span className="text-amber-700">Item id must be a positive number.</span>
+              <span className="text-warn-ink">Item id must be a positive number.</span>
             ) : null}
           </div>
         </div>
@@ -209,7 +209,7 @@ export function LootAwardDialog({
         </div>
 
         {error && (
-          <p className="flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          <p className="flex items-start gap-1.5 rounded-md border border-danger-line bg-danger-soft p-2 text-xs text-danger-ink">
             <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
             {error}
           </p>

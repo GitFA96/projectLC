@@ -41,11 +41,11 @@ export function Raider({ name, slug, className }: { name: string; slug?: string;
 export function RankBadge({ rank }: { rank: number }) {
   const tone =
     rank === 1
-      ? "bg-amber-400/90 text-amber-950"
+      ? "bg-medal-gold text-medal-gold-ink"
       : rank === 2
-        ? "bg-slate-300 text-slate-800"
+        ? "bg-medal-silver text-medal-silver-ink"
         : rank === 3
-          ? "bg-orange-300/80 text-orange-950"
+          ? "bg-medal-bronze text-medal-bronze-ink"
           : "bg-muted text-muted-foreground";
   return (
     <span

@@ -221,7 +221,7 @@ export function UptimeByBoss({
                 <TabsTrigger key={f.fightId} value={String(f.fightId)}>
                   {f.encounterName}
                   {!f.kill && (
-                    <span className="text-[10px] text-amber-600">
+                    <span className="text-[10px] text-warn-ink">
                       {f.fightPercentage !== undefined ? `${Math.round(f.fightPercentage)}%` : "wipe"}
                     </span>
                   )}

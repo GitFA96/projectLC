@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Swords } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { QuickSearch } from "@/components/quick-search";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { QuickSearchItem } from "@/lib/analysis/quick-search";
 import { cn } from "@/lib/utils";
 
@@ -72,9 +73,10 @@ export function Nav({
         <div className="ml-auto flex items-center gap-3">
           <QuickSearch items={searchItems} />
           <Badge variant="outline" className="gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
             Phase {activePhase} active
           </Badge>
+          <ThemeToggle />
         </div>
       </div>
     </header>

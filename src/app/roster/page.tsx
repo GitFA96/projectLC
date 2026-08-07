@@ -82,10 +82,10 @@ export default async function RosterPage() {
       </PageHeader>
 
       {hasDemoData && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn-line bg-warn-soft p-3">
+          <p className="text-sm text-warn-ink">
             <span className="font-medium">Demo data is still mixed into this database.</span>{" "}
-            <span className="text-amber-700">
+            <span className="text-warn-ink">
               Removing it deletes the fictional characters with their sessions, awards and gear
               sets — everything you imported yourself stays (the item cache too).
             </span>
