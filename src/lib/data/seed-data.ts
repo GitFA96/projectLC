@@ -57,6 +57,8 @@ export function loadSeedStore(): EntityStore {
     wclPlayerOffPull: [],
     attendanceExemptions: parse("attendance-exemptions.json", seedAttendanceExemptionsSchema, attendanceExemptionsJson),
     characterComments: parse("character-comments.json", seedCharacterCommentsSchema, characterCommentsJson),
+    // Bug reports are filed by whoever is running the app; the demo has none.
+    feedback: [],
   };
   validateStore(store, "seed data");
   return store;

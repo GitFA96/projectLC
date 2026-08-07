@@ -430,6 +430,56 @@ export const seedWclPlayerOffPullSchema = z.array(wclPlayerOffPullSchema);
 export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
 export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 
+/**
+ * What the reporter's browser volunteered about where they were when something
+ * looked wrong. Every field is optional and every field is shown to them before
+ * they send it — see `FeedbackDialog`. Nothing here is collected passively.
+ */
+export const feedbackContextSchema = z.object({
+  /** A readable name for the element they pointed at: `button "Award item"`. */
+  elementLabel: z.string().max(200).optional(),
+  /** CSS path to that element, for finding it again in the source. */
+  elementSelector: z.string().max(500).optional(),
+  /** Its visible text, trimmed — usually the fastest way to locate it. */
+  elementText: z.string().max(300).optional(),
+  /** "1512×945". Layout bugs are usually width bugs. */
+  viewport: z.string().max(40).optional(),
+  /** Which theme was active, since half the UI now depends on it. */
+  theme: z.enum(["light", "dark"]).optional(),
+  /** Coarse browser/OS string the widget derives — never the raw UA. */
+  browser: z.string().max(120).optional(),
+});
+
+/**
+ * A bug report someone filed from inside the app.
+ *
+ * Deliberately unlinked to any character or raid: this is about the tool, not
+ * about the guild, and it must stay readable even after the page it describes
+ * has been rewritten. `route` and `url` are stored as text for that reason.
+ */
+export const feedbackReportSchema = z.object({
+  id: z.string().min(1),
+  /**
+   * What kind of report this is. Defaults to `bug` so reports filed before
+   * the two entry points existed keep the meaning they were filed under.
+   */
+  kind: z.enum(["bug", "feedback"]).default("bug"),
+  /** Free text — there's no auth here, same as character comments. */
+  reporter: z.string().max(60).optional(),
+  body: z.string().min(1),
+  /** Pathname only, e.g. `/characters/stiligwarr/performance`. */
+  route: z.string().min(1),
+  /** Full URL including query, which often carries the state that broke. */
+  url: z.string().min(1),
+  /** Absent when the reporter opted out of sharing context. */
+  context: feedbackContextSchema.optional(),
+  /** Triage state. Reports are never edited, only opened and closed. */
+  status: z.enum(["open", "resolved"]).default("open"),
+  createdAt: z.string().min(1),
+});
+
+export const seedFeedbackSchema = z.array(feedbackReportSchema);
+
 /* Parser output contracts (used by the M1 import preview; M2 parsers emit these) */
 
 /** A gear set as parsed from a SixtyUpgrades export: GearSet minus identity fields. */

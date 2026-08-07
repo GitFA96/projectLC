@@ -237,6 +237,29 @@ catches this but a test that compares them.
 - Filter/selection state goes in the **URL**, not React state, so a view is
   shareable and only one variant renders server-side (`?gear=`, `?chars=`,
   `?report=`).
+- **`src/app/loading.tsx` is what makes a nav click feel like anything.**
+  Without a loading boundary the router keeps the *old* page on screen until the
+  new segment resolves, so the click reads as broken and then everything appears
+  at once. Delete that file and every slow page goes back to feeling dead.
+- **Don't hand a client component a whole table to do one lookup.** The award
+  dialog used to receive the entire item cache as a prop — six figures of JSON
+  serialized into every visit to the loot ledger, for a dialog most visits never
+  open. It needed one item by id, so it asks for one (`lookupItemAction`). The
+  same shape is worth checking wherever a page passes a `list*()` straight
+  through to a client component.
+- **`DataTable` paginates by default** (100 rows). Sorting and filtering still
+  run over the whole set — only rendering is windowed, and a table under one
+  page shows no controls. A caller that genuinely needs every row in the DOM
+  must say so with `pageSize={Infinity}`.
+- **A `columns` memo must not depend on which rows are selected.** It reads as
+  the obvious way to write a checkbox cell and it costs a full re-render of
+  every visible row per tick — new column definitions mean new cell renderers.
+  Selection reaches the checkboxes through `SelectionProvider` instead, so
+  `columns` depends only on what changes a column's *shape*. Nothing catches a
+  regression here: the table stays correct and quietly does far more work.
+- **`DataTable` is memoized, which only helps if its props are stable.** An
+  inline `initialSorting={[…]}` or a `columns` array rebuilt each render
+  defeats it silently — hence the module-level `LOOT_SORT` / `ROSTER_SORT`.
 
 ## 7. Add an analysis module
 
@@ -277,6 +300,34 @@ component that way and it is right in dark mode without a `dark:` variant.
 - **Chart colours are validated, not chosen.** Both themes' values are selected
   steps run through the dataviz palette validator against their own surface.
   Changing one means re-running it, not eyeballing it.
+
+## 10. Touch the feedback widget
+
+The widget is the only thing in this app a non-officer can write with, and the
+only write that carries data the app collected rather than the user typed. Two
+rules follow from that, and neither is stylistic:
+
+- **Nothing reaches `context` that the reporter wasn't shown.** The panel
+  renders `contextLines(context)` from the *same object* it submits, so a new
+  field appears on screen the moment it exists. Adding one to
+  `feedbackContextSchema` without adding it to `contextLines` makes the panel
+  lie about what it sends.
+- **The consent switch is the only thing that enables collection.** Picking an
+  element is gated behind it, and turning it off discards what was picked.
+  Anything that sets `shareContext` for the reporter defeats the feature.
+
+- **The export is a contract with whoever fixes the bug.** `formatReportForAgent`
+  is what gets pasted to a developer or a coding agent, so a field worth
+  collecting is a field worth putting there. `likelyRouteFile` is a mechanical
+  route→file guess and is labelled "likely" for that reason — a route rendered
+  by a client component has its real bug under `src/components`.
+
+A new **table**, unlike a new column, needs no `migrate()` line — `db.exec(SCHEMA)`
+runs `CREATE TABLE IF NOT EXISTS` on every boot. §2's warning is about columns
+added to an existing block, which `CREATE TABLE` will not retrofit — and
+`feedback.kind` is exactly that case: the table shipped without it, so it needs
+both the `CREATE TABLE` entry (fresh databases) and the `addColumn` line (every
+database that already filed a report).
 
 ---
 

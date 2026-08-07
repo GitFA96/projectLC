@@ -32,6 +32,12 @@ identically to SQLite. Never compute a summary in a backend.
   Four already do. Empty return = "unset, use defaults", and every getter
   sanitizes on read so a stale row can't crash a page.
 - **Multi-row writes go in `withTx`** — one transaction, one version bump.
+- **Zero-argument views are memoized for the life of a read model**
+  (`MEMOIZED_VIEWS` in `store.ts`). They are pure over an immutable store and
+  the model is rebuilt whenever `data_version` changes, so "this read model" is
+  the whole cache key. Two consequences: only add a **zero-argument** reader to
+  that list — one taking arguments would hand one caller's answer to another —
+  and callers must **not mutate** what they get back, because it is now shared.
 
 ## Testing
 
@@ -39,5 +45,11 @@ identically to SQLite. Never compute a summary in a backend.
 point a test at `data/projectlc.db`** — that is the user's real guild data.
 When you need to check behaviour against real data, copy the file to the
 scratchpad first and set `PROJECTLC_DB` to the copy.
+
+**Copy the `-wal` and `-shm` files with it.** The database runs in WAL mode, so
+recent writes live in `projectlc.db-wal` until a checkpoint folds them in.
+Copying only the `.db` gives you a snapshot that opens cleanly, answers every
+query, and is silently missing the newest rows — which is the worst possible
+way to be wrong about whether a migration works.
 
 See [`docs/change-chains.md`](../../../docs/change-chains.md) §2, §3, §4, §8.

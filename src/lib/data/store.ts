@@ -32,6 +32,7 @@ import type {
   CharacterBundle,
   CharacterComment,
   CharacterComparisonView,
+  FeedbackReport,
   CharacterPerformance,
   CharacterSummary,
   ConsumableAdjustment,
@@ -82,6 +83,12 @@ export interface EntityStore {
   wclPlayerOffPull: WclPlayerOffPull[];
   attendanceExemptions: AttendanceExemption[];
   characterComments: CharacterComment[];
+  /**
+   * Bug reports filed from the app. Not guild data and not derived from
+   * anything — it rides along here so both backends answer `listFeedback`
+   * identically, and so the read model is the single place pages read from.
+   */
+  feedback: FeedbackReport[];
 }
 
 /** Referential integrity — hard errors; these always indicate a broken data source. */
@@ -178,8 +185,40 @@ function seededSheet(): Map<string, PrioritySheetRule> {
   return sheetIndex;
 }
 
+/**
+ * The zero-argument views, memoized for the life of one read model.
+ *
+ * These are pure functions of an immutable store, and they are not cheap:
+ * `listCharacters` re-derives a summary per roster character and
+ * `listItemDemand` re-walks every wishlist. Both ran on every request even
+ * though a read model is discarded and rebuilt the moment `data_version`
+ * changes — and the nav calls `listItemDemand` on every page, so the cost was
+ * paid site-wide rather than on the pages that wanted the data.
+ *
+ * Only zero-argument readers belong here: with no arguments there is nothing
+ * to key a cache on, so "this read model" is the entire cache key. Add a
+ * method that takes arguments and the cache would return one caller's answer
+ * to another.
+ *
+ * The cached value is shared rather than copied — which is what `listItems`
+ * and `listLootAwards` already did. Callers must not mutate what they get.
+ */
+const MEMOIZED_VIEWS = ["listCharacters", "listItemDemand", "listWclReports", "getDashboard"] as const;
+
+function memoizeViews(repo: Repo): Repo {
+  const wrapped: Repo = { ...repo };
+  for (const key of MEMOIZED_VIEWS) {
+    const compute = repo[key].bind(repo) as () => Promise<unknown>;
+    // The promise is cached, not the value, so two concurrent callers on a
+    // cold model share one computation instead of both doing it.
+    let pending: Promise<unknown> | undefined;
+    (wrapped as unknown as Record<string, unknown>)[key] = () => (pending ??= compute());
+  }
+  return wrapped;
+}
+
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
-  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments } = store;
+  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, feedback } = store;
 
   /* Indexes */
   const charactersById = new Map(roster.map((c) => [c.id, c]));
@@ -608,7 +647,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return undefined;
   }
 
-  return {
+  const repo: Repo = {
     async getGuild() {
       return guild;
     },
@@ -668,6 +707,18 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         return null;
       }
       return contention;
+    },
+
+    async listFeedback(): Promise<FeedbackReport[]> {
+      // Open first, then newest — triage reads top-down and closed reports are
+      // kept only so a fixed bug can be told apart from one nobody looked at.
+      return [...feedback].sort((a, b) =>
+        a.status === b.status
+          ? b.createdAt.localeCompare(a.createdAt)
+          : a.status === "open"
+            ? -1
+            : 1,
+      );
     },
 
     async listItemDemand(): Promise<ItemDemand[]> {
@@ -1062,4 +1113,6 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       };
     },
   };
+
+  return memoizeViews(repo);
 }

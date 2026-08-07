@@ -1,4 +1,4 @@
-import { CLASS_COLORS } from "@/lib/constants/wow";
+import { CLASS_TINT_COLORS } from "@/lib/constants/wow";
 import { CharacterLink } from "@/components/class-badge";
 import type { WowClass } from "@/lib/types";
 
@@ -27,14 +27,14 @@ export function FairnessBars({ entries }: { entries: FairnessBarEntry[] }) {
               className="h-full rounded-l-sm"
               style={{
                 width: `${(e.onSpec / max) * 100}%`,
-                backgroundColor: CLASS_COLORS[e.wowClass],
+                backgroundColor: CLASS_TINT_COLORS[e.wowClass],
               }}
             />
             <span
               className="h-full"
               style={{
                 width: `${(e.offSpec / max) * 100}%`,
-                backgroundColor: CLASS_COLORS[e.wowClass],
+                backgroundColor: CLASS_TINT_COLORS[e.wowClass],
                 opacity: 0.35,
               }}
             />

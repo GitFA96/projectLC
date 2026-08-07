@@ -26,6 +26,7 @@ import {
   type LootActionResult,
 } from "@/app/loot/actions";
 import type { Quality, WowClass } from "@/lib/types";
+import { lookupItemAction } from "@/app/loot/actions";
 
 export interface AwardDialogTarget {
   mode: "add" | "edit";
@@ -58,15 +59,12 @@ const EXTERNAL = "__external__";
 export function LootAwardDialog({
   target,
   roster,
-  knownItems,
   onClose,
 }: {
   target: AwardDialogTarget;
   roster: { id: string; name: string; wowClass: WowClass }[];
-  knownItems: DialogItem[];
   onClose: () => void;
 }) {
-  const itemsById = React.useMemo(() => new Map(knownItems.map((i) => [i.id, i])), [knownItems]);
   const a = target.award;
 
   const [itemIdText, setItemIdText] = React.useState(a ? String(a.itemId) : "");
@@ -84,7 +82,29 @@ export function LootAwardDialog({
 
   const itemId = Number(itemIdText);
   const validItemId = Number.isInteger(itemId) && itemId > 0;
-  const known = validItemId ? itemsById.get(itemId) : undefined;
+
+  /**
+   * The typed item's cache entry, fetched per id rather than handed to us as
+   * the entire item cache.
+   *
+   * The id it belongs to is stored with it, and the preview below only trusts
+   * a result whose id still matches the box. That covers both an emptied field
+   * and a slow lookup for an id the officer has already typed past — neither
+   * can leave the wrong item on screen.
+   */
+  const [lookup, setLookup] = React.useState<{ id: number; item?: DialogItem }>();
+  React.useEffect(() => {
+    if (!validItemId) return;
+    let cancelled = false;
+    lookupItemAction(itemId).then((found) => {
+      if (!cancelled) setLookup({ id: itemId, item: found ?? undefined });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId, validItemId]);
+
+  const known = validItemId && lookup?.id === itemId ? lookup.item : undefined;
   const winnerNeedsText = winnerValue === CUSTOM || winnerValue === EXTERNAL;
   const canSubmit = validItemId && (!winnerNeedsText || winnerName.trim().length > 0) && !pending;
 

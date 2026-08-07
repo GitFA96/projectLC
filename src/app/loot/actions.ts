@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 import { refreshAfterWrite } from "@/lib/refresh";
-import { getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
+import { getRepo, getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
+import type { Quality } from "@/lib/types";
 
 /**
  * Manual winner resolution for awards whose winner didn't auto-match the
@@ -186,5 +187,27 @@ export async function deleteSessionAction(input: DeleteSessionInput): Promise<Lo
     };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Deleting the import failed." };
+  }
+}
+
+/**
+ * One item from the cache, for the award dialog's preview.
+ *
+ * The dialog used to receive the whole item cache as a prop so it could do this
+ * lookup locally — over a hundred kilobytes serialized into every visit to the
+ * loot ledger, for a dialog most visits never open. It only ever needed the one
+ * item whose id was typed, so it asks for that instead.
+ */
+export async function lookupItemAction(
+  itemId: number,
+): Promise<{ id: number; name?: string; quality?: Quality; icon?: string } | null> {
+  if (!Number.isInteger(itemId) || itemId <= 0) return null;
+  try {
+    const repo = await getRepo();
+    const item = await repo.getItem(itemId);
+    return item ? { id: item.id, name: item.name, quality: item.quality, icon: item.icon } : null;
+  } catch {
+    // A failed lookup only costs the preview; the award itself still saves.
+    return null;
   }
 }

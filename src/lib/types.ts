@@ -3,6 +3,8 @@ import type {
   attendanceExemptionSchema,
   characterCommentSchema,
   characterSchema,
+  feedbackContextSchema,
+  feedbackReportSchema,
   currentGearOverrideSchema,
   gearSetSchema,
   guildSchema,
@@ -49,6 +51,10 @@ export type WclUpkeepTarget = NonNullable<WclPlayerFight["upkeep"][number]["targ
 export type WclRole = z.infer<typeof wclRoleSchema>;
 export type AttendanceExemption = z.infer<typeof attendanceExemptionSchema>;
 export type CharacterComment = z.infer<typeof characterCommentSchema>;
+export type FeedbackReport = z.infer<typeof feedbackReportSchema>;
+export type FeedbackContext = z.infer<typeof feedbackContextSchema>;
+export type FeedbackStatus = FeedbackReport["status"];
+export type FeedbackKind = FeedbackReport["kind"];
 
 /* Derived view models (computed, never stored) */
 

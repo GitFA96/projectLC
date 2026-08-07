@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { CLASS_COLORS, CLASS_TEXT_COLORS } from "@/lib/constants/wow";
+import { CLASS_TEXT_COLORS, classTint } from "@/lib/constants/wow";
 import type { WowClass } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
- * Class chip: canonical class color as a soft background with a darkened,
- * light-theme-legible text color. Works for Priest white / Rogue yellow too.
+ * Class chip: the class color as a soft background with a theme-legible text
+ * color.
+ *
+ * Goes through `classTint` rather than tinting `CLASS_COLORS` directly,
+ * because Priest's canonical color is pure white — mixed into a light page it
+ * produced a chip with no visible background at all. `classTint` substitutes
+ * the slate that Priest's text color comes from, and carries the per-theme
+ * alpha, since a wash that reads on white disappears on near-black.
  */
 export function ClassBadge({
   wowClass,
@@ -23,8 +29,8 @@ export function ClassBadge({
         className,
       )}
       style={{
-        backgroundColor: `${CLASS_COLORS[wowClass]}2b`,
-        borderColor: `${CLASS_COLORS[wowClass]}66`,
+        backgroundColor: classTint(wowClass, "var(--class-chip-bg-alpha)"),
+        borderColor: classTint(wowClass, "var(--class-chip-line-alpha)"),
         color: CLASS_TEXT_COLORS[wowClass],
       }}
     >

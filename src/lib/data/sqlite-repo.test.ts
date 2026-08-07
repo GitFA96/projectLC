@@ -1666,4 +1666,159 @@ describe("sqlite repo", () => {
       expect(view.characters.map((c) => c.character.name)).toEqual(["Kazrak", "Morgrave"]);
     });
   });
+
+  describe("memoized views", () => {
+    it("serves the same derived view twice without recomputing it", async () => {
+      const repo = getSqliteRepo();
+      // Same read model, so the second call is the cache. Identity is the
+      // observable part; the point is that the work is not redone.
+      expect(await repo.listCharacters()).toBe(await repo.listCharacters());
+      expect(await repo.listItemDemand()).toBe(await repo.listItemDemand());
+      expect(await repo.getDashboard()).toBe(await repo.getDashboard());
+    });
+
+    it("drops the cache on a write, so a stale view can never be served", async () => {
+      // The failure that would matter: a memo outliving the data it derives
+      // from. The read model is keyed on data_version, which every write bumps.
+      const repo = getSqliteRepo();
+      const before = await repo.listCharacters();
+      const beforeCount = before.length;
+
+      const created = await repo.createCharacter({
+        name: "Memotest",
+        class: "Warrior",
+        spec: "Fury",
+        role: "Melee DPS",
+        status: "main",
+      });
+      if (!created.ok) throw new Error(created.error);
+
+      const after = await repo.listCharacters();
+      expect(after).not.toBe(before);
+      expect(after.length).toBe(beforeCount + 1);
+      expect(after.some((c) => c.character.name === "Memotest")).toBe(true);
+    });
+  });
+
+  describe("feedback", () => {
+    it("files a report, keeps the context, then resolves and deletes it", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.listFeedback()).toHaveLength(0);
+
+      const added = await repo.addFeedback({
+        body: "Gold column reads 0 after importing last night's log",
+        reporter: "Aldric",
+        route: "/logs",
+        url: "http://localhost:3000/logs?report=abc123",
+        context: { elementLabel: 'td “0g”', viewport: "1512×945", theme: "dark" },
+      });
+      expect(added.ok).toBe(true);
+      if (!added.ok) throw new Error("unreachable");
+      expect(added.report.status).toBe("open");
+
+      const [stored] = await repo.listFeedback();
+      expect(stored.body).toContain("Gold column");
+      expect(stored.reporter).toBe("Aldric");
+      // The query string is the state that broke — it has to survive the round trip.
+      expect(stored.url).toContain("?report=abc123");
+      expect(stored.context?.elementLabel).toBe('td “0g”');
+      expect(stored.context?.theme).toBe("dark");
+
+      expect(await repo.setFeedbackStatus(added.report.id, "resolved")).toBe(true);
+      expect((await repo.listFeedback())[0].status).toBe("resolved");
+
+      expect(await repo.deleteFeedback(added.report.id)).toBe(true);
+      expect(await repo.deleteFeedback(added.report.id)).toBe(false); // already gone
+      expect(await repo.listFeedback()).toHaveLength(0);
+    });
+
+    it("keeps a report with no context at all — declining to share is not an error", async () => {
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({
+        body: "Something is off on the roster page",
+        route: "/roster",
+        url: "http://localhost:3000/roster",
+      });
+      expect(added.ok).toBe(true);
+
+      const [stored] = await repo.listFeedback();
+      expect(stored.context).toBeUndefined();
+      expect(stored.reporter).toBeUndefined();
+    });
+
+    it("lists open reports before resolved ones, newest first inside each", async () => {
+      const repo = getSqliteRepo();
+      const file = async (body: string) => {
+        const r = await repo.addFeedback({ body, route: "/", url: "http://localhost:3000/" });
+        if (!r.ok) throw new Error("unreachable");
+        // Ordering is by ISO timestamp, so two reports filed in the same
+        // millisecond would tie — space them out.
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        return r.report.id;
+      };
+      const first = await file("first");
+      await file("second");
+      const third = await file("third");
+
+      await repo.setFeedbackStatus(third, "resolved");
+
+      // `third` is newest but resolved, so it sinks below both open ones.
+      expect((await repo.listFeedback()).map((r) => r.body)).toEqual(["second", "first", "third"]);
+
+      await repo.setFeedbackStatus(first, "resolved");
+      expect((await repo.listFeedback()).map((r) => r.body)).toEqual(["second", "third", "first"]);
+    });
+
+    it("refuses an empty report rather than storing a blank row", async () => {
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({ body: "", route: "/", url: "http://localhost:3000/" });
+      expect(added.ok).toBe(false);
+      expect(await repo.listFeedback()).toHaveLength(0);
+    });
+
+    it("keeps bug and feedback apart, and defaults to bug when unsaid", async () => {
+      const repo = getSqliteRepo();
+      await repo.addFeedback({
+        kind: "feedback",
+        body: "Roster should remember the sort order",
+        route: "/roster",
+        url: "http://localhost:3000/roster",
+      });
+      const idea = (await repo.listFeedback())[0];
+      expect(idea.kind).toBe("feedback");
+
+      // Omitting kind is how everything filed before the two buttons existed
+      // arrives, and it has to keep meaning "bug".
+      await repo.addFeedback({ body: "Column is blank", route: "/", url: "http://localhost:3000/" });
+      const kinds = (await repo.listFeedback()).map((r) => r.kind);
+      expect(kinds).toContain("bug");
+      expect(kinds).toContain("feedback");
+    });
+
+    it("adds `kind` to a feedback table that predates the column", async () => {
+      // The failure §2 warns about: this table shipped without `kind`, so a
+      // CREATE TABLE change alone would work here and throw on a real database.
+      // Build the old shape by hand, then let the repo migrate it.
+      const file = path.join(mkdtempSync(path.join(tmpdir(), "projectlc-old-")), "old.db");
+      const raw = new DatabaseSync(file);
+      raw.exec(`CREATE TABLE feedback (
+        id TEXT PRIMARY KEY, reporter TEXT, body TEXT NOT NULL, route TEXT NOT NULL,
+        url TEXT NOT NULL, context_json TEXT, status TEXT NOT NULL DEFAULT 'open',
+        created_at TEXT NOT NULL
+      );`);
+      raw.prepare(
+        `INSERT INTO feedback (id, body, route, url, status, created_at)
+         VALUES ('fb_old', 'Filed before kind existed', '/loot', 'http://x/loot', 'open', '2026-01-01T00:00:00.000Z')`,
+      ).run();
+      raw.close();
+
+      process.env.PROJECTLC_DB = file;
+      const repo = getSqliteRepo();
+
+      const [migrated] = await repo.listFeedback();
+      expect(migrated.id).toBe("fb_old");
+      expect(migrated.body).toBe("Filed before kind existed");
+      expect(migrated.kind).toBe("bug"); // backfilled by the column default
+    });
+  });
 });

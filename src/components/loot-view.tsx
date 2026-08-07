@@ -4,17 +4,22 @@ import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { CircleAlert, CircleCheck, Loader2, Pencil, Plus } from "lucide-react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
 import { ResolveAwardControl } from "@/components/resolve-award";
-import { DangerButton, useSelection } from "@/components/roster-actions";
-import { LootAwardDialog, type AwardDialogTarget, type DialogItem } from "@/components/loot-award-dialog";
+import {
+  DangerButton,
+  RowCheckbox,
+  SelectAllCheckbox,
+  SelectionProvider,
+  useSelection,
+} from "@/components/roster-actions";
+import { LootAwardDialog, type AwardDialogTarget } from "@/components/loot-award-dialog";
 import { deleteAwardsAction, deleteSessionAction, type LootActionResult } from "@/app/loot/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -26,6 +31,9 @@ import {
 import { PHASES, WOW_CLASSES } from "@/lib/constants/wow";
 import type { Phase, WowClass } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Module constant: an inline literal here would defeat DataTable's memo. */
+const LOOT_SORT: SortingState = [{ id: "date", desc: true }];
 
 export interface LootRow {
   id: string;
@@ -57,12 +65,10 @@ export function LootView({
   rows,
   sessions,
   characters,
-  knownItems,
 }: {
   rows: LootRow[];
   sessions: SessionOption[];
   characters: { id: string; name: string; wowClass: WowClass }[];
-  knownItems: DialogItem[];
 }) {
   const searchParams = useSearchParams();
   const [search, setSearch] = React.useState("");
@@ -78,7 +84,8 @@ export function LootView({
 
   // Editing: row selection for bulk delete, the add/edit dialog, and a shared
   // pending/result line for the session-level and bulk actions.
-  const { selected, toggle, setAll, clear } = useSelection();
+  const selection = useSelection();
+  const { selected, clear } = selection;
   const [dialog, setDialog] = React.useState<AwardDialogTarget | null>(null);
   const [pending, startTransition] = React.useTransition();
   const [actionResult, setActionResult] = React.useState<LootActionResult | null>(null);
@@ -136,20 +143,8 @@ export function LootView({
       {
         id: "select",
         enableSorting: false,
-        header: () => (
-          <Checkbox
-            aria-label="Select all shown awards"
-            checked={filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))}
-            onChange={(e) => setAll(filteredIds, e.target.checked)}
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            aria-label="Select award"
-            checked={selected.has(row.original.id)}
-            onChange={(e) => toggle(row.original.id, e.target.checked)}
-          />
-        ),
+        header: () => <SelectAllCheckbox label="Select all shown awards" />,
+        cell: ({ row }) => <RowCheckbox id={row.original.id} label="Select award" />,
       },
       {
         id: "date",
@@ -257,7 +252,7 @@ export function LootView({
         ),
       },
     ],
-    [characters, filteredIds, selected, setAll, toggle],
+    [characters],
   );
 
   const activeSession = sessionFilter === "all" ? undefined : sessions.find((s) => s.id === sessionFilter);
@@ -449,12 +444,26 @@ export function LootView({
         )}
 
         <div className="rounded-xl border bg-card">
-          <DataTable
-            columns={columns}
-            data={filtered}
-            initialSorting={[{ id: "date", desc: true }]}
-            emptyMessage="No awards match the filters."
-          />
+          {/*
+            Half the default page size: a ledger row carries a checkbox, an edit
+            button and an item link, so it costs several times what an item-list
+            row does to hydrate. Fifty of these is about the same work as a
+            hundred of those.
+
+            The provider is what lets the checkboxes read the selection without
+            `columns` depending on it — see SelectionProvider. Every prop below
+            is stable across a tick, so the memoized table skips the re-render
+            entirely and only the ticked checkbox updates.
+          */}
+          <SelectionProvider selection={selection} scopeIds={filteredIds}>
+            <DataTable
+              columns={columns}
+              data={filtered}
+              initialSorting={LOOT_SORT}
+              emptyMessage="No awards match the filters."
+              pageSize={50}
+            />
+          </SelectionProvider>
         </div>
       </div>
 
@@ -462,7 +471,6 @@ export function LootView({
         <LootAwardDialog
           target={dialog}
           roster={characters}
-          knownItems={knownItems}
           onClose={() => setDialog(null)}
         />
       )}

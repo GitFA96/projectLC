@@ -359,6 +359,35 @@ does change, it's worth a conversation.
 - **Everything from logs is derived at import time.** Pages never call Warcraft
   Logs (the fight graph aside). This is why new tracking needs a re-import.
 
+## Feedback `/admin/feedback`
+
+**Report a bug** and **Feedback** sit in the bottom-right corner of every page —
+one for what's broken, one for what would be better. Same workflow either way,
+and the kind is switchable mid-report, because people open "bug" and realise
+halfway through that they're describing a wish.
+
+Someone writes what happened and optionally points at the element involved: the
+picker highlights whatever's under the cursor and captures a readable name and a
+CSS path. The click is swallowed, so pointing at "Delete" deletes nothing.
+
+Page details are **off until switched on**, and the switch is the only thing
+that turns them on. Whatever would be sent — page, element, window size, theme,
+browser — is printed in the panel above the Send button, rendered from the same
+object that gets stored, so the list can't drift from the payload. A first-time
+reporter sends prose only; that's deliberate.
+
+Reports land on this page, open ones first. Resolve is reversible, delete isn't,
+and nothing is ever edited — a report has to still mean what it said a month
+later.
+
+### Handing a report over
+
+**Copy** on any report, or **Copy N open** at the top, puts it on the clipboard
+as markdown: the reporter's words verbatim, the route and the App Router file it
+likely came from, the element and its selector, and the environment. It is meant
+to be pasted straight to a developer or a coding agent with nothing else
+attached.
+
 ## Known limits
 
 - **Enchant coverage tracks imported lists.** An enchantment id nobody's set

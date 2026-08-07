@@ -26,6 +26,78 @@ import type { UntrackedLogPlayer, WowClass } from "@/lib/types";
 
 /* Shared selection + action plumbing */
 
+/**
+ * Selection, delivered by context instead of by closure.
+ *
+ * A table's `columns` memo must not depend on which rows are selected. When it
+ * does, every tick rebuilds all the column definitions, which hands the table a
+ * new set of cell renderers and re-renders every visible row — fifty rows of
+ * item links and badges redrawn to put a check in one box.
+ *
+ * So the checkboxes read the selection themselves. Columns then depend only on
+ * things that change their *shape*, the table memoizes cleanly, and a tick
+ * re-renders the checkboxes and nothing else.
+ */
+interface SelectionScope {
+  selected: ReadonlySet<string>;
+  toggle: (id: string, on: boolean) => void;
+  setAll: (ids: string[], on: boolean) => void;
+  /** The ids currently in view — what "select all" means at this moment. */
+  scopeIds: string[];
+}
+
+const SelectionContext = React.createContext<SelectionScope | null>(null);
+
+function useSelectionScope(): SelectionScope {
+  const scope = React.useContext(SelectionContext);
+  if (!scope) {
+    throw new Error("RowCheckbox and SelectAllCheckbox must be inside a <SelectionProvider>.");
+  }
+  return scope;
+}
+
+export function SelectionProvider({
+  selection,
+  scopeIds,
+  children,
+}: {
+  selection: ReturnType<typeof useSelection>;
+  /** Usually the filtered ids: selecting all means all of what's shown. */
+  scopeIds: string[];
+  children: React.ReactNode;
+}) {
+  const { selected, toggle, setAll } = selection;
+  const value = React.useMemo(
+    () => ({ selected, toggle, setAll, scopeIds }),
+    [selected, toggle, setAll, scopeIds],
+  );
+  return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
+}
+
+/** One row's checkbox. Subscribes on its own, so the row around it need not re-render. */
+export function RowCheckbox({ id, label }: { id: string; label: string }) {
+  const { selected, toggle } = useSelectionScope();
+  return (
+    <Checkbox
+      aria-label={label}
+      checked={selected.has(id)}
+      onChange={(e) => toggle(id, e.target.checked)}
+    />
+  );
+}
+
+/** The header checkbox: all of what's currently shown, not all of what exists. */
+export function SelectAllCheckbox({ label }: { label: string }) {
+  const { selected, setAll, scopeIds } = useSelectionScope();
+  return (
+    <Checkbox
+      aria-label={label}
+      checked={scopeIds.length > 0 && scopeIds.every((id) => selected.has(id))}
+      onChange={(e) => setAll(scopeIds, e.target.checked)}
+    />
+  );
+}
+
 export function useSelection() {
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const toggle = React.useCallback(

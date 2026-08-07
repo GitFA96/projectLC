@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Activity, Wand2 } from "lucide-react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
@@ -12,7 +12,6 @@ import { WeekDots } from "@/components/week-dots";
 import { PhasePills } from "@/components/phase-pills";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -24,6 +23,9 @@ import {
   ActionResultLine,
   DangerButton,
   useRosterAction,
+  RowCheckbox,
+  SelectAllCheckbox,
+  SelectionProvider,
   useSelection,
 } from "@/components/roster-actions";
 import { deleteCharacters, equipRosterFromLogs, setCharactersStatus } from "@/app/roster/actions";
@@ -72,12 +74,16 @@ function matchesMembership(filter: string, status: CharacterStatus): boolean {
   }
 }
 
+/** Module constant: an inline literal here would defeat DataTable's memo. */
+const ROSTER_SORT: SortingState = [{ id: "name", desc: false }];
+
 export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePhase: Phase }) {
   // Default to mains — the raiding core — and let alts/inactive be opted in.
   const [membershipFilter, setMembershipFilter] = React.useState<string>("main");
   const [classFilter, setClassFilter] = React.useState<string>("all");
   const [roleFilter, setRoleFilter] = React.useState<string>("all");
-  const { selected, toggle, setAll, clear } = useSelection();
+  const selection = useSelection();
+  const { selected, clear } = selection;
   const { pending, result, run } = useRosterAction(clear);
 
   const filtered = React.useMemo(
@@ -98,19 +104,9 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
       {
         id: "select",
         enableSorting: false,
-        header: () => (
-          <Checkbox
-            checked={filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))}
-            onChange={(e) => setAll(filteredIds, e.target.checked)}
-            aria-label="Select all visible characters"
-          />
-        ),
+        header: () => <SelectAllCheckbox label="Select all visible characters" />,
         cell: ({ row }) => (
-          <Checkbox
-            checked={selected.has(row.original.id)}
-            onChange={(e) => toggle(row.original.id, e.target.checked)}
-            aria-label={`Select ${row.original.name}`}
-          />
+          <RowCheckbox id={row.original.id} label={`Select ${row.original.name}`} />
         ),
       },
       {
@@ -266,7 +262,7 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         ),
       },
     ],
-    [activePhase, selected, filteredIds, toggle, setAll],
+    [activePhase],
   );
 
   return (
@@ -359,12 +355,14 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
       )}
       <ActionResultLine result={result} />
       <div className="rounded-xl border bg-card">
-        <DataTable
-          columns={columns}
-          data={filtered}
-          initialSorting={[{ id: "name", desc: false }]}
-          emptyMessage="No characters match the filters."
-        />
+        <SelectionProvider selection={selection} scopeIds={filteredIds}>
+          <DataTable
+            columns={columns}
+            data={filtered}
+            initialSorting={ROSTER_SORT}
+            emptyMessage="No characters match the filters."
+          />
+        </SelectionProvider>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import { Nav } from "@/components/nav";
 import { WowheadRefresher, WowheadScripts } from "@/components/wowhead";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { THEME_SCRIPT } from "@/lib/theme";
+import { FeedbackWidget } from "@/components/feedback/feedback-widget";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -76,6 +77,7 @@ export default async function RootLayout({
           <footer className="border-t py-4 text-center text-xs text-muted-foreground">
             projectLC · loot council tracker for TBC · wishlists via SixtyUpgrades · loot via Gargul or by hand
           </footer>
+          <FeedbackWidget />
         </TooltipProvider>
       </body>
     </html>

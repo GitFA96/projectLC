@@ -6,6 +6,7 @@ import {
   characterCommentSchema,
   characterSchema,
   currentGearOverrideSchema,
+  feedbackReportSchema,
   gearSetSchema,
   guildSchema,
   itemSchema,
@@ -36,6 +37,7 @@ import type {
   CharacterComment,
   ConsumablePrice,
   CurrentGearOverride,
+  FeedbackReport,
   GearSet,
   Guild,
   Item,
@@ -274,6 +276,28 @@ CREATE TABLE IF NOT EXISTS character_comments (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS character_comments_by_character ON character_comments(character_id);
+
+/*
+ * Bug reports filed from inside the app. Deliberately references nothing —
+ * a report has to stay readable after the page it describes has been rewritten
+ * and after any character it mentions has been deleted, so the page is stored
+ * as text and there are no foreign keys to go stale.
+ */
+CREATE TABLE IF NOT EXISTS feedback (
+  id             TEXT PRIMARY KEY,
+  /* 'bug' | 'feedback'. See the addColumn() in migrate() — this table shipped
+     without it, so the CREATE here only covers databases made since. */
+  kind           TEXT NOT NULL DEFAULT 'bug',
+  reporter       TEXT,
+  body           TEXT NOT NULL,
+  route          TEXT NOT NULL,
+  url            TEXT NOT NULL,
+  /* NULL when the reporter declined to share page context. */
+  context_json   TEXT,
+  status         TEXT NOT NULL DEFAULT 'open',
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feedback_by_status ON feedback(status, created_at DESC);
 `;
 
 export function defaultDbPath(): string {
@@ -329,6 +353,9 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
   addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
+  // The feedback table shipped with only bug reports. Existing rows were filed
+  // as bugs and the DEFAULT says so, so the backfill is the default itself.
+  addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
   backfillUpkeepTracks(db);
   relaxItemColumns(db);
   addAbilityKind(db);
@@ -1203,6 +1230,16 @@ export function insertCharacterComment(db: DatabaseSync, c: CharacterComment): v
   ).run(c.id, c.characterId, c.category, c.body, c.author ?? null, c.createdAt);
 }
 
+export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO feedback (id, kind, reporter, body, route, url, context_json, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    f.id, f.kind, f.reporter ?? null, f.body, f.route, f.url,
+    f.context ? JSON.stringify(f.context) : null, f.status, f.createdAt,
+  );
+}
+
 export function insertItem(db: DatabaseSync, i: Item): void {
   db.prepare(
     `INSERT OR REPLACE INTO items (id, name, quality, icon, slot, source_json, phase)
@@ -1377,6 +1414,14 @@ function rowToCharacterComment(r: Row): unknown {
   };
 }
 
+function rowToFeedback(r: Row): unknown {
+  return {
+    id: r.id, kind: r.kind, reporter: opt(r.reporter), body: r.body, route: r.route, url: r.url,
+    context: r.context_json ? JSON.parse(r.context_json as string) : undefined,
+    status: r.status, createdAt: r.created_at,
+  };
+}
+
 function rowToItem(r: Row): unknown {
   return {
     id: r.id, name: opt(r.name), quality: opt(r.quality), icon: opt(r.icon), slot: opt(r.slot),
@@ -1484,6 +1529,7 @@ export function loadStore(db: DatabaseSync): EntityStore {
     wclPlayerOffPull: parseAll("wcl_player_offpull", wclPlayerOffPullSchema, (db.prepare("SELECT * FROM wcl_player_offpull").all() as Row[]).map(rowToWclPlayerOffPull)),
     attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
     characterComments: parseAll("character_comments", characterCommentSchema, (db.prepare("SELECT * FROM character_comments ORDER BY created_at DESC").all() as Row[]).map(rowToCharacterComment)),
+    feedback: parseAll("feedback", feedbackReportSchema, (db.prepare("SELECT * FROM feedback ORDER BY created_at DESC").all() as Row[]).map(rowToFeedback)),
   };
   validateStore(store, "sqlite database");
   return store;

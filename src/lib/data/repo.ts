@@ -13,6 +13,9 @@ import type {
   ConsumablePrice,
   CurrentGearOverride,
   DashboardData,
+  FeedbackKind,
+  FeedbackReport,
+  FeedbackStatus,
   GearOverrideSource,
   GearSet,
   GearSpec,
@@ -54,6 +57,8 @@ export interface Repo {
   getItemContention(itemId: number): Promise<ItemContention | null>;
   /** Every known item (cache ∪ wishlists ∪ awards) with demand counts, most contested first. */
   listItemDemand(): Promise<ItemDemand[]>;
+  /** Bug reports filed from the app: open ones first, newest first within each. */
+  listFeedback(): Promise<FeedbackReport[]>;
   getDashboard(): Promise<DashboardData>;
   /** Fetched Warcraft Logs reports, newest first. */
   listWclReports(): Promise<WclReportView[]>;
@@ -284,6 +289,19 @@ export type AddCommentResult =
   | { ok: true; comment: CharacterComment }
   | { ok: false; error: string };
 
+/**
+ * A new report: identity, timestamp and status are assigned at save time.
+ * `kind` is optional because the schema defaults it to `bug` — the same default
+ * that gives pre-`kind` rows their meaning.
+ */
+export type FeedbackDraft = Omit<FeedbackReport, "id" | "createdAt" | "status" | "kind"> & {
+  kind?: FeedbackKind;
+};
+
+export type AddFeedbackResult =
+  | { ok: true; report: FeedbackReport }
+  | { ok: false; error: string };
+
 /** What "Remove demo data" deleted, for the confirmation message. */
 export interface PurgeDemoResult {
   characters: number;
@@ -450,6 +468,12 @@ export interface WriteRepo extends Repo {
   addCharacterComment(draft: CharacterCommentDraft): Promise<AddCommentResult>;
   /** Remove one comment by id. Returns false when it didn't exist. */
   deleteCharacterComment(id: string): Promise<boolean>;
+  /** File one bug report. The id and timestamp are assigned here, not by the caller. */
+  addFeedback(draft: FeedbackDraft): Promise<AddFeedbackResult>;
+  /** Open or close one report. Returns false when the id didn't exist. */
+  setFeedbackStatus(id: string, status: FeedbackStatus): Promise<boolean>;
+  /** Remove one report for good. Returns false when it didn't exist. */
+  deleteFeedback(id: string): Promise<boolean>;
   /**
    * Fill the item cache from an import. Fields are merged per id — a row only
    * ever gains what it was missing, so curated entries are never overwritten.

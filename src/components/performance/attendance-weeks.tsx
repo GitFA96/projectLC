@@ -71,7 +71,7 @@ export function AttendanceWeeks({
                           ? "border border-dashed border-muted-foreground/50 bg-muted"
                           : w.attended
                             ? "bg-success"
-                            : "border border-warn/70 bg-transparent",
+                            : "border border-warn bg-warn/30",
                       )}
                     />
                     <span className="tabular-nums">{format(parseISO(w.start), "d MMM yyyy")}</span>

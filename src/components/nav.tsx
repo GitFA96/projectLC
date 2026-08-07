@@ -26,6 +26,7 @@ const LINKS = [
   { href: "/compare", label: "Compare" },
   { href: "/items", label: "Items" },
   { href: "/admin/import", label: "Import" },
+  { href: "/admin/feedback", label: "Feedback" },
 ];
 
 export function Nav({

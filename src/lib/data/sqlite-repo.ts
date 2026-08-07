@@ -25,6 +25,7 @@ import {
   insertAttendanceExemption,
   insertCharacter,
   insertCharacterComment,
+  insertFeedback,
   insertCurrentGearOverride,
   insertGearSet,
   insertLootAward,
@@ -55,6 +56,7 @@ import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
   characterCommentSchema,
   characterSchema,
+  feedbackReportSchema,
   currentGearOverrideSchema,
   gearSetSchema,
   lootAwardSchema,
@@ -68,7 +70,9 @@ import type {
   AwardEditInput,
   AwardResolution,
   AwardWriteResult,
+  AddFeedbackResult,
   CharacterCommentDraft,
+  FeedbackDraft,
   DeleteSessionResult,
   CharacterDraft,
   CharacterWriteResult,
@@ -91,6 +95,8 @@ import type {
 import type {
   Character,
   CharacterComment,
+  FeedbackReport,
+  FeedbackStatus,
   CurrentGearOverride,
   GearOverrideSource,
   GearSet,
@@ -824,6 +830,48 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return deleted;
   },
 
+  async addFeedback(draft: FeedbackDraft): Promise<AddFeedbackResult> {
+    const parsed = feedbackReportSchema.safeParse({
+      ...draft,
+      // Resolved here rather than leaning on the schema default, so the
+      // `satisfies` below still checks this object against the whole entity.
+      kind: draft.kind ?? "bug",
+      id: `fb_${randomUUID()}`,
+      status: "open",
+      createdAt: new Date().toISOString(),
+    } satisfies FeedbackReport);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid report." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      insertFeedback(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true, report: parsed.data };
+  },
+
+  async setFeedbackStatus(id: string, status: FeedbackStatus): Promise<boolean> {
+    const db = getDb();
+    let changed = false;
+    withTx(db, () => {
+      changed =
+        Number(db.prepare("UPDATE feedback SET status = ? WHERE id = ?").run(status, id).changes) > 0;
+      if (changed) bumpDataVersion(db);
+    });
+    return changed;
+  },
+
+  async deleteFeedback(id: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = Number(db.prepare("DELETE FROM feedback WHERE id = ?").run(id).changes) > 0;
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
   async addItemsIfMissing(items: Item[]): Promise<number> {
     if (items.length === 0) return 0;
     const db = getDb();
@@ -966,6 +1014,7 @@ export function getSqliteRepo(): WriteRepo {
     listItems: () => readModel().repo.listItems(),
     getItemContention: (itemId) => readModel().repo.getItemContention(itemId),
     listItemDemand: () => readModel().repo.listItemDemand(),
+    listFeedback: () => readModel().repo.listFeedback(),
     getDashboard: () => readModel().repo.getDashboard(),
     listWclReports: () => readModel().repo.listWclReports(),
     getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),

@@ -22,7 +22,7 @@ export function WeekDots({ weeks, className }: { weeks: AttendanceWeek[]; classN
               ? "border border-dashed border-muted-foreground/50 bg-muted"
               : w.attended
                 ? "bg-success"
-                : "border border-warn/70 bg-transparent",
+                : "border border-warn bg-warn/30",
           )}
         />
       ))}
