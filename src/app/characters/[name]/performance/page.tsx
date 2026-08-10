@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, FlaskConical, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
-import { attendanceTitle } from "@/lib/analysis/performance";
+import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { potionNames, potionsUsed, prepotName } from "@/lib/analysis/potions";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
@@ -80,6 +80,24 @@ function Mark({ ok, title, half }: { ok: boolean; title?: string; half?: boolean
 }
 
 /**
+ * A pull the officer took out of the count.
+ *
+ * Deliberately not a tick and not a cross: the question "were they flasked"
+ * has no answer here, because nobody is being asked. A red X on a farm boss
+ * the council already agreed doesn't count is the thing this replaces.
+ */
+function Excused() {
+  return (
+    <span
+      className="text-xs text-muted-foreground/60"
+      title="Excused — this pull was taken out of the count on the raid page, so nothing on it scores"
+    >
+      —
+    </span>
+  );
+}
+
+/**
  * What the pull's consumable tick means, in words. A half-filled elixir set
  * looks identical to a flask on the board, so the tooltip is the only place
  * the difference is readable.
@@ -142,6 +160,14 @@ export default async function PerformancePage({
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const active: PerformanceReportView | undefined =
     reports.find((r) => r.report.code === requested) ?? reports[0];
+  // Pulls an officer excused on the raid page. They stay in the table — the
+  // parse is still worth reading — but nothing on them counts, so the
+  // preparation columns say so rather than showing a cross nobody owes.
+  const excused = new Set(active?.excusedFightIds ?? []);
+  // The pulls the night's figures are actually built from. `active.summary`
+  // already excludes the excused ones; anything counted here has to agree with
+  // it, or the card under the table contradicts the KPI above it.
+  const countedRows = (active?.rows ?? []).filter((r) => !excused.has(r.fightId));
 
   return (
     <div className="space-y-5">
@@ -171,13 +197,14 @@ export default async function PerformancePage({
             )}
             {attendance && attendance.raidsAttended > 0 && (
               <>
-                <Badge
-                  variant={attendance.raidPct < 50 ? "warning" : "secondary"}
-                  title={attendanceTitle(attendance)}
-                >
-                  raided {attendance.weeksAttended}/{attendance.weeksTracked} reset weeks
-                </Badge>
-                <WeekDots weeks={attendance.weeks} />
+                <AttendanceDetail attendance={attendance}>
+                  <span className="flex items-center gap-1.5">
+                    <Badge variant={attendance.raidPct < 50 ? "warning" : "secondary"}>
+                      raided {attendance.raidsAttended}/{attendance.raidsTracked} logged raids
+                    </Badge>
+                    <WeekDots weeks={attendance.weeks} />
+                  </span>
+                </AttendanceDetail>
               </>
             )}
           </span>
@@ -221,7 +248,11 @@ export default async function PerformancePage({
         <>
           {/* Career shape first: which way they are going frames every number
               beneath it, and no rollup on this page can say. */}
-          <DevelopmentCard series={development} />
+          <DevelopmentCard
+            series={development}
+            characterSlug={character.name.toLowerCase()}
+            activeCode={active.report.code}
+          />
 
           {reports.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -405,6 +436,7 @@ export default async function PerformancePage({
                     rows={active.rows.map((row) => ({
                       id: row.id,
                       detail: fightDetail(row),
+                      excused: excused.has(row.fightId),
                       cells: (
                         <>
                           <TableCell>
@@ -445,14 +477,18 @@ export default async function PerformancePage({
                             )}
                           </TableCell>
                           <TableCell>
-                            <Mark
-                              ok={hasConsumableCoverage(row)}
-                              half={elixirCoverage(row).grade === "partial"}
-                              title={consumableTitle(row)}
-                            />
+                            {excused.has(row.fightId) ? (
+                              <Excused />
+                            ) : (
+                              <Mark
+                                ok={hasConsumableCoverage(row)}
+                                half={elixirCoverage(row).grade === "partial"}
+                                title={consumableTitle(row)}
+                              />
+                            )}
                           </TableCell>
                           <TableCell>
-                            <Mark ok={hasFood(row)} />
+                            {excused.has(row.fightId) ? <Excused /> : <Mark ok={hasFood(row)} />}
                           </TableCell>
                           <TableCell className="text-sm tabular-nums">
                             {potionsUsed(row) + row.otherCasts.length + row.sappers > 0 ? (
@@ -482,6 +518,21 @@ export default async function PerformancePage({
                 bracket); wipes don&apos;t parse. A <span className="text-success-ink">+</span> in
                 Used means a pre-pot was already running at the pull. Click a row for the
                 pull&apos;s items, cooldowns and upkeep.
+                {excused.size > 0 && (
+                  <>
+                    {" "}
+                    {excused.size} pull{excused.size === 1 ? " is" : "s are"} greyed out and marked
+                    &mdash;: they were excused on the{" "}
+                    <Link
+                      href={`/logs?report=${encodeURIComponent(active.report.code)}`}
+                      className="underline underline-offset-2"
+                    >
+                      raid page
+                    </Link>{" "}
+                    and count towards nothing here &mdash; not this report&apos;s figures, not the
+                    career rollup, not the standing board.
+                  </>
+                )}
               </p>
             </CardContent>
           </Card>
@@ -501,34 +552,34 @@ export default async function PerformancePage({
               <CardContent>
                 <Table>
                   <TableBody>
-                    <ConsumableRows label="Flask" entries={coverage(active.rows, (r) => (r.flask ? [r.flask] : []))} total={active.rows.length} />
-                    <ConsumableRows label="Elixirs" entries={coverage(active.rows, (r) => r.elixirs)} total={active.rows.length} />
-                    <ConsumableRows label="Scrolls" entries={coverage(active.rows, (r) => r.scrolls)} total={active.rows.length} />
+                    <ConsumableRows label="Flask" entries={coverage(countedRows, (r) => (r.flask ? [r.flask] : []))} total={countedRows.length} />
+                    <ConsumableRows label="Elixirs" entries={coverage(countedRows, (r) => r.elixirs)} total={countedRows.length} />
+                    <ConsumableRows label="Scrolls" entries={coverage(countedRows, (r) => r.scrolls)} total={countedRows.length} />
                     <TableRow>
                       <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food</TableCell>
                       <TableCell className="text-sm">Well Fed</TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
-                        {active.rows.filter((r) => hasFood(r)).length}/{active.rows.length} pulls
+                        {countedRows.filter((r) => hasFood(r)).length}/{countedRows.length} pulls
                       </TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Weapon</TableCell>
                       <TableCell className="text-sm">Oil / stone / poison / imbue</TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
-                        {active.rows.filter((r) => r.weaponBuff).length}/{active.rows.length} pulls
+                        {countedRows.filter((r) => r.weaponBuff).length}/{countedRows.length} pulls
                       </TableCell>
                     </TableRow>
                     <ConsumableRows
                       label="Potions"
-                      entries={coverage(active.rows, (r) => r.potions)}
-                      total={active.rows.length}
-                      uses={usesOf(active.rows, (r) => r.potions)}
+                      entries={coverage(countedRows, (r) => r.potions)}
+                      total={countedRows.length}
+                      uses={usesOf(countedRows, (r) => r.potions)}
                     />
                     <ConsumableRows
                       label="In-fight items"
-                      entries={coverage(active.rows, (r) => r.otherCasts)}
-                      total={active.rows.length}
-                      uses={usesOf(active.rows, (r) => r.otherCasts)}
+                      entries={coverage(countedRows, (r) => r.otherCasts)}
+                      total={countedRows.length}
+                      uses={usesOf(countedRows, (r) => r.otherCasts)}
                     />
                     {active.summary.sappers > 0 && (
                       <TableRow>
@@ -537,11 +588,11 @@ export default async function PerformancePage({
                         <TableCell className="text-right text-sm tabular-nums">×{active.summary.sappers}</TableCell>
                       </TableRow>
                     )}
-                    {active.rows.some((r) => r.extras.length > 0) && (
+                    {countedRows.some((r) => r.extras.length > 0) && (
                       <ConsumableRows
                         label="Other buffs"
-                        entries={coverage(active.rows, (r) => r.extras)}
-                        total={active.rows.length}
+                        entries={coverage(countedRows, (r) => r.extras)}
+                        total={countedRows.length}
                       />
                     )}
                     <OffPullRows offPull={active.offPull} />

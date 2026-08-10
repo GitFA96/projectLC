@@ -5,6 +5,7 @@ import { hasWclCredentials } from "@/lib/wcl/client";
 import { PageHeader } from "@/components/page-header";
 import { ImportTabs, type ImportPrefill } from "@/components/import/import-tabs";
 import { ItemCacheCard } from "@/components/import/item-cache-card";
+import { TierTokenCard } from "@/components/import/tier-token-card";
 import { EnchantNamesCard } from "@/components/import/enchant-names-card";
 import { PHASES } from "@/lib/constants/wow";
 
@@ -28,8 +29,17 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items, sessions, wclReports, unresolvedItems, unnamedEnchants, gearSets] =
-    await Promise.all([
+  const [
+    characters,
+    items,
+    sessions,
+    wclReports,
+    unresolvedItems,
+    unnamedEnchants,
+    gearSets,
+    tokenQueue,
+    unmatchedSheetNames,
+  ] = await Promise.all([
       repo.listCharacters(),
       repo.listItems(),
       repo.listRaidSessions(),
@@ -37,6 +47,8 @@ export default async function ImportPage({
       repo.listUnresolvedItemIds(),
       repo.listUnnamedEnchantIds(),
       repo.listGearSets(),
+      repo.listTokenBackfill(),
+      repo.listUnmatchedSheetNames(),
     ]);
 
   const nameById = new Map(characters.map((c) => [c.character.id, c.character.name]));
@@ -84,8 +96,15 @@ export default async function ImportPage({
         prefill={prefill}
       />
       <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
-        <ItemCacheCard unresolved={unresolvedItems.length} />
+        <ItemCacheCard
+          unresolved={unresolvedItems.length}
+          unmatchedSheetNames={unmatchedSheetNames.length}
+        />
         <EnchantNamesCard unnamed={unnamedEnchants.length} />
+        <TierTokenCard
+          tokensToMap={tokenQueue.tokensWithoutPieces.length}
+          unchecked={tokenQueue.unchecked.length}
+        />
       </div>
     </div>
   );

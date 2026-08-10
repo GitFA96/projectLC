@@ -3,19 +3,46 @@
 import * as React from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { Bug, Check, ClipboardCopy, Lightbulb, Loader2, Trash2, Undo2 } from "lucide-react";
+import {
+  Bug,
+  Check,
+  ClipboardCopy,
+  Lightbulb,
+  Loader2,
+  MessageSquare,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
-import { deleteFeedback, setFeedbackStatus } from "@/app/admin/feedback/actions";
+import { deleteFeedback, setFeedbackStatus, setFeedbackTriage } from "@/app/admin/feedback/actions";
 import { contextLines, formatReportForAgent, formatReportsForAgent } from "@/lib/feedback";
-import type { FeedbackReport } from "@/lib/types";
+import type { FeedbackPriority, FeedbackReport } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const KIND_META = {
   bug: { icon: Bug, label: "Bug" },
   feedback: { icon: Lightbulb, label: "Feedback" },
 } as const;
+
+/**
+ * How much a report matters, in the triager's judgement.
+ *
+ * "Untriaged" is a state, not a severity — a report nobody has weighed yet is
+ * exactly what an officer wants to find, and defaulting it to "minor" would
+ * hide it among the ones they decided about.
+ */
+const PRIORITY_META: Record<
+  FeedbackPriority,
+  { label: string; badge: "muted" | "warning" | "destructive" }
+> = {
+  unset: { label: "Untriaged", badge: "muted" },
+  minor: { label: "Minor", badge: "warning" },
+  major: { label: "Major", badge: "destructive" },
+};
+
+const PRIORITY_ORDER: FeedbackPriority[] = ["unset", "minor", "major"];
 
 /**
  * Copy to clipboard, reporting whether it landed.
@@ -135,6 +162,10 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | undefined>();
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
+  // The note editor opens on demand: most triage is a priority and a close, and
+  // a textarea on every card turns a scannable list into a wall of forms.
+  const [editingNote, setEditingNote] = React.useState(false);
+  const [note, setNote] = React.useState(report.adminNote ?? "");
   const resolved = report.status === "resolved";
   const lines = report.context ? contextLines(report.context) : [];
   const KindIcon = KIND_META[report.kind].icon;
@@ -163,6 +194,11 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
               <KindIcon className="h-3 w-3" aria-hidden />
               {KIND_META[report.kind].label}
             </Badge>
+            {report.priority !== "unset" && (
+              <Badge variant={PRIORITY_META[report.priority].badge}>
+                {PRIORITY_META[report.priority].label}
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground">
               {format(parseISO(report.createdAt), "d MMM yyyy, HH:mm")}
             </span>
@@ -213,6 +249,89 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
           </Button>
         </div>
       </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t pt-2">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</span>
+        <span className="flex items-center gap-1">
+          {PRIORITY_ORDER.map((value) => (
+            <button
+              key={value}
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => setFeedbackTriage({ id: report.id, priority: value }))}
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent disabled:opacity-50",
+                report.priority === value && "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary",
+              )}
+            >
+              {PRIORITY_META[value].label}
+            </button>
+          ))}
+        </span>
+        {!editingNote && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-7 gap-1.5 text-xs"
+            onClick={() => setEditingNote(true)}
+          >
+            <MessageSquare className="h-3 w-3" aria-hidden />
+            {report.adminNote ? "Edit note" : "Add note"}
+          </Button>
+        )}
+      </div>
+
+      {/* The officer's note, beside the reporter's words and never over them. */}
+      {report.adminNote && !editingNote && (
+        <p className="mt-2 rounded-md border border-info-line bg-info-soft px-2.5 py-1.5 text-xs whitespace-pre-wrap text-info-ink">
+          <span className="font-medium">Officer</span> · {report.adminNote}
+        </p>
+      )}
+
+      {editingNote && (
+        <div className="mt-2 space-y-1.5">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            autoFocus
+            placeholder="What was decided, what it's waiting on, why it was closed."
+            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
+          />
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              disabled={pending}
+              onClick={() =>
+                run(async () => {
+                  const result = await setFeedbackTriage({ id: report.id, adminNote: note });
+                  if (result.ok) setEditingNote(false);
+                  return result;
+                })
+              }
+            >
+              {pending && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}
+              Save note
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => {
+                setNote(report.adminNote ?? "");
+                setEditingNote(false);
+              }}
+            >
+              Cancel
+            </Button>
+            {note.trim().length === 0 && report.adminNote && (
+              <span className="text-[11px] text-muted-foreground">Saving empty clears it.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2 text-[11px]">
         <Link

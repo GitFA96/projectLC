@@ -884,3 +884,78 @@ describe("consumable classification", () => {
     expect(SAPPER_CAST_NAMES).toEqual(["Super Sapper Charge", "Goblin Sapper Charge"]);
   });
 });
+
+describe("flasks the pull snapshot cannot see", () => {
+  /*
+   * Warcraft Logs leaves the Unstable Flasks out of `combatantinfo`, so a
+   * raider who drank one graded as unflasked on the column that feeds the loot
+   * score. Shapes and timings here are taken from a real report
+   * (8Y9ZFmK2jfBdHzgJ): the flask lands at 15m and Maulgar pulls at 20m, and
+   * the raider's snapshot at that pull lists eight auras with no flask in it.
+   */
+  const MIN = 60_000;
+  const base = {
+    code: "RPT1",
+    title: "Gruul",
+    startTime: 0,
+    endTime: 120 * MIN,
+    fights: [
+      { id: 7, name: "High King Maulgar", startTime: 20 * MIN, endTime: 21 * MIN, kill: true, encounterID: 649, difficulty: 3 },
+      { id: 12, name: "Gruul the Dragonkiller", startTime: 29 * MIN, endTime: 32 * MIN, kill: true, encounterID: 650, difficulty: 3 },
+    ],
+    masterData: { actors: [{ id: 1, name: "Katzewarr", type: "Player", subType: "Warrior" }] },
+  };
+  // The snapshot, exactly as the real one arrives: no flask among the auras.
+  const combatantInfo = [7, 12].map((fight) => ({
+    timestamp: fight * MIN, type: "combatantinfo", fight, sourceID: 1,
+    auras: [{ ability: 2458, name: "Berserker Stance" }, { ability: 33256, name: "Well Fed" }],
+  }));
+
+  const run = (buffs: unknown[]) =>
+    normalizeWclReport(base, { combatantInfo, deaths: [], casts: [], debuffs: [], buffs });
+
+  it("credits a pull that started while the flask was up", () => {
+    const report = run([
+      { timestamp: 15 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 40575 },
+    ]);
+    const flasks = report.rows.map((r) => r.flask);
+    expect(flasks).toEqual(["Unstable Flask of the Soldier", "Unstable Flask of the Soldier"]);
+  });
+
+  it("does not credit a pull that ended before the flask was drunk", () => {
+    // Most of this guild's Unstable Flasks are drunk *after* the Gruul kill,
+    // duelling outside — those must not back-date onto the boss.
+    const report = run([
+      { timestamp: 33 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 40575 },
+    ]);
+    expect(report.rows.map((r) => r.flask)).toEqual([undefined, undefined]);
+  });
+
+  it("stops crediting once the log says the aura ended", () => {
+    // The end comes from the log, never from an assumed two-hour duration.
+    const report = run([
+      { timestamp: 15 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 40575 },
+      { timestamp: 25 * MIN, type: "removebuff", sourceID: 1, targetID: 1, abilityGameID: 40575 },
+    ]);
+    expect(report.rows.map((r) => r.flask)).toEqual([
+      "Unstable Flask of the Soldier",
+      undefined,
+    ]);
+  });
+
+  it("never overwrites a flask the snapshot itself observed", () => {
+    const withRealFlask = combatantInfo.map((e) => ({
+      ...e,
+      auras: [...e.auras, { ability: 28520, name: "Flask of Relentless Assault" }],
+    }));
+    const report = normalizeWclReport(base, {
+      combatantInfo: withRealFlask, deaths: [], casts: [], debuffs: [],
+      buffs: [{ timestamp: 15 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 40575 }],
+    });
+    // A direct observation at the pull beats an inference between two events.
+    expect(report.rows.map((r) => r.flask)).toEqual([
+      "Flask of Relentless Assault",
+      "Flask of Relentless Assault",
+    ]);
+  });
+});

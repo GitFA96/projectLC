@@ -49,9 +49,20 @@ const AURA_DEFS: AuraDef[] = [
   /*
    * Unstable Flasks — the Ogri'la / Blade's Edge apexis flasks. Bought with
    * Apexis Shards rather than gold, which is why they don't show up in a
-   * shopping list, but in the log they behave exactly like any other flask and
-   * their buff name matches the item name. Curated by id anyway so they can
-   * never fall through to the generic "…flask of…" guess.
+   * shopping list. Curated by id so they can never fall through to the generic
+   * "…flask of…" guess.
+   *
+   * **They do NOT behave like any other flask in the log, and that cost a bug.**
+   * Warcraft Logs leaves them out of the pull's `combatantinfo` aura snapshot,
+   * which is the only place every other flask is read from — so a raider who
+   * drank one before the pull showed a red cross on the preparation column all
+   * night. Probed on a real report: Unstable Flask of the Soldier applied at
+   * 15m, Maulgar pulled at 20m, and the raider's snapshot at that pull lists
+   * eight auras with no flask among them.
+   *
+   * They arrive as `applybuff`/`removebuff` events instead, which is why these
+   * ids also ride the Buffs fetch and why `normalize` stamps them onto a pull
+   * from an interval rather than from the snapshot. See FLASK_BUFF_IDS below.
    */
   { label: "Unstable Flask of the Beast", category: "flask", ids: [40572] },
   { label: "Unstable Flask of the Bandit", category: "flask", ids: [40567] },
@@ -165,6 +176,26 @@ export function isFoodLabel(label: string): boolean {
   const lower = label.trim().toLowerCase();
   return FOOD_LABELS.has(lower) || lower.startsWith("well fed");
 }
+
+/**
+ * Flasks that have to be read from the buff stream rather than the pull.
+ *
+ * Every other flask is visible in the pull's `combatantinfo` snapshot, which is
+ * where preparation is graded from. These are not — Warcraft Logs omits them —
+ * so they are fetched as buff events and turned into intervals instead. Keyed
+ * by the aura id, mapping to the label the row records.
+ *
+ * Derived from the curated defs rather than listed again: a flask curated with
+ * an id is one we can follow through the buff stream, and one curated by name
+ * alone is one whose snapshot already works. Adding an id here changes what the
+ * *fetch* asks Warcraft Logs for, which makes it a §1 change — reports already
+ * imported have to be re-imported before it can find anything.
+ */
+export const FLASK_BUFF_IDS: ReadonlyMap<number, string> = new Map(
+  AURA_DEFS.filter((d) => d.category === "flask").flatMap((d) =>
+    (d.ids ?? []).map((id) => [id, d.label] as const),
+  ),
+);
 
 /** Every elixir the curated list can place in a slot. */
 export const CURATED_ELIXIR_LABELS: readonly string[] = AURA_DEFS.filter(

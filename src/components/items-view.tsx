@@ -189,6 +189,7 @@ export function ItemsView({ rows }: { rows: ItemDemandRow[] }) {
         <DataTable
           columns={columns}
           data={filtered}
+          resetPageOn={[search, phaseFilter, demandFilter].join("|")}
           initialSorting={[{ id: "open", desc: true }]}
           emptyMessage="No items match the filters."
         />

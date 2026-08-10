@@ -96,7 +96,23 @@ CREATE TABLE IF NOT EXISTS items (
   icon        TEXT,
   slot        TEXT,
   source_json TEXT,
-  phase       INTEGER
+  phase       INTEGER,
+  /* 1 once Wowhead answered for this id. See verifyItemProvenance() in
+     migrate() — this table shipped without it, and every row in it was a
+     guess nothing had checked. */
+  verified    INTEGER NOT NULL DEFAULT 0,
+  /* 1 when Wowhead files this id under its "Armor Tokens" subclass, 0 when it
+     answered and it isn't one. NULL means nobody has asked — which is what
+     the token backfill queues on. */
+  armor_token INTEGER,
+  /* For a tier piece: the armor token that buys it. See mergeTokenRedemptions. */
+  redeems_from INTEGER,
+  /* 1 once Wowhead has been asked about this id since the phase became
+     something we read off its answer. Not the same as having a phase: most of
+     TBC's launch items carry no phase tag at all, so "we asked and there was
+     none" and "we never asked" are different states, and only the second is
+     worth a request. See the STALE_PHASE tier in store.ts. */
+  phase_checked INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS gear_sets (
   id           TEXT PRIMARY KEY,
@@ -379,6 +395,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   /* NULL when the reporter declined to share page context. */
   context_json   TEXT,
   status         TEXT NOT NULL DEFAULT 'open',
+  /* Triage, both added after the table shipped — see migrate(). */
+  priority       TEXT NOT NULL DEFAULT 'unset',
+  admin_note     TEXT,
   created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feedback_by_status ON feedback(status, created_at DESC);
@@ -442,6 +461,10 @@ function migrate(db: DatabaseSync): void {
   // The feedback table shipped with only bug reports. Existing rows were filed
   // as bugs and the DEFAULT says so, so the backfill is the default itself.
   addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
+  // Triage. Everything filed before these existed is untriaged, which is what
+  // the default says — no backfill can invent a judgement nobody made.
+  addColumn("feedback", "priority", "priority TEXT NOT NULL DEFAULT 'unset'");
+  addColumn("feedback", "admin_note", "admin_note TEXT");
   // Awards made before this shipped have no snapshot, and cannot gain one: the
   // policy that produced them is gone. NULL says exactly that.
   addColumn("loot_awards", "decision_json", "decision_json TEXT");
@@ -451,11 +474,22 @@ function migrate(db: DatabaseSync): void {
   // a half-migrated policy is worse than a clean default). Dropping the row
   // rather than leaving it means nobody later mistakes it for live config.
   db.prepare("DELETE FROM meta WHERE key = ?").run("loot_priority_weights");
+  verifyItemProvenance(db);
   backfillUpkeepTracks(db);
   relaxItemColumns(db);
   addAbilityKind(db);
   splitGearOverridesBySpec(db);
   promoteSimSettingsToProfiles(db);
+  // AFTER relaxItemColumns, not with the addColumn block above. That rebuild
+  // copies a fixed list of columns into a new table, so a column added to
+  // `items` before it runs is created and then silently dropped on exactly the
+  // databases old enough to need the rebuild — and nowhere else.
+  addColumn("items", "armor_token", "armor_token INTEGER");
+  // Every row confirmed before the phase was read off Wowhead's answer is
+  // unchecked, which is what the default says: they get one more lookup each,
+  // once, and are never asked again whether or not a phase came back.
+  addColumn("items", "phase_checked", "phase_checked INTEGER NOT NULL DEFAULT 0");
+  addColumn("items", "redeems_from", "redeems_from INTEGER");
 }
 
 /**
@@ -486,6 +520,30 @@ function backfillUpkeepTracks(db: DatabaseSync): void {
     }
     if (seen.size > 0) update.run(JSON.stringify([...seen].sort()), code);
   }
+}
+
+/**
+ * The item cache used to have no idea where any of its rows came from, so a
+ * hand-written guess and Wowhead's own answer were indistinguishable — and
+ * `listUnresolvedItemIds` only ever offered up rows with a *missing* field.
+ * A wrong icon has no missing field, so it could never be corrected: eight
+ * reports of the wrong item picture all landed on curated seed rows.
+ *
+ * `verified` splits the two apart. Backfilling it needs a rule for rows that
+ * predate the column, and the honest one is narrow: at the time this ran, the
+ * seed was the only writer of `source_json` (Wowhead's XML has no zone/boss,
+ * and neither do logs or wishlists), so a row carrying one is hand-written and
+ * a row without one came from a machine that read the game's own data.
+ *
+ * Machine-sourced rows are therefore trusted and the curated ones are queued
+ * for re-resolution. Nothing is deleted — a guessed icon keeps rendering until
+ * Wowhead replaces it, which is strictly better than a blank.
+ */
+function verifyItemProvenance(db: DatabaseSync): void {
+  const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "verified")) return;
+  db.exec("ALTER TABLE items ADD COLUMN verified INTEGER NOT NULL DEFAULT 0");
+  db.exec("UPDATE items SET verified = 1 WHERE source_json IS NULL");
 }
 
 /**
@@ -537,10 +595,18 @@ function splitGearOverridesBySpec(db: DatabaseSync): void {
  * Older databases declared items.name/quality/icon NOT NULL, which blocks the
  * partial entries the cache now stores. SQLite can't drop a NOT NULL, so the
  * table is rebuilt once — contents preserved.
+ *
+ * Only those three are asked about. `verified` is NOT NULL on purpose, so a
+ * blanket "any NOT NULL column means rebuild" would fire on every fresh
+ * database forever — and the rebuild below would drop the column on the way
+ * through. It runs after verifyItemProvenance for the same reason: by here the
+ * column always exists, so it can be copied unconditionally.
  */
+const RELAXED_ITEM_COLUMNS = ["name", "quality", "icon"];
+
 function relaxItemColumns(db: DatabaseSync): void {
   const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string; notnull: number }[];
-  const required = cols.filter((c) => c.name !== "id" && c.notnull === 1);
+  const required = cols.filter((c) => RELAXED_ITEM_COLUMNS.includes(c.name) && c.notnull === 1);
   if (required.length === 0) return;
   db.exec(`
     CREATE TABLE items_relaxed (
@@ -550,10 +616,11 @@ function relaxItemColumns(db: DatabaseSync): void {
       icon        TEXT,
       slot        TEXT,
       source_json TEXT,
-      phase       INTEGER
+      phase       INTEGER,
+      verified    INTEGER NOT NULL DEFAULT 0
     );
-    INSERT INTO items_relaxed (id, name, quality, icon, slot, source_json, phase)
-      SELECT id, name, quality, icon, slot, source_json, phase FROM items;
+    INSERT INTO items_relaxed (id, name, quality, icon, slot, source_json, phase, verified)
+      SELECT id, name, quality, icon, slot, source_json, phase, verified FROM items;
     DROP TABLE items;
     ALTER TABLE items_relaxed RENAME TO items;
   `);
@@ -1235,7 +1302,7 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
 
   // Multipliers, not percentages: 0 would zero a contender out entirely, which
   // is a ban rather than a ranking, so the floor is deliberately above it.
-  const standing = group(r.standing, ["main", "alt", "inactive", "pug"] as const,
+  const standing = group(r.standing, ["main", "trial", "alt", "inactive", "pug"] as const,
     (v) => num(v, 0.01, 1));
   if (standing) out.standing = standing;
 
@@ -1255,9 +1322,25 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
     (v) => (typeof v === "boolean" ? v : undefined));
   if (loot) out.loot = loot;
 
-  const preparation = group(r.preparation, ["coverage"] as const,
-    (v) => (v === "any" || v === "full" || v === "flaskOnly" ? v : undefined));
-  if (preparation) out.preparation = preparation;
+  const preparation: Record<string, unknown> = {
+    ...group(r.preparation, ["coverage"] as const,
+      (v) => (v === "any" || v === "full" || v === "flaskOnly" ? v : undefined)),
+  };
+  // The excused-encounter list is names, not a number, so it can't go through
+  // `group`. Bounded on both axes: a blob with ten thousand of them is junk,
+  // and every entry is compared against a boss name from a log.
+  const excused = (r.preparation as Record<string, unknown> | undefined)?.excusedEncounters;
+  if (Array.isArray(excused)) {
+    preparation.excusedEncounters = [
+      ...new Set(
+        excused
+          .filter((v): v is string => typeof v === "string")
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0 && v.length <= 80),
+      ),
+    ].slice(0, 200);
+  }
+  if (Object.keys(preparation).length > 0) out.preparation = preparation;
   else if (legacyElixirCounts(r.preparation) !== undefined) {
     // The field this replaced was a boolean, "does an elixir count at all".
     // A stored `false` was a real decision by an officer, so carry it to the
@@ -1620,14 +1703,21 @@ export function deleteItemComment(db: DatabaseSync, id: string): boolean {
 
 export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
   db.prepare(
-    `INSERT OR REPLACE INTO feedback (id, kind, reporter, body, route, url, context_json, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO feedback
+       (id, kind, reporter, body, route, url, context_json, status, priority, admin_note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.kind, f.reporter ?? null, f.body, f.route, f.url,
-    f.context ? JSON.stringify(f.context) : null, f.status, f.createdAt,
+    f.context ? JSON.stringify(f.context) : null, f.status, f.priority,
+    f.adminNote ?? null, f.createdAt,
   );
 }
 
+/**
+ * Seed an item row verbatim. `verified` is left to its DEFAULT 0 on purpose:
+ * the curated seed is a hand-written starting point, not Wowhead's answer, and
+ * saying so is what lets the resolver come back and correct it later.
+ */
 export function insertItem(db: DatabaseSync, i: Item): void {
   db.prepare(
     `INSERT OR REPLACE INTO items (id, name, quality, icon, slot, source_json, phase)
@@ -1645,33 +1735,147 @@ export function insertItem(db: DatabaseSync, i: Item): void {
  * created or learned something — nothing else touches the cache, so that count
  * is what the import panel reports.
  */
-export function mergeItems(db: DatabaseSync, items: Item[]): number {
+/**
+ * Fold partial item knowledge into the cache. Two modes, and the difference
+ * between them is provenance, not SQL:
+ *
+ * - **Filling gaps** (default) is for every local source — the curated seed, a
+ *   name typed into a wishlist, an icon lifted off a log. A field already
+ *   present always wins, so imports can run in any order without fighting.
+ * - **Authoritative** is for `resolveItemsFromWowhead` and nothing else. It
+ *   overwrites what it knows and stamps `verified`, because a guess that
+ *   survived is exactly the bug this exists to fix.
+ *
+ * Even authoritative writes never *overwrite* `source_json` or `phase`. Zone
+ * and boss are the guild's own answers and the XML says nothing about them.
+ * Phase it does say — the grey "Phase 2" beside the item's name — so an empty
+ * column is filled from Wowhead while a curated one still wins: an officer who
+ * files a token under the phase their guild uses it in has made a decision,
+ * and a backfill must not quietly overrule it.
+ *
+ * With one exception, and it is the whole reason this got written. When an
+ * unverified row's name and Wowhead's name for the same id disagree, the row
+ * was never about this item — someone curated "Serpent Spine Longbow" onto the
+ * id of a Barrel-Blade Longrifle. The zone, boss and phase written next to that
+ * name describe the item the author meant, not the item the id is, so carrying
+ * them across would pin a Karazhan drop onto a PvP glove and every phase filter
+ * downstream would believe it. They are dropped instead: no source beats a
+ * confident wrong one, and re-curating against a correct id is a person's job.
+ *
+ * Returns rows touched. In gap-filling mode that equals rows that learned
+ * something, because the WHERE says so. An authoritative write always touches
+ * every row it is given — it has a `verified` stamp to apply even when the
+ * data already agreed — so a caller wanting "how many were actually wrong"
+ * has to diff, which is what `saveResolvedItems` does.
+ */
+/**
+ * "This row was curated onto the wrong id" — an unverified name that Wowhead
+ * contradicts. Only ever true of a row nothing has confirmed: once verified,
+ * both names came from the same place and cannot disagree.
+ */
+const MISIDENTIFIED = `items.verified = 0
+  AND items.name IS NOT NULL
+  AND excluded.name IS NOT NULL
+  AND items.name <> excluded.name`;
+
+export function mergeItems(
+  db: DatabaseSync,
+  items: Item[],
+  { authoritative = false }: { authoritative?: boolean } = {},
+): number {
   const stmt = db.prepare(
-    `INSERT INTO items (id, name, quality, icon, slot, source_json, phase)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name        = COALESCE(items.name, excluded.name),
-       quality     = COALESCE(items.quality, excluded.quality),
-       icon        = COALESCE(items.icon, excluded.icon),
-       slot        = COALESCE(items.slot, excluded.slot),
-       source_json = COALESCE(items.source_json, excluded.source_json),
-       phase       = COALESCE(items.phase, excluded.phase)
-     WHERE (items.name        IS NULL AND excluded.name        IS NOT NULL)
-        OR (items.quality     IS NULL AND excluded.quality     IS NOT NULL)
-        OR (items.icon        IS NULL AND excluded.icon        IS NOT NULL)
-        OR (items.slot        IS NULL AND excluded.slot        IS NOT NULL)
-        OR (items.source_json IS NULL AND excluded.source_json IS NOT NULL)
-        OR (items.phase       IS NULL AND excluded.phase       IS NOT NULL)`,
+    authoritative
+      ? `INSERT INTO items (id, name, quality, icon, slot, source_json, phase, verified, armor_token, phase_checked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 1)
+         ON CONFLICT(id) DO UPDATE SET
+           name        = COALESCE(excluded.name,    items.name),
+           quality     = COALESCE(excluded.quality, items.quality),
+           icon        = COALESCE(excluded.icon,    items.icon),
+           /* "This is an armor token" is a positive statement that it has no
+              slot, unlike the silence COALESCE exists to respect — and the
+              shipped seed did invent slots for tokens. So this is the one
+              field an authoritative answer may clear rather than only set. */
+           slot        = CASE WHEN excluded.armor_token = 1 THEN NULL
+                              ELSE COALESCE(excluded.slot, items.slot) END,
+           armor_token = COALESCE(excluded.armor_token, items.armor_token),
+           source_json = CASE WHEN ${MISIDENTIFIED} THEN NULL
+                              ELSE COALESCE(items.source_json, excluded.source_json) END,
+           phase       = CASE WHEN ${MISIDENTIFIED} THEN NULL
+                              ELSE COALESCE(items.phase, excluded.phase) END,
+           /* Asked and answered, even when the answer was "no phase". Without
+              this the queue would hand back the same ids every press. */
+           phase_checked = 1,
+           verified    = 1`
+      : `INSERT INTO items (id, name, quality, icon, slot, source_json, phase, verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+         ON CONFLICT(id) DO UPDATE SET
+           name        = COALESCE(items.name, excluded.name),
+           quality     = COALESCE(items.quality, excluded.quality),
+           icon        = COALESCE(items.icon, excluded.icon),
+           slot        = COALESCE(items.slot, excluded.slot),
+           source_json = COALESCE(items.source_json, excluded.source_json),
+           phase       = COALESCE(items.phase, excluded.phase)
+         WHERE (items.name        IS NULL AND excluded.name        IS NOT NULL)
+            OR (items.quality     IS NULL AND excluded.quality     IS NOT NULL)
+            OR (items.icon        IS NULL AND excluded.icon        IS NOT NULL)
+            OR (items.slot        IS NULL AND excluded.slot        IS NOT NULL)
+            OR (items.source_json IS NULL AND excluded.source_json IS NOT NULL)
+            OR (items.phase       IS NULL AND excluded.phase       IS NOT NULL)`,
   );
   let learned = 0;
   for (const i of items) {
-    const changes = stmt.run(
+    const common = [
       i.id, i.name ?? null, i.quality ?? null, i.icon ?? null, i.slot ?? null,
       i.source ? JSON.stringify(i.source) : null, i.phase ?? null,
-    ).changes;
+    ] as const;
+    // `armor_token` rides the authoritative path only: Wowhead's subclass is
+    // the sole source for it, and a gap-filling caller has nothing to say.
+    const changes = authoritative
+      ? stmt.run(...common, i.armorToken === undefined ? null : i.armorToken ? 1 : 0).changes
+      : stmt.run(...common).changes;
     learned += Number(changes) > 0 ? 1 : 0;
   }
   return learned;
+}
+
+/** One tier piece and the armor token that buys it. */
+export interface TokenRedemption {
+  pieceId: number;
+  tokenId: number;
+}
+
+/**
+ * Record which token buys which tier piece, and mark the tokens as tokens.
+ *
+ * Overwrites, unlike `mergeItems`' gap-filling mode: Wowhead's vendor listing
+ * is the only source for this edge and nothing else writes it, so an existing
+ * value is an older reading of the same page rather than someone's answer to
+ * protect. Rows are created if missing so an edge can be recorded for a piece
+ * the cache has never seen — it arrives naming nothing but its id, and the
+ * item resolver picks it up from `listUnresolvedItemIds` like any other.
+ *
+ * Returns the number of edges written.
+ */
+export function mergeTokenRedemptions(db: DatabaseSync, edges: TokenRedemption[]): number {
+  const piece = db.prepare(
+    `INSERT INTO items (id, redeems_from) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET redeems_from = excluded.redeems_from`,
+  );
+  const token = db.prepare(
+    `INSERT INTO items (id, armor_token) VALUES (?, 1)
+     ON CONFLICT(id) DO UPDATE SET armor_token = 1`,
+  );
+  const tokens = new Set<number>();
+  let written = 0;
+  for (const edge of edges) {
+    if (!Number.isInteger(edge.pieceId) || !Number.isInteger(edge.tokenId)) continue;
+    if (edge.pieceId <= 0 || edge.tokenId <= 0 || edge.pieceId === edge.tokenId) continue;
+    piece.run(edge.pieceId, edge.tokenId);
+    tokens.add(edge.tokenId);
+    written++;
+  }
+  for (const id of tokens) token.run(id);
+  return written;
 }
 
 export function insertGearSet(db: DatabaseSync, s: GearSet): void {
@@ -1816,7 +2020,8 @@ function rowToFeedback(r: Row): unknown {
   return {
     id: r.id, kind: r.kind, reporter: opt(r.reporter), body: r.body, route: r.route, url: r.url,
     context: r.context_json ? JSON.parse(r.context_json as string) : undefined,
-    status: r.status, createdAt: r.created_at,
+    status: r.status, priority: r.priority, adminNote: opt(r.admin_note),
+    createdAt: r.created_at,
   };
 }
 
@@ -1825,6 +2030,12 @@ function rowToItem(r: Row): unknown {
     id: r.id, name: opt(r.name), quality: opt(r.quality), icon: opt(r.icon), slot: opt(r.slot),
     source: r.source_json ? JSON.parse(r.source_json as string) : undefined,
     phase: opt(r.phase),
+    verified: r.verified === 1,
+    // Three-valued on purpose: undefined is "never asked", false is "asked,
+    // and it's an ordinary item". `=== 1` alone would flatten them into one.
+    armorToken: r.armor_token === null || r.armor_token === undefined ? undefined : r.armor_token === 1,
+    redeemsFrom: opt(r.redeems_from),
+    phaseChecked: r.phase_checked === 1,
   };
 }
 

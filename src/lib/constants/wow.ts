@@ -429,15 +429,40 @@ export const STAT_LABELS: Map<string, string> = new Map(
 export const FACTIONS = ["Horde", "Alliance"] as const;
 export type Faction = (typeof FACTIONS)[number];
 
-export const CHARACTER_STATUSES = ["main", "alt", "inactive", "pug"] as const;
+/**
+ * What a character is to the guild.
+ *
+ * `trial` is a real raider on a trial: they turn up, they are logged, and they
+ * take loot — so they are a roster member everywhere a member is counted. It is
+ * NOT the raid planner's "trial", which is a name on a board and has no
+ * character row at all (see docs/change-chains.md §3); the two never meet.
+ */
+export const CHARACTER_STATUSES = ["main", "trial", "alt", "inactive", "pug"] as const;
 export type CharacterStatus = (typeof CHARACTER_STATUSES)[number];
 
-/** Form/display labels for character statuses. */
+/**
+ * Form/display labels for character statuses.
+ *
+ * A noun and then what it means, because these are read in a dropdown where the
+ * label is the whole explanation — the previous spelling ("main — guild
+ * roster") read as a sentence fragment mid-list and an officer filing this
+ * feedback said so.
+ */
 export const STATUS_LABELS: Record<CharacterStatus, string> = {
-  main: "main — guild roster",
-  alt: "alt — guild roster",
-  inactive: "inactive — left the roster",
-  pug: "pug — known off-roster player",
+  main: "Main",
+  trial: "Trial",
+  alt: "Alt",
+  inactive: "Inactive",
+  pug: "Pug",
+};
+
+/** The one line of help each status needs, for a form that has room for it. */
+export const STATUS_HELP: Record<CharacterStatus, string> = {
+  main: "On the raiding roster, and their loot is judged on this character.",
+  trial: "Raiding with the guild while the council decides. Counts everywhere a member counts.",
+  alt: "A second character of somebody already on the roster.",
+  inactive: "Left the roster. Kept so their loot history still explains itself.",
+  pug: "A known player from outside the guild.",
 };
 
 /** Statuses that count as the guild's own roster (vs known off-roster players). */

@@ -29,7 +29,7 @@ import {
   useSelection,
 } from "@/components/roster-actions";
 import { deleteCharacters, equipRosterFromLogs, setCharactersStatus } from "@/app/roster/actions";
-import { attendanceTitle } from "@/lib/analysis/performance";
+import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { sameSpec } from "@/lib/utils";
 import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
 import type { AttendanceSummary, Phase, Role, WowClass } from "@/lib/types";
@@ -64,7 +64,9 @@ function matchesMembership(filter: string, status: CharacterStatus): boolean {
     case "main":
       return status === "main";
     case "roster":
-      return status === "main" || status === "alt";
+      return status === "main" || status === "trial" || status === "alt";
+    case "trial":
+      return status === "trial";
     case "alt":
       return status === "alt";
     case "inactive":
@@ -207,14 +209,16 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
             );
           }
           return (
-            <span className="flex flex-col gap-0.5" title={attendanceTitle(a)}>
-              <WeekDots weeks={a.weeks} />
-              <span
-                className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-warn-ink" : "text-muted-foreground"}`}
-              >
-                {a.weeksAttended}/{a.weeksTracked} wk · {a.raidPct}%
+            <AttendanceDetail attendance={a}>
+              <span className="flex flex-col gap-0.5">
+                <WeekDots weeks={a.weeks} />
+                <span
+                  className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-warn-ink" : "text-muted-foreground"}`}
+                >
+                  {a.raidsAttended}/{a.raidsTracked} raids · {a.raidPct}%
+                </span>
               </span>
-            </span>
+            </AttendanceDetail>
           );
         },
       },
@@ -274,7 +278,8 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="main">Mains</SelectItem>
-            <SelectItem value="roster">Mains + alts</SelectItem>
+            <SelectItem value="roster">Mains + trials + alts</SelectItem>
+            <SelectItem value="trial">Trials</SelectItem>
             <SelectItem value="alt">Alts only</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
             <SelectItem value="all">All roster</SelectItem>
@@ -359,6 +364,7 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
           <DataTable
             columns={columns}
             data={filtered}
+            resetPageOn={[membershipFilter, classFilter, roleFilter].join("|")}
             initialSorting={ROSTER_SORT}
             emptyMessage="No characters match the filters."
           />

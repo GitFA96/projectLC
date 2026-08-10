@@ -1,4 +1,4 @@
-import type { GearSet, Item, LootAward, Quality, WclPlayerFight } from "@/lib/types";
+import type { GearSet, Item, LootAward, Quality, SlotId, WclPlayerFight } from "@/lib/types";
 
 /**
  * The item cache's filling rules.
@@ -35,6 +35,47 @@ export function itemDisplayName(itemId: number, ...candidates: (string | undefin
 export function normalizeIcon(icon: string | undefined): string | undefined {
   const bare = icon?.trim().replace(/\.(jpg|jpeg|png|gif|webp)$/i, "");
   return bare ? bare : undefined;
+}
+
+/**
+ * Wowhead inventory-slot ids → our slot ids. Paired slots resolve to the first
+ * of the pair (SLOT_FAMILIES treats ring1/ring2 and the trinkets as one), and
+ * slots the tracker doesn't model (shirt, tabard, bags) stay undefined.
+ * Relics sit in the ranged slot in TBC.
+ */
+const SLOT_BY_INVENTORY_TYPE: Record<number, SlotId> = {
+  1: "head",
+  2: "neck",
+  3: "shoulder",
+  5: "chest",
+  6: "waist",
+  7: "legs",
+  8: "feet",
+  9: "wrist",
+  10: "hands",
+  11: "ring1",
+  12: "trinket1",
+  13: "mainHand",
+  14: "offHand",
+  15: "ranged",
+  16: "back",
+  17: "mainHand",
+  20: "chest",
+  21: "mainHand",
+  22: "offHand",
+  23: "offHand",
+  25: "ranged",
+  26: "ranged",
+  28: "ranged",
+};
+
+/**
+ * The slot an inventory type sits in, or undefined for the ones the tracker
+ * doesn't model — and for the ids that genuinely have no slot at all, which is
+ * how an armor token arrives.
+ */
+export function slotFromInventoryType(inventoryType: number | undefined): SlotId | undefined {
+  return inventoryType === undefined ? undefined : SLOT_BY_INVENTORY_TYPE[inventoryType];
 }
 
 /**

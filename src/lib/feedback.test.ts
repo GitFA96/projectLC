@@ -118,6 +118,7 @@ function report(overrides: Partial<FeedbackReport> = {}): FeedbackReport {
     route: "/logs",
     url: "http://localhost:3000/logs?report=abc123",
     status: "open",
+    priority: "unset",
     createdAt: "2026-08-07T12:32:00.000Z",
     ...overrides,
   };

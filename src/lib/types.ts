@@ -60,6 +60,7 @@ export type FeedbackReport = z.infer<typeof feedbackReportSchema>;
 export type FeedbackContext = z.infer<typeof feedbackContextSchema>;
 export type FeedbackStatus = FeedbackReport["status"];
 export type FeedbackKind = FeedbackReport["kind"];
+export type FeedbackPriority = FeedbackReport["priority"];
 
 /* Derived view models (computed, never stored) */
 
@@ -75,6 +76,14 @@ export interface WishlistRow {
   awardedAt?: string;
   /** The loot award that satisfied the slot — the handle for undoing it. */
   awardId?: string;
+  /**
+   * What was actually handed over, when it wasn't this item: the armor token
+   * that buys it. The slot counts as served the moment the token is won —
+   * the walk to the Shattrath vendor is the raider's errand, not a loot
+   * decision — but the ledger says "Helm of the Vanquished Champion" and the
+   * row has to be able to say so too.
+   */
+  awardedVia?: { itemId: number; itemName: string };
   /**
    * What they'd take for this slot instead, in their own order. Empty when
    * nobody has recorded a fallback — which is different from "they'd take
@@ -100,6 +109,12 @@ export interface StatDeltaRow {
 export interface AwardWishlistMatch {
   matched: boolean;
   phases: Phase[];
+  /**
+   * When the award was an armor token: the wishlisted piece it buys. Present
+   * only when the token route is what made this a match, so an officer reading
+   * an off-spec token award can see the piece it would have bought.
+   */
+  redeemsTo?: { itemId: number; itemName: string };
 }
 
 /** A loot award joined with everything the UI needs to render a ledger row. */
@@ -414,7 +429,16 @@ export interface PerformanceSummary {
 export interface PerformanceReportView {
   report: WclReport;
   session?: RaidSession;
+  /**
+   * Every pull they were on, excused ones included.
+   *
+   * The table shows them all — an officer who excused the farm boss still wants
+   * to see how it went — so the exclusion lives in `excusedFightIds` rather than
+   * in what's missing from this array. `summary` is over the counted ones only.
+   */
   rows: WclPlayerFight[];
+  /** Pulls the officer took out of the count on the raid page. */
+  excusedFightIds: number[];
   summary: PerformanceSummary;
   /** What they used away from the boss pulls that night. Absent = nothing logged. */
   offPull?: WclPlayerOffPull;

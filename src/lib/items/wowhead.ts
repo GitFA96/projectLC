@@ -1,5 +1,11 @@
-import type { Item, Quality, SlotId } from "@/lib/types";
-import { normalizeIcon } from "@/lib/items/item-data";
+import type { Item, Phase, Quality } from "@/lib/types";
+import { PHASE_IDS } from "@/lib/constants/wow";
+import { normalizeIcon, slotFromInventoryType } from "@/lib/items/item-data";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
+import {
+  parseTokenRedemptions,
+  type TokenRedemptionEdge,
+} from "@/lib/items/tier-tokens";
 
 /**
  * The one place the app reaches the network for item data: Wowhead's item XML
@@ -13,6 +19,11 @@ import { normalizeIcon } from "@/lib/items/item-data";
  */
 
 const XML_URL = (itemId: number) => `https://www.wowhead.com/tbc/item=${itemId}&xml`;
+/** The full item page — the only place the vendor listing appears. Redirects to a slug. */
+const PAGE_URL = (itemId: number) => `https://www.wowhead.com/tbc/item=${itemId}`;
+
+/** Wowhead's subclass for "Armor Tokens", under the Miscellaneous item class. */
+const ARMOR_TOKEN_SUBCLASS = -2;
 
 /** Wowhead's numeric quality scale. */
 const QUALITY_BY_ID: Record<number, Quality> = {
@@ -24,47 +35,42 @@ const QUALITY_BY_ID: Record<number, Quality> = {
   5: "legendary",
 };
 
-/**
- * Wowhead inventory-slot ids → our slot ids. Paired slots resolve to the first
- * of the pair (SLOT_FAMILIES treats ring1/ring2 and the trinkets as one), and
- * slots the tracker doesn't model (shirt, tabard, bags) stay undefined.
- * Relics sit in the ranged slot in TBC.
- */
-const SLOT_BY_INVENTORY_TYPE: Record<number, SlotId> = {
-  1: "head",
-  2: "neck",
-  3: "shoulder",
-  5: "chest",
-  6: "waist",
-  7: "legs",
-  8: "feet",
-  9: "wrist",
-  10: "hands",
-  11: "ring1",
-  12: "trinket1",
-  13: "mainHand",
-  14: "offHand",
-  15: "ranged",
-  16: "back",
-  17: "mainHand",
-  20: "chest",
-  21: "mainHand",
-  22: "offHand",
-  23: "offHand",
-  25: "ranged",
-  26: "ranged",
-  28: "ranged",
-};
-
 function tag(xml: string, name: string): string | undefined {
   const match = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`).exec(xml);
   const value = match?.[1]?.replace(/^<!\[CDATA\[|\]\]>$/g, "").trim();
   return value ? value : undefined;
 }
 
-function attr(xml: string, name: string, attribute: string): number | undefined {
-  const match = new RegExp(`<${name}[^>]*\\b${attribute}="(\\d+)"`).exec(xml);
+/** Armor token subclass ids are negative, so digits alone are not enough. */
+function attr(
+  xml: string,
+  name: string,
+  attribute: string,
+  { signed = false }: { signed?: boolean } = {},
+): number | undefined {
+  const digits = signed ? "-?\\d+" : "\\d+";
+  const match = new RegExp(`<${name}[^>]*\\b${attribute}="(${digits})"`).exec(xml);
   return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * Which content phase Wowhead files an item under.
+ *
+ * It rides in the tooltip HTML rather than in a field of its own — the little
+ * grey "Phase 2" beside the item's name — so it is read out of the markup:
+ *
+ *     <th><b class="q0 whtt-extra">Phase 2</b></th>
+ *
+ * Nothing else in that response carries it, and the officer was otherwise
+ * setting it by hand on every item. Anything that isn't a phase this app knows
+ * (a number outside 1–5, or an extra tag that isn't a phase at all) is left
+ * undefined rather than guessed — see PHASE_IDS.
+ */
+export function parseWowheadPhase(xml: string): Phase | undefined {
+  const match = /whtt-extra[^>]*>\s*Phase\s+(\d+)\s*</i.exec(xml);
+  if (!match) return undefined;
+  const phase = Number(match[1]);
+  return (PHASE_IDS as readonly number[]).includes(phase) ? (phase as Phase) : undefined;
 }
 
 /** Parse the fields we cache out of one item's XML. Exported for testing. */
@@ -74,10 +80,14 @@ export function parseWowheadItemXml(itemId: number, xml: string): Item | undefin
   const qualityId = attr(xml, "quality", "id");
   const quality = qualityId !== undefined ? QUALITY_BY_ID[qualityId] : undefined;
   const icon = normalizeIcon(tag(xml, "icon")?.toLowerCase());
-  const inventorySlot = attr(xml, "inventorySlot", "id");
-  const slot = inventorySlot !== undefined ? SLOT_BY_INVENTORY_TYPE[inventorySlot] : undefined;
+  const slot = slotFromInventoryType(attr(xml, "inventorySlot", "id"));
+  // Wowhead files the raid tokens under a subclass of their own, which is the
+  // only machine-readable way to tell "this thing has no slot" from "we don't
+  // know its slot yet" — both of which arrive here as a missing slot.
+  const subclass = attr(xml, "subclass", "id", { signed: true });
+  const armorToken = subclass === undefined ? undefined : subclass === ARMOR_TOKEN_SUBCLASS;
   if (!name && !icon && !quality) return undefined;
-  return { id: itemId, name, quality, icon, slot };
+  return { id: itemId, name, quality, icon, slot, armorToken, phase: parseWowheadPhase(xml) };
 }
 
 type FetchOutcome =
@@ -143,4 +153,175 @@ export async function resolveItemsFromWowhead(
     else failed.push(itemId);
   }
   return { resolved, failed, throttled: false };
+}
+
+export interface TokenRedemptionResult {
+  edges: TokenRedemptionEdge[];
+  /** What the vendor listing knew about each piece — gap-fill material only. */
+  pieces: Item[];
+  /** Tokens whose page named no piece: left unlearned rather than marked empty. */
+  failed: number[];
+  throttled: boolean;
+}
+
+/**
+ * Which tier pieces each of these tokens buys, from Wowhead's item page.
+ *
+ * The heavier of the two Wowhead calls — a page rather than an XML fragment —
+ * which is why it is asked once per *token*, not once per piece: one page
+ * yields every edge for that token at once, so all of TBC is tens of requests
+ * rather than hundreds. Same trickle and the same immediate stop on a refusal
+ * as `resolveItemsFromWowhead`.
+ */
+export async function fetchTokenRedemptions(
+  tokenIds: number[],
+  opts: { limit?: number; pauseMs?: number; timeoutMs?: number } = {},
+): Promise<TokenRedemptionResult> {
+  const { limit = 8, pauseMs = 400, timeoutMs = 15000 } = opts;
+  const queue = [...new Set(tokenIds)].slice(0, limit);
+  const edges: TokenRedemptionEdge[] = [];
+  const pieces: Item[] = [];
+  const failed: number[] = [];
+
+  for (const [index, tokenId] of queue.entries()) {
+    if (index > 0) await sleep(pauseMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(PAGE_URL(tokenId), {
+        signal: controller.signal,
+        headers: { "User-Agent": "projectlc-guild-tracker" },
+        cache: "no-store",
+        redirect: "follow",
+      });
+      if (res.status === 429 || res.status === 403) {
+        return { edges, pieces, failed, throttled: true };
+      }
+      if (!res.ok) {
+        failed.push(tokenId);
+        continue;
+      }
+      const listing = parseTokenRedemptions(tokenId, await res.text());
+      if (listing.edges.length === 0) failed.push(tokenId);
+      edges.push(...listing.edges);
+      pieces.push(...listing.pieces);
+    } catch {
+      failed.push(tokenId);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { edges, pieces, failed, throttled: false };
+}
+
+/* ------------------------------------------------------ resolving by name */
+
+/** Wowhead's type id for an item, in the search index's mixed result list. */
+const SEARCH_TYPE_ITEM = 3;
+
+const SEARCH_URL = (name: string) =>
+  `https://www.wowhead.com/tbc/search/suggestions-template?q=${encodeURIComponent(name)}`;
+
+interface SearchHit {
+  type?: number;
+  id?: number;
+  name?: string;
+  icon?: string;
+  quality?: number;
+}
+
+/**
+ * The one hit that *is* this name, or nothing.
+ *
+ * The rule is exact equality under the same normalization the app matches
+ * cached names with — not "the best result", not "the first result". Wowhead's
+ * search is a search: it answers a misspelling with something plausible, and a
+ * plausible answer is the worst possible outcome here, because the id ends up
+ * on a loot sheet and an officer hovers it to decide who gets a drop.
+ *
+ * Two exact matches is also nothing. TBC has a handful of names shared by
+ * items of different item levels, and picking one would be a coin flip an
+ * officer never saw us make.
+ */
+export function pickExactItem(queryName: string, results: unknown): SearchHit | undefined {
+  const hits = Array.isArray((results as { results?: unknown[] })?.results)
+    ? ((results as { results: SearchHit[] }).results)
+    : [];
+  const wanted = normalizeItemName(queryName);
+  const exact = hits.filter(
+    (h) =>
+      h?.type === SEARCH_TYPE_ITEM &&
+      typeof h.id === "number" &&
+      typeof h.name === "string" &&
+      normalizeItemName(h.name) === wanted,
+  );
+  return exact.length === 1 ? exact[0] : undefined;
+}
+
+export interface NameResolveResult {
+  /** Names Wowhead identified exactly, as cache rows. */
+  resolved: Item[];
+  /** Names with no single exact match. Left for a person — never guessed at. */
+  unmatched: string[];
+  throttled: boolean;
+}
+
+/**
+ * Turn item names into cache rows.
+ *
+ * The priority sheet is written in names, because a council writes down what it
+ * calls a thing; everything else in the app is keyed by id. Most sheet rows
+ * therefore render as plain text — no icon, no Wowhead hover — until somebody
+ * wishlists or wins the item and an id arrives by another route.
+ *
+ * These rows are written **unverified**: the search index gives a name, an icon
+ * and a quality, which is enough to render, but the item XML is what this app
+ * treats as Wowhead having answered. The ordinary resolver picks them up
+ * afterwards and fills in slot and phase. Same trickle and the same immediate
+ * stop on a refusal as the rest of this module.
+ */
+export async function resolveItemIdsByName(
+  names: string[],
+  opts: { limit?: number; pauseMs?: number; timeoutMs?: number } = {},
+): Promise<NameResolveResult> {
+  const { limit = 40, pauseMs = 300, timeoutMs = 8000 } = opts;
+  const queue = [...new Set(names.map((n) => n.trim()).filter(Boolean))].slice(0, limit);
+  const resolved: Item[] = [];
+  const unmatched: string[] = [];
+
+  for (const [index, name] of queue.entries()) {
+    if (index > 0) await sleep(pauseMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(SEARCH_URL(name), {
+        signal: controller.signal,
+        headers: { "User-Agent": "projectlc-guild-tracker" },
+        cache: "no-store",
+      });
+      if (res.status === 429 || res.status === 403) {
+        return { resolved, unmatched, throttled: true };
+      }
+      if (!res.ok) {
+        unmatched.push(name);
+        continue;
+      }
+      const hit = pickExactItem(name, await res.json());
+      if (!hit || hit.id === undefined) {
+        unmatched.push(name);
+        continue;
+      }
+      resolved.push({
+        id: hit.id,
+        name: hit.name,
+        quality: hit.quality !== undefined ? QUALITY_BY_ID[hit.quality] : undefined,
+        icon: normalizeIcon(hit.icon?.toLowerCase()),
+      });
+    } catch {
+      unmatched.push(name);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { resolved, unmatched, throttled: false };
 }

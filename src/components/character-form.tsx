@@ -8,9 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CHARACTER_STATUSES, ROLES, STATUS_LABELS, WOW_CLASSES } from "@/lib/constants/wow";
+import {
+  CHARACTER_STATUSES,
+  ROLES,
+  STATUS_HELP,
+  STATUS_LABELS,
+  WOW_CLASSES,
+} from "@/lib/constants/wow";
 import { saveCharacter, type CharacterFormState } from "@/app/characters/actions";
-import type { Character, Role } from "@/lib/types";
+import type { Character, CharacterStatus, Role } from "@/lib/types";
 
 /** Native select so values always travel with the form post (no JS required). */
 function FormSelect({
@@ -142,6 +148,12 @@ export function CharacterForm({
                   </option>
                 ))}
               </FormSelect>
+              {/* What the chosen status means, under the control. The labels
+                  used to carry this ("main — guild roster") and read as
+                  sentence fragments stacked in a list. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {STATUS_HELP[status as CharacterStatus] ?? ""}
+              </p>
             </Field>
             {status === "alt" && (
               <Field label="Alt of (main)">

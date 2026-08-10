@@ -467,7 +467,10 @@ both pages to find out there was nothing to do.
 
 Commit SixtyUpgrades sets, Gargul pastes and Warcraft Logs reports, with preview
 and validation. Also **backfills item names, icons and enchant names** for
-anything still showing as a bare id.
+anything still showing as a bare id, and **maps tier tokens to the pieces they
+buy** — until that has been run, a token win satisfies nobody's wishlist,
+because a wishlist names `Cataclysm Helm` and the boss drops `Helm of the
+Vanquished Champion`.
 
 ---
 

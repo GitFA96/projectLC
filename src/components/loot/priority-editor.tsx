@@ -28,12 +28,25 @@ const SUGGESTIONS = SPEC_TAGS.filter((t) => t !== "MS" && t !== "OS");
 export function ItemPriorityEditor({
   itemName,
   rule,
+  /**
+   * Skip the read view and open straight into the form.
+   *
+   * For callers that already draw the chain and their own way into editing —
+   * the priority sheet draws every row's chain itself. Without this the officer
+   * pressed Edit and got a second Edit button, because both layers owned a
+   * read view of the same thing.
+   */
+  formOnly = false,
+  /** Called when the form closes itself, so the caller can put its row back. */
+  onDone,
 }: {
   itemName: string;
   /** The chain in force — the seeded sheet's, or an officer's edit of it. */
   rule?: ItemPriorityRule;
+  formOnly?: boolean;
+  onDone?: () => void;
 }) {
-  const [editing, setEditing] = React.useState(false);
+  const [editing, setEditing] = React.useState(formOnly);
   const [chain, setChain] = React.useState(rule?.chain ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [warning, setWarning] = React.useState<string | null>(null);
@@ -54,6 +67,7 @@ export function ItemPriorityEditor({
         );
       }
       setEditing(false);
+      onDone?.();
     });
   };
 
@@ -140,7 +154,15 @@ export function ItemPriorityEditor({
         <Button size="sm" disabled={pending} onClick={() => save(chain)}>
           {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
         </Button>
-        <Button variant="outline" size="sm" disabled={pending} onClick={() => setEditing(false)}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            setEditing(false);
+            onDone?.();
+          }}
+        >
           Cancel
         </Button>
       </div>

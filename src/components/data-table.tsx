@@ -49,6 +49,7 @@ function DataTableImpl<TData>({
   initialSorting = [],
   emptyMessage = "No results.",
   pageSize = DEFAULT_PAGE_SIZE,
+  resetPageOn,
 }: {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
@@ -56,27 +57,56 @@ function DataTableImpl<TData>({
   emptyMessage?: string;
   /** Rows per page. Pass Infinity to render everything, as before. */
   pageSize?: number;
+  /**
+   * What the reader changed that should send them back to page one.
+   *
+   * A string describing the current filters — narrowing a search from page 4
+   * must not leave them staring at an empty table. Everything *else* that
+   * replaces `data` deliberately keeps the page: saving an edit re-renders the
+   * whole ledger from the server, and dropping an officer back to page 1 after
+   * every save is what this prop exists to stop. Omit it on a table with no
+   * filters above it.
+   */
+  resetPageOn?: string;
 }) {
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting);
   const paginated = Number.isFinite(pageSize);
+  /*
+   * Pagination is controlled here rather than left to the table's
+   * `autoResetPageIndex`, which resets on any new `data` — including the
+   * identical rows a router refresh hands back after a save.
+   */
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const [seenReset, setSeenReset] = React.useState(resetPageOn);
+  if (resetPageOn !== seenReset) {
+    setSeenReset(resetPageOn);
+    setPageIndex(0);
+  }
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: { sorting, ...(paginated ? { pagination: { pageIndex, pageSize } } : {}) },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    // Filtering happens above this component, so a filter change arrives as new
-    // `data`. autoResetPageIndex (on by default) sends the reader back to page
-    // one for it — otherwise narrowing a search from page 4 shows an empty table.
     ...(paginated
-      ? { getPaginationRowModel: getPaginationRowModel(), initialState: { pagination: { pageSize } } }
+      ? {
+          getPaginationRowModel: getPaginationRowModel(),
+          autoResetPageIndex: false,
+          onPaginationChange: (updater) => {
+            const next =
+              typeof updater === "function" ? updater({ pageIndex, pageSize }) : updater;
+            setPageIndex(next.pageIndex);
+          },
+        }
       : {}),
   });
 
   const pageCount = table.getPageCount();
-  const { pageIndex } = table.getState().pagination;
   const total = table.getFilteredRowModel().rows.length;
+  // Deleting the last row on the last page would otherwise strand the reader on
+  // a page that no longer exists, with no rows and both arrows disabled.
+  if (paginated && pageCount > 0 && pageIndex > pageCount - 1) setPageIndex(pageCount - 1);
   const firstOnPage = pageIndex * pageSize + 1;
   const lastOnPage = Math.min((pageIndex + 1) * pageSize, total);
 

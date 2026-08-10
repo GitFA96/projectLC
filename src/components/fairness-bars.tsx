@@ -1,12 +1,14 @@
 import { CLASS_TINT_COLORS } from "@/lib/constants/wow";
 import { CharacterLink } from "@/components/class-badge";
-import type { WowClass } from "@/lib/types";
+import type { CharacterStatus, WowClass } from "@/lib/types";
 
 export interface FairnessBarEntry {
   name: string;
   wowClass: WowClass;
   onSpec: number;
   offSpec: number;
+  /** Which roster this character sits on — see FairnessPanel's scope pills. */
+  status?: CharacterStatus;
 }
 
 /**

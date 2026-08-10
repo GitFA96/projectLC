@@ -31,6 +31,30 @@ identically to SQLite. Never compute a summary in a backend.
 - **Per-report settings go in `meta` under `<name>:<code>`, not a new table.**
   Four already do. Empty return = "unset, use defaults", and every getter
   sanitizes on read so a stale row can't crash a page.
+- **The item cache has one authority, and it isn't us.** Wowhead owns an
+  item's name, quality, icon and slot; the seed, wishlists and log snapshots
+  are guesses that fill the gap until it answers. Only `saveResolvedItems` may
+  overwrite those fields, and only it sets `items.verified`. Everything else
+  goes through `addItemsIfMissing`, which fills holes and never overwrites.
+  A row stays on `listUnresolvedItemIds()` until Wowhead has confirmed it —
+  "has an icon" and "has the right icon" are different claims, and a cache that
+  conflated them reported itself complete while showing eight wrong pictures.
+  The one field an authoritative write may *clear* is `slot`, and only for a
+  row it just identified as an armor token: "this is a token" is a positive
+  statement that it has no slot, not the silence COALESCE exists to respect,
+  and the shipped seed did invent slots for tokens.
+  Zone, boss and phase are the opposite: the guild's own, never overwritten by
+  any import — except when Wowhead's name for an id contradicts an unverified
+  one, which means the row was curated onto the wrong item and its curation
+  describes a different one. `setItemCuration` is the officer's writer;
+  `applyCuratedItemSources` re-applies the shipped drop table to rows that have
+  none, which is the only way a database seeded before that list was corrected
+  ever sees the correction — both gap-fill, so a hand-set answer always wins.
+- **A tier token and the piece it buys are one loot decision**, joined by
+  `items.redeems_from` on the *piece*. `saveTokenRedemptions` is its writer and
+  the only one — Wowhead's vendor listing is the sole source, so it overwrites
+  rather than gap-fills. `store.ts` reads the column once into the lookup every
+  wishlist and contention reader takes. See change-chains §4g.
 - **Multi-row writes go in `withTx`** — one transaction, one version bump.
 - **Zero-argument views are memoized for the life of a read model**
   (`MEMOIZED_VIEWS` in `store.ts`). They are pure over an immutable store and

@@ -36,6 +36,7 @@ export default async function LootPage() {
     offspec: a.award.offspec,
     matched: a.wishlist.matched,
     matchPhases: a.wishlist.phases,
+    redeemsTo: a.wishlist.redeemsTo,
     note: a.award.note,
     decision: a.award.decision,
   }));

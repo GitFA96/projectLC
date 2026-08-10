@@ -79,6 +79,40 @@ export const itemSchema = z.object({
   slot: z.enum(SLOT_IDS).nullish(),
   source: z.object({ zone: z.string(), boss: z.string().optional() }).optional(),
   phase: phaseSchema.optional(),
+  /**
+   * True once Wowhead itself answered for this id. Everything else — the
+   * curated seed, a name typed into a wishlist, an icon lifted off a log — is
+   * a good guess that nothing has checked, and stays re-checkable forever.
+   * Absent means unverified; only `resolveItemsFromWowhead` may set it.
+   */
+  verified: z.boolean().optional(),
+  /**
+   * Wowhead's "Armor Tokens" subclass: the raid drop an officer hands a vendor
+   * for a tier piece. Absent means nobody has asked yet; `false` means Wowhead
+   * answered and this is an ordinary item — the two are not the same, and the
+   * backfill queue is built on the difference.
+   */
+  armorToken: z.boolean().optional(),
+  /**
+   * For a tier piece: the armor token that buys it.
+   *
+   * Stored on the piece, not the token, because that is the direction the
+   * domain is one-to-one. One token buys nine pieces — three classes and, for
+   * most, three spec variants each — so token→piece needs a judgement about
+   * which variant a raider meant. Piece→token needs none, and "which of the
+   * pieces this token buys did they wishlist" answers the judgement from the
+   * raider's own list.
+   */
+  redeemsFrom: z.number().int().positive().optional(),
+  /**
+   * Wowhead has been asked about this id since the phase became something we
+   * read off its answer.
+   *
+   * Not the same as having a phase: most of TBC's launch items carry no phase
+   * tag at all, so without this the backfill would ask about them again on
+   * every press, forever. Written by the resolver only; never seeded.
+   */
+  phaseChecked: z.boolean().optional(),
 });
 
 export const slotItemSchema = z.object({
@@ -563,8 +597,21 @@ export const feedbackReportSchema = z.object({
   url: z.string().min(1),
   /** Absent when the reporter opted out of sharing context. */
   context: feedbackContextSchema.optional(),
-  /** Triage state. Reports are never edited, only opened and closed. */
+  /** Triage state. The reporter's words are never edited, only triaged. */
   status: z.enum(["open", "resolved"]).default("open"),
+  /**
+   * How much it matters, set by whoever triages it — never by the reporter.
+   *
+   * `unset` rather than a middle value: "nobody has looked at this yet" and
+   * "somebody looked and called it minor" are different states, and a default
+   * of "minor" would quietly turn the first into the second.
+   */
+  priority: z.enum(["unset", "minor", "major"]).default("unset"),
+  /**
+   * The triager's note back — what was decided, what it's waiting on, why it
+   * was closed. Kept apart from `body`, which stays exactly as it was filed.
+   */
+  adminNote: z.string().max(2000).optional(),
   createdAt: z.string().min(1),
 });
 

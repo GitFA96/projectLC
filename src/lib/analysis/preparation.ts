@@ -28,6 +28,16 @@
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { elixirCategoryOf, isFoodLabel, type ElixirSlot } from "@/lib/wcl/consumables";
 
+/**
+ * The one policy field these checks read.
+ *
+ * Narrower than `GuildPolicy["preparation"]` on purpose: which encounters the
+ * council excused is a question about *which pulls to ask about*, settled by
+ * the caller before it gets here. A per-pull check that could see that list
+ * would be a second place deciding it.
+ */
+type CoverageRule = Pick<GuildPolicy["preparation"], "coverage">;
+
 /** The consumable facts a preparation check reads. Any row carrying them works. */
 export interface PreparationRow {
   flask?: string;
@@ -131,7 +141,7 @@ export function elixirCoverage(row: PreparationRow): ElixirCoverage {
  */
 export function hasConsumableCoverage(
   row: PreparationRow,
-  rule: GuildPolicy["preparation"] = DEFAULT_POLICY.preparation,
+  rule: CoverageRule = DEFAULT_POLICY.preparation,
 ): boolean {
   const grade = elixirCoverage(row).grade;
   switch (rule.coverage) {
@@ -166,7 +176,7 @@ export function hasFood(row: PreparationRow): boolean {
 /** Coverage and food both up — the composite the loot-priority score reads. */
 export function isPrepared(
   row: PreparationRow,
-  rule: GuildPolicy["preparation"] = DEFAULT_POLICY.preparation,
+  rule: CoverageRule = DEFAULT_POLICY.preparation,
 ): boolean {
   return hasConsumableCoverage(row, rule) && hasFood(row);
 }

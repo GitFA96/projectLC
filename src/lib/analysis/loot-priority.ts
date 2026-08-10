@@ -51,6 +51,11 @@ export function resolveWeights(overrides?: Partial<LootPriorityWeights>): LootPr
  */
 const STANDING_NOTE: Record<CharacterStatus, string | undefined> = {
   main: undefined,
+  // No note by default, because the default multiplier is 1: the app has no
+  // opinion on whether a trial should rank behind a main, and inventing one
+  // would decide a council's trial policy for it. The note appears as soon as
+  // they set the number — see GuildPolicy.standing.
+  trial: undefined,
   alt: "alt — behind mains on equal metrics",
   inactive: "inactive — off the raiding roster",
   pug: "pug — not a guild raider",

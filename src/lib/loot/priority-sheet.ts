@@ -1,4 +1,5 @@
 import { parsePriorityChain, type PriorityChain } from "@/lib/loot/priority-chain";
+import type { Quality } from "@/lib/types";
 
 /**
  * The council's written sheet, read straight out of its markdown.
@@ -86,6 +87,13 @@ export interface PrioritySheetViewRow {
   note?: string;
   /** Set when the item cache knows the name, so the row can link to the item. */
   itemId?: number;
+  /**
+   * Enough of the cached item to render it the way every other list does —
+   * icon, quality colour, Wowhead hover. Filled by the read model after this
+   * builder has run, so the builder stays pure and name-only.
+   */
+  quality?: Quality;
+  icon?: string;
   /**
    * An earlier row already claimed this name, so matching never reaches this
    * one. Shown rather than dropped: a pasted sheet that lists an item twice

@@ -282,6 +282,15 @@ describe("buildRosterStanding", () => {
     expect(split.mains.rows.map((r) => r.name)).toEqual(["A"]);
     expect(split.alts.rows.map((r) => r.name)).toEqual(["Gone"]);
   });
+
+  it("measures a trial against the mains, which is what a trial is", () => {
+    // A board of trials on their own would rank them against each other and
+    // answer nothing: the question is whether they hold up against the core.
+    const trial = { ...raider("Newby", { attendance: 80, parse: 70, prepared: 80 }), status: "trial" as const };
+    const split = buildRosterStanding([main("A", 40), main("B", 60), trial, alt("Little", 5)]);
+    expect(split.mains.rows.map((r) => r.name).sort()).toEqual(["A", "B", "Newby"]);
+    expect(split.alts.rows.map((r) => r.name)).toEqual(["Little"]);
+  });
 });
 
 describe("bandOf", () => {

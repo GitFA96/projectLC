@@ -1,5 +1,10 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
-import { SAPPER_CAST_NAMES, SCROLL_CAST_IDS, TRACKED_CAST_IDS } from "@/lib/wcl/consumables";
+import {
+  FLASK_BUFF_IDS,
+  SAPPER_CAST_NAMES,
+  SCROLL_CAST_IDS,
+  TRACKED_CAST_IDS,
+} from "@/lib/wcl/consumables";
 import {
   BUFF_TRACK_NAMES,
   COOLDOWN_CAST_IDS,
@@ -137,7 +142,15 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
     ),
     soft(
       "Buff-uptime tracking (shouts, totems, Innervate)",
-      fetchAllEvents(code, "Buffs", reportDuration, `ability.name IN (${quoted(BUFF_TRACK_NAMES)})`),
+      // The flask ids ride along because Warcraft Logs leaves those flasks out
+      // of the pull's combatantinfo snapshot — the buff stream is the only
+      // place they exist. See FLASK_BUFF_IDS.
+      fetchAllEvents(
+        code,
+        "Buffs",
+        reportDuration,
+        `ability.name IN (${quoted(BUFF_TRACK_NAMES)}) OR ability.id IN (${[...FLASK_BUFF_IDS.keys()].join(", ")})`,
+      ),
     ),
   ]);
 

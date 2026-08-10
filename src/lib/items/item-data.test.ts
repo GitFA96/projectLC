@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   harvestItemFacts,
@@ -7,7 +9,7 @@ import {
   normalizeIcon,
   qualityFromId,
 } from "@/lib/items/item-data";
-import { parseWowheadItemXml } from "@/lib/items/wowhead";
+import { parseWowheadItemXml, parseWowheadPhase, pickExactItem } from "@/lib/items/wowhead";
 import type { GearSet, LootAward, WclPlayerFight } from "@/lib/types";
 
 describe("item names", () => {
@@ -119,6 +121,13 @@ describe("qualityFromId", () => {
   });
 });
 
+/** A real Wowhead response, kept whole so the parser is tested against markup
+    nobody wrote for it. */
+const realXml = readFileSync(
+  path.join(import.meta.dirname, "__fixtures__/item-29997.xml"),
+  "utf8",
+);
+
 describe("parseWowheadItemXml", () => {
   // The real response shape for item=30048 on the TBC domain.
   const xml = `<?xml version="1.0" encoding="UTF-8"?><wowhead><item id="30048">
@@ -140,5 +149,71 @@ describe("parseWowheadItemXml", () => {
   it("returns nothing for an unknown item or a non-XML body", () => {
     expect(parseWowheadItemXml(1, `<wowhead><error>Item not found!</error></wowhead>`)).toBeUndefined();
     expect(parseWowheadItemXml(1, "<!DOCTYPE html><html>404</html>")).toBeUndefined();
+  });
+
+  it("reads the phase off a real response", () => {
+    // Captured from item=29997 — the item the officer was filling in by hand
+    // when they asked whether this could come from Wowhead. It can: the phase
+    // rides in the tooltip markup of the same XML the resolver already fetches.
+    expect(parseWowheadItemXml(29997, realXml)).toMatchObject({
+      name: "Band of the Ranger-General",
+      phase: 2,
+    });
+  });
+});
+
+describe("parseWowheadPhase", () => {
+  it("reads the tag beside the item name", () => {
+    expect(parseWowheadPhase(realXml)).toBe(2);
+    expect(
+      parseWowheadPhase(`<th><b class="q0 whtt-extra">Phase 5</b></th>`),
+    ).toBe(5);
+  });
+
+  it("says nothing rather than guessing", () => {
+    // No tag at all — most of TBC's launch items carry none.
+    expect(parseWowheadPhase("<wowhead><item id=\"1\"/></wowhead>")).toBeUndefined();
+    // A phase outside the ones this app knows, and an extra tag that is not a
+    // phase: both are left unset rather than coerced into the nearest number.
+    expect(parseWowheadPhase(`<b class="whtt-extra">Phase 9</b>`)).toBeUndefined();
+    expect(parseWowheadPhase(`<b class="whtt-extra">Heroic</b>`)).toBeUndefined();
+  });
+});
+
+describe("pickExactItem", () => {
+  const hit = (over: Record<string, unknown>) => ({
+    type: 3, id: 1, name: "Blue Suede Shoes", icon: "inv_boots_cloth_01", quality: 4, ...over,
+  });
+
+  it("takes the one result that is this name", () => {
+    // Real shape, from the suggestions endpoint.
+    const body = { search: "Blue Suede Shoes", results: [hit({ id: 30894 })] };
+    expect(pickExactItem("Blue Suede Shoes", body)?.id).toBe(30894);
+  });
+
+  it("matches the way the sheet is matched — punctuation and case don't count", () => {
+    const body = { results: [hit({ id: 30106, name: "Belt of One-Hundred Deaths" })] };
+    expect(pickExactItem("belt of one hundred deaths", body)?.id).toBe(30106);
+  });
+
+  it("refuses a near miss", () => {
+    // What a search does with a name nobody has: it answers with something
+    // plausible. A plausible id on a loot sheet is the failure this guards.
+    const body = { results: [hit({ id: 999, name: "Blue Suede Boots" })] };
+    expect(pickExactItem("Blue Suede Shoes", body)).toBeUndefined();
+  });
+
+  it("refuses a tie, and anything that isn't an item", () => {
+    const twins = { results: [hit({ id: 1 }), hit({ id: 2 })] };
+    expect(pickExactItem("Blue Suede Shoes", twins)).toBeUndefined();
+    // type 3 is an item; a spell or an NPC of the same name is not one.
+    const spell = { results: [hit({ id: 5, type: 6 })] };
+    expect(pickExactItem("Blue Suede Shoes", spell)).toBeUndefined();
+  });
+
+  it("survives a body that isn't the shape we expect", () => {
+    expect(pickExactItem("Anything", undefined)).toBeUndefined();
+    expect(pickExactItem("Anything", { results: "nope" })).toBeUndefined();
+    expect(pickExactItem("Anything", { results: [null] })).toBeUndefined();
   });
 });

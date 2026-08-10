@@ -495,7 +495,7 @@ describe("summarizeRaidReport — elixir coverage", () => {
       row({ fightId: 1, actorName: "Halfset", potions: ["Haste Potion"],
         elixirs: ["Elixir of Major Agility"] }),
     ];
-    const strict = summarize(rows, { ...DEFAULT_POLICY, preparation: { coverage: "full" } });
+    const strict = summarize(rows, { ...DEFAULT_POLICY, preparation: { ...DEFAULT_POLICY.preparation, coverage: "full" } });
     const findings = strict.improvements.find((p) => p.name === "Halfset")!.findings;
     // One complaint, not two: under `full` a half set isn't coverage at all.
     expect(findings.map((f) => f.label)).toEqual(["No flask/elixir all night"]);

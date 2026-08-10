@@ -4,7 +4,7 @@ import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Activity, GitCompareArrows } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
-import { attendanceTitle } from "@/lib/analysis/performance";
+import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import {
   COMMENT_CATEGORY_LABELS,
@@ -391,20 +391,25 @@ function BreakdownRow({ cols, label, chars }: { cols: string; label: string; cha
   );
 }
 
-/** Attendance row: reset-weeks ratio + the week dots, leader by attended share. */
+/**
+ * Attendance row: raids attended out of raids logged, with the week dots
+ * beneath. Ranked on the same number it shows — it used to show a reset-week
+ * ratio while the leader was picked on it and the roster sorted on the raid
+ * percentage, so three views of "attendance" disagreed about which it meant.
+ */
 function AttendanceRow({ cols, chars }: { cols: string; chars: ComparedCharacter[] }) {
   const ratios = chars.map((c) =>
-    c.attendance && c.attendance.weeksTracked > 0
-      ? c.attendance.weeksAttended / c.attendance.weeksTracked
+    c.attendance && c.attendance.raidsTracked > 0
+      ? c.attendance.raidsAttended / c.attendance.raidsTracked
       : undefined,
   );
   const best = bestIndices(ratios, "high");
   return (
     <div style={{ gridTemplateColumns: cols }} className="grid items-center gap-x-2 border-t px-3 py-1.5">
-      <div className="text-xs text-muted-foreground">Reset weeks</div>
+      <div className="text-xs text-muted-foreground">Raids logged</div>
       {chars.map((c, i) => {
         const a = c.attendance;
-        if (!a || a.weeksTracked === 0) {
+        if (!a || a.raidsTracked === 0) {
           return (
             <div key={c.character.id} className="text-right text-muted-foreground/40">
               —
@@ -412,12 +417,14 @@ function AttendanceRow({ cols, chars }: { cols: string; chars: ComparedCharacter
           );
         }
         return (
-          <div key={c.character.id} className="flex flex-col items-end gap-0.5" title={attendanceTitle(a)}>
-            <span className={cn("text-sm tabular-nums", best.has(i) && "font-semibold text-success-ink")}>
-              {a.weeksAttended}/{a.weeksTracked}
+          <AttendanceDetail key={c.character.id} attendance={a} align="right">
+            <span className="flex flex-col items-end gap-0.5">
+              <span className={cn("text-sm tabular-nums", best.has(i) && "font-semibold text-success-ink")}>
+                {a.raidsAttended}/{a.raidsTracked}
+              </span>
+              <WeekDots weeks={a.weeks} />
             </span>
-            <WeekDots weeks={a.weeks} />
-          </div>
+          </AttendanceDetail>
         );
       })}
     </div>

@@ -207,7 +207,7 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
       if (unnamed.length > 0) {
         const { resolved } = await resolveItemsFromWowhead(unnamed, { limit: 25 });
         if (resolved.length > 0) {
-          itemsCached += await repo.addItemsIfMissing(resolved);
+          itemsCached += await repo.saveResolvedItems(resolved);
           await repo.repairPlaceholderAwardNames();
         }
       }

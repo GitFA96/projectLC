@@ -18,23 +18,69 @@ export function resetWeekStart(iso: string): string {
   return start.toISOString().slice(0, 10);
 }
 
-/** One tooltip string explaining exactly how an attendance % was counted. */
-export function attendanceTitle(a: AttendanceSummary): string {
-  const parts = [
-    a.firstSeenAt
-      ? `Counted since their first logged raid (${format(parseISO(a.firstSeenAt), "d MMM yyyy")}): ${a.raidsAttended} of ${a.raidsTracked}`
-      : `${a.raidsAttended} of ${a.raidsTracked} logged raids`,
-    `raided in ${a.weeksAttended} of the last ${a.weeksTracked} counted reset week${a.weeksTracked === 1 ? "" : "s"}`,
-    `last ${a.recentTotal} raid${a.recentTotal === 1 ? "" : "s"}: ${a.recentAttended}/${a.recentTotal}`,
-    `in ${a.pullPct}% of boss pulls when present`,
+/** One line of the attendance breakdown: what was counted, and out of what. */
+export interface AttendanceFact {
+  label: string;
+  value: string;
+  /** Why the denominator is what it is — the part officers get asked about. */
+  note?: string;
+}
+
+/**
+ * How an attendance percentage was arrived at, one claim per line.
+ *
+ * This is the number a raider argues with, so the breakdown has to be legible
+ * rather than merely present. Structured rather than prose because it is shown
+ * two ways — a hover tooltip and a panel that opens on click — and both are
+ * built from this, so neither can quietly start saying something the other
+ * doesn't.
+ */
+export function attendanceFacts(a: AttendanceSummary): AttendanceFact[] {
+  const skipped = a.raidsTotal - a.raidsTracked;
+  const facts: AttendanceFact[] = [
+    // One fraction, and the percentage is that same fraction — so there is
+    // never a question of which number the percentage came from. The rolling
+    // windows the score uses (last N raids, last N weeks) are deliberately not
+    // here: three different "7 of 10"s on one card, each over a different
+    // denominator, is what made this unreadable.
+    {
+      label: "Raids",
+      value: `${a.raidsAttended} of ${a.raidsTracked} · ${a.raidPct}%`,
+      note: a.firstSeenAt
+        ? `every raid logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")}`
+        : "every raid logged since their first",
+    },
+    { label: "Boss pulls", value: `${a.pullPct}% when present` },
   ];
   if (a.weeksExcused > 0) {
-    parts.push(`${a.weeksExcused} reset week${a.weeksExcused === 1 ? "" : "s"} excused (not counted)`);
+    facts.push({
+      label: "Excused",
+      value: `${a.weeksExcused} week${a.weeksExcused === 1 ? "" : "s"}`,
+      note: "shown, never counted",
+    });
   }
-  if (a.raidsTracked < a.raidsTotal) {
-    parts.push(`${a.raidsTotal - a.raidsTracked} earlier log(s)/excused week(s) don't count`);
+  if (skipped > 0) {
+    facts.push({
+      label: "Outside the count",
+      value: `${skipped} raid${skipped === 1 ? "" : "s"}`,
+      note: "logged before they joined, or in an excused week",
+    });
   }
-  return parts.join(" · ");
+  if (a.weeks.length > 0) {
+    facts.push({
+      label: "Dots",
+      value: `last ${a.weeks.length} reset week${a.weeks.length === 1 ? "" : "s"}`,
+      note: "green = raided that week",
+    });
+  }
+  return facts;
+}
+
+/** The same breakdown as one string, for a `title` on the figure itself. */
+export function attendanceTitle(a: AttendanceSummary): string {
+  return attendanceFacts(a)
+    .map((f) => `${f.label}: ${f.value}${f.note ? ` (${f.note})` : ""}`)
+    .join(" · ");
 }
 
 /**
@@ -81,11 +127,31 @@ export function summarizePerformance(
   if (rows.length === 0) return undefined;
   const prep = policy.preparation;
 
+  /*
+   * Pulls the preparation figures are measured over.
+   *
+   * The council can excuse whole encounters — last phase's raid, cleared on the
+   * way past, that nobody is asked to flask for. Those pulls still parse, still
+   * count as showing up, and still cost gold; they just stop being evidence
+   * about whether somebody came prepared. When every pull in the set is
+   * excused the denominator would be zero, and a 0% nobody earned is worse
+   * than the honest answer, so the figures fall back to the whole set — the
+   * same reasoning as a factor with no data dropping out of an average.
+   */
+  const excusedEncounters = new Set(prep.excusedEncounters ?? []);
+  const preparedOn =
+    excusedEncounters.size === 0
+      ? rows
+      : (() => {
+          const kept = rows.filter((r) => !excusedEncounters.has(r.encounterName));
+          return kept.length > 0 ? kept : rows;
+        })();
+
   const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
   const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
-  const flaskOrElixirs = rows.filter((r) => hasConsumableCoverage(r, prep)).length;
-  const fed = rows.filter((r) => hasFood(r)).length;
-  const prepared = rows.filter((r) => isPrepared(r, prep)).length;
+  const flaskOrElixirs = preparedOn.filter((r) => hasConsumableCoverage(r, prep)).length;
+  const fed = preparedOn.filter((r) => hasFood(r)).length;
+  const prepared = preparedOn.filter((r) => isPrepared(r, prep)).length;
   const potionsTotal = rows.reduce((sum, r) => sum + potionsUsed(r), 0);
   // Callers pass rows in chronological order — the last row is the latest pull.
   const latest = rows.at(-1);
@@ -100,16 +166,16 @@ export function summarizePerformance(
     medianBracket: median(brackets),
     role: dominant<WclRole>(rows.map((r) => r.role)) ?? "dps",
     spec: dominant(rows.map((r) => r.spec)),
-    flaskOrElixirsPct: pct(flaskOrElixirs, rows.length),
+    flaskOrElixirsPct: pct(flaskOrElixirs, preparedOn.length),
     // The two halves of that number, kept apart. A flask lasts the night and
     // survives a death; a single cheap elixir does neither, and lumping them
     // together hides the difference between the raider who buys a 100g flask
     // every week and the one who drinks an Elixir of Mastery on pull one.
-    flaskPct: pct(rows.filter((r) => r.flask !== undefined).length, rows.length),
-    elixirsPct: pct(rows.filter((r) => r.elixirs.length >= 1).length, rows.length),
-    foodPct: pct(fed, rows.length),
-    weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
-    preparedPct: pct(prepared, rows.length),
+    flaskPct: pct(preparedOn.filter((r) => r.flask !== undefined).length, preparedOn.length),
+    elixirsPct: pct(preparedOn.filter((r) => r.elixirs.length >= 1).length, preparedOn.length),
+    foodPct: pct(fed, preparedOn.length),
+    weaponBuffPct: pct(preparedOn.filter((r) => r.weaponBuff).length, preparedOn.length),
+    preparedPct: pct(prepared, preparedOn.length),
     potionsTotal,
     potionsPerFight: rows.length === 0 ? 0 : Math.round((potionsTotal / rows.length) * 10) / 10,
     prepots: rows.filter((r) => r.prepot).length,

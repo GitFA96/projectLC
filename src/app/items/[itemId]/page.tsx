@@ -4,6 +4,7 @@ import { format, parseISO } from "date-fns";
 import { ExternalLink } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import Link from "next/link";
+import { ItemCurationEditor } from "@/components/loot/item-curation-editor";
 import { ItemPriorityEditor } from "@/components/loot/priority-editor";
 import { AwardDecisionNote } from "@/components/loot/award-decision";
 import { ItemComments, type ItemCommentTarget } from "@/components/loot/item-comments";
@@ -11,7 +12,7 @@ import { buildAwardContext, buildAwardTarget } from "@/lib/loot/award-context";
 import { QUALITY_TEXT_COLORS, SLOT_LABELS, wowheadItemUrl, type SlotId } from "@/lib/constants/wow";
 import { ItemIcon } from "@/components/item-icon";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
-import { AwardItemButton } from "@/components/award-item-controls";
+import { AwardItemButton, AwardToAnyoneButton } from "@/components/award-item-controls";
 import {
   ContenderTable,
   PriorityScore,
@@ -60,12 +61,14 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
   if (!Number.isInteger(itemId) || itemId <= 0) notFound();
 
   const repo = await getRepo();
-  const [contention, guild, sessions, weights, comments] = await Promise.all([
+  const [contention, guild, sessions, weights, comments, roster, allItems] = await Promise.all([
     repo.getItemContention(itemId),
     repo.getGuild(),
     repo.listRaidSessions(),
     repo.getLootPriorityWeights(),
     repo.listItemComments(itemId),
+    repo.listCharacters(),
+    repo.listItems(),
   ]);
   if (!contention) notFound();
   const { item, itemName, wishers, awards, openCount } = contention;
@@ -80,6 +83,15 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
     if (a.character) commentTargetsById.set(a.character.id, { id: a.character.id, name: a.character.name });
   }
   const commentTargets = [...commentTargetsById.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Zones the cache already uses, so a hand-curated source spells them the
+  // same way the loot plan groups them.
+  const knownZones = [...new Set(allItems.map((i) => i.source?.zone).filter((z): z is string => !!z))].sort();
+
+  // Every character, not just the ones who wanted it — see AwardToAnyoneButton.
+  const awardCandidates = roster
+    .map((r) => ({ id: r.character.id, name: r.character.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const contenders: ContenderView[] = await Promise.all(
     wishers.map(async (w) => ({
@@ -126,7 +138,12 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
                 {item.source.zone}
               </span>
             )}
-            {item?.phase && <Badge variant="secondary">P{item.phase}</Badge>}
+            <ItemCurationEditor
+              itemId={itemId}
+              phase={item?.phase}
+              source={item?.source}
+              knownZones={knownZones}
+            />
             <a
               href={wowheadItemUrl(itemId)}
               target="_blank"
@@ -236,8 +253,16 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
       />
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Award history</CardTitle>
+          {/* The contenders above can be awarded from their own rows. This is
+              for everyone else: a drop Gargul missed, or a piece won in a raid
+              this tracker never saw. */}
+          <AwardToAnyoneButton
+            target={buildAwardTarget(guild, sessions)}
+            candidates={awardCandidates}
+            prefill={prefill}
+          />
         </CardHeader>
         <CardContent>
           {awards.length === 0 ? (

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   ENCHANTABLE_GEAR_SLOTS,
+  FLASK_BUFF_IDS,
   WEAPON_GEAR_SLOTS,
   classifyAura,
   classifyCast,
@@ -837,6 +838,72 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   };
   ingestUptime(events.debuffs ?? []);
   ingestUptime(events.buffs ?? []);
+
+  /*
+   * 5b. Flasks the pull-time snapshot cannot see.
+   *
+   * Every other flask is read off `combatantinfo` in step 3, because that is
+   * where a buff already running at the pull shows up. The Unstable Flasks are
+   * not in it — Warcraft Logs omits them — so a raider who drank one before the
+   * pull graded as having no flask at all, on the preparation column that feeds
+   * the loot score. They arrive as apply/remove buff events instead.
+   *
+   * So: build each raider's flask intervals across the whole night, then stamp
+   * any pull whose START falls inside one. Deliberately not a duration
+   * calculation — the log says when the aura ended, and an assumed two hours
+   * would be a guess that outlives the evidence. An aura still up when the log
+   * stops simply runs to the end.
+   *
+   * Never overwrites a flask the snapshot already found: that one is a direct
+   * observation at the pull, and this is an inference between two events.
+   */
+  const flaskSpans = new Map<string, { from: number; to: number; label: string }[]>();
+  const openFlask = new Map<string, { from: number; label: string }>();
+  for (const rawEvent of events.buffs ?? []) {
+    const parsed = rawAuraEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    const abilityId = event.abilityGameID ?? event.ability?.guid;
+    const label = abilityId === undefined ? undefined : FLASK_BUFF_IDS.get(abilityId);
+    if (!label || event.targetID === undefined) continue;
+    // The flask is on whoever it landed on, not whoever the event is sourced
+    // from — a raider drinking one is both, but only the target is meaningful.
+    const target = actorById.get(event.targetID);
+    if (!target) continue;
+    const key = `${target.name}|${label}`;
+    if (event.type === "removebuff") {
+      const open = openFlask.get(key);
+      if (open) {
+        const spans = flaskSpans.get(target.name) ?? [];
+        spans.push({ from: open.from, to: event.timestamp, label });
+        flaskSpans.set(target.name, spans);
+        openFlask.delete(key);
+      }
+      continue;
+    }
+    if (event.type.startsWith("apply") || event.type.startsWith("refresh")) {
+      // A refresh with nothing open means it was drunk before the log started.
+      if (!openFlask.has(key)) openFlask.set(key, { from: event.timestamp, label });
+    }
+  }
+  // Anything still up when the night ended stays up to the end of the night.
+  for (const [key, open] of openFlask) {
+    const name = key.slice(0, key.lastIndexOf("|"));
+    const spans = flaskSpans.get(name) ?? [];
+    spans.push({ from: open.from, to: Number.POSITIVE_INFINITY, label: open.label });
+    flaskSpans.set(name, spans);
+  }
+  if (flaskSpans.size > 0) {
+    for (const row of rows.values()) {
+      if (row.flask !== undefined) continue;
+      const fight = fights.find((f) => f.id === row.fightId);
+      if (!fight) continue;
+      const span = flaskSpans
+        .get(row.actorName)
+        ?.find((s) => s.from <= fight.startTime && fight.startTime < s.to);
+      if (span) row.flask = span.label;
+    }
+  }
 
   // Close intervals still open at the fight end, then group each player's
   // accumulators per track. The headline pct stays the best single target

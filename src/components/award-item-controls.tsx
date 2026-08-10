@@ -24,15 +24,28 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Handing an item to a character by hand — from a wishlist row, or from the
- * loot history for anything not on a list. Writes a normal loot award, so
- * everything derived from loot (wishlist status, fairness, contention) follows
- * without a second source of truth.
+ * Handing an item to a character by hand — from a wishlist row, from the loot
+ * history for anything not on a list, or from the item itself. Writes a normal
+ * loot award, so everything derived from loot (wishlist status, fairness,
+ * contention) follows without a second source of truth.
+ *
+ * The winner is either decided by where the button sits (a wishlist row knows
+ * whose it is) or chosen in the dialog. The second case is not a convenience:
+ * an item's page lists the people who *wanted* it, and the awards that go
+ * missing are precisely the ones that went to somebody who didn't — a drop
+ * Gargul never saw, or a piece won in another raid. A picker that only offered
+ * the contenders would be unable to record exactly those.
  */
 
 export interface AwardSessionOption {
   id: string;
   label: string;
+}
+
+/** One possible winner, when the dialog is the thing that picks. */
+export interface AwardCandidate {
+  id: string;
+  name: string;
 }
 
 export interface AwardContext {
@@ -52,12 +65,16 @@ const NEW_SESSION = "__new__";
 function AwardDialog({
   ctx,
   prefill,
+  candidates,
   onClose,
 }: {
   ctx: AwardContext;
   prefill?: ItemRef;
+  /** When given, the winner is chosen here instead of fixed by the caller. */
+  candidates?: AwardCandidate[];
   onClose: () => void;
 }) {
+  const [characterId, setCharacterId] = React.useState(ctx.characterId);
   const [itemIdText, setItemIdText] = React.useState(prefill ? String(prefill.itemId) : "");
   const [itemName, setItemName] = React.useState(prefill?.name ?? "");
   const [sessionValue, setSessionValue] = React.useState(ctx.sessions[0]?.id ?? NEW_SESSION);
@@ -73,12 +90,16 @@ function AwardDialog({
   const creatingSession = sessionValue === NEW_SESSION;
 
   const submit = () => {
+    if (!characterId) {
+      setError("Pick who won it.");
+      return;
+    }
     if (!validItem) {
       setError("Enter the item's id — the number in its Wowhead link.");
       return;
     }
     const input: AwardItemInput = {
-      characterId: ctx.characterId,
+      characterId,
       itemId,
       itemName: itemName.trim() || undefined,
       offspec,
@@ -96,13 +117,31 @@ function AwardDialog({
     <Modal
       open
       onClose={onClose}
-      title={`Award an item to ${ctx.characterName}`}
+      title={candidates ? "Award this item" : `Award an item to ${ctx.characterName}`}
       description="Records a normal loot award — it shows up in the ledger, the wishlist status and the fairness counts."
     >
       <div className="space-y-3">
         {prefill && (
           <div className="rounded-md border bg-muted/40 p-2">
             <ItemLink item={prefill} />
+          </div>
+        )}
+
+        {candidates && (
+          <div>
+            <Label>Winner</Label>
+            <Select value={characterId} onValueChange={(v) => { setCharacterId(v); setError(null); }}>
+              <SelectTrigger className="mt-1 w-full">
+                <SelectValue placeholder="Pick a raider" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -203,7 +242,7 @@ function AwardDialog({
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button size="sm" onClick={submit} disabled={pending || !validItem}>
+          <Button size="sm" onClick={submit} disabled={pending || !validItem || !characterId}>
             {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {pending ? "Awarding…" : "Award item"}
           </Button>
@@ -240,6 +279,60 @@ export function AwardItemButton({
         {label}
       </Button>
       {open && <AwardDialog ctx={ctx} prefill={prefill} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/**
+ * Award this item to anyone on the roster.
+ *
+ * The counterpart to `AwardItemButton`: same dialog, same write, but the
+ * winner is chosen rather than implied. Lives where an officer is looking at
+ * one item and needs to record that it went to somebody the app doesn't
+ * already associate with it.
+ */
+export function AwardToAnyoneButton({
+  target,
+  candidates,
+  prefill,
+  label = "Award to…",
+  variant = "outline",
+  className,
+}: {
+  /** Everything about the award except who won it. */
+  target: Omit<AwardContext, "characterId" | "characterName">;
+  candidates: AwardCandidate[];
+  prefill?: ItemRef;
+  label?: string;
+  variant?: "outline" | "default" | "ghost";
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <Button
+        variant={variant}
+        size="sm"
+        className={cn("h-7 gap-1 px-2 text-xs", className)}
+        onClick={() => setOpen(true)}
+        disabled={candidates.length === 0}
+        title={
+          candidates.length === 0
+            ? "No characters on the roster yet"
+            : "Record this item going to any raider — including someone who never wishlisted it"
+        }
+      >
+        <Gift className="h-3.5 w-3.5" />
+        {label}
+      </Button>
+      {open && (
+        <AwardDialog
+          ctx={{ ...target, characterId: "", characterName: "" }}
+          candidates={candidates}
+          prefill={prefill}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }

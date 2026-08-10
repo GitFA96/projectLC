@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeItemContention } from "@/lib/analysis/contention";
+import { tokenRedemptions, type TokenRedemptions } from "@/lib/items/tier-tokens";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type { AwardWithContext, Character, CharacterStatus, GearSet } from "@/lib/types";
 
@@ -65,18 +66,22 @@ function contention(opts: {
   gearSets: GearSet[];
   alternatives?: WishlistAlternative[];
   awards?: AwardWithContext[];
+  /** The drop being argued over. Defaults to ITEM. */
+  itemId?: number;
+  redemptions?: TokenRedemptions;
 }) {
   const gearSetsByCharacter = new Map<string, GearSet[]>();
   for (const set of opts.gearSets) {
     gearSetsByCharacter.set(set.characterId, [...(gearSetsByCharacter.get(set.characterId) ?? []), set]);
   }
   return computeItemContention({
-    itemId: ITEM,
+    itemId: opts.itemId ?? ITEM,
     characters: opts.characters,
     gearSetsByCharacter,
     awards: opts.awards ?? [],
     activePhase: 2,
     alternatives: opts.alternatives,
+    redemptions: opts.redemptions,
   });
 }
 
@@ -246,5 +251,95 @@ describe("computeItemContention — was it on their list at all", () => {
         expect(a.notListed, `${w.character.name} / ${a.itemName}`).toBe(true);
       }
     }
+  });
+});
+
+describe("computeItemContention — armor tokens", () => {
+  /** The token, and the two class pieces it buys. */
+  const TOKEN = 30242;
+  const HELM_A = 30146;
+  const HELM_B = 30166;
+  const redemptions = tokenRedemptions([
+    { id: HELM_A, redeemsFrom: TOKEN },
+    { id: HELM_B, redeemsFrom: TOKEN },
+    { id: ITEM },
+  ]);
+
+  it("puts everyone who listed a piece on the token's board", () => {
+    // Before this, a tier token's page found nobody at all: no wishlist names
+    // the token, so the loot plan called the drop unwanted.
+    const are = character("Are");
+    const bo = character("Bo");
+    const view = contention({
+      itemId: TOKEN,
+      redemptions,
+      characters: [are, bo],
+      gearSets: [wishlist(are.id, HELM_A, "head"), wishlist(bo.id, HELM_B, "head")],
+    });
+    expect(view.wishers.map((w) => w.character.name).sort()).toEqual(["Are", "Bo"]);
+    expect(view.wishers.every((w) => w.listRank === 0)).toBe(true);
+  });
+
+  it("leaves out a raider who listed nothing the token buys", () => {
+    const are = character("Are");
+    const view = contention({
+      itemId: TOKEN,
+      redemptions,
+      characters: [are],
+      gearSets: [wishlist(are.id, ITEM)],
+    });
+    expect(view.wishers).toEqual([]);
+  });
+
+  it("shows the token award on the page of the piece it bought", () => {
+    const are = character("Are");
+    const view = contention({
+      itemId: HELM_A,
+      redemptions,
+      characters: [are],
+      gearSets: [wishlist(are.id, HELM_A, "head")],
+      awards: [award(are.id, TOKEN)],
+    });
+    expect(view.awards.map((a) => a.award.itemId)).toEqual([TOKEN]);
+    expect(view.wishers[0].satisfied).toBe(true);
+  });
+
+  it("counts a token win as loot they asked for, not loot they were handed", () => {
+    // The fairness bug this whole feature exists for. `offListDrop` is zero by
+    // council decision, so an award read as off-list costs the winner nothing
+    // — and every tier token was read that way.
+    const are = character("Are");
+    const opts = {
+      characters: [are],
+      gearSets: [wishlist(are.id, ITEM), wishlist(are.id, HELM_A, "head")],
+      awards: [award(are.id, TOKEN)],
+    };
+    const [won] = contention({ ...opts, redemptions }).wishers[0].awardsThisPhase;
+    expect(won.notListed).toBe(false);
+    expect(won.listRank).toBe(0);
+    // And it fills a slot, which a token with no slot of its own never could.
+    expect(won.slot).toBe("head");
+
+    const unmapped = contention(opts).wishers[0].awardsThisPhase[0];
+    expect(unmapped.notListed).toBe(true);
+    expect(unmapped.slot).toBeUndefined();
+  });
+
+  it("settles the token for a raider already wearing the piece", () => {
+    const are = character("Are");
+    const worn: GearSet = {
+      ...wishlist(are.id, HELM_A, "head"),
+      id: "gs-current",
+      kind: "current",
+      phase: undefined,
+    };
+    const view = contention({
+      itemId: TOKEN,
+      redemptions,
+      characters: [are],
+      gearSets: [wishlist(are.id, HELM_A, "head"), worn],
+    });
+    expect(view.wishers[0].satisfied).toBe(true);
+    expect(view.openCount).toBe(0);
   });
 });

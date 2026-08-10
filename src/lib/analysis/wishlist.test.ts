@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeWishlistRows } from "@/lib/analysis/wishlist";
+import { computeWishlistRows, matchAwardToWishlists } from "@/lib/analysis/wishlist";
+import { tokenRedemptions } from "@/lib/items/tier-tokens";
 import type { GearSet, LootAward, SlotId } from "@/lib/types";
 
 /** A set with just the slots a test cares about. */
@@ -80,5 +81,86 @@ describe("computeWishlistRows", () => {
     const head = rows.find((r) => r.slot === "head")!;
     expect(head.state).toBe("awarded");
     expect(head.awardId).toBe(`aw-${HELM}`);
+  });
+});
+
+describe("armor tokens", () => {
+  // The token that buys HELM. Nothing about the ids says so — the edge comes
+  // off Wowhead's vendor listing and is stored on the piece.
+  const TOKEN = 30242;
+  const redemptions = tokenRedemptions([
+    { id: HELM, redeemsFrom: TOKEN },
+    { id: BELT },
+  ]);
+  const wishlist = set("wishlist", [
+    { slot: "head", itemId: HELM },
+    { slot: "waist", itemId: BELT },
+  ]);
+
+  it("satisfies the slot the moment the token is won", () => {
+    // The walk to the Shattrath vendor is the raider's errand, not a loot
+    // decision — the council settled this: the slot is served at the boss.
+    const rows = computeWishlistRows(wishlist, undefined, [award(TOKEN)], [], redemptions);
+    const head = rows.find((r) => r.slot === "head")!;
+    expect(head.state).toBe("awarded");
+    expect(head.awardId).toBe(`aw-${TOKEN}`);
+  });
+
+  it("says what was actually handed over, because the ledger names the token", () => {
+    const rows = computeWishlistRows(wishlist, undefined, [award(TOKEN)], [], redemptions);
+    expect(rows.find((r) => r.slot === "head")!.awardedVia).toEqual({
+      itemId: TOKEN,
+      itemName: `Item ${TOKEN}`,
+    });
+    // Won as the piece itself: nothing to explain.
+    const direct = computeWishlistRows(wishlist, undefined, [award(HELM)], [], redemptions);
+    expect(direct.find((r) => r.slot === "head")!.awardedVia).toBeUndefined();
+  });
+
+  it("does not spill onto the other slots the token could have bought", () => {
+    const rows = computeWishlistRows(wishlist, undefined, [award(TOKEN)], [], redemptions);
+    expect(rows.find((r) => r.slot === "waist")!.state).toBe("open");
+  });
+
+  it("leaves an off-spec token award where an off-spec award has always sat", () => {
+    const rows = computeWishlistRows(
+      wishlist,
+      undefined,
+      [award(TOKEN, { offspec: true })],
+      [],
+      redemptions,
+    );
+    expect(rows.find((r) => r.slot === "head")!.state).toBe("open");
+  });
+
+  it("changes nothing until the mapping has been backfilled", () => {
+    const rows = computeWishlistRows(wishlist, undefined, [award(TOKEN)], []);
+    expect(rows.find((r) => r.slot === "head")!.state).toBe("open");
+  });
+});
+
+describe("matchAwardToWishlists", () => {
+  const TOKEN = 30242;
+  const redemptions = tokenRedemptions([{ id: HELM, redeemsFrom: TOKEN }]);
+  const wishlist = set("wishlist", [{ slot: "head", itemId: HELM }]);
+
+  it("counts a token as a match, and names the piece it buys", () => {
+    // The name is the whole point of reporting it separately: an officer
+    // looking at an off-spec token win needs to see what they'd have got.
+    const match = matchAwardToWishlists(award(TOKEN), [wishlist], redemptions);
+    expect(match.matched).toBe(true);
+    expect(match.phases).toEqual([3]);
+    expect(match.redeemsTo).toEqual({ itemId: HELM, itemName: `Item ${HELM}` });
+  });
+
+  it("leaves redeemsTo empty when they won the item itself", () => {
+    const match = matchAwardToWishlists(award(HELM), [wishlist], redemptions);
+    expect(match.matched).toBe(true);
+    expect(match.redeemsTo).toBeUndefined();
+  });
+
+  it("does not match a token nobody's list has a piece for", () => {
+    const other = set("wishlist", [{ slot: "waist", itemId: BELT }]);
+    expect(matchAwardToWishlists(award(TOKEN), [other], redemptions).matched).toBe(false);
   });
 });

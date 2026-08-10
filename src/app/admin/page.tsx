@@ -60,7 +60,7 @@ export default async function AdminPage() {
           }
           note={
             gaps > 0
-              ? `${gaps} id${gaps === 1 ? "" : "s"} the cache still can't name — they show as bare numbers until resolved`
+              ? `${gaps} id${gaps === 1 ? "" : "s"} the cache can't name or hasn't confirmed against Wowhead`
               : undefined
           }
         />

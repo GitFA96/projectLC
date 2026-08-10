@@ -77,6 +77,44 @@ export async function setFeedbackStatus(input: {
   }
 }
 
+const triageSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(["open", "resolved"]).optional(),
+  priority: z.enum(["unset", "minor", "major"]).optional(),
+  /** An empty string is a real value here — it clears the note. */
+  adminNote: z.string().max(2000).optional(),
+});
+
+/**
+ * Triage a report: how much it matters, and what the officer decided about it.
+ *
+ * Deliberately cannot touch `body`, `route`, `url` or `context` — the report is
+ * the record of what somebody saw, and a triage tool that could rewrite it
+ * would leave nothing worth reading back a month later. The officer's own words
+ * go in `adminNote`, beside the reporter's rather than over them.
+ */
+export async function setFeedbackTriage(input: {
+  id: string;
+  status?: "open" | "resolved";
+  priority?: "unset" | "minor" | "major";
+  adminNote?: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  const parsed = triageSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid triage." };
+  }
+  const { id, ...triage } = parsed.data;
+  try {
+    const repo = await getWriteRepo();
+    const changed = await repo.setFeedbackTriage(id, triage);
+    if (!changed) return { ok: false, message: "Report not found — it may already be gone." };
+    refreshAfterWrite("/admin/feedback", "page");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not update the report." };
+  }
+}
+
 export async function deleteFeedback(input: { id: string }): Promise<{ ok: boolean; message?: string }> {
   if (!input.id) return { ok: false, message: "Missing report id." };
   try {

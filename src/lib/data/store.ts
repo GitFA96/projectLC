@@ -6,6 +6,7 @@ import {
 } from "@/lib/analysis/wishlist";
 import { emptyBoard, type Board, type GuildRoster } from "@/lib/analysis/raid-planner";
 import { computeItemContention } from "@/lib/analysis/contention";
+import { tokenRedemptions } from "@/lib/items/tier-tokens";
 import { buildRosterStanding } from "@/lib/analysis/standing";
 import { buildDevelopmentSeries, parseTrend } from "@/lib/analysis/development";
 import { buildLootPlan } from "@/lib/analysis/loot-plan";
@@ -69,7 +70,7 @@ import type {
   WclReport,
   WclReportView,
 } from "@/lib/types";
-import type { Repo } from "@/lib/data/repo";
+import type { Repo, TokenBackfillQueue } from "@/lib/data/repo";
 
 /**
  * The plain entities a backend loads (seed JSON or SQLite rows). All derived
@@ -329,6 +330,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     itemCommentsByItem.set(c.itemId, list);
   }
   const itemsById = new Map(items.map((i) => [i.id, i]));
+  // Which armor token buys which tier piece. Read once here and handed to
+  // every reader that has to treat a token win as the piece it buys — see
+  // lib/items/tier-tokens for why the edge is stored on the piece.
+  const redemptions = tokenRedemptions(items);
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
   // Pinned slots, per character, in canonical slot order — split by which kit
   // they belong to. Only the main-spec pins reach the derived read model:
@@ -392,7 +397,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         character,
         item: itemsById.get(award.itemId),
         wishlist: character
-          ? matchAwardToWishlists(award, wishlistsOf(character.id))
+          ? matchAwardToWishlists(award, wishlistsOf(character.id), redemptions)
           : { matched: false, phases: [] },
       } satisfies AwardWithContext;
     })
@@ -407,7 +412,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     const myAwards = awardsWithContext.filter((a) => a.award.characterId === character.id);
     const completionByPhase = wishlistsOf(character.id).map((set) => ({
       phase: set.phase!,
-      completion: computeCompletion(computeWishlistRows(set, current, awardsOf(character.id))),
+      completion: computeCompletion(
+        computeWishlistRows(set, current, awardsOf(character.id), [], redemptions),
+      ),
     }));
     const last = myAwards[0]?.award.awardedAt;
     // Resolve the alt→main link to a display name (only when it's a valid link).
@@ -535,6 +542,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       activePhase: guild.activePhase,
       metricsOf: raiderMetricsOf,
       alternatives: config.wishlistAlternatives,
+      redemptions,
       priorityRule: priorityRuleFor(
         itemId,
         item?.name,
@@ -732,9 +740,24 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return series;
   }
 
+  /**
+   * Is this pull one the officer took out of the count?
+   *
+   * The excluded set is per report and is edited on the raid page. It used to
+   * reach `getRaidReport` and nothing else, which meant excusing the farm boss
+   * cleaned up that night's numbers and left the same pulls scoring against
+   * every raider on their own page, on the standing board and in the loot
+   * score. One switch, one meaning: everything derived from a pull reads this.
+   */
+  function isExcusedPull(row: WclPlayerFight): boolean {
+    return config.excludedFightsByCode?.[row.reportCode]?.includes(row.fightId) ?? false;
+  }
+
   function careerRowsOf(characterId: string): WclPlayerFight[] {
     const chronologicalReports = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
-    const mine = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
+    const mine = wclPlayerFights.filter(
+      (r) => wclRowCharacterId(r) === characterId && !isExcusedPull(r),
+    );
     return chronologicalReports.flatMap((report) =>
       mine.filter((r) => r.reportCode === report.code).sort((a, b) => a.fightId - b.fightId),
     );
@@ -781,6 +804,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           (config.wishlistAlternatives ?? []).filter(
             (a) => a.characterId === character.id && a.phase === set.phase,
           ),
+          redemptions,
         );
         return {
           phase: set.phase!,
@@ -829,15 +853,22 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     },
 
     async listFeedback(): Promise<FeedbackReport[]> {
-      // Open first, then newest — triage reads top-down and closed reports are
-      // kept only so a fixed bug can be told apart from one nobody looked at.
-      return [...feedback].sort((a, b) =>
-        a.status === b.status
-          ? b.createdAt.localeCompare(a.createdAt)
-          : a.status === "open"
-            ? -1
-            : 1,
-      );
+      /*
+       * Open first, then by how much it matters, then newest.
+       *
+       * Triage reads top-down, and closed reports are kept only so a fixed bug
+       * can be told apart from one nobody looked at. Within the open ones,
+       * "major" outranks "minor" — but an untriaged report sits between them
+       * rather than at the bottom: it is the one thing on the page that still
+       * needs a judgement, and burying it under everything already judged is
+       * how a list like this stops being read.
+       */
+      const rank: Record<FeedbackReport["priority"], number> = { major: 0, unset: 1, minor: 2 };
+      return [...feedback].sort((a, b) => {
+        if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+        if (rank[a.priority] !== rank[b.priority]) return rank[a.priority] - rank[b.priority];
+        return b.createdAt.localeCompare(a.createdAt);
+      });
     },
 
     async listItemDemand(): Promise<ItemDemand[]> {
@@ -919,6 +950,30 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       });
     },
 
+    async listUnmatchedSheetNames(): Promise<string[]> {
+      const known = new Set<string>();
+      for (const item of items) {
+        if (item.name) known.add(normalizeItemName(item.name));
+      }
+      const missing = new Map<string, string>();
+      // Every phase, not just the active one: a sheet the guild wrote for next
+      // tier is exactly the one nobody has wishlisted out of yet, so it is the
+      // one with the most unmatched rows.
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) {
+          const key = normalizeItemName(rule.itemName);
+          if (!known.has(key) && !missing.has(key)) missing.set(key, rule.itemName);
+        }
+      }
+      return [...missing.values()].sort((a, b) => a.localeCompare(b));
+    },
+
+    async listEncounterNames(): Promise<string[]> {
+      return [...new Set(wclPlayerFights.map((r) => r.encounterName))].sort((a, b) =>
+        a.localeCompare(b),
+      );
+    },
+
     async getReportExcludedFights(code: string): Promise<number[]> {
       return config.excludedFightsByCode?.[code] ?? [];
     },
@@ -996,7 +1051,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
      */
     async measureRoster() {
       return roster
-        .filter((c) => c.status === "main" || c.status === "alt")
+        // Trials are measured like anyone else — deciding whether to keep one
+        // is exactly what this board is for.
+        .filter((c) => c.status === "main" || c.status === "trial" || c.status === "alt")
         .map((character) => {
           const rows = careerRowsOf(character.id);
           const career = summarizePerformance(rows, policy);
@@ -1030,8 +1087,17 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         overrides: config.itemPriorityRules ?? {},
         itemIdFor: (name) => idByName.get(normalizeItemName(name)),
       });
+      // Icon and quality for the rows whose name the cache matched, so the
+      // sheet renders items the way every other list does. Done here, not in
+      // the builder: the builder is pure and only ever sees names.
+      const withItem = <T extends { itemId?: number }>(row: T): T => {
+        const item = row.itemId === undefined ? undefined : itemsById.get(row.itemId);
+        return item ? { ...row, quality: item.quality, icon: item.icon } : row;
+      };
       return {
         ...view,
+        sections: view.sections.map((s) => ({ ...s, rows: s.rows.map(withItem) })),
+        unlisted: view.unlisted.map(withItem),
         phase: forPhase,
         origin: stored
           ? ("pasted" as const)
@@ -1086,6 +1152,57 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([id]) => id);
     },
 
+    async listTokenBackfill(): Promise<TokenBackfillQueue> {
+      // An armor token is the one drop that isn't the thing anyone wants, and
+      // the cache can't tell one apart from a name. Wowhead can — it files
+      // them under a subclass of their own — so this is two queues, in the
+      // order the two Wowhead calls have to happen:
+      //
+      //   unchecked          ids that might be tokens; one cheap XML each.
+      //   tokensWithoutPieces  known tokens; one page each, for the vendor list.
+      //
+      // Candidates are every row Wowhead has confirmed that no gear set names.
+      // That test is structural rather than a guess about names: a token can't
+      // be equipped, so nothing that exports a gear set can ever name one, and
+      // an id somebody wishlisted is provably not a token. A row nothing has
+      // verified belongs to the item resolver's queue first.
+      //
+      // Deliberately NOT "has no slot", though a token has none. The shipped
+      // seed invented slots for a dozen of them, and a queue that trusted the
+      // slot skipped exactly the rows that were wrong.
+      const buysSomething = new Set<number>();
+      for (const item of items) {
+        if (item.redeemsFrom !== undefined) buysSomething.add(item.redeemsFrom);
+      }
+      // Order decides what a capped press spends itself on, so: loot the guild
+      // actually won first (a token in the ledger has awards waiting on it),
+      // then the rows with no slot (what a token looks like when the seed
+      // didn't touch it), then everything else. The tail is mostly gems and
+      // consumables — each costs one lookup, once, and is then answered
+      // forever, so leaving it undrained costs nothing.
+      const awarded = new Set(lootAwards.map((a) => a.itemId));
+      const rank = (id: number): number =>
+        awarded.has(id) ? 0 : itemsById.get(id)?.slot == null ? 1 : 2;
+      const byLikelihoodThenId = (a: number, b: number): number => rank(a) - rank(b) || a - b;
+
+      const equippable = new Set<number>();
+      for (const set of gearSets) for (const slot of set.slots) equippable.add(slot.itemId);
+
+      const unchecked: number[] = [];
+      const tokensWithoutPieces: number[] = [];
+      for (const item of items) {
+        if (item.armorToken === true) {
+          if (!buysSomething.has(item.id)) tokensWithoutPieces.push(item.id);
+        } else if (item.armorToken === undefined && item.verified && !equippable.has(item.id)) {
+          unchecked.push(item.id);
+        }
+      }
+      return {
+        unchecked: unchecked.sort(byLikelihoodThenId),
+        tokensWithoutPieces: tokensWithoutPieces.sort(byLikelihoodThenId),
+      };
+    },
+
     async listUnresolvedItemIds(): Promise<number[]> {
       // Ordered by how much a person is looking at them: loot history and
       // wishlists first (they carry the ledger), then anything else the cache
@@ -1105,16 +1222,43 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       for (const row of wclPlayerFights) {
         for (const item of row.gear) for (const gem of item.gems) bump(gem.id, 1);
       }
-      for (const item of items) {
-        if (item.name === undefined || item.icon === undefined) bump(item.id, 1);
-      }
+      // Every cached row is a candidate, because "has an icon" and "has the
+      // right icon" are different claims — see `needsResolving` below.
+      for (const item of items) bump(item.id, 1);
+
+      // A row with a hole in it reads as broken; a row Wowhead has never
+      // confirmed only *might* be wrong. Both need the same lookup, so the
+      // tier decides which the officer's next press spends itself on.
+      const INCOMPLETE = 1;
+      const UNVERIFIED = 0;
+      /*
+       * Verified, complete, and confirmed before the phase was read off
+       * Wowhead's answer.
+       *
+       * The XML carried the phase all along and it was thrown away, so every
+       * row resolved before that has a hole nothing else would ever ask about
+       * again. Keyed on `phaseChecked` rather than on the phase being missing:
+       * plenty of items have no phase tag, and queueing on the hole itself
+       * would re-ask about them every press for ever.
+       *
+       * Lowest tier on purpose — it is a nicety, and must never spend a capped
+       * run that a row with no name at all is waiting on.
+       */
+      const STALE_PHASE = -1;
+      const tierOf = (id: number): number | undefined => {
+        const item = itemsById.get(id);
+        if (item === undefined || item.name === undefined || item.icon === undefined) {
+          return INCOMPLETE;
+        }
+        if (!item.verified) return UNVERIFIED;
+        return item.phaseChecked ? undefined : STALE_PHASE;
+      };
+
       return [...references]
-        .filter(([id]) => {
-          const item = itemsById.get(id);
-          return item?.name === undefined || item.icon === undefined;
-        })
-        .sort((a, b) => b[1] - a[1] || a[0] - b[0])
-        .map(([id]) => id);
+        .map(([id, weight]) => ({ id, weight, tier: tierOf(id) }))
+        .filter((c): c is { id: number; weight: number; tier: number } => c.tier !== undefined)
+        .sort((a, b) => b.tier - a.tier || b.weight - a.weight || a.id - b.id)
+        .map((c) => c.id);
     },
 
     // Per-report prices are persisted config, not entity-store data — the
@@ -1194,12 +1338,16 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           const rows = myRows
             .filter((r) => r.reportCode === report.code)
             .sort((a, b) => a.fightId - b.fightId);
-          const summary = summarizePerformance(rows, policy);
+          // Excused pulls stay in `rows` — the table shows them, greyed — but
+          // never reach the summary, which is the figure the raider argues with.
+          const counted = rows.filter((r) => !isExcusedPull(r));
+          const summary = summarizePerformance(counted, policy);
           return summary
             ? {
                 report,
                 session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
                 rows,
+                excusedFightIds: rows.filter(isExcusedPull).map((r) => r.fightId),
                 summary,
                 offPull: myOffPull.find((o) => o.reportCode === report.code),
                 reportPulls: reportPulls.get(report.code) ?? rows.length,
@@ -1209,7 +1357,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         .filter((v): v is PerformanceReportView => v !== undefined);
       // Career rollup in chronological order (oldest report first) so
       // "latest pull" facts like the enchant audit come from the newest data.
-      const chronological = [...reports].reverse().flatMap((r) => r.rows);
+      const chronological = [...reports]
+        .reverse()
+        .flatMap((r) => r.rows.filter((row) => !isExcusedPull(row)));
       return {
         character,
         reports,
@@ -1314,11 +1464,15 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         .map((s) => s.completionByPhase.find((c) => c.phase === guild.activePhase)?.completion.pct)
         .filter((p): p is number => p !== undefined);
 
+      // Enough rows that the list answers "what are we going to argue about
+      // this tier", rather than naming the top few and stopping just as it
+      // gets interesting. Still a summary — /items is the whole set.
+      const CONTESTED_SHOWN = 12;
       const contested = [...wishlistedItemIds()]
         .map(contentionFor)
         .filter((c) => c.wishers.length >= 2)
         .sort((a, b) => b.openCount - a.openCount || b.wishers.length - a.wishers.length)
-        .slice(0, 5);
+        .slice(0, CONTESTED_SHOWN);
 
       // "All raids" plus one tab per phase that actually has awards.
       const phasesWithAwards = [...new Set(

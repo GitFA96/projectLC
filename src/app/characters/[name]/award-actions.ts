@@ -55,7 +55,7 @@ export async function awardItemAction(input: AwardItemInput): Promise<AwardActio
     if (isPlaceholderName(name)) {
       const { resolved } = await resolveItemsFromWowhead([itemId], { limit: 1 });
       if (resolved.length > 0) {
-        await repo.addItemsIfMissing(resolved);
+        await repo.saveResolvedItems(resolved);
         name = itemDisplayName(itemId, resolved[0].name);
       }
     }

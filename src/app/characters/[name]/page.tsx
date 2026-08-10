@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { Activity, GitCompareArrows, Pencil } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
-import { attendanceTitle } from "@/lib/analysis/performance";
+import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { buildLoggedGear, type LoggedGearReport } from "@/lib/analysis/logged-gear";
 import {
   LOGGED_GEAR_RAIDS,
@@ -35,6 +35,7 @@ import { CharacterComments } from "@/components/character-comments";
 import { AwardItemButton, type AwardContext } from "@/components/award-item-controls";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { OffSpecConflict } from "@/components/loot/offspec-conflict";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -196,6 +197,7 @@ export default async function CharacterPage({
             state: row.state,
             awardedAt: row.awardedAt,
             awardId: row.awardId,
+            awardedVia: row.awardedVia,
             alternatives: await Promise.all(
               row.alternatives.map(async (a) => ({
                 itemId: a.itemId,
@@ -336,11 +338,13 @@ export default async function CharacterPage({
             {summary.attendance && summary.attendance.raidsAttended > 0 && (
               <>
                 {" · "}
-                <span title={attendanceTitle(summary.attendance)}>
-                  raided {summary.attendance.weeksAttended}/{summary.attendance.weeksTracked} reset
-                  weeks <WeekDots weeks={summary.attendance.weeks} className="mx-1 align-middle" /> ·{" "}
-                  {summary.attendance.raidPct}% of logged raids
-                </span>
+                <AttendanceDetail attendance={summary.attendance} className="align-middle">
+                  <span>
+                    raided {summary.attendance.raidsAttended}/{summary.attendance.raidsTracked} logged
+                    raids ({summary.attendance.raidPct}%)
+                    <WeekDots weeks={summary.attendance.weeks} className="mx-1 align-middle" />
+                  </span>
+                </AttendanceDetail>
               </>
             )}
           </p>
@@ -547,9 +551,24 @@ export default async function CharacterPage({
                     </TableCell>
                     <TableCell>
                       {a.wishlist.matched ? (
-                        <Badge variant="success">
-                          {a.wishlist.phases.map((p) => `P${p}`).join(", ")} wishlist
-                        </Badge>
+                        <div className="flex flex-col items-start gap-0.5">
+                          <Badge
+                            variant="success"
+                            title={
+                              a.wishlist.redeemsTo
+                                ? `Buys ${a.wishlist.redeemsTo.itemName}, which is on their wishlist`
+                                : undefined
+                            }
+                          >
+                            {a.wishlist.phases.map((p) => `P${p}`).join(", ")} wishlist
+                          </Badge>
+                          <OffSpecConflict
+                            offspec={a.award.offspec}
+                            matched={a.wishlist.matched}
+                            phases={a.wishlist.phases}
+                            redeemsTo={a.wishlist.redeemsTo}
+                          />
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground/50">—</span>
                       )}

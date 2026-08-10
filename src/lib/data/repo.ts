@@ -6,6 +6,7 @@ import type { ClassGuide } from "@/lib/guides";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type { PolicyPreview, PolicyPreviewRow } from "@/lib/analysis/policy-preview";
 import type { AbilityInfo } from "@/lib/items/ability-data";
+import type { TokenRedemptionEdge } from "@/lib/items/tier-tokens";
 import type { RosterStanding } from "@/lib/analysis/standing";
 import type { LootPlan } from "@/lib/analysis/loot-plan";
 import type { DevelopmentSeries } from "@/lib/analysis/development";
@@ -23,6 +24,7 @@ import type {
   CurrentGearOverride,
   DashboardData,
   FeedbackKind,
+  FeedbackPriority,
   FeedbackReport,
   FeedbackStatus,
   GearOverrideSource,
@@ -35,6 +37,7 @@ import type {
   ItemPriorityRule,
   LootAward,
   LootPriorityWeights,
+  Phase,
   RaidReportView,
   RaidSession,
   SimSpecDetail,
@@ -55,6 +58,14 @@ import type {
  *    first boot, with full write support.
  *  - "seed": read-only in-memory demo serving the seed JSON directly.
  */
+/** The two work lists behind tier-token mapping — see `listTokenBackfill`. */
+export interface TokenBackfillQueue {
+  /** Cached ids that could be armor tokens, most-awarded first. */
+  unchecked: number[];
+  /** Known tokens whose vendor listing hasn't been read yet. */
+  tokensWithoutPieces: number[];
+}
+
 export interface Repo {
   getGuild(): Promise<Guild>;
   listCharacters(): Promise<CharacterSummary[]>;
@@ -129,6 +140,23 @@ export interface Repo {
   /** Every ability resolved from Wowhead so far (spells and items both). */
   listAbilities(): Promise<AbilityInfo[]>;
   /**
+   * Item names the priority sheets use that the cache can't match to an id.
+   *
+   * A council writes its sheet in names; everything else here is keyed by id,
+   * so these are the rows that render as plain text with no icon and no
+   * Wowhead hover. Feeding them to `resolveItemIdsByName` is what closes that
+   * gap — see the item resolver on the import page.
+   */
+  listUnmatchedSheetNames(): Promise<string[]>;
+  /**
+   * Every boss the imported logs have seen, alphabetically.
+   *
+   * The council excuses content by name (policy.preparation.excusedEncounters),
+   * and a list typed by hand is a list with a misspelling in it — so the choice
+   * is made from what the logs actually contain.
+   */
+  listEncounterNames(): Promise<string[]>;
+  /**
    * The pulls an officer excluded from a report's rollups (fight ids). Empty
    * means the whole night counts — see WriteRepo.setReportExcludedFights.
    */
@@ -144,6 +172,13 @@ export interface Repo {
    * list for the Wowhead resolver, most-referenced first.
    */
   listUnresolvedItemIds(): Promise<number[]>;
+  /**
+   * The two (bounded) work lists behind tier-token mapping, in the order the
+   * Wowhead calls have to happen: ids that might be armor tokens and nobody
+   * has asked about, then known tokens whose vendor listing hasn't been read.
+   * Both empty once the cache has been asked about everything it holds.
+   */
+  listTokenBackfill(): Promise<TokenBackfillQueue>;
   /**
    * What the guild's imported sets know about enchants: id → name (a
    * dictionary that works on every raider's logs) and the enchant each class's
@@ -371,9 +406,27 @@ export type AddCommentResult =
  * `kind` is optional because the schema defaults it to `bug` — the same default
  * that gives pre-`kind` rows their meaning.
  */
-export type FeedbackDraft = Omit<FeedbackReport, "id" | "createdAt" | "status" | "kind"> & {
+export type FeedbackDraft = Omit<
+  FeedbackReport,
+  "id" | "createdAt" | "status" | "kind" | "priority" | "adminNote"
+> & {
   kind?: FeedbackKind;
 };
+
+/**
+ * What a triager can change about a report. The reporter's own words aren't
+ * here: `body`, `route`, `url` and `context` are the record of what they saw,
+ * and a triage tool that could rewrite them would make the record worthless.
+ *
+ * Every field is optional and only the ones present are written, so setting a
+ * priority never clears a note somebody else just left.
+ */
+export interface FeedbackTriage {
+  status?: FeedbackStatus;
+  priority?: FeedbackPriority;
+  /** Empty string clears the note; undefined leaves it alone. */
+  adminNote?: string;
+}
 
 export type AddFeedbackResult =
   | { ok: true; report: FeedbackReport }
@@ -439,6 +492,14 @@ export interface WriteRepo extends Repo {
    * code defaults.
    */
   setGuildPolicy(overrides: PolicyOverrides): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Which phase the guild is raiding. Not cosmetic: it decides whether a rare
+   * gem is acceptable or behind the tier, which phase the loot sheet and the
+   * fairness panel open on, and what "current" means to every view that asks.
+   * Changing it re-reads all of those, which is exactly why it is worth being
+   * able to change and put back.
+   */
+  setActivePhase(phase: Phase): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Override one item's spec priority chain, keyed by item name so it covers
    * drops the item cache has never seen. An empty chain clears the override and
@@ -588,6 +649,11 @@ export interface WriteRepo extends Repo {
   addFeedback(draft: FeedbackDraft): Promise<AddFeedbackResult>;
   /** Open or close one report. Returns false when the id didn't exist. */
   setFeedbackStatus(id: string, status: FeedbackStatus): Promise<boolean>;
+  /**
+   * Triage one report — status, priority, the officer's note, in any
+   * combination. Returns false when the id didn't exist.
+   */
+  setFeedbackTriage(id: string, triage: FeedbackTriage): Promise<boolean>;
   /** Remove one report for good. Returns false when it didn't exist. */
   deleteFeedback(id: string): Promise<boolean>;
   /**
@@ -596,6 +662,42 @@ export interface WriteRepo extends Repo {
    * Returns how many items were created or learned something.
    */
   addItemsIfMissing(items: Item[]): Promise<number>;
+  /**
+   * Write what Wowhead itself said about these ids, overwriting the name,
+   * quality, icon and slot already cached and marking them verified.
+   *
+   * The counterpart to `addItemsIfMissing`, and the only writer allowed to
+   * overwrite: every other source is a guess, and a guess that outranks the
+   * authority is how a wrong icon becomes permanent. Zone and boss are still
+   * never touched — Wowhead's XML has no opinion on those, the guild does.
+   * Phase it does carry, so an empty phase is filled and a curated one is left
+   * exactly where the officer put it.
+   */
+  saveResolvedItems(items: Item[]): Promise<number>;
+  /**
+   * Record which armor token buys which tier piece, and mark those tokens as
+   * tokens. Overwrites: Wowhead's vendor listing is the only source for the
+   * edge, so an existing value is an older reading of the same page rather
+   * than an answer of the guild's to protect. Returns edges written.
+   */
+  saveTokenRedemptions(edges: TokenRedemptionEdge[]): Promise<number>;
+  /**
+   * The two things about an item only the guild can say: where it drops, and
+   * which tier that makes it. Wowhead has no opinion on either, so nothing can
+   * derive them and nothing may overwrite them.
+   *
+   * `null` on a field clears it, which is a real answer rather than a gap —
+   * the curated list shipped with 44 entries written against the wrong item id,
+   * and their zone and phase described something else entirely. No source
+   * reads better than a confident wrong one, and this is how it gets put back.
+   *
+   * Upserts, because the id on screen may be one the cache has never held —
+   * an officer looking at a bare id is exactly who needs to say what it is.
+   */
+  setItemCuration(
+    itemId: number,
+    curation: { phase: Phase | null; source: { zone: string; boss?: string } | null },
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Record enchant ids resolved to names. Ids already named are left alone;
    * returns how many rows were written.
@@ -607,6 +709,17 @@ export interface WriteRepo extends Repo {
    * network — this is data the database already holds, buried in per-row JSON.
    */
   harvestItemCache(): Promise<number>;
+  /**
+   * Re-apply the shipped drop table — zone, boss and phase — to cached items
+   * that have none. Gap-filling, so an officer's own curation always wins and
+   * nothing already answered is touched.
+   *
+   * It exists because the shipped list is the only place that knowledge lives,
+   * and a database seeded before it was corrected never sees an update to it.
+   * Wowhead can never supply this: it knows what an item is, not which tier
+   * this guild counts it as.
+   */
+  applyCuratedItemSources(): Promise<number>;
   /**
    * Replace the invented "Item #30048" names frozen into old loot rows with
    * the real name, once the cache knows it. Returns rows repaired.

@@ -131,7 +131,9 @@ export function formatReportForAgent(report: FeedbackReport): string {
   lines.push(`## ${KIND_HEADING[report.kind]}: ${title}`);
   lines.push("");
   lines.push(`- **Filed** ${report.createdAt}${report.reporter ? ` by ${report.reporter}` : ""}`);
-  lines.push(`- **Status** ${report.status}`);
+  lines.push(
+    `- **Status** ${report.status}${report.priority === "unset" ? "" : ` · **${report.priority}**`}`,
+  );
   lines.push(`- **Route** \`${report.route}\` — likely \`${likelyRouteFile(report.route)}\``);
   lines.push(`- **URL** ${report.url}`);
 
@@ -150,6 +152,15 @@ export function formatReportForAgent(report: FeedbackReport): string {
   lines.push("### What they wrote");
   lines.push("");
   lines.push(report.body.trim());
+
+  // The officer's note goes after, under its own heading — whoever picks this
+  // up has to be able to tell the decision from the complaint.
+  if (report.adminNote) {
+    lines.push("");
+    lines.push("### Officer note");
+    lines.push("");
+    lines.push(report.adminNote.trim());
+  }
 
   return lines.join("\n");
 }

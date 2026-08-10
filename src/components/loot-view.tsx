@@ -17,6 +17,7 @@ import {
   useSelection,
 } from "@/components/roster-actions";
 import { LootAwardDialog, type AwardDialogTarget } from "@/components/loot-award-dialog";
+import { OffSpecConflict } from "@/components/loot/offspec-conflict";
 import { deleteAwardsAction, deleteSessionAction, type LootActionResult } from "@/app/loot/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,9 +54,18 @@ export interface LootRow {
   offspec: boolean;
   matched: boolean;
   matchPhases: Phase[];
+  /** When an armor token was won: the wishlisted piece it buys. */
+  redeemsTo?: { itemId: number; itemName: string };
   note?: string;
   /** The board as it read when this was awarded. Absent = not from the ranking. */
   decision?: AwardDecision;
+}
+
+/** Why a token award counts as a wishlist match, said in full on hover. */
+function wishlistBadgeTitle(row: LootRow): string | undefined {
+  return row.redeemsTo
+    ? `Buys ${row.redeemsTo.itemName}, which is on their wishlist`
+    : undefined;
 }
 
 export interface SessionOption {
@@ -222,9 +232,17 @@ export function LootView({
         header: "Wishlist",
         cell: ({ row }) =>
           row.original.matched ? (
-            <Badge variant="success">
-              {row.original.matchPhases.map((p) => `P${p}`).join(", ")} wishlist
-            </Badge>
+            <div className="flex flex-col items-start gap-0.5">
+              <Badge variant="success" title={wishlistBadgeTitle(row.original)}>
+                {row.original.matchPhases.map((p) => `P${p}`).join(", ")} wishlist
+              </Badge>
+              <OffSpecConflict
+                offspec={row.original.offspec}
+                matched={row.original.matched}
+                phases={row.original.matchPhases}
+                redeemsTo={row.original.redeemsTo}
+              />
+            </div>
           ) : (
             <span className="text-xs text-muted-foreground/50">—</span>
           ),
@@ -487,6 +505,20 @@ export function LootView({
               initialSorting={LOOT_SORT}
               emptyMessage="No awards match the filters."
               pageSize={50}
+              // Narrowing the filters returns to page one; saving an edit does
+              // not — the ledger comes back from the server as new rows either
+              // way, and only one of those is the reader changing what they
+              // asked for.
+              resetPageOn={[
+                search,
+                characterFilter,
+                classFilter,
+                phaseFilter,
+                sessionFilter,
+                typeFilter,
+                matchFilter,
+                winnerFilter,
+              ].join("|")}
             />
           </SelectionProvider>
         </div>

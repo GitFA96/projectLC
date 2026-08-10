@@ -25,6 +25,9 @@ ability.id IN (TRACKED_CAST_IDS ∪ SCROLL_CAST_IDS ∪ COOLDOWN_CAST_IDS)
   OR ability.name IN (SAPPER_CAST_NAMES ∪ SHAMAN_TOTEM_CASTS)
 ```
 
+The Buffs fetch is filtered the same way (`BUFF_TRACK_NAMES` ∪ `FLASK_BUFF_IDS`),
+so it carries the same cost.
+
 So a report fetched **before** you added the id never contained the event, and
 never will until it is re-fetched. The app will look completely healthy and
 report zero uses forever.
@@ -74,6 +77,22 @@ is missing.
 name and TBC buff names routinely differ from item names (Elixir of Major
 Agility applies `Major Agility`). Probe a real report first.
 
+**`combatantinfo` is not a complete list of what a raider had at the pull.**
+Preparation is graded from the pull's aura snapshot, and that snapshot silently
+omits some auras. The Unstable Flasks are the known case: a raider drank one
+five minutes before the pull, the snapshot at that pull lists eight auras with
+no flask among them, and the preparation column showed a red cross all night on
+the figure that feeds the loot score. Curating the ids could never have fixed
+it — they were already curated, against an array the aura never appears in.
+
+Those flasks are read from `applybuff`/`removebuff` intervals instead
+(`FLASK_BUFF_IDS`, stamped in normalize step 5b) and never overwrite something
+the snapshot did observe. **Before concluding "the raid didn't use X" from the
+snapshot, check the buff stream for it** — and use `fightIDs` when you probe,
+because the `startTime`/`endTime` form of the events query returns zero for
+everything, including a control you know is there. That silent zero is how the
+absence looked confirmed the first time.
+
 **Quote names with double quotes in a filter expression.** `ability.name IN
 ('Rend')` matches nothing and reports no error — the query succeeds and returns
 zero rows, which reads exactly like "the raid never did this". A probe built
@@ -119,6 +138,20 @@ namespaced key. The ones that exist:
 | `guild_roster:<id>` | `setGuildRoster` / `updateGuildRoster` (one row per named roster) |
 | `guild_policy` | `setGuildPolicy` (guild-wide, no suffix) |
 | `sim_profile:<class>:<spec>` | `setSimProfile` (not per report — per class and spec) |
+
+**`excluded_fights:<code>` reaches every page that counts a pull, not just the
+raid page.** It is the officer's "this one doesn't count" switch, and it used to
+be read by `getRaidReport` alone — so excusing the farm boss cleaned up that
+night's figures and left the same pulls scoring against every raider on their
+own page, on the standing board and in the loot score. The read model now
+filters on it in `careerRowsOf` and in `getCharacterPerformance`, which is what
+makes one switch mean one thing. A new consumer of pull rows has to decide
+whether it counts excused pulls, and the answer is almost always no.
+
+The character page keeps the excused rows and marks them
+(`PerformanceReportView.excusedFightIds`) rather than dropping them: the parse
+on a farm boss is still worth reading. Only the summary is over the counted
+ones.
 
 **`raid_board:<code>` is the one per-report setting that is not a correction to
 something derived.** Warcraft Logs records no group assignments at all, so a
@@ -366,6 +399,14 @@ Two separate questions live here on purpose:
 Deriving either one inline again is the failure mode: the raid page and the
 career page then disagree about the same night, and nothing catches it.
 
+**Which pulls get asked is a third question, and it lives above this module.**
+`policy.preparation.excusedEncounters` names bosses nobody is expected to flask
+for — last phase's raid, cleared on the way past — and `summarizePerformance`
+drops them before it measures. Deliberately not visible to `hasConsumableCoverage`:
+a per-pull check that could see the list would be a second place deciding it.
+When *every* pull in a set is excused the figures fall back to the whole set,
+because a 0% nobody was asked to earn is worse than no exemption at all.
+
 ## 5b. Count a consumable that isn't a cast
 
 **Chain:** `analysis/potions.ts` — then §5, because anything counted gets priced.
@@ -427,6 +468,98 @@ with a BiS wisher, badged. That is a council decision, recorded here so nobody
 other options and what those block, so the argument goes in the item's notes
 (§5c). Making the rank score something is a policy change (§4b), not a bug fix.
 
+## 4f. Trust a new source of item data
+
+**Chain:** the writer → `items.verified` → `listUnresolvedItemIds` in `store.ts`.
+
+The item cache merges many sources, and exactly one of them is authoritative.
+`addItemsIfMissing` fills holes and never overwrites; `saveResolvedItems` is
+the Wowhead path and is the only writer allowed to overwrite name, quality,
+icon and slot — and the only one that sets `verified`.
+
+The failure this exists to prevent is silent by construction: a hand-written
+entry has every field populated, so a queue built on "missing a field" never
+offers it up, and a wrong icon renders perfectly forever. **The queue is
+built on `verified`, not on completeness.** If you add a source that can
+supply item data, it fills gaps — it does not get to mark rows verified,
+however good it is, or the queue stops meaning anything.
+
+One asymmetry worth knowing: an authoritative write never *overwrites*
+`source_json` or `phase`. Zone and boss are the guild's alone. The phase Wowhead
+does answer — it rides in the tooltip markup of the same XML the resolver
+already fetches — so an empty column is filled and a curated one still wins.
+The exception is a name that contradicts an unverified row: that row was curated
+onto the wrong id, so its zone, boss and phase describe some other item and are
+dropped rather than carried.
+
+**`phase_checked` is why that backfill terminates.** Most of TBC's launch items
+carry no phase tag at all, so a queue built on "has no phase" would ask about
+them again on every press for ever. The column records that we asked, not what
+came back — the same absent/false/true distinction `armor_token` makes — and the
+lowest tier of `listUnresolvedItemIds` drains on it exactly once per item.
+
+**A second lookup goes the other way: name → id.** The priority sheet is written
+in item names, and most of what a sheet lists nobody has wishlisted or won, so
+the cache has no id and the row renders as bare text with no Wowhead hover.
+`resolveItemIdsByName` closes that, and its rule is exact-name equality with
+exactly one hit (`pickExactItem`) — a search will happily answer a misspelling
+with something plausible, and a plausible id here puts the wrong item's tooltip
+under an officer's cursor mid-raid. Those rows land **unverified**, so the
+ordinary resolver still confirms them afterwards.
+
+Because they can be dropped, they have to be reachable: `setItemCuration` is
+the officer's way back, on the item's own page. **`items.source.zone` is the
+only thing that puts a drop on a raid's loot plan** (`getLootPlan` filters on
+it), so an item with no zone is invisible there however well known it is.
+
+## 4g. Tier tokens and the pieces they buy
+
+**Chain:** `items.redeems_from` → `tokenRedemptions` in `store.ts` → **every
+reader that compares two item ids.**
+
+A tier token is the only drop that isn't the thing anyone wants. Gargul records
+`Helm of the Vanquished Champion`; a SixtyUpgrades list names `Cataclysm Helm`.
+Nothing joins them but this edge, and every join in the app is `itemId ===
+itemId`, so a reader that forgets it is not slightly wrong — it silently drops a
+quarter of the loot ledger out of whatever it computes.
+
+The edge lives **on the piece** (`redeems_from`), not on the token. One token
+buys nine pieces; a piece has exactly one token. Storing it the one-to-one way
+means "which piece did they mean" is answered by intersecting the token with the
+raider's own list rather than by a rule about specs.
+
+What has to change together when a new reader compares item ids:
+
+- **`lib/items/tier-tokens.ts`** owns the comparison — `delivers(awarded,
+  wanted)`. Readers take a `TokenRedemptions` and default it to
+  `NO_TOKEN_REDEMPTIONS`, which makes every item deliver only itself. That
+  default is why an untouched test keeps passing, and also why a new reader
+  that forgets to ask for the real one fails silently. **Grep for `delivers`
+  before adding an `itemId ===` comparison to loot or wishlist code.**
+- The readers wired today are `computeWishlistRows`, `matchAwardToWishlists`
+  and `computeItemContention` (which is what `getLootPlan` reads). All three
+  get theirs from the one `tokenRedemptions(items)` built in `store.ts`.
+- `delivers` runs **one direction only**. A token delivers its piece; winning
+  the piece is not winning the token, and two pieces of the same token are not
+  interchangeable.
+
+**The mapping is fetched, never written from memory.** `parseTokenRedemptions`
+reads Wowhead's own vendor listing off the token's item page, and counts a row
+only when the token is the entire price — the arena sets take a token *or*
+arena points, and the Sunwell upgrades take a Sunmote *and* the old piece.
+Adding a tier by hand would be inventing domain knowledge (root `AGENTS.md`
+§4); press the button on the import page instead.
+
+Two operational notes, because both are silent:
+
+- **The mapping is not there until an officer runs it.** Every token award
+  reads as off-list until then, which under `offListDrop: 0` costs its winner
+  nothing in loot owed.
+- **The backfill queue skips anything a gear set names**, since a token can't
+  be equipped. It deliberately does *not* skip on "has no slot", though a token
+  has none: the shipped seed invented slots for a dozen tokens, and a queue
+  that trusted the slot skipped exactly the rows that were wrong.
+
 ## 5c. Notes on an item
 
 `item_comments` is deliberately outside every score. The council was asked
@@ -439,6 +572,24 @@ belongs on the guild page, not in the note.
 A note may name a raider. Deleting that raider **unlinks** it (§ invariant 6) —
 `deleteCharacter` sets `character_id` to NULL rather than deleting the row, and
 `validateStore` enforces that a set id still resolves.
+
+## 5d. A panel seeded from props on a page that switches subject
+
+**Chain:** the client component's `useState(initial)` → **a `key` at the render
+site.**
+
+`/logs` and `/raid-planner` both keep the reader on one route and swap which
+report they are showing. A client component that seeds its state from props
+seeds it **once, on mount**, and a client-side navigation into the same tree
+position does not remount it — so the previous report's data stays on screen
+under the new report's code, and anything that autosaves then writes it there.
+That is not a display bug; it overwrites one raid night's record with another's.
+
+The fix is a `key` carrying the report code, and it has to be at the render
+site because that is the only place that knows the subject changed. `RaidBoard`,
+`FightFilter`, `ConsumablePricePanel` and `ConsumableAdjustmentsPanel` all carry
+one. **A new per-report panel needs one too**, and nothing will fail if you
+forget: it type-checks, it renders, and it is wrong only after the second click.
 
 ## 6. Add a route or a server action
 
@@ -534,6 +685,13 @@ rules follow from that, and neither is stylistic:
   collecting is a field worth putting there. `likelyRouteFile` is a mechanical
   route→file guess and is labelled "likely" for that reason — a route rendered
   by a client component has its real bug under `src/components`.
+- **Triage never edits the report.** `priority` and `adminNote` are the
+  officer's, and `setFeedbackTriage` can reach nothing else: a tool that could
+  rewrite `body`, `route`, `url` or `context` would make the record worthless a
+  month later, which is the only reason it is kept. The note renders beside the
+  reporter's words and exports under its own heading, never merged into theirs.
+  `priority` starts at `unset` because "nobody has looked at this" is a state,
+  and the listing sorts it *above* `minor` for the same reason.
 
 A new **table**, unlike a new column, needs no `migrate()` line — `db.exec(SCHEMA)`
 runs `CREATE TABLE IF NOT EXISTS` on every boot. §2's warning is about columns

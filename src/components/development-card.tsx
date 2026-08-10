@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import type { DevelopmentSeries } from "@/lib/analysis/development";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,8 +15,23 @@ import { cn } from "@/lib/utils";
  * The bars are drawn against 0–100 because that is what a percentile already
  * is — no rescaling to make a flat line look dramatic, which is the usual way a
  * chart lies. Nights they missed are absent rather than zero.
+ *
+ * Each night is also the way into that night. A bar that reads badly is the
+ * moment somebody wants the pull list behind it, and the answer used to be
+ * "find the same date again in the pills underneath" — so the row selects the
+ * report, and the one currently selected is marked here as well as there.
  */
-export function DevelopmentCard({ series }: { series: DevelopmentSeries }) {
+export function DevelopmentCard({
+  series,
+  /** Slug for the link back into this page with a report chosen. */
+  characterSlug,
+  /** The report the rest of the page is showing, so this row can say so. */
+  activeCode,
+}: {
+  series: DevelopmentSeries;
+  characterSlug?: string;
+  activeCode?: string;
+}) {
   if (series.nights.length === 0) return null;
 
   return (
@@ -55,8 +71,18 @@ export function DevelopmentCard({ series }: { series: DevelopmentSeries }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-1">
-        {series.nights.map((night) => (
-          <div key={night.reportCode} className="flex items-center gap-3 text-xs">
+        {series.nights.map((night) => {
+          const active = night.reportCode === activeCode;
+          const className = cn(
+            "flex items-center gap-3 rounded-md px-1.5 py-0.5 text-xs",
+            characterSlug && "transition-colors hover:bg-accent",
+            active && "bg-accent ring-1 ring-foreground/15",
+          );
+          // A link only when there is a page to link into. The same card is
+          // rendered where no raider owns it, and a row that looks clickable
+          // and isn't is worse than a row that doesn't.
+          const cells = (
+            <>
             <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
               {format(parseISO(night.date), "d MMM yy")}
             </span>
@@ -79,8 +105,24 @@ export function DevelopmentCard({ series }: { series: DevelopmentSeries }) {
               {night.kills}/{night.pulls} kills
               {night.deaths > 0 && ` · ${night.deaths} death${night.deaths === 1 ? "" : "s"}`}
             </span>
-          </div>
-        ))}
+            </>
+          );
+          return characterSlug ? (
+            <Link
+              key={night.reportCode}
+              href={`/characters/${encodeURIComponent(characterSlug)}/performance?report=${encodeURIComponent(night.reportCode)}`}
+              title="Show this night's pulls below"
+              className={className}
+              aria-current={active ? "true" : undefined}
+            >
+              {cells}
+            </Link>
+          ) : (
+            <div key={night.reportCode} className={className}>
+              {cells}
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

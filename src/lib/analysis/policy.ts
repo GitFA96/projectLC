@@ -26,6 +26,12 @@ export interface GuildPolicy {
    * Roster standing as a multiplier: a category, not a percentage. A main with
    * mediocre metrics should still outrank an alt with perfect ones — by how
    * much is the argument, and it's the council's.
+   *
+   * **`trial` defaults to 1, the same as a main, and that is not a claim that
+   * trials should rank like mains.** It is the app declining to make one: some
+   * guilds gear a trial first precisely because they are undergeared, others
+   * hold loot back until the trial passes, and both are defensible. Setting it
+   * is how a council states which it runs.
    */
   standing: Record<CharacterStatus, number>;
   /**
@@ -105,6 +111,22 @@ export interface GuildPolicy {
      * the raid page names a half-filled set regardless of what this says.
      */
     coverage: "any" | "full" | "flaskOnly";
+    /**
+     * Encounters whose pulls never count towards preparation, by name.
+     *
+     * A guild clearing last phase's raid on the way past isn't asking anyone to
+     * burn a flask on it, and counting those pulls turns a policy the council
+     * chose into a black mark against every raider who followed it. Excusing
+     * one pull at a time already exists on the raid page; this is the same
+     * decision made once, for content the guild has stopped gearing for.
+     *
+     * Preparation only. The parse still counts — how somebody played a farm
+     * boss is a fair thing to read — and so does turning up for it.
+     *
+     * Empty by default: which content is off-phase is the council's call and
+     * changes every tier, so there is no defensible list to ship.
+     */
+    excusedEncounters: string[];
   };
   /**
    * The standing board — "who should we replace?".
@@ -136,12 +158,12 @@ export interface GuildPolicy {
 
 export const DEFAULT_POLICY: GuildPolicy = {
   weights: { attendance: 35, lootDebt: 30, performance: 20, preparation: 15 },
-  standing: { main: 1, alt: 0.7, inactive: 0.4, pug: 0.25 },
+  standing: { main: 1, trial: 1, alt: 0.7, inactive: 0.4, pug: 0.25 },
   slotServed: { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0 },
   attendance: { recentRaids: 10, weeks: 8 },
   performance: { parseMetric: "all" },
   loot: { altsContend: false },
-  preparation: { coverage: "any" },
+  preparation: { coverage: "any", excusedEncounters: [] },
   roster: { weights: { attendance: 34, performance: 33, preparation: 33 }, minRaids: 3 },
   improvementSeverity: { high: 100, medium: 40, low: 12 },
 };

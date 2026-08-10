@@ -1,4 +1,5 @@
 import { SLOT_FAMILIES, STAT_LABELS, STAT_ORDER } from "@/lib/constants/wow";
+import { NO_TOKEN_REDEMPTIONS, type TokenRedemptions } from "@/lib/items/tier-tokens";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type {
   AwardWishlistMatch,
@@ -31,6 +32,12 @@ export function computeWishlistRows(
   characterAwards: LootAward[],
   /** The raider's stored fallbacks for this phase, any slot. */
   alternatives: WishlistAlternative[] = [],
+  /**
+   * Lets a won armor token satisfy the tier piece it buys. Defaulted to the
+   * empty lookup, where every item delivers only itself — which is how this
+   * behaved before tokens were modelled.
+   */
+  redemptions: TokenRedemptions = NO_TOKEN_REDEMPTIONS,
 ): WishlistRow[] {
   const currentByFamily = new Map<string, { itemId: number; used: boolean }[]>();
   for (const slot of current?.slots ?? []) {
@@ -47,8 +54,12 @@ export function computeWishlistRows(
     const equippedMatch = family.find((c) => !c.used && c.itemId === wished.itemId);
     if (equippedMatch) equippedMatch.used = true;
 
+    // A token counts: it is won at the boss, and it buys nothing else. What it
+    // is NOT is interchangeable with the piece — winning the piece some other
+    // way never satisfies a wishlist row asking for the token, and `delivers`
+    // only runs the one direction.
     const award = onSpecAwards
-      .filter((a) => a.itemId === wished.itemId)
+      .filter((a) => redemptions.delivers(a.itemId, wished.itemId))
       .sort((a, b) => a.awardedAt.localeCompare(b.awardedAt))[0];
 
     return {
@@ -62,6 +73,10 @@ export function computeWishlistRows(
       state: equippedMatch ? "equipped" : award ? "awarded" : "open",
       awardedAt: award?.awardedAt,
       awardId: award?.id,
+      awardedVia:
+        award && award.itemId !== wished.itemId
+          ? { itemId: award.itemId, itemName: award.itemName }
+          : undefined,
       alternatives: alternatives
         .filter((a) => a.slot === wished.slot)
         .sort((a, b) => a.rank - b.rank || a.itemId - b.itemId)
@@ -76,17 +91,35 @@ export function computeCompletion(rows: WishlistRow[]): WishlistCompletion {
   return { satisfied, total, pct: total === 0 ? 0 : Math.round((satisfied / total) * 100) };
 }
 
-/** Which of the character's wishlists (by phase) contain the awarded item? */
+/**
+ * Which of the character's wishlists (by phase) contain the awarded item —
+ * counting an armor token as the piece on their list that it buys.
+ *
+ * The token case is reported separately in `redeemsTo`, because it is the one
+ * an officer may need to act on: an award flagged off-spec that nevertheless
+ * buys something the winner asked for is either a mis-flagged import or a
+ * raider who took their own BiS on off-spec priority, and only a person can
+ * say which.
+ */
 export function matchAwardToWishlists(
   award: LootAward,
   wishlists: GearSet[],
+  redemptions: TokenRedemptions = NO_TOKEN_REDEMPTIONS,
 ): AwardWishlistMatch {
-  const phases = wishlists
-    .filter((w) => w.kind === "wishlist" && w.slots.some((s) => s.itemId === award.itemId))
+  const listed = wishlists.filter((w) => w.kind === "wishlist");
+  const phases = listed
+    .filter((w) => w.slots.some((s) => redemptions.delivers(award.itemId, s.itemId)))
     .map((w) => w.phase)
     .filter((p): p is Phase => p !== undefined)
     .sort((a, b) => a - b);
-  return { matched: phases.length > 0, phases };
+  const redeemed = listed
+    .flatMap((w) => w.slots)
+    .find((s) => s.itemId !== award.itemId && redemptions.delivers(award.itemId, s.itemId));
+  return {
+    matched: phases.length > 0,
+    phases,
+    redeemsTo: redeemed ? { itemId: redeemed.itemId, itemName: redeemed.itemName } : undefined,
+  };
 }
 
 /**

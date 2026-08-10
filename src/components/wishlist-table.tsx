@@ -26,6 +26,8 @@ export interface WishlistRowView {
   awardedAt?: string;
   /** Present when an award satisfied the slot — the handle for clearing it. */
   awardId?: string;
+  /** The armor token the slot was won as, when it wasn't the piece itself. */
+  awardedVia?: { itemId: number; itemName: string };
   /** What they'd take instead, in order. Editable when the owner is known. */
   alternatives?: AlternativeView[];
   /** What the "Currently" cell can be set to, when the slot is editable. */
@@ -105,7 +107,7 @@ export function WishlistTable({
               )}
             </TableCell>
             <TableCell>
-              <AcquiredBadge state={row.state} awardedAt={row.awardedAt} />
+              <AcquiredBadge state={row.state} awardedAt={row.awardedAt} awardedVia={row.awardedVia} />
             </TableCell>
             {award && (
               <TableCell>

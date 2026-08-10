@@ -47,6 +47,7 @@ import {
   insertWclReport,
   loadStore,
   mergeItems,
+  mergeTokenRedemptions,
   setItemPriorityRule,
   setGuildRoster,
   updateGuildRoster,
@@ -59,6 +60,7 @@ import {
   setReportExcludedFights,
   withTx,
 } from "@/lib/data/db";
+import type { TokenRedemptionEdge } from "@/lib/items/tier-tokens";
 import { createRepoFromStore } from "@/lib/data/store";
 import { normalizeItemName, parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
@@ -67,6 +69,7 @@ import type { PolicyOverrides } from "@/lib/analysis/policy";
 import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
 import { renumber, type WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
+import { loadSeedStore } from "@/lib/data/seed-data";
 import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
   characterCommentSchema,
@@ -76,6 +79,7 @@ import {
   currentGearOverrideSchema,
   gearSetSchema,
   lootAwardSchema,
+  phaseSchema,
   wclPlayerFightSchema,
   wclPlayerOffPullSchema,
   wclReportSchema,
@@ -123,6 +127,7 @@ import type {
   GearSpec,
   Item,
   LootAward,
+  Phase,
   RaidSession,
   SlotId,
   SlotItem,
@@ -383,6 +388,18 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       if (cleared) bumpDataVersion(db);
     });
     return cleared;
+  },
+
+  async setActivePhase(phase: Phase) {
+    const parsed = phaseSchema.safeParse(phase);
+    if (!parsed.success) return { ok: false as const, error: "That isn't a phase this app knows." };
+    const db = getDb();
+    withTx(db, () => {
+      db.prepare("UPDATE guild SET active_phase = ?").run(parsed.data);
+      // Everything phase-scoped is derived, so the read model has to rebuild.
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
   },
 
   async setGuildPolicy(overrides: PolicyOverrides) {
@@ -1083,6 +1100,9 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       kind: draft.kind ?? "bug",
       id: `fb_${randomUUID()}`,
       status: "open",
+      // Filed, not yet triaged. Only an officer sets these.
+      priority: "unset",
+      adminNote: undefined,
       createdAt: new Date().toISOString(),
     } satisfies FeedbackReport);
     if (!parsed.success) {
@@ -1107,6 +1127,38 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return changed;
   },
 
+  async setFeedbackTriage(id, triage) {
+    // Built from the fields actually present: a caller setting only a priority
+    // must not blank the note somebody else wrote in the same sitting.
+    const sets: string[] = [];
+    const values: (string | null)[] = [];
+    if (triage.status !== undefined) {
+      sets.push("status = ?");
+      values.push(triage.status);
+    }
+    if (triage.priority !== undefined) {
+      sets.push("priority = ?");
+      values.push(triage.priority);
+    }
+    if (triage.adminNote !== undefined) {
+      sets.push("admin_note = ?");
+      values.push(triage.adminNote.trim() || null);
+    }
+    if (sets.length === 0) return false;
+    const db = getDb();
+    let changed = false;
+    withTx(db, () => {
+      changed =
+        Number(
+          db
+            .prepare(`UPDATE feedback SET ${sets.join(", ")} WHERE id = ?`)
+            .run(...values, id).changes,
+        ) > 0;
+      if (changed) bumpDataVersion(db);
+    });
+    return changed;
+  },
+
   async deleteFeedback(id: string): Promise<boolean> {
     const db = getDb();
     let deleted = false;
@@ -1126,6 +1178,87 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       if (learned > 0) bumpDataVersion(db);
     });
     return learned;
+  },
+
+  async saveResolvedItems(items: Item[]): Promise<number> {
+    if (items.length === 0) return 0;
+    const db = getDb();
+
+    // Read before writing: the write stamps every row it is handed, so "did
+    // this row change" is a question only the old values can answer. What the
+    // officer wants counted is disagreement — the cache said one thing and the
+    // authority said another — not the bookkeeping flip that always happens.
+    const before = new Map(readModel().store.items.map((i) => [i.id, i]));
+    const disagrees = (item: Item): boolean => {
+      const prev = before.get(item.id);
+      // An id the cache had never heard of was learned, not corrected.
+      if (prev === undefined) return false;
+      return (
+        (item.name !== undefined && prev.name !== undefined && item.name !== prev.name) ||
+        (item.quality !== undefined && prev.quality !== undefined && item.quality !== prev.quality) ||
+        (item.icon !== undefined && prev.icon !== undefined && item.icon !== prev.icon) ||
+        (item.slot !== undefined && prev.slot != null && item.slot !== prev.slot)
+      );
+    };
+    const corrected = items.filter(disagrees).length;
+
+    withTx(db, () => {
+      mergeItems(db, items, { authoritative: true });
+      // Always: even an unchanged row just became verified, and the read model
+      // has to see that or the resolver keeps offering it up forever.
+      bumpDataVersion(db);
+    });
+    return corrected;
+  },
+
+  async saveTokenRedemptions(edges: TokenRedemptionEdge[]): Promise<number> {
+    if (edges.length === 0) return 0;
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = mergeTokenRedemptions(db, edges);
+      // Always, even when the page said what the cache already held: the read
+      // model is what turns an edge into a satisfied wishlist row, and it only
+      // reloads on the version counter.
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
+  async setItemCuration(
+    itemId: number,
+    curation: { phase: Phase | null; source: { zone: string; boss?: string } | null },
+  ) {
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      return { ok: false as const, error: "That isn't an item id." };
+    }
+    const { phase, source } = curation;
+    if (phase !== null && !phaseSchema.safeParse(phase).success) {
+      return { ok: false as const, error: "That isn't a phase this app knows." };
+    }
+    if (source !== null && !source.zone.trim()) {
+      return { ok: false as const, error: "Name the zone it drops in, or clear it." };
+    }
+    const sourceJson = source
+      ? JSON.stringify({ zone: source.zone.trim(), ...(source.boss?.trim() ? { boss: source.boss.trim() } : {}) })
+      : null;
+    const db = getDb();
+    withTx(db, () => {
+      db.prepare(
+        `INSERT INTO items (id, phase, source_json) VALUES (?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET phase = excluded.phase, source_json = excluded.source_json`,
+      ).run(itemId, phase, sourceJson);
+      // Phase feeds gem grading; zone is what the loot plan groups a raid by.
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
+  async applyCuratedItemSources(): Promise<number> {
+    // Gap-filling merge: `source_json` and `phase` are COALESCEd onto rows that
+    // have none, so this can be pressed repeatedly and can never overwrite an
+    // officer's answer with the shipped one.
+    return this.addItemsIfMissing(loadSeedStore().items);
   },
 
   async harvestItemCache(): Promise<number> {
@@ -1335,8 +1468,11 @@ export function getSqliteRepo(): WriteRepo {
     },
     listPullRows: (code, fightId) => readModel().repo.listPullRows(code, fightId),
     listAbilities: async () => getAbilities(getDb()),
+    listEncounterNames: () => readModel().repo.listEncounterNames(),
+    listUnmatchedSheetNames: () => readModel().repo.listUnmatchedSheetNames(),
     getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
+    listTokenBackfill: () => readModel().repo.listTokenBackfill(),
     getEnchantReference: () => readModel().repo.getEnchantReference(),
     listUnnamedEnchantIds: () => readModel().repo.listUnnamedEnchantIds(),
     getLootPriorityWeights: () => readModel().repo.getLootPriorityWeights(),

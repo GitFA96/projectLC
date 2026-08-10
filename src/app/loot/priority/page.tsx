@@ -37,7 +37,7 @@ export default async function PrioritySheetPage({
     <div>
       <PageHeader
         title={`Phase ${phase} priority sheet`}
-        description="The council's written spec priority, exactly as the sheet says it — with any officer edits shown over the top. Edit a single chain on the item's own page; replace the whole sheet here."
+        description="The council's written spec priority, exactly as the sheet says it — with any officer edits shown over the top. Edit a single chain here or on the item's own page; replace the whole sheet above."
       >
         {sheet.ruleCount > 0 && <Badge variant="outline">{sheet.ruleCount} items</Badge>}
         {sheet.officerCount > 0 && (

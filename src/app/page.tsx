@@ -9,6 +9,7 @@ import { ItemLink } from "@/components/item-link";
 import { CharacterLink } from "@/components/class-badge";
 import { FairnessPanel } from "@/components/fairness-panel";
 import { LootWeightsEditor } from "@/components/loot/priority-editor";
+import { ActivePhasePicker } from "@/components/guild/active-phase-picker";
 import { PolicyEditor } from "@/components/loot/policy-editor";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,10 +28,11 @@ export const metadata: Metadata = { title: "Guild" };
  */
 export default async function GuildPage() {
   const repo = await getRepo();
-  const [data, weights, policy] = await Promise.all([
+  const [data, weights, policy, encounters] = await Promise.all([
     repo.getDashboard(),
     repo.getLootPriorityWeights(),
     repo.getGuildPolicy(),
+    repo.listEncounterNames(),
   ]);
   const phaseMeta = PHASES.find((p) => p.phase === data.guild.activePhase);
 
@@ -113,7 +115,7 @@ export default async function GuildPage() {
           <CardHeader>
             <CardTitle>Most contested items</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Wishlisted by 2+ raiders, open demand first ·{" "}
+              Wishlisted by 2+ raiders, open demand first, with the phase each drops in ·{" "}
               <Link href="/items" className="font-medium text-foreground hover:underline">
                 all items
               </Link>
@@ -126,7 +128,15 @@ export default async function GuildPage() {
                   item={{ itemId: c.itemId, name: c.itemName, quality: c.item?.quality, icon: c.item?.icon }}
                   className="min-w-0"
                 />
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+                  {/* Which tier it drops in decides whether an argument about
+                      it is this month's or next year's. Absent when nobody has
+                      said — see the phase control on the item's own page. */}
+                  {c.item?.phase && (
+                    <Badge variant="outline" className="px-1 py-0 text-[10px] font-medium">
+                      P{c.item.phase}
+                    </Badge>
+                  )}
                   {c.wishers.length} want · {c.openCount} open
                 </span>
               </div>
@@ -141,7 +151,7 @@ export default async function GuildPage() {
           <CardHeader>
             <CardTitle>Loot distribution</CardTitle>
             <p className="text-xs text-muted-foreground">
-              On-spec awards per raider, scoped by phase (off-spec faded)
+              On-spec awards per raider, by phase and roster (off-spec faded)
             </p>
           </CardHeader>
           <CardContent>
@@ -154,6 +164,7 @@ export default async function GuildPage() {
                   wowClass: f.character.class,
                   onSpec: f.onSpec,
                   offSpec: f.offSpec,
+                  status: f.character.status,
                 })),
               }))}
             />
@@ -185,7 +196,14 @@ export default async function GuildPage() {
         title="Loot policy — the rest of the numbers"
         description="Everything else that encodes a judgement: how far behind an alt sits, what a slot already served costs, how far back “recent” looks, and what counts as prepared. Defaults are the app's, not the council's — until you change them."
       >
-        <PolicyEditor policy={policy} />
+        <PolicyEditor policy={policy} encounters={encounters} />
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="Active phase"
+        description="Which tier the guild is raiding. It decides whether a rare gem reads as acceptable or as behind the tier, which phase the priority sheet and the loot distribution open on, and what “current” means to gear grading — so switching it is how you see the same roster judged by another phase's rules."
+      >
+        <ActivePhasePicker activePhase={data.guild.activePhase} />
       </CollapsibleCard>
 
       <Card>

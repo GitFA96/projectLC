@@ -66,6 +66,13 @@ function NumberField({
 }
 
 const STANDING: Record<string, FieldSpec> = {
+  trial: {
+    label: "Trial",
+    help: "A raider on trial. 1 ranks them exactly like a main — the default, because the app has no view on this. Lower it if loot waits until they pass; some councils gear a trial first instead, which is what leaving it at 1 says.",
+    min: 0.01,
+    max: 1,
+    step: 0.05,
+  },
   alt: {
     label: "Alt",
     help: "Multiplier on an alt's score, and only in force when alts contend (above). 1 ranks them exactly like mains; 0.7 puts a main ahead on equal metrics.",
@@ -89,7 +96,14 @@ const STANDING: Record<string, FieldSpec> = {
   },
 };
 
-export function PolicyEditor({ policy }: { policy: GuildPolicy }) {
+export function PolicyEditor({
+  policy,
+  /** Every boss the imported logs have seen — what the excuse list picks from. */
+  encounters = [],
+}: {
+  policy: GuildPolicy;
+  encounters?: string[];
+}) {
   const router = useRouter();
   const [draft, setDraft] = React.useState(policy);
   const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -412,7 +426,9 @@ export function PolicyEditor({ policy }: { policy: GuildPolicy }) {
                 type="radio"
                 name="coverage"
                 checked={draft.preparation.coverage === value}
-                onChange={() => setDraft((d) => ({ ...d, preparation: { coverage: value } }))}
+                onChange={() =>
+                  setDraft((d) => ({ ...d, preparation: { ...d.preparation, coverage: value } }))
+                }
                 className="mt-0.5"
               />
               <span>
@@ -422,6 +438,56 @@ export function PolicyEditor({ policy }: { policy: GuildPolicy }) {
             </label>
           ))}
         </div>
+      </section>
+
+      <section className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold">Content that doesn&apos;t count</h3>
+          <p className="text-xs text-muted-foreground">
+            Bosses nobody is expected to burn a flask on &mdash; last phase&apos;s raid, cleared on
+            the way past. Their pulls stop counting towards preparation everywhere: the raider&apos;s
+            page, the standing board and the loot score. Parses and attendance are untouched, and so
+            is the gold, because they were still there.
+          </p>
+        </div>
+        {encounters.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Nothing to choose from until a Warcraft Logs report is imported.
+          </p>
+        ) : (
+          <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+            {encounters.map((name) => {
+              const on = draft.preparation.excusedEncounters.includes(name);
+              return (
+                <label key={name} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        preparation: {
+                          ...d.preparation,
+                          excusedEncounters: on
+                            ? d.preparation.excusedEncounters.filter((e) => e !== name)
+                            : [...d.preparation.excusedEncounters, name],
+                        },
+                      }))
+                    }
+                  />
+                  <span>{name}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+        {draft.preparation.excusedEncounters.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            A raider whose every pull in a report is excused keeps that report&apos;s preparation
+            figures rather than dropping to 0% &mdash; a percentage nobody was asked to earn is
+            worse than no exemption at all.
+          </p>
+        )}
       </section>
 
       {shownPreview && (

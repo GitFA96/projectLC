@@ -11,6 +11,12 @@ export interface FightRowData {
   cells: React.ReactNode;
   /** Expanded per-pull detail (server-rendered); null = nothing to show. */
   detail: React.ReactNode | null;
+  /**
+   * The officer took this pull out of the count. Still shown — what happened on
+   * a farm boss is worth reading — but muted, so nothing in the row reads as a
+   * mark against the raider.
+   */
+  excused?: boolean;
 }
 
 /**
@@ -27,7 +33,7 @@ export function FightRows({ rows, colSpan }: { rows: FightRowData[]; colSpan: nu
         return (
           <React.Fragment key={row.id}>
             <TableRow
-              className={cn(row.detail && "cursor-pointer")}
+              className={cn(row.detail && "cursor-pointer", row.excused && "opacity-55")}
               onClick={
                 row.detail ? () => setOpen((o) => ({ ...o, [row.id]: !isOpen })) : undefined
               }

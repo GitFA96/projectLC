@@ -148,6 +148,26 @@ export function FeedbackWidget() {
     };
   }, [phase]);
 
+  /**
+   * A picked element belongs to the page it was picked on. The panel outlives
+   * a client-side navigation — it is fixed to the layout, not to the route —
+   * so without this an element picked on one page is submitted stamped with
+   * the route and URL of another, and the panel shows the two side by side as
+   * though they belonged together.
+   *
+   * It is not hypothetical: a report of an item page's "Wowhead" link arrived
+   * filed against a character page, and there is no such link on a character
+   * page. Prose survives, because that is the reporter's; the context does
+   * not, because it describes somewhere they have left.
+   */
+  const [pickedOn, setPickedOn] = React.useState(pathname);
+  if (pickedOn !== pathname) {
+    setPickedOn(pathname);
+    setPicked(undefined);
+    setHighlight(undefined);
+    setPhase((current) => (current === "picking" ? "form" : current));
+  }
+
   /* ---- what would be sent ---------------------------------------------- */
 
   /**

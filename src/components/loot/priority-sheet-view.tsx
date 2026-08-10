@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/empty-state";
+import { ItemLink } from "@/components/item-link";
+import { ItemPriorityEditor } from "@/components/loot/priority-editor";
+import type { Quality } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,6 +25,8 @@ export interface SheetRow {
   slotLabel?: string;
   note?: string;
   itemId?: number;
+  quality?: Quality;
+  icon?: string;
   shadowed?: boolean;
 }
 
@@ -61,13 +65,18 @@ function Chain({ tiers, chain }: { tiers: SheetRow["tiers"]; chain: string }) {
 }
 
 function Row({ row }: { row: SheetRow }) {
+  const [editing, setEditing] = React.useState(false);
+
   return (
     <div className="grid grid-cols-1 gap-x-4 gap-y-1 border-t px-3 py-2 text-sm sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]">
       <div className="min-w-0">
+        {/* An item the cache matched renders exactly as it does everywhere
+            else — icon, quality colour, Wowhead hover. A name the cache has
+            never seen stays plain text: there is no id to link or hover. */}
         {row.itemId ? (
-          <Link href={`/items/${row.itemId}`} className="font-medium hover:underline">
-            {row.itemName}
-          </Link>
+          <ItemLink
+            item={{ itemId: row.itemId, name: row.itemName, quality: row.quality, icon: row.icon }}
+          />
         ) : (
           <span className="font-medium">{row.itemName}</span>
         )}
@@ -77,16 +86,58 @@ function Row({ row }: { row: SheetRow }) {
       </div>
 
       <div className="min-w-0">
-        <Chain tiers={row.tiers} chain={row.chain} />
-        {row.sheetChain && (
-          <div className="mt-1 text-xs text-muted-foreground">
-            Sheet says <span className="line-through">{row.sheetChain}</span>
-          </div>
+        {editing ? (
+          /* Keyed on the chain so that saving — which re-renders the row with
+             the new chain — resets the editor rather than leaving the old
+             draft in a mounted input.
+
+             `formOnly`: this row already draws the chain and owns the button
+             that got you here, so the editor must not bring a second read view
+             and a second Edit button along with it. */
+          <ItemPriorityEditor
+            key={row.chain}
+            itemName={row.itemName}
+            formOnly
+            onDone={() => setEditing(false)}
+            rule={{
+              itemName: row.itemName,
+              chain: row.chain,
+              tiers: row.tiers,
+              origin: row.origin,
+              note: row.note,
+            }}
+          />
+        ) : (
+          <>
+            <Chain tiers={row.tiers} chain={row.chain} />
+            {row.sheetChain && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                Sheet says <span className="line-through">{row.sheetChain}</span>
+              </div>
+            )}
+            {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
+          </>
         )}
-        {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
       </div>
 
       <div className="flex items-start gap-1.5">
+        {/* Mounted per row on demand rather than for every row at once: a
+            pasted sheet runs to hundreds of rows, and each editor carries its
+            own state and transition.
+
+            Hidden while the form is open: the form has its own Save and
+            Cancel, and a third button beside them only invites the question of
+            which one commits. */}
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Change who this item goes to first — saved as an officer edit over the sheet"
+          >
+            Edit
+          </button>
+        )}
         {row.origin === "officer" && (
           <Badge variant="secondary" className="shrink-0">
             Officer edit

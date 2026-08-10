@@ -352,8 +352,12 @@ export function buildRosterStanding(
   policy: GuildPolicy = DEFAULT_POLICY,
 ): RosterStanding {
   return {
+    // Trials sit with the mains, which is the whole point of a trial: the
+    // question is whether they hold up against the raiding core, and a board
+    // of their own would answer a question nobody is asking. `roster.minRaids`
+    // still keeps a two-night trial off the list rather than at the bottom.
     mains: buildStandingBoard(
-      raiders.filter((r) => r.status === "main"),
+      raiders.filter((r) => r.status === "main" || r.status === "trial"),
       policy,
     ),
     alts: buildStandingBoard(

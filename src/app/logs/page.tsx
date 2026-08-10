@@ -275,7 +275,10 @@ function RaidDashboard({
           </p>
           {/* The pull list doubles as the switch for which pulls count. */}
           <div className="mt-1">
-            <FightFilter code={report.code} fights={fights} />
+            {/* Keyed per report: the filter holds the officer's pending
+                selection in state, and a stale one would save this night's
+                exclusions onto the next night opened. */}
+            <FightFilter key={report.code} code={report.code} fights={fights} />
           </div>
         </CardHeader>
       </Card>
@@ -362,6 +365,12 @@ function GroupsPanel({
         .
       </p>
       <RaidBoard
+        // Remount per night. The board seeds its state (and its undo stack)
+        // once on mount, so without this, switching reports leaves the previous
+        // night's arrangement on screen under the new night's code — and the
+        // autosave then writes it there, overwriting a real record with another
+        // raid's. Same reason the raid planner keys it.
+        key={`raid:${code}`}
         target={{ kind: "raid", code }}
         pool={pool}
         initial={board}

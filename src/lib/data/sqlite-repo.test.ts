@@ -789,7 +789,7 @@ describe("sqlite repo", () => {
     it("defaults every policy group until an officer sets one", async () => {
       const repo = getSqliteRepo();
       const policy = await repo.getGuildPolicy();
-      expect(policy.standing).toEqual({ main: 1, alt: 0.7, inactive: 0.4, pug: 0.25 });
+      expect(policy.standing).toEqual({ main: 1, trial: 1, alt: 0.7, inactive: 0.4, pug: 0.25 });
       expect(policy.attendance).toEqual({ recentRaids: 10, weeks: 8 });
       expect(policy.preparation.coverage).toBe("any");
       expect(policy.performance.parseMetric).toBe("all");
@@ -1310,6 +1310,95 @@ describe("sqlite repo", () => {
     expect(row.talents).toEqual([33, 28, 0]);
   });
 
+  describe("tier tokens", () => {
+    const TOKEN = 30242;
+    const PIECE = 30166;
+
+    it("stores the edge on the piece and marks the token a token", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.saveTokenRedemptions([{ pieceId: PIECE, tokenId: TOKEN }])).toBe(1);
+      expect((await repo.getItem(PIECE))!.redeemsFrom).toBe(TOKEN);
+      expect((await repo.getItem(TOKEN))!.armorToken).toBe(true);
+      // The edge does not run backwards.
+      expect((await repo.getItem(TOKEN))!.redeemsFrom).toBeUndefined();
+    });
+
+    it("lets a token win satisfy the wishlist row for the piece it buys", async () => {
+      // End to end, because this is the whole point: a Gargul paste naming the
+      // token has to close a wishlist slot naming the piece.
+      const repo = getSqliteRepo();
+      const character = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.upsertGearSet(
+        { ...wishlistDraft(character.id, 2, PIECE), name: "P2 tier" },
+        { replace: true },
+      );
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-11", zones: ["Serpentshrine Cavern"], source: "gargul" },
+        [{ rawWinnerName: "Thrainn", itemId: TOKEN, itemName: "Helm of the Vanquished Champion", awardedAt: "2026-06-11T21:00:00", offspec: false }],
+      );
+
+      const before = (await repo.getCharacterBundle("thrainn"))!;
+      expect(before.wishlists.find((w) => w.phase === 2)!.rows[0].state).toBe("open");
+
+      await repo.saveTokenRedemptions([{ pieceId: PIECE, tokenId: TOKEN }]);
+
+      const after = (await repo.getCharacterBundle("thrainn"))!;
+      const row = after.wishlists.find((w) => w.phase === 2)!.rows[0];
+      expect(row.state).toBe("awarded");
+      expect(row.awardedVia?.itemId).toBe(TOKEN);
+    });
+
+    it("queues ids that might be tokens, and stops once they have been asked about", async () => {
+      const repo = getSqliteRepo();
+      // A verified row with no slot: what a token looks like before anyone asks.
+      await repo.saveResolvedItems([{ id: 99960, name: "Might Be A Token", quality: "epic" }]);
+      expect((await repo.listTokenBackfill()).unchecked).toContain(99960);
+
+      // Wowhead answers "ordinary item" — it must not come round again.
+      await repo.saveResolvedItems([{ id: 99960, name: "Might Be A Token", quality: "epic", armorToken: false }]);
+      const asked = await repo.listTokenBackfill();
+      expect(asked.unchecked).not.toContain(99960);
+      expect(asked.tokensWithoutPieces).not.toContain(99960);
+    });
+
+    it("queues a known token until its vendor listing has been read", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveResolvedItems([{ id: TOKEN, name: "Helm of the Vanquished Champion", armorToken: true }]);
+      expect((await repo.listTokenBackfill()).tokensWithoutPieces).toContain(TOKEN);
+
+      await repo.saveTokenRedemptions([{ pieceId: PIECE, tokenId: TOKEN }]);
+      expect((await repo.listTokenBackfill()).tokensWithoutPieces).not.toContain(TOKEN);
+    });
+
+    it("keeps anything a gear set names out of the candidate queue", async () => {
+      // Structural, not a guess: a token can't be equipped, so nothing that
+      // exports a gear set can name one.
+      const repo = getSqliteRepo();
+      const character = (await repo.findCharacterByName("Thrainn"))!;
+      await repo.saveResolvedItems([{ id: 99961, name: "A Real Helm", slot: "head" }]);
+      expect((await repo.listTokenBackfill()).unchecked).toContain(99961);
+
+      await repo.upsertGearSet(wishlistDraft(character.id, 3, 99961), { replace: true });
+      expect((await repo.listTokenBackfill()).unchecked).not.toContain(99961);
+    });
+
+    it("asks about awarded ids before anything else", async () => {
+      // A capped press should spend itself on loot the guild actually won —
+      // a token in the ledger has awards waiting on the answer.
+      const repo = getSqliteRepo();
+      await repo.saveResolvedItems([
+        { id: 99970, name: "Never Seen", slot: "head" },
+        { id: 99971, name: "Won At A Boss" },
+      ]);
+      await repo.createRaidSessionWithAwards(
+        { date: "2026-06-12", zones: ["Serpentshrine Cavern"], source: "gargul" },
+        [{ rawWinnerName: "Thrainn", itemId: 99971, itemName: "Won At A Boss", awardedAt: "2026-06-12T21:00:00", offspec: false }],
+      );
+      const { unchecked } = await repo.listTokenBackfill();
+      expect(unchecked.indexOf(99971)).toBeLessThan(unchecked.indexOf(99970));
+    });
+  });
+
   it("addItemsIfMissing never overwrites existing cache entries", async () => {
     const repo = getSqliteRepo();
     const dst = (await repo.getItem(28830))!; // Dragonspine Trophy from seed
@@ -1346,8 +1435,10 @@ describe("sqlite repo", () => {
     expect(session.inserted).toBe(1);
     expect(await repo.listUnresolvedItemIds()).toContain(99952);
 
-    // What the Wowhead resolver hands back.
-    await repo.addItemsIfMissing([{ id: 99952, name: "Fathom-Brooch of the Tidewalker", quality: "epic", icon: "inv_jewelry_necklace_21" }]);
+    // What the Wowhead resolver hands back. It has to go in as *resolved* —
+    // an ordinary import would fill the same fields and leave the row
+    // unconfirmed, which is a different claim and stays on the list.
+    await repo.saveResolvedItems([{ id: 99952, name: "Fathom-Brooch of the Tidewalker", quality: "epic", icon: "inv_jewelry_necklace_21" }]);
     expect(await repo.listUnresolvedItemIds()).not.toContain(99952);
 
     // The invented name frozen into the award row is repaired from the cache.
@@ -1355,6 +1446,218 @@ describe("sqlite repo", () => {
     const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99952)!;
     expect(award.award.itemName).toBe("Fathom-Brooch of the Tidewalker");
     expect(await repo.repairPlaceholderAwardNames()).toBe(0);
+  });
+
+  it("puts the shipped drop table back on rows that lost it, and never over an officer", async () => {
+    const repo = getSqliteRepo();
+
+    // A row the resolver stripped because it had been curated onto the wrong
+    // item: name confirmed, zone and phase gone.
+    await repo.saveResolvedItems([
+      { id: 28830, name: "Something Else Entirely", quality: "epic", icon: "inv_sword_48" },
+    ]);
+    expect((await repo.getItem(28830))!.source).toBeUndefined();
+
+    // The shipped list still knows where the real 28830 comes from.
+    expect(await repo.applyCuratedItemSources()).toBeGreaterThan(0);
+    expect((await repo.getItem(28830))!.source?.boss).toBe("Gruul the Dragonkiller");
+
+    // Idempotent: nothing left to fill means nothing written.
+    expect(await repo.applyCuratedItemSources()).toBe(0);
+  });
+
+  it("never lets the shipped drop table overwrite an officer's own answer", async () => {
+    const repo = getSqliteRepo();
+    await repo.setItemCuration(28830, {
+      phase: 5,
+      source: { zone: "Sunwell Plateau", boss: "Kil'jaeden" },
+    });
+    await repo.applyCuratedItemSources();
+
+    const item = (await repo.getItem(28830))!;
+    expect(item.source).toEqual({ zone: "Sunwell Plateau", boss: "Kil'jaeden" });
+    expect(item.phase).toBe(5);
+  });
+
+  it("curates an item's drop and phase by hand, and clears them again", async () => {
+    const repo = getSqliteRepo();
+    expect((await repo.getItem(28830))!.phase).toBe(1);
+
+    expect(await repo.setItemCuration(28830, {
+      phase: 3,
+      source: { zone: "Black Temple", boss: "Illidan Stormrage" },
+    })).toEqual({ ok: true });
+    const edited = (await repo.getItem(28830))!;
+    expect(edited.phase).toBe(3);
+    expect(edited.source).toEqual({ zone: "Black Temple", boss: "Illidan Stormrage" });
+
+    // Clearing is a real answer, not a failure to answer: the curated list got
+    // a number of these attached to the wrong id, and no source beats a wrong one.
+    expect(await repo.setItemCuration(28830, { phase: null, source: null })).toEqual({ ok: true });
+    const cleared = (await repo.getItem(28830))!;
+    expect(cleared.phase).toBeUndefined();
+    expect(cleared.source).toBeUndefined();
+  });
+
+  it("curates an item the cache has never held, and puts it on the loot plan", async () => {
+    const repo = getSqliteRepo();
+    expect(await repo.getItem(99980)).toBeUndefined();
+    expect(await repo.setItemCuration(99980, {
+      phase: 2,
+      source: { zone: "Serpentshrine Cavern", boss: "Lady Vashj" },
+    })).toEqual({ ok: true });
+    expect((await repo.getItem(99980))!.phase).toBe(2);
+
+    // Zone is what the loot plan groups by — curating one has to be enough to
+    // put a drop back on it, which is the whole reason this write exists.
+    const plan = await repo.getLootPlan("Serpentshrine Cavern");
+    const ids = plan.bosses.flatMap((b) => b.items.map((i) => i.itemId));
+    expect(ids).toContain(99980);
+  });
+
+  it("refuses a source with no zone", async () => {
+    const repo = getSqliteRepo();
+    const result = await repo.setItemCuration(28830, { phase: 1, source: { zone: "   " } });
+    expect(result.ok).toBe(false);
+  });
+
+  it("moves the guild between phases, and puts it back", async () => {
+    const repo = getSqliteRepo();
+    const before = (await repo.getGuild()).activePhase;
+    const other = before === 3 ? 2 : 3;
+
+    expect(await repo.setActivePhase(other)).toEqual({ ok: true });
+    expect((await repo.getGuild()).activePhase).toBe(other);
+
+    // The point of the control is that it is reversible — an officer trying a
+    // phase on has to be able to get back exactly where they were.
+    expect(await repo.setActivePhase(before)).toEqual({ ok: true });
+    expect((await repo.getGuild()).activePhase).toBe(before);
+  });
+
+  it("refuses a phase the app doesn't have", async () => {
+    const repo = getSqliteRepo();
+    const before = (await repo.getGuild()).activePhase;
+    const result = await repo.setActivePhase(9 as never);
+    expect(result.ok).toBe(false);
+    expect((await repo.getGuild()).activePhase).toBe(before);
+  });
+
+  it("keeps offering a curated item until Wowhead itself confirms it", async () => {
+    const repo = getSqliteRepo();
+    // Dragonspine Trophy comes from the curated seed: name, quality and icon
+    // all present, none of them checked. A complete-looking row is exactly the
+    // case that used to be unreachable — eight wrong-icon reports landed here.
+    const seeded = (await repo.getItem(28830))!;
+    expect(seeded.name).toBeDefined();
+    expect(seeded.icon).toBeDefined();
+    expect(seeded.verified).toBe(false);
+    expect(await repo.listUnresolvedItemIds()).toContain(28830);
+
+    // An ordinary import can't clear it, no matter what it claims to know.
+    await repo.addItemsIfMissing([{ id: 28830, name: "Whatever", icon: "inv_misc_questionmark" }]);
+    expect(await repo.listUnresolvedItemIds()).toContain(28830);
+
+    await repo.saveResolvedItems([
+      { id: 28830, name: "Dragonspine Trophy", quality: "epic", icon: "inv_misc_bone_11", slot: "trinket1" },
+    ]);
+    expect(await repo.listUnresolvedItemIds()).not.toContain(28830);
+  });
+
+  it("drops zone, boss and phase when the curated row was on the wrong id", async () => {
+    const repo = getSqliteRepo();
+    const seeded = (await repo.getItem(28830))!;
+    expect(seeded.source).toBeDefined();
+    expect(seeded.phase).toBeDefined();
+
+    // Wowhead says this id is a different item entirely. Whatever zone, boss
+    // and phase were written beside the old name belong to the item the author
+    // meant, not to this one — keeping them would pin a Gruul's Lair drop onto
+    // something else and every phase filter downstream would believe it.
+    await repo.saveResolvedItems([
+      { id: 28830, name: "Something Else Entirely", quality: "epic", icon: "inv_sword_48" },
+    ]);
+
+    const after = (await repo.getItem(28830))!;
+    expect(after.name).toBe("Something Else Entirely");
+    expect(after.source).toBeUndefined();
+    expect(after.phase).toBeUndefined();
+    expect(after.verified).toBe(true);
+  });
+
+  it("lets Wowhead overwrite a guessed icon, but never the guild's own answers", async () => {
+    const repo = getSqliteRepo();
+    const before = (await repo.getItem(28830))!;
+    // The seed is where zone/boss/phase come from; Wowhead's XML has none of
+    // them, so resolving must not blank what the officers curated.
+    expect(before.source).toBeDefined();
+    expect(before.phase).toBeDefined();
+
+    await repo.saveResolvedItems([
+      { id: 28830, name: "Dragonspine Trophy", quality: "epic", icon: "inv_misc_bone_11", slot: "trinket1" },
+    ]);
+
+    const after = (await repo.getItem(28830))!;
+    expect(after.icon).toBe("inv_misc_bone_11");
+    expect(after.verified).toBe(true);
+    expect(after.source).toEqual(before.source);
+    expect(after.phase).toBe(before.phase);
+  });
+
+  it("counts what Wowhead disagreed with, not what it wrote", async () => {
+    const repo = getSqliteRepo();
+    const seeded = (await repo.getItem(28830))!;
+    // Same id, a different icon: one correction.
+    expect(await repo.saveResolvedItems([
+      { id: 28830, name: seeded.name, quality: seeded.quality, icon: "inv_misc_bone_11" },
+    ])).toBe(1);
+    // Now it agrees — still written (the row is re-stamped), nothing corrected.
+    expect(await repo.saveResolvedItems([
+      { id: 28830, name: seeded.name, quality: seeded.quality, icon: "inv_misc_bone_11" },
+    ])).toBe(0);
+    // An id the cache never held is learned, not corrected.
+    expect(await repo.saveResolvedItems([
+      { id: 99970, name: "Brand New", quality: "epic", icon: "inv_sword_48" },
+    ])).toBe(0);
+    expect((await repo.getItem(99970))!.verified).toBe(true);
+  });
+
+  it("migrates a database created before item provenance was tracked", async () => {
+    // The pre-verified items table, with one row of each kind: a curated entry
+    // (the seed is the only writer of source_json) and one harvested from a
+    // log. The migration must trust the machine and re-check the human.
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE items (
+      id INTEGER PRIMARY KEY, name TEXT, quality TEXT, icon TEXT, slot TEXT,
+      source_json TEXT, phase INTEGER
+    )`);
+    old.prepare("INSERT INTO items (id, name, quality, icon, source_json) VALUES (?, ?, ?, ?, ?)")
+      .run(99960, "Curated Guess", "epic", "inv_misc_questionmark", JSON.stringify({ zone: "Karazhan" }));
+    old.prepare("INSERT INTO items (id, name, quality, icon) VALUES (?, ?, ?, ?)")
+      .run(99961, "Read Off A Log", "epic", "inv_sword_48");
+    old.close();
+
+    const repo = getSqliteRepo();
+    expect((await repo.getItem(99960))!.verified).toBe(false);
+    expect((await repo.getItem(99961))!.verified).toBe(true);
+
+    const unresolved = await repo.listUnresolvedItemIds();
+    expect(unresolved).toContain(99960);
+
+    // The trusted row is still queued, but for a different and much smaller
+    // reason: it was confirmed before the phase was read off Wowhead's answer,
+    // so it is owed exactly one more lookup. Ordering says which is which —
+    // the unverified guess is asked about first.
+    expect((await repo.getItem(99961))!.phaseChecked).toBe(false);
+    expect(unresolved.indexOf(99960)).toBeLessThan(unresolved.indexOf(99961));
+
+    // And once it has been asked, it never comes back — including when Wowhead
+    // had no phase for it, which is true of most of the tier's launch items.
+    await repo.saveResolvedItems([
+      { id: 99961, name: "Read Off A Log", quality: "epic", icon: "inv_sword_48" },
+    ]);
+    expect((await repo.getItem(99961))!.phase).toBeUndefined();
+    expect(await repo.listUnresolvedItemIds()).not.toContain(99961);
   });
 
   it("awards a wishlist item by hand and clears it again", async () => {
@@ -1813,6 +2116,28 @@ describe("sqlite repo", () => {
       // Clearing the filter counts the whole night again.
       await repo.setReportExcludedFights(reportDraft.code, []);
       expect((await repo.getRaidReport(reportDraft.code))!.prep.potionsTotal).toBe(2);
+    });
+
+    it("carries an excused pull through to the raider's own page", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({ fightId: 1, actorName: "Pyrelia", flask: "Flask of Relentless Assault" }),
+        fightDraft({ fightId: 2, actorName: "Pyrelia", encounterName: "Moroes", food: false }),
+      ]);
+      const before = (await repo.getCharacterPerformance("pyrelia"))!.reports[0];
+      expect(before.summary.flaskPct).toBe(50);
+      expect(before.excusedFightIds).toEqual([]);
+
+      await repo.setReportExcludedFights(reportDraft.code, [2]);
+      const after = (await repo.getCharacterPerformance("pyrelia"))!.reports[0];
+      // The pull is still listed — an officer excusing a farm boss still wants
+      // to read it — but the figures it fed are gone. This is the whole point:
+      // the switch used to clean up the raid page and leave the same pull
+      // scoring against the raider here, on the standing board and in loot.
+      expect(after.rows).toHaveLength(2);
+      expect(after.excusedFightIds).toEqual([2]);
+      expect(after.summary.flaskPct).toBe(100);
+      expect(after.summary.fights).toBe(1);
     });
 
     it("moves a character to pug and back, excluding them from guild stats", async () => {
@@ -2278,6 +2603,57 @@ describe("sqlite repo", () => {
       expect(await repo.deleteFeedback(added.report.id)).toBe(true);
       expect(await repo.deleteFeedback(added.report.id)).toBe(false); // already gone
       expect(await repo.listFeedback()).toHaveLength(0);
+    });
+
+    it("triages a report without touching what the reporter wrote", async () => {
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({
+        body: "Two edit buttons on the priority sheet",
+        route: "/loot/priority",
+        url: "http://localhost:3000/loot/priority?phase=3",
+      });
+      if (!added.ok) throw new Error("unreachable");
+      // Filed, not yet judged — the state an officer scans the page for.
+      expect(added.report.priority).toBe("unset");
+      expect(added.report.adminNote).toBeUndefined();
+
+      expect(await repo.setFeedbackTriage(added.report.id, { priority: "major" })).toBe(true);
+      expect(await repo.setFeedbackTriage(added.report.id, { adminNote: "  Fixed in the sheet editor.  " })).toBe(true);
+      const [stored] = await repo.listFeedback();
+      expect(stored.priority).toBe("major");
+      expect(stored.adminNote).toBe("Fixed in the sheet editor.");
+      // Setting one field never blanks the other, and the report itself stands.
+      expect(stored.body).toBe("Two edit buttons on the priority sheet");
+      expect(stored.status).toBe("open");
+
+      // An empty note clears it; an empty triage changes nothing at all.
+      expect(await repo.setFeedbackTriage(added.report.id, { adminNote: "" })).toBe(true);
+      expect((await repo.listFeedback())[0].adminNote).toBeUndefined();
+      expect((await repo.listFeedback())[0].priority).toBe("major");
+      expect(await repo.setFeedbackTriage(added.report.id, {})).toBe(false);
+    });
+
+    it("puts open reports first, worst first, and the unjudged above the minor", async () => {
+      const repo = getSqliteRepo();
+      const file = async (body: string) => {
+        const r = await repo.addFeedback({ body, route: "/loot", url: "http://x/loot" });
+        if (!r.ok) throw new Error("unreachable");
+        return r.report.id;
+      };
+      const minor = await file("minor one");
+      const untriaged = await file("nobody has looked at this");
+      const major = await file("major one");
+      const closed = await file("closed one");
+      await repo.setFeedbackTriage(minor, { priority: "minor" });
+      await repo.setFeedbackTriage(major, { priority: "major" });
+      await repo.setFeedbackTriage(closed, { status: "resolved", priority: "major" });
+
+      expect((await repo.listFeedback()).map((r) => r.id)).toEqual([
+        major,
+        untriaged,
+        minor,
+        closed,
+      ]);
     });
 
     it("keeps a report with no context at all — declining to share is not an error", async () => {
