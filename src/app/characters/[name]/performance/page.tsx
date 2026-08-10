@@ -6,7 +6,8 @@ import { format, parseISO } from "date-fns";
 import { ArrowLeft, Check, ExternalLink, FlaskConical, X } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { attendanceTitle } from "@/lib/analysis/performance";
-import { hasFlaskOrElixir } from "@/lib/analysis/preparation";
+import { potionNames, potionsUsed, prepotName } from "@/lib/analysis/potions";
+import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
 import { P2_ENCHANT_GUIDE } from "@/lib/wcl/enchants";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
@@ -30,6 +31,7 @@ import { GearTable } from "@/components/gear-table";
 import { SpecBadge } from "@/components/spec-badge";
 import { WeekDots } from "@/components/week-dots";
 import { PageHeader } from "@/components/page-header";
+import { DevelopmentCard } from "@/components/development-card";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -66,12 +68,30 @@ function fmtAmount(row: WclPlayerFight): string {
   return `${Math.round(row.amount).toLocaleString("en-US")} ${row.role === "healer" ? "hps" : "dps"}`;
 }
 
-function Mark({ ok, title }: { ok: boolean; title?: string }) {
+function Mark({ ok, title, half }: { ok: boolean; title?: string; half?: boolean }) {
   return ok ? (
-    <Check className="h-3.5 w-3.5 text-success-ink" aria-label={title ?? "yes"} />
+    <Check
+      className={cn("h-3.5 w-3.5", half ? "text-warn-ink" : "text-success-ink")}
+      aria-label={title ?? "yes"}
+    />
   ) : (
     <X className="h-3.5 w-3.5 text-muted-foreground/40" aria-label={title ?? "no"} />
   );
+}
+
+/**
+ * What the pull's consumable tick means, in words. A half-filled elixir set
+ * looks identical to a flask on the board, so the tooltip is the only place
+ * the difference is readable.
+ */
+function consumableTitle(row: WclPlayerFight): string {
+  if (row.flask !== undefined) return row.flask;
+  const c = elixirCoverage(row);
+  if (c.grade === "none") return "no flask or elixirs";
+  const had = [c.battle, c.guardian, ...c.unclassified].filter(Boolean).join(" + ");
+  if (c.missing === "guardianElixir") return `${had} — no guardian elixir`;
+  if (c.missing === "battleElixir") return `${had} — no battle elixir`;
+  return had;
 }
 
 /** Coverage line for the consumables card: label + pulls covered. */
@@ -108,11 +128,12 @@ export default async function PerformancePage({
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
   if (!perf) notFound();
   const { character, reports, career, attendance } = perf;
-  const [items, enchants, bundle, guild] = await Promise.all([
+  const [items, enchants, bundle, guild, development] = await Promise.all([
     repo.listItems(),
     repo.getEnchantReference(),
     repo.getCharacterBundle(decodeURIComponent(name)),
     repo.getGuild(),
+    repo.getDevelopment(character.id),
   ]);
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
   // Their own lists, active phase first — the enchant grading's first choice.
@@ -198,6 +219,10 @@ export default async function PerformancePage({
         />
       ) : (
         <>
+          {/* Career shape first: which way they are going frames every number
+              beneath it, and no rollup on this page can say. */}
+          <DevelopmentCard series={development} />
+
           {reports.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {reports.map(({ report }) => {
@@ -421,25 +446,26 @@ export default async function PerformancePage({
                           </TableCell>
                           <TableCell>
                             <Mark
-                              ok={hasFlaskOrElixir(row)}
-                              title={row.flask ?? (row.elixirs.length > 0 ? row.elixirs.join(" + ") : "no flask or elixirs")}
+                              ok={hasConsumableCoverage(row)}
+                              half={elixirCoverage(row).grade === "partial"}
+                              title={consumableTitle(row)}
                             />
                           </TableCell>
                           <TableCell>
-                            <Mark ok={row.food} />
+                            <Mark ok={hasFood(row)} />
                           </TableCell>
                           <TableCell className="text-sm tabular-nums">
-                            {row.potions.length + row.otherCasts.length + row.sappers > 0 || row.prepot ? (
+                            {potionsUsed(row) + row.otherCasts.length + row.sappers > 0 ? (
                               <span
                                 title={[
-                                  ...(row.prepot ? ["pre-pot"] : []),
-                                  ...row.potions,
+                                  ...potionNames(row).map((p, i) =>
+                                    i === 0 && row.prepot ? `${p} (pre-pull)` : p,
+                                  ),
                                   ...row.otherCasts,
                                   ...(row.sappers > 0 ? [`sapper ×${row.sappers}`] : []),
                                 ].join(", ")}
                               >
-                                {row.potions.length + row.otherCasts.length + row.sappers}
-                                {row.prepot && <span className="text-success-ink">+</span>}
+                                {potionsUsed(row) + row.otherCasts.length + row.sappers}
                               </span>
                             ) : (
                               <span className="text-muted-foreground/50">0</span>
@@ -482,7 +508,7 @@ export default async function PerformancePage({
                       <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food</TableCell>
                       <TableCell className="text-sm">Well Fed</TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
-                        {active.rows.filter((r) => r.food).length}/{active.rows.length} pulls
+                        {active.rows.filter((r) => hasFood(r)).length}/{active.rows.length} pulls
                       </TableCell>
                     </TableRow>
                     <TableRow>
@@ -591,11 +617,19 @@ function UpkeepPct({ pct }: { pct: number }) {
 /** Expanded per-pull detail: items used, cooldowns cast, maintained uptime. */
 function fightDetail(row: WclPlayerFight): React.ReactNode {
   const sapperEntries = Array<string>(row.sappers).fill("Sapper charge");
-  const items = [...row.potions, ...row.otherCasts, ...sapperEntries];
+  // The pre-pull potion is listed with the rest, named as what it was rather
+  // than as a separate badge — it is one of the items this pull consumed.
+  const prepot = prepotName(row);
+  const items = [
+    ...(prepot === undefined ? [] : [`${prepot} (pre-pull)`]),
+    ...row.potions,
+    ...row.otherCasts,
+    ...sapperEntries,
+  ];
   const trackedCds = cooldownsForClass(row.className);
   const trackedUptime = uptimeTracksForClass(row.className);
   const hasAnything =
-    items.length > 0 || row.prepot || row.cooldowns.length > 0 || row.upkeep.length > 0 ||
+    items.length > 0 || row.cooldowns.length > 0 || row.upkeep.length > 0 ||
     trackedCds.length > 0 || trackedUptime.length > 0;
   if (!hasAnything) return null;
 
@@ -606,10 +640,9 @@ function fightDetail(row: WclPlayerFight): React.ReactNode {
           Items used
         </p>
         <p className="mt-0.5">
-          {row.prepot && <span className="text-success-ink">pre-pot · </span>}
           {items.length > 0 ? (
             countedList(items)
-          ) : row.prepot ? null : (
+          ) : (
             <span className="text-muted-foreground/60">none</span>
           )}
         </p>

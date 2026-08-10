@@ -12,6 +12,12 @@ import {
   setReportConsumableAdjustments,
   getItemPriorityRules,
   getPrioritySheets,
+  getClassGuides,
+  getWishlistAlternatives,
+  setWishlistAlternative,
+  deleteWishlistAlternative,
+  setClassGuide,
+  deleteClassGuide,
   setPrioritySheet,
   deletePrioritySheet,
   getGuildPolicy,
@@ -29,6 +35,8 @@ import {
   insertAttendanceExemption,
   insertCharacter,
   insertCharacterComment,
+  insertItemComment,
+  deleteItemComment,
   insertFeedback,
   insertCurrentGearOverride,
   insertGearSet,
@@ -54,12 +62,15 @@ import {
 import { createRepoFromStore } from "@/lib/data/store";
 import { normalizeItemName, parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
-import { PHASE_IDS } from "@/lib/constants/wow";
+import { CLASS_SPECS, PHASE_IDS, WOW_CLASSES } from "@/lib/constants/wow";
 import type { PolicyOverrides } from "@/lib/analysis/policy";
+import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
+import { renumber, type WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
 import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
   characterCommentSchema,
+  itemCommentSchema,
   characterSchema,
   feedbackReportSchema,
   currentGearOverrideSchema,
@@ -77,6 +88,8 @@ import type {
   AwardWriteResult,
   AddFeedbackResult,
   CharacterCommentDraft,
+  ItemCommentDraft,
+  AddItemCommentResult,
   FeedbackDraft,
   DeleteSessionResult,
   CharacterDraft,
@@ -98,8 +111,10 @@ import type {
   WriteRepo,
 } from "@/lib/data/repo";
 import type {
+  AwardDecision,
   Character,
   CharacterComment,
+  ItemComment,
   FeedbackReport,
   FeedbackStatus,
   CurrentGearOverride,
@@ -146,6 +161,8 @@ function readModel(): CachedModel {
       policy: getGuildPolicy(db),
       itemPriorityRules: getItemPriorityRules(db),
       prioritySheetsByPhase: getPrioritySheets(db),
+      classGuides: getClassGuides(db),
+      wishlistAlternatives: getWishlistAlternatives(db) as WishlistAlternative[],
       enchantNames: getEnchantNames(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     }),
@@ -189,6 +206,45 @@ function checkAwardInput(input: AwardEditInput): { ok: true } | { ok: false; err
     }
   }
   return { ok: true };
+}
+
+/**
+ * The board as it reads right now, for the winner about to be given the item.
+ *
+ * Returns undefined when there is nothing to freeze — the item was never
+ * contested, or the winner wasn't on the board. Absent is honest: it says the
+ * award didn't come from the ranking, which is a different fact from a low
+ * score, and the ledger must never present it as one.
+ */
+async function captureDecision(
+  itemId: number,
+  characterId: string,
+): Promise<AwardDecision | undefined> {
+  const contention = await readModel().repo.getItemContention(itemId);
+  const wisher = contention?.wishers.find((w) => w.character.id === characterId);
+  if (!contention || !wisher) return undefined;
+
+  const policy = await readModel().repo.getGuildPolicy();
+  return {
+    score: wisher.priority?.score,
+    rank: wisher.rank,
+    contenders: contention.wishers.filter((w) => !w.satisfied).length,
+    factors: (wisher.priority?.factors ?? []).map((f) => ({
+      label: f.label,
+      score: f.score,
+      weight: f.weight,
+      detail: f.detail,
+    })),
+    adjustments: (wisher.priority?.adjustments ?? []).map((a) => ({
+      label: a.label,
+      multiplier: a.multiplier,
+      note: a.note,
+    })),
+    chain: contention.priorityRule?.chain,
+    tierLabel: wisher.priorityTierLabel,
+    weights: policy.weights,
+    capturedAt: new Date().toISOString(),
+  };
 }
 
 const writeMethods: Omit<WriteRepo, keyof Repo> = {
@@ -418,6 +474,95 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true as const, ruleCount: rules.length };
   },
 
+  async setWishlistAlternatives(input: {
+    characterId: string;
+    phase: number;
+    slot: string;
+    items: { itemId: number; itemName?: string; note?: string }[];
+  }) {
+    if (!readModel().store.roster.some((c) => c.id === input.characterId)) {
+      return { ok: false as const, error: "That character no longer exists." };
+    }
+    if (!PHASE_IDS.includes(input.phase as (typeof PHASE_IDS)[number])) {
+      return { ok: false as const, error: `Phase ${input.phase} isn't a phase this app knows.` };
+    }
+    const items = input.items.filter((i) => Number.isInteger(i.itemId) && i.itemId > 0);
+    // The same item twice would give one slot two different ranks for it.
+    const seen = new Set<number>();
+    const unique = items.filter((i) => !seen.has(i.itemId) && seen.add(i.itemId));
+
+    const db = getDb();
+    withTx(db, () => {
+      // Replace outright: the caller sends the whole list in order, so anything
+      // no longer in it was removed. Renumbering keeps ranks dense — a gap
+      // would make "2nd choice" mean nothing.
+      for (const existing of getWishlistAlternatives(db)) {
+        if (
+          existing.characterId === input.characterId &&
+          existing.phase === input.phase &&
+          existing.slot === input.slot &&
+          !unique.some((i) => i.itemId === existing.itemId)
+        ) {
+          deleteWishlistAlternative(db, input.characterId, input.phase, input.slot, existing.itemId);
+        }
+      }
+      renumber(unique).forEach(({ itemId, rank }) => {
+        const item = unique.find((i) => i.itemId === itemId)!;
+        setWishlistAlternative(db, {
+          characterId: input.characterId,
+          phase: input.phase,
+          slot: input.slot,
+          itemId,
+          itemName: item.itemName,
+          rank,
+          note: item.note,
+        });
+      });
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
+  async setClassGuide(input: {
+    wowClass: string;
+    spec: string;
+    body: string;
+    sources: string[];
+    author?: string;
+  }) {
+    if (!WOW_CLASSES.includes(input.wowClass as (typeof WOW_CLASSES)[number])) {
+      return { ok: false as const, error: `${input.wowClass} isn't a class this app knows.` };
+    }
+    const spec = input.spec.trim();
+    if (spec && !CLASS_SPECS[input.wowClass as (typeof WOW_CLASSES)[number]].includes(spec)) {
+      return { ok: false as const, error: `${input.wowClass} has no spec called "${spec}".` };
+    }
+    const db = getDb();
+    const body = input.body.trim();
+    // An empty guide is deleted rather than stored: a blank body would read as
+    // "we looked at this and had nothing to say", which is a different claim
+    // from "nobody has written it yet".
+    if (!body) {
+      let deleted = false;
+      withTx(db, () => {
+        deleted = deleteClassGuide(db, input.wowClass, spec);
+        if (deleted) bumpDataVersion(db);
+      });
+      return { ok: true as const, deleted };
+    }
+    withTx(db, () => {
+      setClassGuide(db, {
+        wowClass: input.wowClass,
+        spec,
+        body,
+        sources: input.sources.map((x) => x.trim()).filter(Boolean),
+        author: input.author?.trim() || undefined,
+      });
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
   async deletePrioritySheet(phase: number) {
     const db = getDb();
     withTx(db, () => {
@@ -496,6 +641,10 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       result.deletedGearSets = Number(
         db.prepare("DELETE FROM gear_sets WHERE character_id = ?").run(id).changes,
       );
+      // A note on an item is part of why a loot decision was made, so it is
+      // unlinked rather than destroyed — invariant 6. It stops naming somebody
+      // and stays readable.
+      db.prepare("UPDATE item_comments SET character_id = NULL WHERE character_id = ?").run(id);
       // Comments, exemptions and pinned slots reference the character — they go with it.
       db.prepare("DELETE FROM character_comments WHERE character_id = ?").run(id);
       db.prepare("DELETE FROM attendance_exemptions WHERE character_id = ?").run(id);
@@ -599,6 +748,14 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     const check = checkAwardInput(input);
     if (!check.ok) return check;
 
+    // Freeze the board as it read at this moment. Computed HERE rather than
+    // taken from the caller: a client-supplied score could be stale or simply
+    // wrong, and the whole value of the snapshot is that it's the arithmetic
+    // the app actually produced.
+    const decision = input.characterId
+      ? await captureDecision(input.itemId, input.characterId)
+      : undefined;
+
     const parsed = lootAwardSchema.safeParse({
       id: `la_${randomUUID()}`,
       raidSessionId,
@@ -611,6 +768,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       awardedAt: `${session.date}T12:00:00`,
       offspec: input.offspec,
       note: input.note?.trim() || undefined,
+      decision,
     } satisfies LootAward);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid award." };
 
@@ -788,6 +946,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       db.prepare("UPDATE loot_awards SET character_id = NULL, external = 0 WHERE character_id LIKE 'c-%'").run();
       // Gear sets follow their character — covers seeded sets and test imports onto demo characters.
       removed.gearSets = Number(db.prepare("DELETE FROM gear_sets WHERE character_id LIKE 'c-%'").run().changes);
+      db.prepare("UPDATE item_comments SET character_id = NULL WHERE character_id LIKE 'c-%'").run();
       // Comments, exemptions and pinned slots on demo characters go too (they'd dangle otherwise).
       db.prepare("DELETE FROM character_comments WHERE character_id LIKE 'c-%'").run();
       db.prepare("DELETE FROM attendance_exemptions WHERE character_id LIKE 'c-%'").run();
@@ -877,6 +1036,40 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     let deleted = false;
     withTx(db, () => {
       deleted = Number(db.prepare("DELETE FROM character_comments WHERE id = ?").run(id).changes) > 0;
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
+  async addItemComment(draft: ItemCommentDraft): Promise<AddItemCommentResult> {
+    // A comment can name a raider, and if it does, that raider has to exist —
+    // an orphaned "2nd choice for someone" is worse than no note. The item
+    // itself is deliberately NOT checked: officers discuss drops the cache
+    // hasn't seen yet, and a note is how they record that.
+    if (draft.characterId !== undefined && !readModel().store.roster.some((c) => c.id === draft.characterId)) {
+      return { ok: false, error: "Character not found." };
+    }
+    const parsed = itemCommentSchema.safeParse({
+      ...draft,
+      id: `ic_${randomUUID()}`,
+      createdAt: new Date().toISOString(),
+    } satisfies ItemComment);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid comment." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      insertItemComment(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true, comment: parsed.data };
+  },
+
+  async deleteItemComment(id: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = deleteItemComment(db, id);
       if (deleted) bumpDataVersion(db);
     });
     return deleted;
@@ -1150,6 +1343,54 @@ export function getSqliteRepo(): WriteRepo {
     getItemPriorityRule: (itemId, ...names) => readModel().repo.getItemPriorityRule(itemId, ...names),
     getPrioritySheet: (phase) => readModel().repo.getPrioritySheet(phase),
     getGuildPolicy: () => readModel().repo.getGuildPolicy(),
+    getLootPlan: (zone: string) => readModel().repo.getLootPlan(zone),
+    getRosterStanding: () => readModel().repo.getRosterStanding(),
+    getDevelopment: (characterId: string) => readModel().repo.getDevelopment(characterId),
+    listGearSets: () => readModel().repo.listGearSets(),
+    listClassGuides: () => readModel().repo.listClassGuides(),
+    listItemComments: (itemId: number) => readModel().repo.listItemComments(itemId),
+    countItemComments: () => readModel().repo.countItemComments(),
+    listWishlistAlternatives: () => readModel().repo.listWishlistAlternatives(),
+    measureRoster: () => readModel().repo.measureRoster(),
+
+    /**
+     * Measure the roster twice: once as it stands, once under the proposed
+     * policy. The second model is built and thrown away — nothing is stored,
+     * which is the whole point of a preview.
+     *
+     * A full rebuild per preview is deliberate. It is the same code path the
+     * real read model uses, so the preview cannot drift from what saving would
+     * actually do — and at guild scale the rebuild is cheap.
+     */
+    async previewGuildPolicy(overrides: PolicyOverrides) {
+      const db = getDb();
+      const current = getGuildPolicy(db) as PolicyOverrides;
+      const merged: PolicyOverrides = { ...current };
+      for (const [key, value] of Object.entries(overrides) as [keyof PolicyOverrides, object][]) {
+        merged[key] = { ...(current[key] as object), ...value } as never;
+      }
+
+      const before = await readModel().repo.measureRoster();
+      const proposed = createRepoFromStore(loadStore(db), {
+        excludedFightsByCode: getAllExcludedFights(db),
+        policy: merged,
+        itemPriorityRules: getItemPriorityRules(db),
+        prioritySheetsByPhase: getPrioritySheets(db),
+        classGuides: getClassGuides(db),
+        enchantNames: getEnchantNames(db),
+        consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
+      });
+      const after = await proposed.measureRoster();
+      const afterByName = new Map(after.map((r) => [r.name, r]));
+
+      return buildPolicyPreview(
+        before.map((row) => ({
+          ...row,
+          preparedAfter: afterByName.get(row.name)?.preparedAfter,
+          attendanceAfter: afterByName.get(row.name)?.attendanceAfter,
+        })),
+      );
+    },
   };
   return { ...readDelegate, ...writeMethods };
 }

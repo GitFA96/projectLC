@@ -1,3 +1,5 @@
+import { potionsUsed } from "@/lib/analysis/potions";
+import { hasFood } from "@/lib/analysis/preparation";
 import type { WclPlayerFight } from "@/lib/types";
 import type { IndividualSimSettings } from "@/lib/sim/request";
 import type { BloodFrenzyEvidence } from "@/lib/sim/inference";
@@ -189,7 +191,7 @@ const BUFF_KEYS: {
  */
 const CONSUMABLE_KEYS: { key: string; label: string; had: (p: WclPlayerFight) => boolean; loggedLabel: (p: WclPlayerFight) => string }[] = [
   { key: "flaskId", label: "Flask", had: (p) => Boolean(p.flask) || p.elixirs.length > 0, loggedLabel: (p) => p.flask ?? (p.elixirs.length ? p.elixirs.join(", ") : "none") },
-  { key: "foodId", label: "Food buff", had: (p) => p.food, loggedLabel: (p) => (p.food ? "Well Fed" : "none") },
+  { key: "foodId", label: "Food buff", had: (p) => hasFood(p), loggedLabel: (p) => (hasFood(p) ? "Well Fed" : "none") },
   { key: "ohImbueId", label: "Weapon buff", had: (p) => p.weaponBuff, loggedLabel: (p) => (p.weaponBuff ? "applied" : "none") },
 ];
 
@@ -206,7 +208,7 @@ const CONSUMABLE_KEYS: { key: string; label: string; had: (p: WclPlayerFight) =>
  * pre-pull one, which the log records separately from in-combat casts.
  */
 function potionRow(pull: WclPlayerFight, simHasPotion: boolean): ContextRow | undefined {
-  const used = pull.potions.length + (pull.prepot ? 1 : 0);
+  const used = potionsUsed(pull);
   // Two-minute cooldown, and one before the pull is free.
   const afforded = 1 + Math.floor(pull.durationMs / 120_000);
   if (!simHasPotion && used === 0) return undefined;

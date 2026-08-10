@@ -83,6 +83,21 @@ name and log pulls return to the untracked list.
 open), the stat difference between what they wear and what they want, loot
 history, and an officer comment log.
 
+Each open wishlist slot also carries **alternatives** — what the raider will take
+if their BiS doesn't drop, in their own order. The wishlist itself stays a whole
+imported set (that's what SixtyUpgrades exports and what the stat diff needs);
+these sit beside it, ranked from the first fallback. Order comes from position,
+so two items can never both claim second place and removing one closes the gap.
+
+They do two things on the loot side. A fallback **puts the raider on the item's
+board** — without it, a second choice dropping never reaches the council at all
+— badged with where it sits on their list. And "already served this slot" now
+reads what actually served it: their own pick costs full, a ranked fallback
+costs whatever the council says, and **a drop they never listed costs nothing**
+— being handed something nobody asked for shouldn't weaken their claim on the
+item they did ask for. A raider with no list on record is counted in full
+instead, because a missing wishlist shouldn't buy a discount.
+
 Loot can be **awarded by hand** from any open wishlist row or from the ledger —
 no Gargul paste needed — and a hand-entered award is an ordinary award in every
 downstream calculation.
@@ -111,6 +126,45 @@ Character details, off-spec, main/alt link, and the imported sets (update via
 re-import, delete stale ones). Current gear and off-spec gear are pinned per slot
 here when the imported set is wrong or missing.
 
+## Standing `/roster/standing`
+
+*"Hvem bør vi erstatte?"* — the roster ranked against itself, weakest first.
+
+Every figure is a **placing inside this guild**, not a score against a target.
+"95% is good" is a judgement the app has no standing to make; "third from bottom
+of twenty-seven on preparation" is a fact about the guild, and it's the sentence
+an officer can defend in a conversation nobody enjoys having. It also keeps
+working as the guild improves: when everyone gets better, the bar moves with
+them.
+
+Three columns — attendance, median parse, preparation — weighted on the guild
+page. **Loot owed is deliberately absent**: being owed loot is not a demerit.
+
+**Two boards.** Mains are placed against mains; alts and inactive raiders get
+their own. Pooling them lets somebody's occasional alt sit at the bottom of the
+data and lift every regular above them, so the guild reads healthier than it is
+— and an alt isn't a seat to reconsider anyway. Pugs are in neither.
+
+**50 is the middle of the group, not a pass mark.** Nobody scores 100 by being
+good, only by being first, so a low number means "behind the others here" and
+never "bad" — the bottom quarter of a strong roster may be playing perfectly
+well. Each placing carries the quarter it falls in, which is arithmetic rather
+than a standard.
+
+Two things it refuses to do. A raider with no figure for a column has it
+**dropped from their average** rather than counted as zero, because an import
+gap is not a verdict. And a raider below the council's raid minimum is **listed
+but not placed** — and doesn't set the scale for anyone else either, so a
+handful of alts and trials can't flatter the whole roster from underneath.
+
+A **Trend** column carries the same parse delta as the development view: where
+somebody is and where they are heading are different questions, and folding one
+into the other would lose both. Shown, never scored.
+
+Above the table, each column's own shape: median, range, and how many raiders
+have a figure. A column where everyone sits within a few points is separating
+nobody, and the spread says so rather than the app quietly deciding for you.
+
 ## Performance `/characters/[name]/performance`
 
 The Warcraft Logs dashboard for one raider, per report and as a career rollup.
@@ -120,8 +174,17 @@ Expand any boss row for that pull's detail.
   percentile. High parse + low bracket reads "carried by gear"; the reverse reads
   "outplaying their gear". A **boss-damage** percentile separates real
   contribution from cleave padding.
-- **Preparation** — flask/elixirs/scrolls, food, weapon buff, pre-pots, and
-  potions/drums/runes used in-fight.
+- **Development** — the same raider night by night, with the recent nights'
+  parse and preparation measured against everything earlier. Every other number
+  on the page is a career rollup, which can't answer *which way is this going* —
+  and a raider at the bottom who is climbing needs the opposite conversation
+  from one who is sliding. The window is the council's "recent" setting, capped
+  at half their nights so a comparison always has two sides.
+- **Preparation** — flask/elixirs/scrolls, food, weapon buff, and
+  potions/drums/runes used. A flask and a battle+guardian pair are both a full
+  set; **half a set** (one elixir, one empty slot) is marked as such rather than
+  reading like a flask. A pre-pull potion counts as a potion — it was bought and
+  drunk — without counting as a virtue.
 - **Class toolkit** — major cooldowns with the moment each was pressed, shaman
   totem drops, and the uptime of the debuffs/buffs their spec is supposed to
   maintain.
@@ -142,7 +205,14 @@ One raid night at a time, or **All raids** ranked, in three tabs.
 leave it out and everything recomputes without it. A joke pull or a two-man farm
 boss stops skewing the night in one click, and the exclusion survives a re-fetch.
 
-- **Overview** — preparation coverage, uptime **by boss** (bands across the pull,
+- **Where the pulls break down** — per boss, hardest first: the median moment
+  of the first death, deaths across the pull in tenths of its own length, and
+  who dies here most. A count says the raid loses people; **when** says whether
+  it's an opener nobody survives or attrition late on, and those need opposite
+  fixes. The app never names a cause — it doesn't fetch what killed anybody, and
+  reading that off a clock would be an invention.
+- **Overview** — preparation coverage (with the full-set / half-set split),
+  uptime **by boss** (bands across the pull,
   gaps are exactly the downtime) and **by player** (who actually *had* Battle
   Shout or Innervate, and who put it on them), totem drops, cooldown and potion
   usage, and a worst-first improvements list.
@@ -302,7 +372,9 @@ lives in the URL — comparisons are shareable.
 ## Loot ledger `/loot`
 
 Every award with its wishlist-match status, filterable by character, class,
-phase, session, off-spec and winner status. Fully editable: add a missing drop,
+phase, session, off-spec and winner status. A **Decided on** column shows the
+rank and score the award was made at, with the whole arithmetic on hover; the
+item's own page prints it in full under the award it explains. Fully editable: add a missing drop,
 fix an item or winner, delete awards, or delete a whole import.
 
 Awards whose winner didn't match the roster show amber. Each can be **assigned to
@@ -334,12 +406,62 @@ An item is looked up in the active phase's sheet first and then in every other
 phase's, newest first — a P3 boss still drops P3 loot while the guild farms it
 later, and its chain is still the chain.
 
+## Loot plan `/loot/plan`
+
+*"Kan man lage en loot plan for alle items før raid?"* — the night's drops with
+who they should go to, boss by boss, in the order the raid will meet them.
+
+Three answers per item, and the third is the one that saves time on the night:
+
+- **contested** — open contenders, best first. Read the top two names.
+- **served** — everyone who lists it already has it. Expect a pass.
+- **nobody lists it** — decide the offspec/disenchant rule now, not at 22:40.
+
+Nothing is re-scored: the order is contention's own, so the plan and the item
+page can never disagree. The zone is in the URL, so a plan is a link you can
+paste into Discord.
+
+**It's built from the item cache**, which knows only what has been imported — a
+thin plan means a thin cache rather than a generous boss, and it fills in as
+loot and logs arrive.
+
 ## Items `/items` and `/items/[itemId]`
 
 The "something just dropped" lookup: every known item with wishlist demand, open
 contention and drop history. An item's own page shows who has it wishlisted (open
 demand first), who already won it, and the spec priority chain the council
 applies to it.
+
+It also carries **notes** — a raider's about their own claim ("2nd choice for
+me, I'd rather hold for the T5 gloves"), an officer's about the council's
+("agreed she gets the next one"). None of it is scored, on purpose: whether a
+second choice should stand aside for a BiS wisher depends on the raider's other
+options and what those block, which is judgement rather than arithmetic. The
+board ranks; the notes hold the part it can't.
+
+## Class guides `/guides`
+
+What the guild expects from each class and spec, in the officers' own words.
+One page per class; a shared section that applies to every spec of it, then one
+per spec. Editable in the app, because a standard the council argues about
+doesn't belong in a file only a developer can reach.
+
+A guide is a **summary with its sources linked**, never a copy of someone
+else's page. Pasted guides rot silently; a few lines an officer wrote get
+corrected the moment they stop being true, and the source stays one click away.
+This is the same house rule the rest of the app follows — name what a source
+says, and stay silent otherwise — which is why the app ships no guides at all.
+
+Saving an empty summary clears that guide: "nobody has written it yet" and "we
+looked and had nothing to say" are different claims, and only the first one is
+true of a blank.
+
+## Admin `/admin`
+
+Two cards, each carrying the one number that decides whether you need to open
+it: how many reports are in and when the last one was, and how many bug reports
+nobody has looked at. A landing page that only listed links would make you visit
+both pages to find out there was nothing to do.
 
 ## Import `/admin/import`
 
@@ -366,6 +488,13 @@ does change, it's worth a conversation.
   decisions have to stay explainable.
 - **Hand-entered loot is ordinary loot.** No parallel "manually marked" state to
   reconcile.
+- **A decision is frozen at the moment it's made.** Awarding from the contention
+  board stores the score, the rank, the factor arithmetic and the weighting in
+  force, so "why was he ranked first in June" still answers in June's terms
+  after the council has retuned. Everything *else* reads current policy — only a
+  decision that was actually made gets frozen. An award that didn't come from
+  the board (a Gargul import, a hand-added drop) carries no snapshot, and that
+  absence means "not from the ranking", never "scored zero".
 - **The item cache stores partial knowledge.** Every field but the id is
   optional, and an import only ever *fills a gap* — so a Gargul name, a log's
   icon and a Wowhead lookup compose instead of overwriting each other. Partial
@@ -383,6 +512,16 @@ does change, it's worth a conversation.
   it.
 - **Everything from logs is derived at import time.** Pages never call Warcraft
   Logs (the fight graph aside). This is why new tracking needs a re-import.
+
+### Building a set by hand
+
+The **By hand** tab writes a wishlist or a current-gear set without a
+SixtyUpgrades export. The loot rules read a raider's lists from *every* phase,
+so a phase nobody has exported is a hole in what the council can see — and
+before this, testing that a P4 list behaved meant going and building one on
+SixtyUpgrades first. **Start from** copies an existing list so you change the
+few slots that differ rather than typing seventeen item ids. Saved with
+`source: "manual"`, so it stays obvious that a person typed it.
 
 ## Feedback `/admin/feedback`
 

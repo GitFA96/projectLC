@@ -92,6 +92,7 @@ function wisher(
   return {
     character: character(name, opts.status),
     phases: [2],
+    listRank: 0,
     currentInSlot: [],
     satisfied: opts.satisfied ?? false,
     onSpecAwardsActivePhase: count,
@@ -173,24 +174,24 @@ describe("computeLootPriority", () => {
 
 describe("slotServedAdjustment", () => {
   it("does not penalise a slot that hasn't been filled", () => {
-    expect(slotServedAdjustment(0, 1)).toBeUndefined();
+    expect(slotServedAdjustment({ bis: 0, filler: 0, offList: 0, unknown: 0 }, 1)).toBeUndefined();
   });
 
   it("marks down a raider who already won something for this slot", () => {
-    const one = slotServedAdjustment(1, 1)!;
+    const one = slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!;
     expect(one.multiplier).toBe(0.6);
     expect(one.note).toMatch(/already won 1 item for this slot/);
     // Piling up in one slot bites harder, then floors.
-    expect(slotServedAdjustment(2, 1)!.multiplier).toBe(0.35);
-    expect(slotServedAdjustment(5, 1)!.multiplier).toBe(0.35);
+    expect(slotServedAdjustment({ bis: 2, filler: 0, offList: 0, unknown: 0 }, 1)!.multiplier).toBe(0.35);
+    expect(slotServedAdjustment({ bis: 5, filler: 0, offList: 0, unknown: 0 }, 1)!.multiplier).toBe(0.35);
   });
 
   it("scales rings and trinkets by how full the pair is, not by raw count", () => {
     // One ring fills half of two ring slots, so it costs half the drop...
-    expect(slotServedAdjustment(1, 2)!.multiplier).toBe(0.8);
+    expect(slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 2)!.multiplier).toBe(0.8);
     // ...and a second ring fills the pair, landing exactly where one belt does.
-    expect(slotServedAdjustment(2, 2)!.multiplier).toBe(slotServedAdjustment(1, 1)!.multiplier);
-    expect(slotServedAdjustment(1, 2)!.note).toMatch(/which holds 2/);
+    expect(slotServedAdjustment({ bis: 2, filler: 0, offList: 0, unknown: 0 }, 2)!.multiplier).toBe(slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!.multiplier);
+    expect(slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 2)!.note).toMatch(/which holds 2/);
   });
 
   it("drops a served contender below a bare-slot one without disqualifying them", () => {
@@ -200,7 +201,7 @@ describe("slotServedAdjustment", () => {
       perfect,
       0,
       0,
-      slotServedAdjustment(1, 1),
+      slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1),
     ).score!;
     expect(served).toBeLessThan(bare);
     // Still rankable: an uncontested drop should still find a home.
@@ -299,5 +300,66 @@ describe("rankLootContenders", () => {
       () => perfect,
     );
     expect(tied.map((w) => w.character.name)).toEqual(["Charlie", "Alpha", "Bravo"]);
+  });
+});
+
+describe("slotServedAdjustment — a filler is not the same as being served", () => {
+  it("costs the same as a BiS by default, so adopting the split moves nobody", () => {
+    expect(slotServedAdjustment({ bis: 0, filler: 1, offList: 0, unknown: 0 }, 1)!.multiplier).toBe(
+      slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!.multiplier,
+    );
+  });
+
+  it("costs less once the council separates them", () => {
+    const policy = { drop: 0.4, floor: 0.35, fillerDrop: 0.1, offListDrop: 0 };
+    expect(slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1, policy)!.multiplier).toBe(0.6);
+    expect(slotServedAdjustment({ bis: 0, filler: 1, offList: 0, unknown: 0 }, 1, policy)!.multiplier).toBe(0.9);
+  });
+
+  it("adds the two costs when a raider took one of each", () => {
+    const policy = { drop: 0.4, floor: 0.35, fillerDrop: 0.1, offListDrop: 0 };
+    // Two rings: one they asked for, one they settled for.
+    expect(slotServedAdjustment({ bis: 1, filler: 1, offList: 0, unknown: 0 }, 2, policy)!.multiplier).toBe(0.75);
+  });
+
+  it("says which it was, because the note is what an officer reads out", () => {
+    expect(slotServedAdjustment({ bis: 0, filler: 1, offList: 0, unknown: 0 }, 1)!.note).toMatch(/a fallback, not what they asked for/);
+    expect(slotServedAdjustment({ bis: 1, filler: 1, offList: 0, unknown: 0 }, 1)!.note).toMatch(/1 of them a fallback/);
+    expect(slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!.note).not.toMatch(/fallback/);
+  });
+
+  it("still floors, so an uncontested drop can go to somebody", () => {
+    expect(slotServedAdjustment({ bis: 0, filler: 5, offList: 0, unknown: 0 }, 1)!.multiplier).toBe(0.35);
+  });
+});
+
+describe("slotServedAdjustment — a drop they never asked for", () => {
+  it("costs nothing, by council decision", () => {
+    // Being handed something nobody asked for shouldn't weaken their claim on
+    // the item they did ask for.
+    expect(slotServedAdjustment({ bis: 0, filler: 0, offList: 2, unknown: 0 }, 1)).toBeUndefined();
+  });
+
+  it("doesn't dilute a real penalty", () => {
+    const one = slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!;
+    const oneWithGifts = slotServedAdjustment({ bis: 1, filler: 0, offList: 3, unknown: 0 }, 1)!;
+    expect(oneWithGifts.multiplier).toBe(one.multiplier);
+    expect(oneWithGifts.note).toMatch(/3 more they never listed, which doesn't count/);
+  });
+
+  it("counts a raider with no list on record in full", () => {
+    // "Not on their list" and "we have no list" are different facts, and
+    // treating the second as the first hands out a discount for not importing.
+    const unknown = slotServedAdjustment({ bis: 0, filler: 0, offList: 0, unknown: 1 }, 1)!;
+    expect(unknown.multiplier).toBe(
+      slotServedAdjustment({ bis: 1, filler: 0, offList: 0, unknown: 0 }, 1)!.multiplier,
+    );
+    expect(unknown.note).toMatch(/no wishlist on record, so counted in full/);
+  });
+
+  it("still charges when the council prices an off-list drop", () => {
+    const policy = { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0.2 };
+    expect(slotServedAdjustment({ bis: 0, filler: 0, offList: 1, unknown: 0 }, 1, policy)!.multiplier)
+      .toBe(0.8);
   });
 });

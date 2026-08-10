@@ -105,6 +105,7 @@ function pull(
     characterId: "c1",
     role: "dps",
     deaths: 0,
+    deathTimes: [],
     elixirs: [],
     scrolls: [],
     food: false,

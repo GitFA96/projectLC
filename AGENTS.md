@@ -28,7 +28,12 @@ Concretely, on Next 16 with Turbopack: `params` and `searchParams` are Promises.
    silent otherwise. Never add a spell id or aura name from memory — probe a
    real log.
 5. **Scoring weights and loot policy are the guild's call**, not defaults to
-   tune. Surface the question; don't answer it in code.
+   tune. Surface the question; don't answer it in code. Every number that
+   encodes a judgement lives in `src/lib/analysis/policy.ts` and is edited on
+   the guild page — **if changing a number changes a verdict, it belongs
+   there**, not as a `const` in whichever module happens to use it. Analysis
+   takes the policy as an argument (default `DEFAULT_POLICY`) so the layer stays
+   pure.
 6. **History is unlinked, never destroyed.** Deleting a character reopens their
    awards under the raw name; past loot decisions must stay explainable.
 7. **Components name a colour's role, never a palette step.** `bg-warn-soft`, not
@@ -91,7 +96,13 @@ about 50 lines — a guide nobody finishes is a guide nobody reads.
 npm run dev     # the user usually has :3000 running already — don't kill it
 npm test        # vitest
 npm run lint
-npm run build
+NEXT_DIST_DIR=.next-build npm run build
 ```
+
+**Build into `.next-build`, not `.next`, whenever the dev server is up.** They
+share `.next` by default and a build takes the running dev server down with it.
+It doesn't look like that from the outside: the server keeps answering
+top-level routes and 404s every nested one, which reads as a routing bug and
+costs an hour. `npm run build` on its own is fine when nothing is running.
 
 `npx vitest run --disable-console-intercept` when you need `console.log` output.

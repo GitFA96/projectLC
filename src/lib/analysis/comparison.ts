@@ -2,7 +2,8 @@ import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { PREP_HOURS, prepApplications } from "@/lib/analysis/raid-report";
 import { costPerUseMap } from "@/lib/wcl/consumable-prices";
 import { adjustmentsFor, applyAdjustments } from "@/lib/analysis/consumable-adjustments";
-import { hasFlaskOrElixir, isPrepared } from "@/lib/analysis/preparation";
+import { potionsUsed } from "@/lib/analysis/potions";
+import { hasConsumableCoverage, hasFood, isPrepared } from "@/lib/analysis/preparation";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   AttendanceSummary,
@@ -155,7 +156,7 @@ export function goldPerRaid(
       if (r.scrolls.length > 0) mark("scroll");
       for (const s of r.scrolls) scrollNames.add(s);
       for (const x of r.extras) extraNames.add(x);
-      if (r.food) {
+      if (hasFood(r)) {
         anyFood = true;
         mark("food");
       }
@@ -228,10 +229,10 @@ export function summarizeComparison(
     const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
     const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
     const amounts = rows.map((r) => r.amount).filter((a): a is number => a !== undefined);
-    const flaskOrElixirs = rows.filter((r) => hasFlaskOrElixir(r, prep)).length;
+    const flaskOrElixirs = rows.filter((r) => hasConsumableCoverage(r, prep)).length;
     const prepared = rows.filter((r) => isPrepared(r, prep)).length;
     const deaths = rows.reduce((s, r) => s + r.deaths, 0);
-    const potionsTotal = rows.reduce((s, r) => s + r.potions.length, 0);
+    const potionsTotal = rows.reduce((s, r) => s + potionsUsed(r), 0);
 
     const cdCounts = new Map<string, number>();
     for (const r of rows) {
@@ -260,7 +261,7 @@ export function summarizeComparison(
       flaskOrElixirsPct: pct(flaskOrElixirs, rows.length),
       flaskPct: pct(rows.filter((r) => r.flask !== undefined).length, rows.length),
       elixirsPct: pct(rows.filter((r) => r.elixirs.length >= 1).length, rows.length),
-      foodPct: pct(rows.filter((r) => r.food).length, rows.length),
+      foodPct: pct(rows.filter((r) => hasFood(r)).length, rows.length),
       weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
       potionsPerFight: rows.length === 0 ? 0 : Math.round((potionsTotal / rows.length) * 10) / 10,
       prepots: rows.filter((r) => r.prepot).length,

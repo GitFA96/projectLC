@@ -4,6 +4,7 @@ import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { ChevronRight } from "lucide-react";
 import { lootPriorityTitle } from "@/lib/analysis/loot-priority";
+import { rankLabel } from "@/lib/analysis/wishlist-alternatives";
 import { AwardItemButton } from "@/components/award-item-controls";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { ItemLink, type ItemRef } from "@/components/item-link";
@@ -21,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AwardTarget } from "@/lib/loot/award-context";
+import type { SlotId } from "@/lib/constants/wow";
 import type {
   AttendanceSummary,
   CharacterStatus,
@@ -60,6 +62,13 @@ export interface ContenderView {
   satisfied: boolean;
   /** Phases they wishlisted the item for. */
   phases: Phase[];
+  /**
+   * Where it sits on their list for its slot — 0 is BiS, 1 the first fallback.
+   * Shown and never scored: whether a second choice should stand aside for a
+   * BiS wisher depends on their other options, so the council reads the badge
+   * and the item's notes rather than a multiplier.
+   */
+  listRank: number;
   /** Rung of the council's chain they sit on — 0 is the top. */
   priorityTier?: number;
   priorityTierLabel?: string;
@@ -73,7 +82,14 @@ export interface ContenderView {
   /** ≈ gold per raid on consumables — shown, never scored. */
   goldPerRaid?: number;
   /** What they run in the item's slot family today. */
-  currentInSlot: ItemRef[];
+  /**
+   * What they run in the contested item's slot family, one entry per slot.
+   *
+   * Keyed by slot, not by item id: TBC lets a raider wear two of the same
+   * non-unique trinket, and six contender rows on this guild's data do exactly
+   * that. Keying by id there duplicates or drops a row.
+   */
+  currentInSlot: (ItemRef & { slot: SlotId })[];
 }
 
 const COLUMNS = 9;
@@ -510,6 +526,15 @@ export function ContenderTable({
                         </Badge>
                       )
                     )}
+                    {c.listRank > 0 && (
+                      <Badge
+                        variant="warning"
+                        className="font-normal"
+                        title="Not their first pick for this slot — a ranked fallback. The score doesn't know that; you do."
+                      >
+                        {rankLabel(c.listRank)}
+                      </Badge>
+                    )}
                     {standing(c) && (
                       <Badge variant="muted" title={standing(c)!.note}>
                         {c.status}
@@ -572,7 +597,7 @@ export function ContenderTable({
                   {c.currentInSlot.length > 0 ? (
                     <span className="flex flex-wrap gap-x-3 gap-y-1">
                       {c.currentInSlot.map((item) => (
-                        <ItemLink key={item.itemId} item={item} size="sm" className="opacity-75" />
+                        <ItemLink key={item.slot} item={item} size="sm" className="opacity-75" />
                       ))}
                     </span>
                   ) : (

@@ -28,6 +28,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     characterId: null,
     role: "dps",
     deaths: 0,
+    deathTimes: [],
     elixirs: [],
     scrolls: [],
     food: true,

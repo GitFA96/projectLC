@@ -31,6 +31,18 @@ of the change, not a footnote.
   names (`Elixir of Major Agility` applies `Major Agility`). Aura names in
   [`docs/class-tracking/`](../../../docs/class-tracking/) were verified against
   this guild's own logs for exactly this reason.
+- **A label stored by ingest is looked up again later.** `elixirCoverage` asks
+  `elixirCategoryOf` which slot an elixir fills, from this same curated list, at
+  read time. So adding an elixir here re-grades reports imported months ago
+  without a refetch — the one place that rule doesn't apply. An elixir the list
+  doesn't name still counts as coverage (the pattern fallback in `classifyAura`
+  catches it) but stays unplaced, and the raid page names it for curation.
+- **A food that names its own buff has to be curated, or its eaters read as
+  unfed.** TBC dishes don't all apply "Well Fed" — Skullfish Soup applies
+  "Enlightened", which sat in the off-slot bucket and cost three raiders their
+  food on 84 pulls. `isFoodLabel` recovers those at read time from `extras`, the
+  same trick as `elixirCategoryOf`, so curating one fixes the past too. When you
+  add a food, check the buff name against the item rather than assuming.
 - **Raw JSON is parsed with loose zod schemas.** WCL's blobs (rankings, events)
   aren't covered by its GraphQL schema. Unknown fields must never break an
   import; missing expected fields degrade to "metric unavailable". Keep new

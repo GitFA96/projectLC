@@ -5,8 +5,10 @@ import { ExternalLink } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import Link from "next/link";
 import { ItemPriorityEditor } from "@/components/loot/priority-editor";
+import { AwardDecisionNote } from "@/components/loot/award-decision";
+import { ItemComments, type ItemCommentTarget } from "@/components/loot/item-comments";
 import { buildAwardContext, buildAwardTarget } from "@/lib/loot/award-context";
-import { QUALITY_TEXT_COLORS, SLOT_LABELS, wowheadItemUrl } from "@/lib/constants/wow";
+import { QUALITY_TEXT_COLORS, SLOT_LABELS, wowheadItemUrl, type SlotId } from "@/lib/constants/wow";
 import { ItemIcon } from "@/components/item-icon";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { AwardItemButton } from "@/components/award-item-controls";
@@ -39,9 +41,12 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 }
 
 /** Resolve a "currently using" item against the cache, for the client table. */
-async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef> {
+async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef & { slot: SlotId }> {
   const cached = await repo.getItem(slot.itemId);
   return {
+    // The slot rides along because it, not the item id, is what's unique: a
+    // raider can wear the same trinket twice.
+    slot: slot.slot,
     itemId: slot.itemId,
     name: cached?.name ?? slot.itemName,
     quality: cached?.quality,
@@ -55,11 +60,12 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
   if (!Number.isInteger(itemId) || itemId <= 0) notFound();
 
   const repo = await getRepo();
-  const [contention, guild, sessions, weights] = await Promise.all([
+  const [contention, guild, sessions, weights, comments] = await Promise.all([
     repo.getItemContention(itemId),
     repo.getGuild(),
     repo.listRaidSessions(),
     repo.getLootPriorityWeights(),
+    repo.listItemComments(itemId),
   ]);
   if (!contention) notFound();
   const { item, itemName, wishers, awards, openCount } = contention;
@@ -67,6 +73,13 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
   const received = awards.filter((a) => !a.award.offspec && a.award.characterId !== null).length;
   const prefill = { itemId, name: itemName, quality: item?.quality, icon: item?.icon };
   const top = wishers.find((w) => w.rank === 1);
+
+  const commentTargetsById = new Map<string, ItemCommentTarget>();
+  for (const w of wishers) commentTargetsById.set(w.character.id, { id: w.character.id, name: w.character.name });
+  for (const a of awards) {
+    if (a.character) commentTargetsById.set(a.character.id, { id: a.character.id, name: a.character.name });
+  }
+  const commentTargets = [...commentTargetsById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const contenders: ContenderView[] = await Promise.all(
     wishers.map(async (w) => ({
@@ -79,6 +92,7 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
       rank: w.rank,
       satisfied: w.satisfied,
       phases: w.phases,
+      listRank: w.listRank,
       priorityTier: w.priorityTier,
       priorityTierLabel: w.priorityTierLabel,
       priority: w.priority,
@@ -214,6 +228,13 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
         </CardContent>
       </Card>
 
+      <ItemComments
+        itemId={itemId}
+        itemName={itemName}
+        comments={comments}
+        contenders={commentTargets}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Award history</CardTitle>
@@ -266,6 +287,20 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{a.award.note ?? ""}</TableCell>
                   </TableRow>
+                ))}
+                {/* The reasoning, under the row it belongs to. Only for awards
+                    that came from the board — the rest have none to show. */}
+                {awards
+                  .filter((a) => a.award.decision)
+                  .map((a) => (
+                    <TableRow key={`${a.award.id}-why`} className="hover:bg-transparent">
+                      <TableCell colSpan={5} className="pt-0">
+                        <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Why {a.character?.name ?? a.award.rawWinnerName} got it
+                        </span>
+                        <AwardDecisionNote decision={a.award.decision} />
+                      </TableCell>
+                    </TableRow>
                 ))}
               </TableBody>
             </Table>

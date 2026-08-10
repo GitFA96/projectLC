@@ -26,7 +26,9 @@ import {
   adjustmentsFor,
   applyAdjustments,
 } from "@/lib/analysis/consumable-adjustments";
+import type { WowClass } from "@/lib/constants/wow";
 import { PageHeader } from "@/components/page-header";
+import { DeathProfiles } from "@/components/logs/death-profiles";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
 import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
@@ -231,6 +233,11 @@ function RaidDashboard({
   recovered: RecoveredParty[];
 }) {
   const { report, session, prep, fights } = raid;
+  // A flask and a battle+guardian pair are both a full set; one elixir is half
+  // of one, and the coverage percentage alone can't tell them apart.
+  const share = (n: number) => (prep.rows === 0 ? 0 : Math.round((n / prep.rows) * 100));
+  const fullSets = share(prep.coverage.flask + prep.coverage.full);
+  const halfSets = share(prep.coverage.partial);
   const counted = fights.filter((f) => !f.excluded);
   const kills = counted.filter((f) => f.kill).length;
 
@@ -274,13 +281,25 @@ function RaidDashboard({
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <KpiCard label="Flask / elixirs" value={`${prep.flaskOrElixirPct}%`} sub="of player-pulls covered" />
+        <KpiCard
+          label="Flask / elixirs"
+          value={`${prep.flaskOrElixirPct}%`}
+          sub={`${fullSets}% a full set, ${halfSets}% half`}
+        />
         <KpiCard label="Food" value={`${prep.foodPct}%`} sub="Well Fed at pull" />
         <KpiCard label="Weapon buff" value={`${prep.weaponBuffPct}%`} sub="oil / stone / poison" />
         <KpiCard label="Pre-pots" value={`${prep.prepotPct}%`} sub={`${prep.prepots} pulls opened potted`} />
         <KpiCard label="Potions used" value={prep.potionsTotal} sub="combat potions, all raiders" />
         <KpiCard label="Sappers" value={prep.sappersTotal} sub="sapper charges thrown" />
       </div>
+
+      {prep.unplacedElixirs.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Counted as covered but not placed in a battle or guardian slot:{" "}
+          {prep.unplacedElixirs.map((e) => `${e.label} (${e.pulls})`).join(", ")}. Curate them in
+          the consumable list and the half-filled sets beneath them can name which slot is empty.
+        </p>
+      )}
 
       <RaidLogTabs
         overview={<OverviewPanel raid={raid} />}
@@ -354,7 +373,11 @@ function GroupsPanel({
 }
 
 function OverviewPanel({ raid }: { raid: RaidReportView }) {
-  const { prep, upkeep, playerBuffs, totems, cooldowns, improvements, fights } = raid;
+  const { prep, upkeep, playerBuffs, totems, cooldowns, improvements, fights, deathProfiles } = raid;
+  // Class per raider, so a name in the death list links like every other one.
+  const classByActor = new Map(
+    raid.usage.map((u) => [u.name, u.className as WowClass | undefined]),
+  );
   // Excluded pulls feed nothing derived, so they get no timeline tab either.
   const counted = fights.filter((f) => !f.excluded);
 
@@ -468,7 +491,25 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
         </Card>
       </div>
 
-      {/* Section 3: player improvements */}
+      {/* Section 3: why we struggle on a boss — when people die, not how many */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Where the pulls break down</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Bosses that cost the most, hardest first. A count says the raid loses people; when they
+            go says whether it&apos;s an opener nobody survives or attrition late on. What killed
+            them isn&apos;t in the data — that part is yours.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <DeathProfiles
+            profiles={deathProfiles}
+            wowClassOf={(name) => classByActor.get(name)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Section 4: player improvements */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

@@ -22,6 +22,9 @@ export type AuraCategory =
   /** Consumables outside the standard slots (alcohol, Bogling Root, …). */
   | "misc";
 
+/** The two elixir slots. A flask fills both; one elixir fills one of them. */
+export type ElixirSlot = Extract<AuraCategory, "battleElixir" | "guardianElixir">;
+
 export interface ClassifiedAura {
   category: AuraCategory;
   label: string;
@@ -78,6 +81,12 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of the Giants", category: "battleElixir" },
   { label: "Elixir of Greater Agility", category: "battleElixir", buffNames: ["Greater Agility"] },
   { label: "Winterfall Firewater", category: "battleElixir" },
+  // Caught by the name-pattern fallback long before it was curated, which
+  // counted it as coverage but couldn't place it in a slot. The slot is
+  // evidence rather than memory: across 432 pulls in this guild's logs it never
+  // once sat beside another battle elixir, and sat beside a guardian (Draenic
+  // Wisdom, Major Fortitude) on 415 of them. A raider holds one of each.
+  { label: "Spellpower Elixir", category: "battleElixir" },
   /* Guardian elixirs */
   { label: "Elixir of Major Defense", category: "guardianElixir", ids: [28502], buffNames: ["Major Defense", "Major Armor"] },
   { label: "Elixir of Major Fortitude", category: "guardianElixir", ids: [39625], buffNames: ["Major Fortitude"] },
@@ -89,6 +98,9 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Fortitude", category: "guardianElixir", buffNames: ["Health II"] },
   { label: "Gift of Arthas", category: "guardianElixir" },
   { label: "Major Troll's Blood Elixir", category: "guardianElixir", buffNames: ["Regeneration"] },
+  // Same probe: 8 pulls, every one beside Elixir of Major Agility (battle),
+  // never alone. Agrees with Elixir of Major Mageblood above.
+  { label: "Mageblood Elixir", category: "guardianElixir" },
   /* Zanza buffs (Zandalar) — guardian-elixir slot, "one Zanza at a time". */
   { label: "Swiftness of Zanza", category: "guardianElixir", ids: [24383] },
   { label: "Spirit of Zanza", category: "guardianElixir" },
@@ -99,8 +111,11 @@ const AURA_DEFS: AuraDef[] = [
   // Situational engineering/herb DPS consumables — off-slot, stack with elixirs.
   { label: "Flame Cap", category: "misc", ids: [28714] },
   { label: "Eye of the Night", category: "misc", ids: [31033] },
-  // Caster off-slot buff (+spell crit / +spirit, 30 min) seen at pulls.
-  { label: "Enlightened", category: "misc", ids: [43722] },
+  // Skullfish Soup (item 33825) applies "Enlightened" rather than the generic
+  // Well Fed, so it was landing in the off-slot bucket and its eaters were
+  // reading as unfed — 84 pulls on this guild's data, every one of them.
+  // Officers, 2026-08-10; source https://www.wowhead.com/tbc/item=33825.
+  { label: "Enlightened", category: "food", ids: [43722] },
 ];
 
 const AURA_BY_ID = new Map<number, AuraDef>();
@@ -110,6 +125,51 @@ for (const def of AURA_DEFS) {
   AURA_BY_NAME.set(def.label.toLowerCase(), def);
   for (const name of def.buffNames ?? []) AURA_BY_NAME.set(name.toLowerCase(), def);
 }
+
+/**
+ * Which elixir slot a stored label occupies.
+ *
+ * Ingest keeps the canonical label but throws the category away — `elixirs` is
+ * one flat list — so this reads the slot back out of the same curated list that
+ * assigned it. One source of truth, and nothing asserted from memory.
+ *
+ * `undefined` means the label is not one we curate: an elixir the import
+ * matched by name pattern alone. We do not know which slot it fills, and
+ * guessing would put an unearned "fully covered" on a raider's night.
+ */
+export function elixirCategoryOf(label: string): ElixirSlot | undefined {
+  const def = AURA_BY_NAME.get(label.trim().toLowerCase());
+  if (def === undefined) return undefined;
+  return def.category === "battleElixir" || def.category === "guardianElixir"
+    ? def.category
+    : undefined;
+}
+
+/**
+ * Foods whose buff is named after the dish rather than "Well Fed".
+ *
+ * Ingest turns a food aura into a boolean and keeps no label, so a food added
+ * here doesn't re-grade rows imported before it — those still carry the name
+ * in `extras`, which is where `isFoodLabel` finds it. Same read-time recovery
+ * as `elixirCategoryOf`, and for the same reason: the alternative is telling a
+ * raider they turned up unfed until somebody re-imports a season of logs.
+ */
+export const NAMED_FOOD_LABELS: readonly string[] = AURA_DEFS.filter(
+  (d) => d.category === "food",
+).map((d) => d.label);
+
+const FOOD_LABELS = new Set(NAMED_FOOD_LABELS.map((l) => l.toLowerCase()));
+
+/** True when this label is a food the curated list knows, under any spelling. */
+export function isFoodLabel(label: string): boolean {
+  const lower = label.trim().toLowerCase();
+  return FOOD_LABELS.has(lower) || lower.startsWith("well fed");
+}
+
+/** Every elixir the curated list can place in a slot. */
+export const CURATED_ELIXIR_LABELS: readonly string[] = AURA_DEFS.filter(
+  (d) => d.category === "battleElixir" || d.category === "guardianElixir",
+).map((d) => d.label);
 
 /** Scroll buffs are named after the bare stat in logs ("Agility", "Armor"). */
 const SCROLL_RANK_V_IDS: Record<number, string> = {

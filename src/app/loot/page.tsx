@@ -37,6 +37,7 @@ export default async function LootPage() {
     matched: a.wishlist.matched,
     matchPhases: a.wishlist.phases,
     note: a.award.note,
+    decision: a.award.decision,
   }));
 
   const sessionOptions: SessionOption[] = sessions.map((s) => ({

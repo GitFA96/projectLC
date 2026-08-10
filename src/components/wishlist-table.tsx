@@ -1,5 +1,6 @@
 import { SLOT_LABELS } from "@/lib/constants/wow";
 import { ItemLink, type ItemRef } from "@/components/item-link";
+import { WishlistAlternatives, type AlternativeView } from "@/components/wishlist-alternatives";
 import { AcquiredBadge } from "@/components/acquired-badge";
 import {
   AwardItemButton,
@@ -25,6 +26,8 @@ export interface WishlistRowView {
   awardedAt?: string;
   /** Present when an award satisfied the slot — the handle for clearing it. */
   awardId?: string;
+  /** What they'd take instead, in order. Editable when the owner is known. */
+  alternatives?: AlternativeView[];
   /** What the "Currently" cell can be set to, when the slot is editable. */
   currentPick?: {
     /** True when `current` was pinned by hand rather than imported. */
@@ -55,11 +58,14 @@ export function WishlistTable({
   rows,
   characterName,
   award,
+  alternativesFor,
 }: {
   rows: WishlistRowView[];
   /** Whose gear the "Currently" pickers write to. */
   characterName: string;
   award?: AwardContext;
+  /** Who and which phase the fallback editor writes to. Omit to show them read-only. */
+  alternativesFor?: { characterId: string; phase: number };
 }) {
   if (rows.length === 0) {
     return (
@@ -87,6 +93,16 @@ export function WishlistTable({
             </TableCell>
             <TableCell>
               <ItemLink item={row.wished} />
+              {alternativesFor && (
+                <div className="mt-1">
+                  <WishlistAlternatives
+                    characterId={alternativesFor.characterId}
+                    phase={alternativesFor.phase}
+                    slot={row.slot}
+                    alternatives={row.alternatives ?? []}
+                  />
+                </div>
+              )}
             </TableCell>
             <TableCell>
               <AcquiredBadge state={row.state} awardedAt={row.awardedAt} />

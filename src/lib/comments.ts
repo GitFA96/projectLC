@@ -32,3 +32,26 @@ export const COMMENT_CATEGORY_VARIANT: Record<
   conduct: "destructive",
   loot: "success",
 };
+
+/**
+ * Who is speaking on an item.
+ *
+ * The council asked for both, and they are not the same evidence. A raider
+ * saying "this is my second choice, I'd rather hold for the T5 helm" is a
+ * statement of want that no wishlist rank captures; an officer saying "agreed
+ * Are gets the next one" is a decision. Ranking them against each other
+ * automatically was the thing we chose NOT to do, so the app records who said
+ * what and lets the council read it.
+ */
+export const ITEM_COMMENT_VOICES = ["raider", "officer"] as const;
+export type ItemCommentVoice = (typeof ITEM_COMMENT_VOICES)[number];
+
+export const ITEM_COMMENT_VOICE_LABELS: Record<ItemCommentVoice, string> = {
+  raider: "Raider",
+  officer: "Officer",
+};
+
+export const ITEM_COMMENT_VOICE_VARIANT: Record<ItemCommentVoice, "secondary" | "success"> = {
+  raider: "secondary",
+  officer: "success",
+};

@@ -1,5 +1,7 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
-import { hasFlaskOrElixir } from "@/lib/analysis/preparation";
+import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
+import { potionNames, potionsUsed } from "@/lib/analysis/potions";
+import { buildDeathProfiles } from "@/lib/analysis/deaths";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   ConsumableTypeRow,
@@ -169,7 +171,9 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     m.set(name, providers);
   };
   for (const r of rows) {
-    for (const p of r.potions) {
+    // The pre-pull one included: it was bought and drunk like any other, so
+    // leaving it out made "potions used" wrong for everyone who opens potted.
+    for (const p of potionNames(r)) {
       bump(potionTypes, p, r.actorName);
       potionsTotal++;
     }
@@ -187,11 +191,27 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
           .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
       }))
       .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
+  // The flask/elixir percentage answers "did they bring something"; this
+  // answers "did they bring a set". A flask fills both slots, battle plus
+  // guardian fills the same budget, and one elixir alone fills half of it —
+  // which reads identically to a flask under a flat coverage check.
+  const coverage = { flask: 0, full: 0, partial: 0, none: 0 };
+  const unplaced = new Map<string, number>();
+  for (const r of rows) {
+    const c = elixirCoverage(r);
+    coverage[c.grade]++;
+    for (const label of c.unclassified) unplaced.set(label, (unplaced.get(label) ?? 0) + 1);
+  }
+
   const prep: RaidPrepStats = {
     rows: rows.length,
     raiders: byActor.size,
-    flaskOrElixirPct: pct(rows.filter((r) => hasFlaskOrElixir(r, policy.preparation)).length, rows.length),
-    foodPct: pct(rows.filter((r) => r.food).length, rows.length),
+    flaskOrElixirPct: pct(rows.filter((r) => hasConsumableCoverage(r, policy.preparation)).length, rows.length),
+    coverage,
+    unplacedElixirs: [...unplaced]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([label, pulls]) => ({ label, pulls })),
+    foodPct: pct(rows.filter((r) => hasFood(r)).length, rows.length),
     weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
     prepotPct: pct(prepots, rows.length),
     potionsTotal,
@@ -231,7 +251,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         weapon: { early: false, late: false },
       };
       for (const r of playerRows) {
-        for (const p of r.potions) {
+        for (const p of potionNames(r)) {
           itemCounts.set(p, (itemCounts.get(p) ?? 0) + 1);
           potions++;
         }
@@ -258,7 +278,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         if (r.scrolls.length > 0) mark("scroll");
         for (const s of r.scrolls) scrollNames.add(s);
         for (const x of r.extras) extraNames.add(x);
-        if (r.food) {
+        if (hasFood(r)) {
           anyFood = true;
           mark("food");
         }
@@ -534,7 +554,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     }
 
     // Flask/elixir + food are at-pull facts (fair on wipes too).
-    const noFlaskOrElixir = ordered.filter((r) => !hasFlaskOrElixir(r, policy.preparation));
+    const noFlaskOrElixir = ordered.filter((r) => !hasConsumableCoverage(r, policy.preparation));
     if (noFlaskOrElixir.length > 0) {
       const allNight = noFlaskOrElixir.length === ordered.length;
       findings.push({
@@ -543,7 +563,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         detail: allNight ? undefined : `on ${bossList(noFlaskOrElixir.map((r) => r.encounterName))}`,
       });
     }
-    const noFood = ordered.filter((r) => !r.food);
+    const noFood = ordered.filter((r) => !hasFood(r));
     if (noFood.length > 0) {
       findings.push({
         severity: "low",
@@ -551,8 +571,44 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         detail: noFood.length === ordered.length ? undefined : `on ${bossList(noFood.map((r) => r.encounterName))}`,
       });
     }
-    // No potion on a KILL (wipes can end before a repot — don't punish those).
-    const killsNoPot = ordered.filter((r) => r.kill && r.potions.length === 0 && !r.prepot);
+    // Half a set: one slot filled, the other empty. Under a policy where any
+    // elixir counts this passes the coverage check above, so it would
+    // otherwise be invisible — and for the specs that run two elixirs instead
+    // of a flask, the empty half is the whole point of asking.
+    //
+    // Only reported when the missing slot can be named. An elixir the curated
+    // list doesn't place is a gap in our data, not in the raider's night; it's
+    // surfaced raid-wide as `unplacedElixirs` instead.
+    const halfCovered = ordered.filter((r) => {
+      const c = elixirCoverage(r);
+      return c.missing !== undefined && hasConsumableCoverage(r, policy.preparation);
+    });
+    if (halfCovered.length > 0) {
+      const missingGuardian = halfCovered.filter(
+        (r) => elixirCoverage(r).missing === "guardianElixir",
+      ).length;
+      const gap =
+        missingGuardian === halfCovered.length
+          ? "battle elixir, no guardian"
+          : missingGuardian === 0
+            ? "guardian elixir, no battle"
+            : "only one elixir slot filled";
+      findings.push({
+        severity: "low",
+        label: "Half a set of elixirs",
+        detail:
+          halfCovered.length === ordered.length
+            ? `${gap}, all night`
+            : `${gap}, on ${bossList(halfCovered.map((r) => r.encounterName))}`,
+      });
+    }
+    // No potion at all on a KILL (wipes can end before a repot — don't punish
+    // those). The pre-pull one counts, because it was really drunk; flagging
+    // its absence while also counting it as a use would be having it both ways.
+    //
+    // "Fewer potions than the fight allowed" is a different, better question,
+    // and the sim context already asks it — it knows the fight's length.
+    const killsNoPot = ordered.filter((r) => r.kill && potionsUsed(r) === 0);
     if (killsNoPot.length > 0) {
       findings.push({
         severity: "low",
@@ -574,11 +630,15 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   }
   improvements.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
+  /* ---- Why we struggle on a boss ---- */
+  const deathProfiles = buildDeathProfiles(rows);
+
   /* ---- Parse boards (the WCL-style grid) ---- */
   const parseBoards = buildParseBoards(rows, fights, slugOf);
 
   return {
     report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
+    deathProfiles,
     parseBoards,
   };
 }

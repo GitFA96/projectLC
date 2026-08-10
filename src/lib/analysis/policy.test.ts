@@ -28,10 +28,13 @@ describe("resolvePolicy", () => {
     expect(DEFAULT_POLICY).toEqual({
       weights: { attendance: 35, lootDebt: 30, performance: 20, preparation: 15 },
       standing: { main: 1, alt: 0.7, inactive: 0.4, pug: 0.25 },
-      slotServed: { drop: 0.4, floor: 0.35 },
+      slotServed: { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0 },
       attendance: { recentRaids: 10, weeks: 8 },
       performance: { parseMetric: "all" },
-      preparation: { elixirCounts: true },
+      loot: { altsContend: false },
+      preparation: { coverage: "any" },
+      // Equal because the app has no opinion — the council sets these.
+      roster: { weights: { attendance: 34, performance: 33, preparation: 33 }, minRaids: 3 },
       improvementSeverity: { high: 100, medium: 40, low: 12 },
     });
   });

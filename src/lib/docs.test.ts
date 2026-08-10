@@ -93,7 +93,7 @@ describe("src/lib/analysis is pure", () => {
   it("has a test beside every module, apart from the documented exceptions", () => {
     // Named in src/lib/analysis/AGENTS.md. Adding a test here should make this
     // fail — delete the name from both places when it does.
-    const documentedExceptions = ["contention.ts", "fairness.ts"];
+    const documentedExceptions = ["fairness.ts"];
 
     const dir = path.join(root, "src/lib/analysis");
     const untested = readdirSync(dir)

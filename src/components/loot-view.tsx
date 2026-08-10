@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/select";
 import { PHASES, WOW_CLASSES } from "@/lib/constants/wow";
 import type { Phase, WowClass } from "@/lib/types";
+import { awardDecisionTitle } from "@/components/loot/award-decision";
+import type { AwardDecision } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Module constant: an inline literal here would defeat DataTable's memo. */
@@ -52,6 +54,8 @@ export interface LootRow {
   matched: boolean;
   matchPhases: Phase[];
   note?: string;
+  /** The board as it read when this was awarded. Absent = not from the ranking. */
+  decision?: AwardDecision;
 }
 
 export interface SessionOption {
@@ -235,6 +239,27 @@ export function LootView({
             {row.original.note ?? ""}
           </span>
         ),
+      },
+      {
+        id: "decision",
+        header: "Decided on",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const decision = row.original.decision;
+          // Nothing rather than a dash-with-a-tooltip: an award that never came
+          // from the ranking has no explanation, and the column should be
+          // visibly empty instead of implying one is hidden.
+          if (!decision) return <span className="text-xs text-muted-foreground/50">—</span>;
+          return (
+            <span
+              className="block whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+              title={awardDecisionTitle(decision)}
+            >
+              {decision.rank !== undefined ? `#${decision.rank}` : ""}
+              {decision.score !== undefined ? ` · ${decision.score}` : ""}
+            </span>
+          );
+        },
       },
       {
         id: "actions",

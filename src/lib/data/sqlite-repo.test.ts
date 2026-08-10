@@ -327,6 +327,318 @@ describe("sqlite repo", () => {
     });
   });
 
+  describe("alts contending is the council's call", () => {
+    /** An alt and a main who both want the same drop. */
+    async function twoWishers() {
+      const repo = getSqliteRepo();
+      const roster = await repo.listCharacters();
+      const main = roster.find((c) => c.character.status === "main")!.character;
+      // Asserted rather than guarded: if the seed ever loses its alt these
+      // tests must fail loudly, not quietly stop testing anything.
+      const alt = roster.find((c) => c.character.status === "alt")?.character;
+      expect(alt, "the seed roster needs an alt for these tests").toBeDefined();
+      return { repo, main, alt: alt! };
+    }
+
+    it("leaves alts off the board by default, named beneath it", async () => {
+      const { repo, main, alt } = await twoWishers();
+      await repo.upsertGearSet(wishlistDraft(main.id, 3, 34333), { replace: true });
+      await repo.upsertGearSet(wishlistDraft(alt.id, 3, 34333), { replace: true });
+
+      const contention = await repo.getItemContention(34333);
+      expect(contention!.wishers.map((w) => w.character.id)).toContain(main.id);
+      expect(contention!.wishers.map((w) => w.character.id)).not.toContain(alt.id);
+      expect(contention!.altWishers).toContain(alt.name);
+    });
+
+    it("ranks them among the mains once the council opts in", async () => {
+      const { repo, main, alt } = await twoWishers();
+      await repo.upsertGearSet(wishlistDraft(main.id, 3, 34333), { replace: true });
+      await repo.upsertGearSet(wishlistDraft(alt.id, 3, 34333), { replace: true });
+
+      await repo.setGuildPolicy({ loot: { altsContend: true } });
+      const contention = await repo.getItemContention(34333);
+      expect(contention!.wishers.map((w) => w.character.id)).toContain(alt.id);
+      // Named beneath the board only while they're excluded from it.
+      expect(contention!.altWishers).not.toContain(alt.name);
+      // And the standing multiplier is what puts them behind a main.
+      const altRow = contention!.wishers.find((w) => w.character.id === alt.id);
+      expect(altRow!.priority?.adjustments.some((a) => a.key === "standing")).toBe(true);
+    });
+  });
+
+  describe("award decision snapshot", () => {
+    /** A contested item with a roster wisher, ready to award. */
+    async function contested() {
+      const repo = getSqliteRepo();
+      const roster = await repo.listCharacters();
+      const winner = roster.find((c) => c.character.status === "main")!.character;
+      await repo.upsertGearSet(wishlistDraft(winner.id, 3, 34333), { replace: true });
+      const session = (await repo.listRaidSessions())[0];
+      return { repo, winner, session };
+    }
+
+    const award = (winnerId: string) => ({
+      itemId: 34333,
+      itemName: "Contested Thing",
+      rawWinnerName: "x",
+      characterId: winnerId,
+      external: false,
+      offspec: false,
+    });
+
+    it("freezes the arithmetic when the award comes from the board", async () => {
+      const { repo, winner, session } = await contested();
+      const result = await repo.addLootAward(session.id, {
+        ...award(winner.id),
+        rawWinnerName: winner.name,
+      });
+      expect(result.ok).toBe(true);
+
+      const decision = result.ok ? result.award.decision : undefined;
+      expect(decision).toBeDefined();
+      expect(decision!.rank).toBe(1);
+      expect(decision!.contenders).toBeGreaterThan(0);
+      expect(decision!.weights).toEqual({
+        attendance: 35,
+        lootDebt: 30,
+        performance: 20,
+        preparation: 15,
+      });
+      // The factors carry their own arithmetic, so the note reads without
+      // recomputing anything.
+      expect(decision!.factors.map((f) => f.label)).toContain("Attendance");
+    });
+
+    it("stays frozen when the council changes the weights afterwards", async () => {
+      const { repo, winner, session } = await contested();
+      const result = await repo.addLootAward(session.id, {
+        ...award(winner.id),
+        rawWinnerName: winner.name,
+      });
+      const before = result.ok ? result.award.decision : undefined;
+
+      await repo.setGuildPolicy({ weights: { attendance: 5, lootDebt: 90 } });
+
+      const stored = (await repo.listLootAwards()).find((a) => a.award.itemId === 34333);
+      // THE guarantee: June's decision still reads in June's terms.
+      expect(stored!.award.decision!.weights).toEqual(before!.weights);
+      expect(stored!.award.decision!.weights.attendance).toBe(35);
+    });
+
+    it("records no snapshot for an off-roster destination", async () => {
+      const { repo, session } = await contested();
+      const result = await repo.addLootAward(session.id, {
+        itemId: 34333,
+        itemName: "Contested Thing",
+        rawWinnerName: "Disenchanted",
+        characterId: null,
+        external: true,
+        offspec: false,
+      });
+      // Absent, not zero: the award never came from the ranking.
+      expect(result.ok && result.award.decision).toBeUndefined();
+    });
+
+    it("records no snapshot when the winner wasn't on the board", async () => {
+      const repo = getSqliteRepo();
+      const roster = await repo.listCharacters();
+      const nobody = roster.find((c) => c.character.status === "main")!.character;
+      const session = (await repo.listRaidSessions())[0];
+      // Item nobody wishlisted — there is no board to freeze.
+      const result = await repo.addLootAward(session.id, {
+        itemId: 999999,
+        itemName: "Uncontested",
+        rawWinnerName: nobody.name,
+        characterId: nobody.id,
+        external: false,
+        offspec: false,
+      });
+      expect(result.ok && result.award.decision).toBeUndefined();
+    });
+
+    it("survives a round trip through the database", async () => {
+      const { repo, winner, session } = await contested();
+      await repo.addLootAward(session.id, { ...award(winner.id), rawWinnerName: winner.name });
+      const stored = (await repo.listLootAwards()).find((a) => a.award.itemId === 34333);
+      expect(stored!.award.decision!.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(stored!.award.decision!.factors.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("wishlist alternatives", () => {
+    async function aCharacter() {
+      const repo = getSqliteRepo();
+      const roster = await repo.listCharacters();
+      return { repo, character: roster[0].character };
+    }
+
+    it("stores fallbacks in the order given, ranked from 1", async () => {
+      const { repo, character } = await aCharacter();
+      await repo.setWishlistAlternatives({
+        characterId: character.id,
+        phase: 3,
+        slot: "waist",
+        items: [{ itemId: 300, itemName: "Second" }, { itemId: 400, itemName: "Third" }],
+      });
+      const alts = await repo.listWishlistAlternatives();
+      expect(alts.map((a) => [a.itemId, a.rank])).toEqual([
+        [300, 1],
+        [400, 2],
+      ]);
+    });
+
+    it("replaces the whole slot, renumbering so no gap survives", async () => {
+      const { repo, character } = await aCharacter();
+      const set = (items: number[]) =>
+        repo.setWishlistAlternatives({
+          characterId: character.id,
+          phase: 3,
+          slot: "waist",
+          items: items.map((itemId) => ({ itemId })),
+        });
+
+      await set([300, 400, 500]);
+      // Drop the middle one: what was 3rd must become 2nd, not stay 3rd.
+      await set([300, 500]);
+      const alts = await repo.listWishlistAlternatives();
+      expect(alts.map((a) => [a.itemId, a.rank])).toEqual([
+        [300, 1],
+        [500, 2],
+      ]);
+    });
+
+    it("reorders on save, because rank comes from position", async () => {
+      const { repo, character } = await aCharacter();
+      const set = (items: number[]) =>
+        repo.setWishlistAlternatives({
+          characterId: character.id,
+          phase: 3,
+          slot: "waist",
+          items: items.map((itemId) => ({ itemId })),
+        });
+      await set([300, 400]);
+      await set([400, 300]);
+      const alts = await repo.listWishlistAlternatives();
+      expect(alts.find((a) => a.itemId === 400)?.rank).toBe(1);
+      expect(alts.find((a) => a.itemId === 300)?.rank).toBe(2);
+    });
+
+    it("refuses to give one item two ranks", async () => {
+      const { repo, character } = await aCharacter();
+      await repo.setWishlistAlternatives({
+        characterId: character.id,
+        phase: 3,
+        slot: "waist",
+        items: [{ itemId: 300 }, { itemId: 300 }],
+      });
+      expect(await repo.listWishlistAlternatives()).toHaveLength(1);
+    });
+
+    it("keeps phases and slots apart", async () => {
+      const { repo, character } = await aCharacter();
+      const base = { characterId: character.id, items: [{ itemId: 300 }] };
+      await repo.setWishlistAlternatives({ ...base, phase: 3, slot: "waist" });
+      await repo.setWishlistAlternatives({ ...base, phase: 4, slot: "waist" });
+      await repo.setWishlistAlternatives({ ...base, phase: 3, slot: "head" });
+      expect(await repo.listWishlistAlternatives()).toHaveLength(3);
+    });
+
+    it("rejects an unknown character or phase", async () => {
+      const { repo, character } = await aCharacter();
+      expect(
+        await repo.setWishlistAlternatives({ characterId: "nope", phase: 3, slot: "waist", items: [] }),
+      ).toMatchObject({ ok: false });
+      expect(
+        await repo.setWishlistAlternatives({ characterId: character.id, phase: 9, slot: "waist", items: [] }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("reaches the character's wishlist rows", async () => {
+      const { repo, character } = await aCharacter();
+      await repo.upsertGearSet(wishlistDraft(character.id, 3, 34333), { replace: true });
+      await repo.setWishlistAlternatives({
+        characterId: character.id,
+        phase: 3,
+        slot: "head",
+        items: [{ itemId: 30048, itemName: "Fallback" }],
+      });
+      const bundle = await repo.getCharacterBundle(character.name.toLowerCase());
+      const p3 = bundle!.wishlists.find((w) => w.phase === 3);
+      const head = p3!.rows.find((r) => r.slot === "head");
+      expect(head!.alternatives.map((a) => a.itemId)).toEqual([30048]);
+    });
+  });
+
+  describe("class guides", () => {
+    it("starts empty — the app ships no opinion about any class", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.listClassGuides()).toEqual([]);
+    });
+
+    it("stores a class guide and a spec guide side by side", async () => {
+      const repo = getSqliteRepo();
+      await repo.setClassGuide({
+        wowClass: "Warrior",
+        spec: "",
+        body: "Show up enchanted.",
+        sources: ["https://www.wowhead.com/tbc/class/warrior"],
+        author: "Fredrik",
+      });
+      await repo.setClassGuide({
+        wowClass: "Warrior",
+        spec: "Fury",
+        body: "Haste potion with Bloodlust.",
+        sources: [],
+      });
+
+      const guides = await repo.listClassGuides();
+      expect(guides).toHaveLength(2);
+      const shared = guides.find((g) => g.spec === "");
+      expect(shared).toMatchObject({ body: "Show up enchanted.", author: "Fredrik" });
+      expect(shared!.sources).toEqual(["https://www.wowhead.com/tbc/class/warrior"]);
+      expect(guides.find((g) => g.spec === "Fury")?.body).toBe("Haste potion with Bloodlust.");
+    });
+
+    it("overwrites in place rather than stacking copies", async () => {
+      const repo = getSqliteRepo();
+      await repo.setClassGuide({ wowClass: "Mage", spec: "Fire", body: "First.", sources: [] });
+      await repo.setClassGuide({ wowClass: "Mage", spec: "Fire", body: "Second.", sources: [] });
+      const guides = await repo.listClassGuides();
+      expect(guides).toHaveLength(1);
+      expect(guides[0].body).toBe("Second.");
+    });
+
+    it("deletes on an empty body — silence and 'nothing to say' are different claims", async () => {
+      const repo = getSqliteRepo();
+      await repo.setClassGuide({ wowClass: "Rogue", spec: "", body: "Something.", sources: [] });
+      expect(await repo.listClassGuides()).toHaveLength(1);
+
+      const result = await repo.setClassGuide({ wowClass: "Rogue", spec: "", body: "   ", sources: [] });
+      expect(result).toEqual({ ok: true, deleted: true });
+      expect(await repo.listClassGuides()).toEqual([]);
+    });
+
+    it("refuses a class or spec the game doesn't have", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.setClassGuide({ wowClass: "Death Knight", spec: "", body: "x", sources: [] }))
+        .toMatchObject({ ok: false });
+      expect(await repo.setClassGuide({ wowClass: "Warrior", spec: "Frost", body: "x", sources: [] }))
+        .toMatchObject({ ok: false });
+    });
+
+    it("drops blank source lines rather than storing empties", async () => {
+      const repo = getSqliteRepo();
+      await repo.setClassGuide({
+        wowClass: "Priest",
+        spec: "Shadow",
+        body: "x",
+        sources: ["  ", "https://example.com/a", ""],
+      });
+      expect((await repo.listClassGuides())[0].sources).toEqual(["https://example.com/a"]);
+    });
+  });
+
   describe("editable loot policy", () => {
     it("seeds every item's spec priority from the guild's sheet", async () => {
       const repo = getSqliteRepo();
@@ -479,7 +791,7 @@ describe("sqlite repo", () => {
       const policy = await repo.getGuildPolicy();
       expect(policy.standing).toEqual({ main: 1, alt: 0.7, inactive: 0.4, pug: 0.25 });
       expect(policy.attendance).toEqual({ recentRaids: 10, weeks: 8 });
-      expect(policy.preparation.elixirCounts).toBe(true);
+      expect(policy.preparation.coverage).toBe("any");
       expect(policy.performance.parseMetric).toBe("all");
     });
 
@@ -493,6 +805,33 @@ describe("sqlite repo", () => {
       });
       // Junk is discarded, and the group falls back rather than half-saving.
       expect((await repo.getGuildPolicy()).performance.parseMetric).toBe("all");
+    });
+
+    it("stores the coverage standard and rejects anything that isn't one", async () => {
+      const repo = getSqliteRepo();
+      await repo.setGuildPolicy({ preparation: { coverage: "full" } });
+      expect((await repo.getGuildPolicy()).preparation.coverage).toBe("full");
+
+      await repo.setGuildPolicy({
+        preparation: { coverage: "sometimes" as unknown as "any" },
+      });
+      expect((await repo.getGuildPolicy()).preparation.coverage).toBe("any");
+    });
+
+    it("carries a policy saved under the boolean this replaced", async () => {
+      // `preparation.elixirCounts` was a checkbox: false meant "only a flask
+      // counts". An officer who ticked it made a real decision, so it lands on
+      // the mode that means the same thing rather than silently defaulting.
+      const repo = getSqliteRepo();
+      await repo.setGuildPolicy({
+        preparation: { elixirCounts: false } as unknown as { coverage: "any" },
+      });
+      expect((await repo.getGuildPolicy()).preparation.coverage).toBe("flaskOnly");
+
+      await repo.setGuildPolicy({
+        preparation: { elixirCounts: true } as unknown as { coverage: "any" },
+      });
+      expect((await repo.getGuildPolicy()).preparation.coverage).toBe("any");
     });
 
     it("saves one policy group without disturbing another", async () => {
@@ -836,7 +1175,7 @@ describe("sqlite repo", () => {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
             actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
             prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [], upkeep: [],
-            deaths: 0, drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
+            deaths: 0, deathTimes: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
           },
         ],
       );
@@ -958,7 +1297,7 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
-          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], gear: [], talents: [33, 28, 0],
@@ -1090,7 +1429,7 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
-          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [],
@@ -1120,7 +1459,7 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
-          actorName: "Thrainn", role: "dps", deaths: 0, elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [], gear: [],
@@ -1145,6 +1484,7 @@ describe("sqlite repo", () => {
         durationMs: 200000,
         role: "dps",
         deaths: 0,
+        deathTimes: [],
         talents: [],
         elixirs: [],
         scrolls: [],
@@ -1762,6 +2102,76 @@ describe("sqlite repo", () => {
       expect((await repo.getCharacterBundle("kazrak"))!.comments.length).toBe(before);
     });
 
+    it("keeps notes on an item, newest first, about the item or about a raider", async () => {
+      const repo = getSqliteRepo();
+      const kazrak = (await repo.findCharacterByName("Kazrak"))!;
+
+      const general = await repo.addItemComment({
+        itemId: 30900,
+        voice: "officer",
+        body: "Contested every week — flag it high value.",
+        author: "Aldric",
+      });
+      const aboutKazrak = await repo.addItemComment({
+        itemId: 30900,
+        characterId: kazrak.id,
+        voice: "raider",
+        body: "2nd choice for me, I'd rather hold for the T5 gloves.",
+      });
+      expect(general.ok && aboutKazrak.ok).toBe(true);
+      if (!general.ok || !aboutKazrak.ok) throw new Error("unreachable");
+
+      const notes = await repo.listItemComments(30900);
+      expect(notes.length).toBe(2);
+      expect(notes[0].id).toBe(aboutKazrak.comment.id); // newest first
+      expect(notes[0].characterId).toBe(kazrak.id);
+      expect(notes[0].voice).toBe("raider");
+      expect(notes[1].characterId).toBeUndefined(); // about the item itself
+      expect(notes[1].author).toBe("Aldric");
+
+      expect((await repo.countItemComments()).get(30900)).toBe(2);
+      expect(await repo.listItemComments(30901)).toEqual([]);
+
+      expect(await repo.deleteItemComment(general.comment.id)).toBe(true);
+      expect(await repo.deleteItemComment(general.comment.id)).toBe(false); // already gone
+      expect((await repo.listItemComments(30900)).length).toBe(1);
+    });
+
+    it("rejects an item note naming a character who doesn't exist", async () => {
+      const repo = getSqliteRepo();
+      const res = await repo.addItemComment({ itemId: 30900, characterId: "chr_missing", voice: "officer", body: "x" });
+      expect(res.ok).toBe(false);
+    });
+
+    it("takes a note on an item the cache has never seen", async () => {
+      // Officers discuss drops before the item is imported, and a note is how
+      // they record that. Nothing here is scored, so there is nothing to break.
+      const repo = getSqliteRepo();
+      const res = await repo.addItemComment({ itemId: 99999901, voice: "officer", body: "Ask Blizzard." });
+      expect(res.ok).toBe(true);
+      expect((await repo.listItemComments(99999901)).length).toBe(1);
+    });
+
+    it("unlinks an item note when its raider is deleted rather than destroying it", async () => {
+      // Invariant 6: past loot decisions stay explainable. The note stops
+      // naming somebody; it does not disappear with them.
+      const repo = getSqliteRepo();
+      const velora = (await repo.findCharacterByName("Velora"))!;
+      const added = await repo.addItemComment({
+        itemId: 30902,
+        characterId: velora.id,
+        voice: "officer",
+        body: "Agreed she gets the next one.",
+      });
+      expect(added.ok).toBe(true);
+      expect((await repo.deleteCharacter(velora.id)).ok).toBe(true);
+
+      const notes = await repo.listItemComments(30902);
+      expect(notes.length).toBe(1);
+      expect(notes[0].body).toBe("Agreed she gets the next one.");
+      expect(notes[0].characterId).toBeUndefined();
+    });
+
     it("rejects a comment on an unknown character", async () => {
       const repo = getSqliteRepo();
       const res = await repo.addCharacterComment({ characterId: "chr_missing", category: "note", body: "x" });
@@ -1958,5 +2368,146 @@ describe("sqlite repo", () => {
       expect(migrated.body).toBe("Filed before kind existed");
       expect(migrated.kind).toBe("bug"); // backfilled by the column default
     });
+  });
+});
+
+describe("roster standing", () => {
+  it("places mains and alts on separate boards, and pugs on neither", async () => {
+    const repo = getSqliteRepo();
+    const standing = await repo.getRosterStanding();
+    const characters = await repo.listCharacters();
+    const mains = characters.filter((c) => c.character.status === "main");
+    const others = characters.filter(
+      (c) => c.character.status === "alt" || c.character.status === "inactive",
+    );
+
+    expect(standing.mains.rows.map((r) => r.name).sort()).toEqual(
+      mains.map((c) => c.character.name).sort(),
+    );
+    expect(standing.alts.rows.map((r) => r.name).sort()).toEqual(
+      others.map((c) => c.character.name).sort(),
+    );
+    expect(standing.mains.rows.some((r) => r.status !== "main")).toBe(false);
+    // A pug in either pool would move everybody's percentile.
+    const all = [...standing.mains.rows, ...standing.alts.rows];
+    expect(all.some((r) => r.status === "pug")).toBe(false);
+  });
+
+  it("orders each board weakest first, with the unplaced last", async () => {
+    const repo = getSqliteRepo();
+    const { mains } = await repo.getRosterStanding();
+    const placed = mains.rows.filter((r) => r.standing !== undefined).map((r) => r.standing!);
+    expect([...placed].sort((a, b) => a - b)).toEqual(placed);
+    const firstUnplaced = mains.rows.findIndex((r) => r.standing === undefined);
+    if (firstUnplaced >= 0) {
+      expect(mains.rows.slice(firstUnplaced).every((r) => r.standing === undefined)).toBe(true);
+    }
+  });
+
+  it("re-places the roster when the council changes the weighting", async () => {
+    const repo = getSqliteRepo();
+    const before = await repo.getRosterStanding();
+    // Dropping the raid minimum places raiders the default wouldn't, which is
+    // the knob doing its job — the board is live, not frozen like an award.
+    await repo.setGuildPolicy({
+      roster: { weights: { attendance: 100, performance: 0, preparation: 0 }, minRaids: 0 },
+    });
+    const after = await repo.getRosterStanding();
+    expect(after.mains.rows.length).toBe(before.mains.rows.length);
+    expect(after.mains.pool).toBeGreaterThan(before.mains.pool);
+    expect(after.mains.unplaced).toBeLessThan(before.mains.unplaced);
+  });
+
+  it("sanitizes the nested roster weights rather than trusting them", async () => {
+    const repo = getSqliteRepo();
+    await repo.setGuildPolicy({
+      roster: {
+        // Out of range and the wrong type — neither may reach a board.
+        weights: { attendance: 500, performance: "lots" as unknown as number, preparation: 25 },
+        minRaids: 4,
+      },
+    });
+    const policy = await repo.getGuildPolicy();
+    expect(policy.roster.weights.attendance).toBe(34); // back to the default
+    expect(policy.roster.weights.performance).toBe(33);
+    expect(policy.roster.weights.preparation).toBe(25); // the one good value stands
+    expect(policy.roster.minRaids).toBe(4);
+  });
+
+  it("falls back per weight, so a partial record can't zero a column", async () => {
+    // setGuildPolicy replaces rather than merges — merging is the server
+    // action's job — so a stored record naming one weight has to resolve the
+    // siblings to their defaults, not to nothing.
+    const repo = getSqliteRepo();
+    await repo.setGuildPolicy({
+      roster: { weights: { attendance: 60 } as unknown as Record<"attendance" | "performance" | "preparation", number> },
+    });
+    const policy = await repo.getGuildPolicy();
+    expect(policy.roster.weights).toEqual({ attendance: 60, performance: 33, preparation: 33 });
+    expect(policy.roster.minRaids).toBe(3);
+  });
+});
+
+describe("manual gear sets", () => {
+  it("saves a hand-built wishlist for a phase nobody exported", async () => {
+    const repo = getSqliteRepo();
+    const kazrak = (await repo.findCharacterByName("Kazrak"))!;
+    const result = await repo.upsertGearSet(
+      {
+        characterId: kazrak.id,
+        kind: "wishlist",
+        phase: 4,
+        name: "P4 wishlist",
+        source: "manual",
+        stats: {},
+        slots: [{ slot: "waist", itemId: 30900, itemName: "Item 30900" }],
+      },
+      { replace: false },
+    );
+    expect(result.status).toBe("created");
+
+    const sets = await repo.listGearSets();
+    const p4 = sets.find((s) => s.characterId === kazrak.id && s.phase === 4)!;
+    expect(p4.source).toBe("manual");
+    expect(p4.slots).toHaveLength(1);
+  });
+
+  it("refuses to silently overwrite a phase that already has a set", async () => {
+    const repo = getSqliteRepo();
+    const kazrak = (await repo.findCharacterByName("Kazrak"))!;
+    const draft = {
+      characterId: kazrak.id,
+      kind: "wishlist" as const,
+      phase: 5 as const,
+      name: "P5 wishlist",
+      source: "manual" as const,
+      stats: {},
+      slots: [{ slot: "head" as const, itemId: 30901, itemName: "Item 30901" }],
+    };
+    expect((await repo.upsertGearSet(draft, { replace: false })).status).toBe("created");
+    expect((await repo.upsertGearSet(draft, { replace: false })).status).toBe("exists");
+    expect((await repo.upsertGearSet(draft, { replace: true })).status).toBe("replaced");
+  });
+
+  it("counts a hand-built list from any phase when reading what a raider asked for", async () => {
+    // The point of the tool: the guild runs one phase with lists imported for
+    // another, and the loot rules read every phase. A P5 list has to answer
+    // "did they ask for this" while the guild is still on P2.
+    const repo = getSqliteRepo();
+    const kazrak = (await repo.findCharacterByName("Kazrak"))!;
+    await repo.upsertGearSet(
+      {
+        characterId: kazrak.id,
+        kind: "wishlist",
+        phase: 5,
+        name: "P5 wishlist",
+        source: "manual",
+        stats: {},
+        slots: [{ slot: "waist", itemId: 40404, itemName: "Item 40404" }],
+      },
+      { replace: true },
+    );
+    const contention = await repo.getItemContention(40404);
+    expect(contention?.wishers.some((w) => w.character.id === kazrak.id)).toBe(true);
   });
 });

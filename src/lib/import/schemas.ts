@@ -13,7 +13,7 @@ import {
   SLOT_IDS,
   WOW_CLASSES,
 } from "@/lib/constants/wow";
-import { COMMENT_CATEGORIES } from "@/lib/comments";
+import { COMMENT_CATEGORIES, ITEM_COMMENT_VOICES } from "@/lib/comments";
 
 /**
  * Canonical entity shapes — the single shape contract of the app.
@@ -171,6 +171,51 @@ export const raidSessionSchema = z.object({
   source: z.enum(SESSION_SOURCES),
 });
 
+/**
+ * The arithmetic a loot decision was made on, frozen at the moment it was made.
+ *
+ * The council chose snapshot-at-decision over effective-dated policy: live
+ * views always read current policy, and only a decision that WAS made gets
+ * frozen. That's what makes "why was he ranked first in June" answerable after
+ * the weights have moved on.
+ *
+ * **Absent means the award didn't come from the ranking** — a Gargul import, a
+ * hand-added drop, an off-roster destination. It never means "scored zero".
+ */
+export const awardDecisionSchema = z.object({
+  /** The winner's loot-priority score at award time. Absent = no data to score. */
+  score: z.number().optional(),
+  /** Where they sat on the board, and how many were contending. */
+  rank: z.number().int().positive().optional(),
+  contenders: z.number().int().nonnegative(),
+  /** Each factor as it read: enough to reconstruct the sentence, not the model. */
+  factors: z
+    .array(
+      z.object({
+        label: z.string(),
+        score: z.number().optional(),
+        weight: z.number(),
+        detail: z.string(),
+      }),
+    )
+    .default([]),
+  adjustments: z
+    .array(z.object({ label: z.string(), multiplier: z.number(), note: z.string().optional() }))
+    .default([]),
+  /** The council's chain for this item, as written at the time. */
+  chain: z.string().optional(),
+  /** The tier the winner satisfied, when the chain named one. */
+  tierLabel: z.string().optional(),
+  /** The weighting in force — the numbers behind the score. */
+  weights: z.object({
+    attendance: z.number(),
+    lootDebt: z.number(),
+    performance: z.number(),
+    preparation: z.number(),
+  }),
+  capturedAt: z.string().min(1),
+});
+
 export const lootAwardSchema = z.object({
   id: z.string().min(1),
   raidSessionId: z.string().min(1),
@@ -188,6 +233,8 @@ export const lootAwardSchema = z.object({
   awardedAt: z.string().min(1),
   offspec: z.boolean(),
   note: z.string().optional(),
+  /** How the council's board read when this was awarded. See the schema above. */
+  decision: awardDecisionSchema.optional(),
 });
 
 /* Warcraft Logs performance entities (M4) */
@@ -287,6 +334,12 @@ export const wclPlayerFightSchema = z.object({
   weaponBuff: z.boolean().default(false),
   /** A combat-potion aura was already up at pull (pre-pot). */
   prepot: z.boolean().default(false),
+  /**
+   * Which potion that was. Absent on reports imported before the name was
+   * kept — the boolean above was all we stored, so those count the use under a
+   * stand-in name until they are re-imported.
+   */
+  prepotLabel: z.string().optional(),
   potions: z.array(z.string()).default([]),
   /** Non-potion in-fight consumables (healthstones, runes, mana gems, seeds, drums). */
   otherCasts: z.array(z.string()).default([]),
@@ -310,6 +363,16 @@ export const wclPlayerFightSchema = z.object({
       }),
     )
     .default([]),
+  /**
+   * When they died, ms from the pull start, in order.
+   *
+   * The count alone says a raid loses people; the timing says whether they lose
+   * them to an opener nobody survived or to attrition at 40%, and those are
+   * different problems with different fixes. Empty on reports imported before
+   * the timing was kept — the events were always fetched, the timestamp was
+   * simply dropped — so a re-import is what fills them in.
+   */
+  deathTimes: z.array(z.number().nonnegative()).default([]),
   /**
    * Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…),
    * % of the pull for the best target. `targets` (absent on pre-timeline
@@ -428,6 +491,33 @@ export const seedWclReportsSchema = z.array(wclReportSchema);
 export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
 export const seedWclPlayerOffPullSchema = z.array(wclPlayerOffPullSchema);
 export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
+/**
+ * A note on one item — from a raider about their own claim, or from an officer
+ * about the council's.
+ *
+ * `characterId` is optional and means two different things on purpose: set, the
+ * note is about that raider's claim ("2nd choice for Melige, he'd rather hold");
+ * absent, it is about the item itself ("contested every week, flag it high
+ * value"). Both belong on the same page, so they share a table.
+ *
+ * Nothing here feeds a score. That is the point — the council said the
+ * BiS-versus-second-choice call is too situational to automate, so this carries
+ * the situation instead.
+ */
+export const itemCommentSchema = z.object({
+  id: z.string().min(1),
+  itemId: z.number().int().positive(),
+  /** Whose claim the note is about, when it is about one. */
+  characterId: z.string().min(1).optional(),
+  voice: z.enum(ITEM_COMMENT_VOICES).default("officer"),
+  body: z.string().min(1),
+  /** Who wrote it (free text — there's no auth). Optional. */
+  author: z.string().optional(),
+  createdAt: z.string().min(1),
+});
+
+export const seedItemCommentsSchema = z.array(itemCommentSchema);
+
 export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 
 /**

@@ -1,5 +1,6 @@
 import { format, parseISO } from "date-fns";
-import { hasFlaskOrElixir, isPrepared } from "@/lib/analysis/preparation";
+import { potionsUsed } from "@/lib/analysis/potions";
+import { hasConsumableCoverage, hasFood, isPrepared } from "@/lib/analysis/preparation";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type { AttendanceSummary, PerformanceSummary, WclPlayerFight, WclRole } from "@/lib/types";
 
@@ -82,10 +83,10 @@ export function summarizePerformance(
 
   const parses = rows.map((r) => r.parsePercent).filter((p): p is number => p !== undefined);
   const brackets = rows.map((r) => r.bracketPercent).filter((p): p is number => p !== undefined);
-  const flaskOrElixirs = rows.filter((r) => hasFlaskOrElixir(r, prep)).length;
-  const fed = rows.filter((r) => r.food).length;
+  const flaskOrElixirs = rows.filter((r) => hasConsumableCoverage(r, prep)).length;
+  const fed = rows.filter((r) => hasFood(r)).length;
   const prepared = rows.filter((r) => isPrepared(r, prep)).length;
-  const potionsTotal = rows.reduce((sum, r) => sum + r.potions.length, 0);
+  const potionsTotal = rows.reduce((sum, r) => sum + potionsUsed(r), 0);
   // Callers pass rows in chronological order — the last row is the latest pull.
   const latest = rows.at(-1);
 

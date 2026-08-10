@@ -196,12 +196,14 @@ export interface NormalizedPlayerFight {
   /** Boss-only dps behind `bossParsePercent`. */
   bossAmount?: number;
   deaths: number;
+  deathTimes: number[];
   flask?: string;
   elixirs: string[];
   scrolls: string[];
   food: boolean;
   weaponBuff: boolean;
   prepot: boolean;
+  prepotLabel?: string;
   potions: string[];
   /** Non-potion in-fight consumable casts (healthstones, runes, gems, seeds, drums). */
   otherCasts: string[];
@@ -432,6 +434,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         actorName,
         role: "dps",
         deaths: 0,
+        deathTimes: [],
         elixirs: [],
         scrolls: [],
         food: false,
@@ -610,7 +613,12 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       }
       if (hit.category === "flask") row.flask = hit.label;
       else if (hit.category === "food") row.food = true;
-      else if (hit.category === "potion") row.prepot = true;
+      else if (hit.category === "potion") {
+        row.prepot = true;
+        // classifyAura knew which potion all along; it used to be thrown away,
+        // which made "potions used" un-priceable for anyone who opens potted.
+        row.prepotLabel ??= hit.label;
+      }
       else if (hit.category === "scroll") {
         if (!row.scrolls.includes(hit.label)) row.scrolls.push(hit.label);
       } else if (hit.category === "misc") {
@@ -666,7 +674,13 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     const actor = actorById.get(parsed.data.targetID);
     if (!fight || !actor) continue;
     const row = rows.get(keyOf(fight.id, actor.name));
-    if (row) row.deaths++;
+    if (!row) continue;
+    row.deaths++;
+    // When, not just how many. Clamped into the pull the same way cast times
+    // are, so a death on the boundary can't land outside the fight it belongs to.
+    row.deathTimes.push(
+      Math.max(0, Math.min(parsed.data.timestamp, fight.endTime) - fight.startTime),
+    );
   }
 
   /* 4. Consumable casts (server-filtered to the tracked spell ids). */
@@ -869,6 +883,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   for (const row of rows.values()) {
     row.upkeep.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
     row.castTimes.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
+    row.deathTimes.sort((a, b) => a - b);
   }
 
   // Stable order: pull order, then name.

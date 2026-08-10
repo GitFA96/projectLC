@@ -80,6 +80,14 @@ export async function savePolicyAction(
     for (const [key, value] of Object.entries(overrides) as [keyof PolicyOverrides, object][]) {
       merged[key] = { ...(current[key] as object), ...value } as never;
     }
+    // `roster.weights` is a record inside a record, and the loop above only
+    // goes one level — a save naming one weight would drop the siblings.
+    if (overrides.roster?.weights || current.roster?.weights) {
+      merged.roster = {
+        ...merged.roster,
+        weights: { ...current.roster?.weights, ...overrides.roster?.weights },
+      };
+    }
     const result = await repo.setGuildPolicy(merged);
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
@@ -169,4 +177,17 @@ export async function previewPrioritySheetAction(
     ruleCount: rules.length,
     sections: [...new Set(rules.map((r) => r.source))],
   };
+}
+
+/**
+ * What a proposed policy would move, without saving it.
+ *
+ * Exists because a policy field is a number with no visible blast radius:
+ * turning off "a single elixir counts" reads like a small tightening and, on
+ * real data, can take most of a roster from fully prepared to nothing. The
+ * officer should meet that before pressing save.
+ */
+export async function previewPolicyAction(overrides: PolicyOverrides) {
+  const repo = await getWriteRepo();
+  return repo.previewGuildPolicy(overrides);
 }

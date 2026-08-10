@@ -1,4 +1,5 @@
 import { SLOT_FAMILIES, STAT_LABELS, STAT_ORDER } from "@/lib/constants/wow";
+import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type {
   AwardWishlistMatch,
   GearSet,
@@ -28,6 +29,8 @@ export function computeWishlistRows(
   wishlist: GearSet,
   current: GearSet | undefined,
   characterAwards: LootAward[],
+  /** The raider's stored fallbacks for this phase, any slot. */
+  alternatives: WishlistAlternative[] = [],
 ): WishlistRow[] {
   const currentByFamily = new Map<string, { itemId: number; used: boolean }[]>();
   for (const slot of current?.slots ?? []) {
@@ -59,6 +62,10 @@ export function computeWishlistRows(
       state: equippedMatch ? "equipped" : award ? "awarded" : "open",
       awardedAt: award?.awardedAt,
       awardId: award?.id,
+      alternatives: alternatives
+        .filter((a) => a.slot === wished.slot)
+        .sort((a, b) => a.rank - b.rank || a.itemId - b.itemId)
+        .map((a) => ({ itemId: a.itemId, itemName: a.itemName, rank: a.rank, note: a.note })),
     } satisfies WishlistRow;
   });
 }

@@ -8,7 +8,7 @@ import { parseGargulExport } from "@/lib/import/gargul";
 import { phaseSchema } from "@/lib/import/schemas";
 import { mergeItemFacts } from "@/lib/items/item-data";
 import { resolveItemsFromWowhead } from "@/lib/items/wowhead";
-import { GEAR_SET_KINDS, PHASES } from "@/lib/constants/wow";
+import { GEAR_SET_KINDS, PHASES, SLOT_IDS } from "@/lib/constants/wow";
 import type { GearSet, Item, SlotItem } from "@/lib/types";
 
 /**
@@ -225,5 +225,117 @@ export async function commitGargul(rawInput: GargulCommitInput): Promise<GargulC
     };
   } catch (e) {
     return { status: "error", message: e instanceof Error ? e.message : "Import failed." };
+  }
+}
+
+/* ---- Manual sets ------------------------------------------------------- */
+
+const manualSlotSchema = z.object({
+  slot: z.enum(SLOT_IDS),
+  itemId: z.number().int().positive(),
+  itemName: z.string().trim().max(120).optional(),
+});
+
+const manualInputSchema = z.object({
+  characterName: z.string().min(1),
+  kind: z.enum(GEAR_SET_KINDS),
+  phase: phaseSchema.optional(),
+  name: z.string().trim().max(120).optional(),
+  slots: z.array(manualSlotSchema).min(1, "Add at least one slot."),
+  confirmReplace: z.boolean(),
+});
+
+export type ManualSetInput = z.infer<typeof manualInputSchema>;
+
+/**
+ * Build a gear set by hand, without a SixtyUpgrades export.
+ *
+ * Two jobs. It gets a phase's list into the app when nobody has exported one —
+ * the guild runs P2 with P3 lists imported, and the loot rules read lists from
+ * every phase, so a missing phase is a hole in what the council can see. And it
+ * makes those rules testable at all: before this, checking that a P4 list
+ * behaves needed somebody to go and build one on SixtyUpgrades first.
+ *
+ * Goes through the same `upsertGearSet` as an import, so it takes the same
+ * replace-confirmation path and its items land in the cache the same way. The
+ * only difference is `source: "manual"`, which is what tells a reader months
+ * later that a person typed this rather than a tool exporting it.
+ *
+ * Stats are deliberately empty: a hand-built list is a statement of what they
+ * want, not a stat block, and inventing numbers would make the comparison view
+ * quietly wrong.
+ */
+export async function commitManualGearSet(rawInput: ManualSetInput): Promise<SixtyCommitResult> {
+  const parsed = manualInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Invalid set." };
+  }
+  const input = parsed.data;
+  if (input.kind === "wishlist" && input.phase === undefined) {
+    return { status: "error", message: "Pick a phase for the wishlist." };
+  }
+
+  const seen = new Set<string>();
+  for (const slot of input.slots) {
+    if (seen.has(slot.slot)) {
+      return { status: "error", message: `Two items for ${slot.slot}. One item per slot.` };
+    }
+    seen.add(slot.slot);
+  }
+
+  try {
+    const repo = await getWriteRepo();
+    const character = await repo.findCharacterByName(input.characterName);
+    if (!character) {
+      return {
+        status: "error",
+        message: `No roster character named “${input.characterName}”. Add them on the roster page first.`,
+      };
+    }
+
+    const phase = input.kind === "wishlist" ? input.phase : undefined;
+    const result = await repo.upsertGearSet(
+      {
+        characterId: character.id,
+        kind: input.kind,
+        phase,
+        name: input.name || (input.kind === "current" ? "Current gear" : `P${phase} wishlist`),
+        source: "manual",
+        stats: {},
+        slots: input.slots.map((s) => ({
+          slot: s.slot,
+          itemId: s.itemId,
+          // The cache fills a blank in later; a placeholder now would stick.
+          itemName: s.itemName || `Item ${s.itemId}`,
+        })),
+      },
+      { replace: input.confirmReplace },
+    );
+
+    if (result.status === "exists") {
+      return {
+        status: "needs-confirm",
+        existing: {
+          name: result.existing.name,
+          importedAt: result.existing.importedAt,
+          slotCount: result.existing.slots.length,
+          slots: result.existing.slots,
+        },
+      };
+    }
+
+    refreshAfterWrite("/", "layout");
+    return {
+      status: "committed",
+      replaced: result.status === "replaced",
+      characterName: character.name,
+      kind: input.kind,
+      phase,
+      setName: result.set.name,
+      slotCount: result.set.slots.length,
+      warnings: [],
+    };
+  } catch (e) {
+    return { status: "error", message: e instanceof Error ? e.message : "Saving the set failed." };
   }
 }

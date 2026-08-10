@@ -28,7 +28,7 @@ export default async function ImportPage({
   };
 
   const repo = await getRepo();
-  const [characters, items, sessions, wclReports, unresolvedItems, unnamedEnchants] =
+  const [characters, items, sessions, wclReports, unresolvedItems, unnamedEnchants, gearSets] =
     await Promise.all([
       repo.listCharacters(),
       repo.listItems(),
@@ -36,7 +36,21 @@ export default async function ImportPage({
       repo.listWclReports(),
       repo.listUnresolvedItemIds(),
       repo.listUnnamedEnchantIds(),
+      repo.listGearSets(),
     ]);
+
+  const nameById = new Map(characters.map((c) => [c.character.id, c.character.name]));
+  const existingSets = gearSets
+    .map((set) => ({
+      characterName: nameById.get(set.characterId) ?? "",
+      kind: set.kind,
+      phase: set.phase,
+      name: set.name,
+      source: set.source,
+      slots: set.slots,
+    }))
+    .filter((s) => s.characterName !== "")
+    .sort((a, b) => a.characterName.localeCompare(b.characterName) || (a.phase ?? 0) - (b.phase ?? 0));
 
   return (
     <div>
@@ -66,6 +80,7 @@ export default async function ImportPage({
             ? `${format(parseISO(r.session.date), "d MMM yyyy")} — ${r.session.zones.join(" + ")}`
             : undefined,
         }))}
+        existingSets={existingSets}
         prefill={prefill}
       />
       <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">

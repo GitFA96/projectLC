@@ -76,27 +76,63 @@ const STANDING_NOTE: Record<CharacterStatus, string | undefined> = {
  * property that makes the sheet and the metrics agree instead of arguing.
  */
 export function slotServedAdjustment(
-  sameSlotOnSpecAwards: number,
+  /**
+   * What served the slot, split by what it was to the raider.
+   *
+   *   `bis`     — the item they asked for.
+   *   `filler`  — a fallback they ranked. They settled for it.
+   *   `offList` — checked their list; it wasn't on it. They were handed it.
+   *   `unknown` — no list on record, so we can't say. Costed like `bis`,
+   *               because the alternative is a discount for not importing one.
+   *               `computeItemContention` never produces this — you reach the
+   *               board through a list, so there is always one to check. It is
+   *               the safe default for a `ContenderAward` built without list
+   *               context, where `notListed` is simply absent.
+   */
+  served: { bis: number; filler: number; offList: number; unknown: number },
   /** How many items the slot family holds — 2 for rings and trinkets, else 1. */
   familySize: number,
   slotServed: GuildPolicy["slotServed"] = DEFAULT_POLICY.slotServed,
 ): LootPriorityAdjustment | undefined {
-  if (sameSlotOnSpecAwards <= 0) return undefined;
   const capacity = Math.max(1, familySize);
-  const filled = sameSlotOnSpecAwards / capacity;
-  const multiplier = Math.max(
-    slotServed.floor,
-    Math.round((1 - slotServed.drop * filled) * 100) / 100,
-  );
-  const items = `${sameSlotOnSpecAwards} item${sameSlotOnSpecAwards === 1 ? "" : "s"}`;
+  const cost =
+    ((served.bis + served.unknown) * slotServed.drop +
+      served.filler * slotServed.fillerDrop +
+      served.offList * slotServed.offListDrop) /
+    capacity;
+  // Nothing that costs anything. With `offListDrop` at zero — the council's
+  // decision — a raider handed three drops they never asked for lands here,
+  // and a "×1" adjustment in the breakdown would be noise. What they were
+  // given is still on the contender row for an officer to read.
+  if (cost <= 0) return undefined;
+
+  const counted = served.bis + served.filler + served.unknown;
+  const items = `${counted} item${counted === 1 ? "" : "s"}`;
+  const filler =
+    served.filler > 0
+      ? served.bis > 0
+        ? ` (${served.filler} of them a fallback, not what they asked for)`
+        : counted === 1
+          ? " — a fallback, not what they asked for"
+          : " — fallbacks, not what they asked for"
+      : "";
+  const offList =
+    served.offList > 0
+      ? `; ${served.offList} more they never listed, which doesn't count`
+      : "";
+  const unknown =
+    served.unknown > 0 && served.bis + served.filler === 0
+      ? " — no wishlist on record, so counted in full"
+      : "";
+  const multiplier = Math.max(slotServed.floor, Math.round((1 - cost) * 100) / 100);
   return {
     key: "slotServed",
     label: "Slot already served",
     multiplier,
     note:
       capacity > 1
-        ? `already won ${items} for this slot this phase, which holds ${capacity}`
-        : `already won ${items} for this slot this phase`,
+        ? `already won ${items} for this slot this phase, which holds ${capacity}${filler}${unknown}${offList}`
+        : `already won ${items} for this slot this phase${filler}${unknown}${offList}`,
   };
 }
 
@@ -248,7 +284,15 @@ export function rankLootContenders(
   const ranked = open
     .map((wisher) => {
       const metrics = metricsOf(wisher.character.id);
-      const sameSlot = wisher.awardsThisPhase.filter((a) => a.sameSlot && !a.offspec).length;
+      // A raider who took a fallback in this slot is not the same as one who
+      // got what they asked for, and "already served" used to read them alike.
+      const sameSlot = wisher.awardsThisPhase.filter((a) => a.sameSlot && !a.offspec);
+      const served = {
+        bis: sameSlot.filter((a) => a.listRank === 0).length,
+        filler: sameSlot.filter((a) => a.listRank !== undefined && a.listRank > 0).length,
+        offList: sameSlot.filter((a) => a.listRank === undefined && a.notListed === true).length,
+        unknown: sameSlot.filter((a) => a.listRank === undefined && a.notListed !== true).length,
+      };
       return {
         ...wisher,
         metrics,
@@ -257,7 +301,7 @@ export function rankLootContenders(
           metrics,
           wisher.onSpecAwardsActivePhase,
           peak,
-          slotServedAdjustment(sameSlot, opts.familySize ?? 1, opts.policy?.slotServed),
+          slotServedAdjustment(served, opts.familySize ?? 1, opts.policy?.slotServed),
           opts.policy,
         ),
       };

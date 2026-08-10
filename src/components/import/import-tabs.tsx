@@ -1,5 +1,6 @@
 "use client";
 
+import { ManualSetTab, type ExistingSet } from "@/components/import/manual-set-tab";
 import * as React from "react";
 import Link from "next/link";
 import { CircleAlert, CircleCheck, ExternalLink, FileUp, Loader2, MoveRight, Pencil } from "lucide-react";
@@ -1475,6 +1476,7 @@ export function ImportTabs({
   sessions,
   wclConfigured,
   wclReports,
+  existingSets,
   prefill = {},
 }: {
   characters: string[];
@@ -1483,17 +1485,25 @@ export function ImportTabs({
   sessions: SessionOption[];
   wclConfigured: boolean;
   wclReports: ImportedReport[];
+  existingSets: ExistingSet[];
   prefill?: ImportPrefill;
 }) {
   const items = React.useMemo(() => makeItemResolver(knownItems), [knownItems]);
   const defaultTab =
-    prefill.tab === "gargul" ? "gargul" : prefill.tab === "wcl" ? "wcl" : "sixtyupgrades";
+    prefill.tab === "gargul"
+      ? "gargul"
+      : prefill.tab === "wcl"
+        ? "wcl"
+        : prefill.tab === "manual"
+          ? "manual"
+          : "sixtyupgrades";
   return (
     <Tabs defaultValue={defaultTab}>
       <TabsList>
         <TabsTrigger value="sixtyupgrades">SixtyUpgrades sets</TabsTrigger>
         <TabsTrigger value="gargul">Gargul loot</TabsTrigger>
         <TabsTrigger value="wcl">Warcraft Logs</TabsTrigger>
+        <TabsTrigger value="manual">By hand</TabsTrigger>
       </TabsList>
       <TabsContent value="sixtyupgrades">
         <SixtyUpgradesTab characters={characters} prefill={prefill} items={items} />
@@ -1503,6 +1513,9 @@ export function ImportTabs({
       </TabsContent>
       <TabsContent value="wcl">
         <WclTab sessions={sessions} configured={wclConfigured} reports={wclReports} />
+      </TabsContent>
+      <TabsContent value="manual">
+        <ManualSetTab characters={characters} existingSets={existingSets} />
       </TabsContent>
     </Tabs>
   );

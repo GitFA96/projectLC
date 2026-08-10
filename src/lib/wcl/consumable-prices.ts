@@ -82,6 +82,7 @@ export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Elixir of Healing Power": { gold: 1, charges: 1 },
   "Greater Arcane Elixir": { gold: 4, charges: 1 },
   "Spellpower Elixir": { gold: 12, charges: 1 },
+  "Mageblood Elixir": { gold: 3, charges: 1 },
   "Elixir of Major Defense": { gold: 4.5, charges: 1 },
   "Elixir of Major Fortitude": { gold: 1, charges: 1 },
   "Elixir of Draenic Wisdom": { gold: 5, charges: 1 },

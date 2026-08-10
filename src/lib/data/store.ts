@@ -6,6 +6,9 @@ import {
 } from "@/lib/analysis/wishlist";
 import { emptyBoard, type Board, type GuildRoster } from "@/lib/analysis/raid-planner";
 import { computeItemContention } from "@/lib/analysis/contention";
+import { buildRosterStanding } from "@/lib/analysis/standing";
+import { buildDevelopmentSeries, parseTrend } from "@/lib/analysis/development";
+import { buildLootPlan } from "@/lib/analysis/loot-plan";
 import { applyCurrentGearOverrides, offSpecGearSet } from "@/lib/analysis/current-gear";
 import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
 import { computeFairness } from "@/lib/analysis/fairness";
@@ -22,6 +25,9 @@ import {
 } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { resolvePolicy, type PolicyOverrides } from "@/lib/analysis/policy";
+import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
+import type { ClassGuide } from "@/lib/guides";
+import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import { PHASE_IDS, phaseForZones } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
 import { fingerprintRows, specFingerprints, specOfPull } from "@/lib/sim/profile";
@@ -32,6 +38,7 @@ import type {
   Character,
   CharacterBundle,
   CharacterComment,
+  ItemComment,
   CharacterComparisonView,
   FeedbackReport,
   CharacterPerformance,
@@ -84,6 +91,8 @@ export interface EntityStore {
   wclPlayerOffPull: WclPlayerOffPull[];
   attendanceExemptions: AttendanceExemption[];
   characterComments: CharacterComment[];
+  /** Notes on an item — raider's or officer's. Never scored; see repo.listItemComments. */
+  itemComments: ItemComment[];
   /**
    * Bug reports filed from the app. Not guild data and not derived from
    * anything — it rides along here so both backends answer `listFeedback`
@@ -148,6 +157,14 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: character comment ${comment.id} references unknown characterId ${comment.characterId}`);
     }
   }
+  for (const comment of store.itemComments) {
+    // Unset means "about the item" or "about somebody since deleted". Set has
+    // to resolve, because deleting a character unlinks these rather than
+    // dropping them.
+    if (comment.characterId !== undefined && !charIds.has(comment.characterId)) {
+      throw new Error(`${sourceLabel}: item comment ${comment.id} references unknown characterId ${comment.characterId}`);
+    }
+  }
   // A main link must resolve to another character (a real, non-self target).
   for (const character of store.roster) {
     if (character.mainCharacterId !== null) {
@@ -185,6 +202,10 @@ export interface StoreConfig {
     number,
     { markdown: string; author?: string; note?: string; updatedAt: string }
   >;
+  /** The guild's own class/spec guides, as written by its officers. */
+  classGuides?: ClassGuide[];
+  /** Per-slot fallbacks a raider will take when their BiS doesn't drop. */
+  wishlistAlternatives?: WishlistAlternative[];
   /** Enchant ids resolved from the enchantment table, for the gear panel. */
   enchantNames?: Record<number, string>;
   /** Officer corrections to consumable counts, keyed by report code. */
@@ -237,7 +258,7 @@ function memoizeViews(repo: Repo): Repo {
 }
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
-  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, feedback } = store;
+  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, itemComments, feedback } = store;
 
   /*
    * Sheets parsed per READ MODEL, never per process.
@@ -298,6 +319,15 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   }
   const commentsOf = (characterId: string): CharacterComment[] =>
     commentsByCharacter.get(characterId) ?? [];
+  // Item notes, newest first, keyed by item. Both kinds live together: a note
+  // about one raider's claim and a note about the item itself belong on the
+  // same page, and the council reads them as one thread.
+  const itemCommentsByItem = new Map<number, ItemComment[]>();
+  for (const c of [...itemComments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    const list = itemCommentsByItem.get(c.itemId) ?? [];
+    list.push(c);
+    itemCommentsByItem.set(c.itemId, list);
+  }
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const sessionsById = new Map(raidSessions.map((s) => [s.id, s]));
   // Pinned slots, per character, in canonical slot order — split by which kit
@@ -504,6 +534,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       awards: awardsWithContext,
       activePhase: guild.activePhase,
       metricsOf: raiderMetricsOf,
+      alternatives: config.wishlistAlternatives,
       priorityRule: priorityRuleFor(
         itemId,
         item?.name,
@@ -689,6 +720,18 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   }
 
   /** Every logged pull for a character, oldest report first then by pull order. */
+  // Night by night, cached per character. Every raider's series is built the
+  // same way the standing board's trend column needs it, so the two can't
+  // disagree about which way somebody is going.
+  const developmentByCharacter = new Map<string, ReturnType<typeof buildDevelopmentSeries>>();
+  function developmentOf(characterId: string) {
+    const cached = developmentByCharacter.get(characterId);
+    if (cached) return cached;
+    const series = buildDevelopmentSeries(careerRowsOf(characterId), wclReports, policy);
+    developmentByCharacter.set(characterId, series);
+    return series;
+  }
+
   function careerRowsOf(characterId: string): WclPlayerFight[] {
     const chronologicalReports = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
     const mine = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
@@ -731,7 +774,14 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       const current = currentOf(character.id);
       const myAwards = awardsOf(character.id);
       const wishlists: PhaseWishlistView[] = wishlistsOf(character.id).map((set) => {
-        const rows = computeWishlistRows(set, current, myAwards);
+        const rows = computeWishlistRows(
+          set,
+          current,
+          myAwards,
+          (config.wishlistAlternatives ?? []).filter(
+            (a) => a.characterId === character.id && a.phase === set.phase,
+          ),
+        );
         return {
           phase: set.phase!,
           set,
@@ -879,6 +929,88 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
     async getGuildPolicy() {
       return policy;
+    },
+
+    async getDevelopment(characterId: string) {
+      return developmentOf(characterId);
+    },
+
+    async getLootPlan(zone: string) {
+      // Every cached item the zone drops. The cache is the only thing that
+      // knows a drop table, and it only knows what has been imported — so a
+      // thin plan means a thin item cache, not a generous boss.
+      const target = zone.toLowerCase();
+      const entries = items
+        .filter((i) => (i.source?.zone ?? "").toLowerCase() === target)
+        .map((item) => ({ item, contention: contentionFor(item.id) }));
+      return buildLootPlan(zone, entries);
+    },
+
+    async getRosterStanding() {
+      // Pugs are in neither board: they are not the guild, and including them
+      // moves everybody's percentile.
+      return buildRosterStanding(
+        roster
+          .filter((c) => c.status !== "pug")
+          .map((c) => ({
+            characterId: c.id,
+            name: c.name,
+            status: c.status,
+            metrics: raiderMetricsOf(c.id),
+            parseTrend: parseTrend(developmentOf(c.id)),
+          })),
+        policy,
+      );
+    },
+
+    async listItemComments(itemId: number) {
+      return itemCommentsByItem.get(itemId) ?? [];
+    },
+    async countItemComments() {
+      return new Map([...itemCommentsByItem].map(([id, list]) => [id, list.length]));
+    },
+    async listGearSets() {
+      return gearSets;
+    },
+
+    async listClassGuides() {
+      return config.classGuides ?? [];
+    },
+
+    async listWishlistAlternatives() {
+      return config.wishlistAlternatives ?? [];
+    },
+
+    /**
+     * Previewing a policy needs TWO read models, so it can't live here — a
+     * model only knows its own policy. The SQLite backend builds the second
+     * one and diffs; the seed backend is read-only and has no policy to change.
+     */
+    async previewGuildPolicy() {
+      return buildPolicyPreview(await this.measureRoster());
+    },
+
+    /**
+     * The figures a policy change can move, per roster raider, under whatever
+     * policy THIS read model was built with. The preview compares two of these.
+     */
+    async measureRoster() {
+      return roster
+        .filter((c) => c.status === "main" || c.status === "alt")
+        .map((character) => {
+          const rows = careerRowsOf(character.id);
+          const career = summarizePerformance(rows, policy);
+          const attendance = computeAttendance(character.id);
+          return {
+            name: character.name,
+            slug: character.name.toLowerCase(),
+            className: character.class,
+            preparedBefore: career?.preparedPct,
+            preparedAfter: career?.preparedPct,
+            attendanceBefore: attendance?.recentPct,
+            attendanceAfter: attendance?.recentPct,
+          };
+        });
     },
 
     async getPrioritySheet(phase?: number) {

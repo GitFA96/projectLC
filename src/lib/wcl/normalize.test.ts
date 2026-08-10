@@ -3,6 +3,9 @@ import { normalizeWclReport } from "@/lib/wcl/normalize";
 import {
   classifyAura,
   classifyCast,
+  CURATED_ELIXIR_LABELS,
+  elixirCategoryOf,
+  isFoodLabel,
   isNonConsumableAura,
   SAPPER_CAST_NAMES,
   TRACKED_CAST_IDS,
@@ -691,6 +694,60 @@ describe("normalizeWclReport — off-pull consumables and pets", () => {
   });
 });
 
+describe("named foods", () => {
+  it("counts a dish that names its own buff as food", () => {
+    // Skullfish Soup applies "Enlightened", not "Well Fed". Filed as an
+    // off-slot curiosity it left 84 pulls on this guild's data reading as
+    // unfed, three raiders' preparation among them.
+    expect(classifyAura("Enlightened")?.category).toBe("food");
+    expect(isFoodLabel("Enlightened")).toBe(true);
+  });
+
+  it("still recognises the generic buff, however it is spelled", () => {
+    expect(isFoodLabel("Well Fed")).toBe(true);
+    expect(isFoodLabel("well fed (30)")).toBe(true);
+  });
+
+  it("says no to everything else in the off-slot bucket", () => {
+    expect(isFoodLabel("Flame Cap")).toBe(false);
+    expect(isFoodLabel("Bogling Root")).toBe(false);
+    expect(isFoodLabel("Elixir of Major Agility")).toBe(false);
+  });
+});
+
+describe("elixirCategoryOf", () => {
+  // Ingest stores the canonical label and throws the category away, so the
+  // preparation grade reads the slot back out of this map. If the two ever
+  // disagree, a raider who brought a full set reads as half a one.
+  it("agrees with classifyAura on every curated elixir", () => {
+    for (const label of CURATED_ELIXIR_LABELS) {
+      expect(elixirCategoryOf(label), label).toBe(classifyAura(label)?.category);
+    }
+  });
+
+  it("places both slots from the label ingest stores", () => {
+    expect(elixirCategoryOf("Elixir of Major Agility")).toBe("battleElixir");
+    expect(elixirCategoryOf("Elixir of Draenic Wisdom")).toBe("guardianElixir");
+  });
+
+  it("returns undefined for anything that isn't a curated elixir", () => {
+    // classifyAura's fallback calls an unknown "elixir of ..." a battle elixir
+    // so it still counts as coverage. That guess is fine for a percentage and
+    // wrong for a slot, so the slot lookup declines to make it.
+    expect(elixirCategoryOf("Elixir of the Uncurated")).toBeUndefined();
+    expect(elixirCategoryOf("Flask of Relentless Assault")).toBeUndefined();
+    expect(elixirCategoryOf("Well Fed")).toBeUndefined();
+  });
+
+  it("places the two elixirs the guild's own logs identified", () => {
+    // Neither was curated; both reached storage through the name-pattern
+    // fallback. The slot came from what they were logged BESIDE — a raider
+    // holds one battle and one guardian at a time — not from memory.
+    expect(elixirCategoryOf("Spellpower Elixir")).toBe("battleElixir");
+    expect(elixirCategoryOf("Mageblood Elixir")).toBe("guardianElixir");
+  });
+});
+
 describe("consumable classification", () => {
   it("classifies auras by name", () => {
     expect(classifyAura("Flask of Supreme Power")?.category).toBe("flask");
@@ -758,7 +815,7 @@ describe("consumable classification", () => {
     expect(classifyAura("Flame Cap")?.category).toBe("misc");
     expect(classifyAura("anything", 28714)?.label).toBe("Flame Cap");
     expect(classifyAura("Eye of the Night")?.category).toBe("misc");
-    expect(classifyAura("Enlightened")?.category).toBe("misc");
+    // Enlightened moved to food — Skullfish Soup names its own buff.
     expect(classifyAura("anything", 43722)?.label).toBe("Enlightened");
   });
 

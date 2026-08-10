@@ -40,12 +40,15 @@ export function CharacterPhaseTabs({
   activePhase,
   hasCurrent,
   characterName,
+  characterId,
   award,
 }: {
   tabs: PhaseTabView[];
   activePhase: Phase;
   hasCurrent: boolean;
   characterName: string;
+  /** Enables editing per-slot fallbacks. Omit and they render read-only. */
+  characterId?: string;
   /** Enables awarding a wishlist row (and clearing it) straight from the table. */
   award?: AwardContext;
 }) {
@@ -111,7 +114,12 @@ export function CharacterPhaseTabs({
                 </div>
               </CardHeader>
               <CardContent>
-                <WishlistTable rows={openRows} characterName={characterName} award={award} />
+                <WishlistTable
+                  rows={openRows}
+                  characterName={characterName}
+                  award={award}
+                  alternativesFor={characterId ? { characterId, phase: tab.phase } : undefined}
+                />
                 {award && unrecorded.length > 0 && (
                   <details className="mt-3 rounded-md border bg-muted/30 p-2.5">
                     <summary className="cursor-pointer text-xs font-medium">

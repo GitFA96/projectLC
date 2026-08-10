@@ -196,6 +196,20 @@ export default async function CharacterPage({
             state: row.state,
             awardedAt: row.awardedAt,
             awardId: row.awardId,
+            alternatives: await Promise.all(
+              row.alternatives.map(async (a) => ({
+                itemId: a.itemId,
+                item: await toItemRef(repo, {
+                  slot: row.slot,
+                  itemId: a.itemId,
+                  // The stored name is a fallback for an item the cache has
+                  // never resolved; toItemRef prefers the cache when it has one.
+                  itemName: a.itemName ?? `Item #${a.itemId}`,
+                }),
+                rank: a.rank,
+                note: a.note,
+              })),
+            ),
             // No logged gear and nothing pinned means there's nothing to pick
             // from — the cell stays the plain read-only item it always was.
             currentPick:
@@ -466,6 +480,7 @@ export default async function CharacterPage({
               // pinned slots move items, never numbers.
               hasCurrent={importedCurrent !== undefined}
               characterName={character.name}
+              characterId={character.id}
               award={award}
             />
           </div>

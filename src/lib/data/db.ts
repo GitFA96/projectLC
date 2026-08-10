@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   attendanceExemptionSchema,
   characterCommentSchema,
+  itemCommentSchema,
   characterSchema,
   currentGearOverrideSchema,
   feedbackReportSchema,
@@ -35,6 +36,7 @@ import type {
   ConsumableAdjustment,
   Character,
   CharacterComment,
+  ItemComment,
   ConsumablePrice,
   CurrentGearOverride,
   FeedbackReport,
@@ -191,6 +193,46 @@ CREATE TABLE IF NOT EXISTS item_priority_rules (
 -- seeded sheet in src/data/seed, and every other phase is simply empty until
 -- someone pastes one. So deleting a row is how you revert to the seed, exactly
 -- as clearing an item_priority_rules row hands that item back to the sheet.
+-- Alternatives a raider will take for a slot when their BiS doesn't drop.
+--
+-- The wishlist itself stays a whole imported gear set — that's what
+-- SixtyUpgrades exports and what the stat diff needs. This sits BESIDE it: the
+-- set names the BiS, and these name what else they'd accept, in order. Rank 1
+-- is the first fallback, so the imported item is implicitly rank 0 and never
+-- stored here.
+--
+-- Keyed by phase as well as slot, because "what I'd take instead" is a
+-- statement about a tier, not about a character forever.
+CREATE TABLE IF NOT EXISTS wishlist_alternatives (
+  character_id TEXT NOT NULL,
+  phase        INTEGER NOT NULL,
+  slot         TEXT NOT NULL,
+  item_id      INTEGER NOT NULL,
+  item_name    TEXT,
+  /* 1 = first fallback. Ties are broken by item id so ordering is total. */
+  rank         INTEGER NOT NULL,
+  note         TEXT,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (character_id, phase, slot, item_id)
+);
+-- The guild's own class/spec guides: what a class should be bringing, in the
+-- officers' words. A class-level guide has spec = ''.
+--
+-- Deliberately the guild's summary WITH a source link, not a copy of somebody
+-- else's page: the house rule is to name what a source actually says, and a
+-- pasted guide rots silently while a summary an officer wrote gets corrected
+-- when it stops being true.
+CREATE TABLE IF NOT EXISTS class_guides (
+  wow_class  TEXT NOT NULL,
+  spec       TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  /* Newline-separated URLs the summary was drawn from. */
+  sources    TEXT,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author     TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (wow_class, spec)
+);
 CREATE TABLE IF NOT EXISTS priority_sheets (
   phase      INTEGER PRIMARY KEY,
   markdown   TEXT NOT NULL,
@@ -217,7 +259,11 @@ CREATE TABLE IF NOT EXISTS loot_awards (
   awarded_at      TEXT NOT NULL,
   offspec         INTEGER NOT NULL,
   external        INTEGER NOT NULL DEFAULT 0,
-  note            TEXT
+  note            TEXT,
+  /* How the council's board read when this was awarded, as JSON. NULL means
+     the award never came from the ranking (a Gargul import, a hand-added
+     drop) — never that the winner scored zero. See awardDecisionSchema. */
+  decision_json   TEXT
 );
 CREATE INDEX IF NOT EXISTS loot_awards_dedupe
   ON loot_awards(item_id, raw_winner_name COLLATE NOCASE, awarded_at);
@@ -258,6 +304,8 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   food                  INTEGER NOT NULL DEFAULT 0,
   weapon_buff           INTEGER NOT NULL DEFAULT 0,
   prepot                INTEGER NOT NULL DEFAULT 0,
+  prepot_label          TEXT,
+  death_times_json      TEXT NOT NULL DEFAULT '[]',
   potions_json          TEXT NOT NULL DEFAULT '[]',
   other_casts_json      TEXT NOT NULL DEFAULT '[]',
   extras_json           TEXT NOT NULL DEFAULT '[]',
@@ -291,6 +339,27 @@ CREATE TABLE IF NOT EXISTS character_comments (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS character_comments_by_character ON character_comments(character_id);
+/*
+ * Notes on one item — a raider's about their own claim, an officer's about the
+ * council's. Deliberately NOT joined to a wishlist row: the note has to survive
+ * the raider re-ordering their list, and it has to be readable next to an award
+ * made years ago. character_id is nullable and means "about this raider's
+ * claim" when set, "about the item" when not.
+ *
+ * Nothing here is scored. It exists because the council decided the
+ * BiS-versus-second-choice call is too situational to automate.
+ */
+CREATE TABLE IF NOT EXISTS item_comments (
+  id           TEXT PRIMARY KEY,
+  item_id      INTEGER NOT NULL,
+  character_id TEXT,
+  voice        TEXT NOT NULL DEFAULT 'officer',
+  body         TEXT NOT NULL,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author       TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS item_comments_by_item ON item_comments(item_id);
 
 /*
  * Bug reports filed from inside the app. Deliberately references nothing —
@@ -365,12 +434,17 @@ function migrate(db: DatabaseSync): void {
   addColumn("characters", "off_spec_role", "off_spec_role TEXT");
   addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
   addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
+  addColumn("wcl_player_fights", "prepot_label", "prepot_label TEXT");
+  addColumn("wcl_player_fights", "death_times_json", "death_times_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
   addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
   // The feedback table shipped with only bug reports. Existing rows were filed
   // as bugs and the DEFAULT says so, so the backfill is the default itself.
   addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
+  // Awards made before this shipped have no snapshot, and cannot gain one: the
+  // policy that produced them is gone. NULL says exactly that.
+  addColumn("loot_awards", "decision_json", "decision_json TEXT");
   // The four loot weights moved into the `guild_policy` record, which holds
   // every other number the council can set too. The old value is deliberately
   // NOT carried across (the officers called it: the project is pre-release, and
@@ -1139,6 +1213,17 @@ function group<T extends string>(
  * defaults. Junk is discarded rather than rejected, so one bad key can never
  * take a working policy — or a page — down with it.
  */
+function isObject(raw: unknown): raw is Record<string, unknown> {
+  return raw !== null && typeof raw === "object";
+}
+
+/** The boolean `preparation.coverage` replaced, if a stored policy still has it. */
+function legacyElixirCounts(raw: unknown): boolean | undefined {
+  if (raw === null || typeof raw !== "object") return undefined;
+  const value = (raw as Record<string, unknown>).elixirCounts;
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function sanitizePolicy(raw: unknown): Record<string, unknown> {
   if (raw === null || typeof raw !== "object") return {};
   const r = raw as Record<string, unknown>;
@@ -1154,7 +1239,8 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
     (v) => num(v, 0.01, 1));
   if (standing) out.standing = standing;
 
-  const slotServed = group(r.slotServed, ["drop", "floor"] as const, (v) => num(v, 0, 1));
+  const slotServed = group(r.slotServed, ["drop", "floor", "fillerDrop", "offListDrop"] as const,
+    (v) => num(v, 0, 1));
   if (slotServed) out.slotServed = slotServed;
 
   const attendance = group(r.attendance, ["recentRaids", "weeks"] as const,
@@ -1165,9 +1251,34 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
     (v) => (v === "all" || v === "bracket" ? v : undefined));
   if (perf) out.performance = perf;
 
-  const preparation = group(r.preparation, ["elixirCounts"] as const,
+  const loot = group(r.loot, ["altsContend"] as const,
     (v) => (typeof v === "boolean" ? v : undefined));
+  if (loot) out.loot = loot;
+
+  const preparation = group(r.preparation, ["coverage"] as const,
+    (v) => (v === "any" || v === "full" || v === "flaskOnly" ? v : undefined));
   if (preparation) out.preparation = preparation;
+  else if (legacyElixirCounts(r.preparation) !== undefined) {
+    // The field this replaced was a boolean, "does an elixir count at all".
+    // A stored `false` was a real decision by an officer, so carry it to the
+    // mode that means the same thing rather than dropping it back to default.
+    out.preparation = { coverage: legacyElixirCounts(r.preparation) ? "any" : "flaskOnly" };
+  }
+
+  // Nested, unlike every other group: the weights are a record inside the
+  // record. Sanitize both halves or a junk weight reaches a ranking.
+  if (isObject(r.roster)) {
+    const roster: Record<string, unknown> = {};
+    const rosterWeights = group(
+      (r.roster as Record<string, unknown>).weights,
+      ["attendance", "performance", "preparation"] as const,
+      (v) => num(v, 0, 100, "int"),
+    );
+    if (rosterWeights) roster.weights = rosterWeights;
+    const minRaids = num((r.roster as Record<string, unknown>).minRaids, 0, 100, "int");
+    if (minRaids !== undefined) roster.minRaids = minRaids;
+    if (Object.keys(roster).length > 0) out.roster = roster;
+  }
 
   const severity = group(r.improvementSeverity, ["high", "medium", "low"] as const,
     (v) => num(v, 0, 1000, "int"));
@@ -1235,6 +1346,149 @@ export function setItemPriorityRule(
 /** Drop an override so the seeded sheet takes the item back. */
 export function deleteItemPriorityRule(db: DatabaseSync, itemKey: string): boolean {
   return Number(db.prepare("DELETE FROM item_priority_rules WHERE item_key = ?").run(itemKey).changes) > 0;
+}
+
+export interface StoredWishlistAlternative {
+  characterId: string;
+  phase: number;
+  slot: string;
+  itemId: number;
+  itemName?: string;
+  rank: number;
+  note?: string;
+}
+
+export function getWishlistAlternatives(db: DatabaseSync): StoredWishlistAlternative[] {
+  const rows = db
+    .prepare(
+      "SELECT character_id, phase, slot, item_id, item_name, rank, note FROM wishlist_alternatives ORDER BY rank, item_id",
+    )
+    .all() as {
+    character_id: string;
+    phase: number;
+    slot: string;
+    item_id: number;
+    item_name: string | null;
+    rank: number;
+    note: string | null;
+  }[];
+  return rows.map((r) => ({
+    characterId: r.character_id,
+    phase: r.phase,
+    slot: r.slot,
+    itemId: r.item_id,
+    itemName: r.item_name ?? undefined,
+    rank: r.rank,
+    note: r.note ?? undefined,
+  }));
+}
+
+export function setWishlistAlternative(
+  db: DatabaseSync,
+  alt: StoredWishlistAlternative,
+): void {
+  db.prepare(
+    `INSERT INTO wishlist_alternatives
+       (character_id, phase, slot, item_id, item_name, rank, note, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(character_id, phase, slot, item_id) DO UPDATE SET
+       item_name = excluded.item_name, rank = excluded.rank,
+       note = excluded.note, updated_at = excluded.updated_at`,
+  ).run(
+    alt.characterId,
+    alt.phase,
+    alt.slot,
+    alt.itemId,
+    alt.itemName ?? null,
+    alt.rank,
+    alt.note ?? null,
+    new Date().toISOString(),
+  );
+}
+
+export function deleteWishlistAlternative(
+  db: DatabaseSync,
+  characterId: string,
+  phase: number,
+  slot: string,
+  itemId: number,
+): boolean {
+  return (
+    Number(
+      db
+        .prepare(
+          "DELETE FROM wishlist_alternatives WHERE character_id = ? AND phase = ? AND slot = ? AND item_id = ?",
+        )
+        .run(characterId, phase, slot, itemId).changes,
+    ) > 0
+  );
+}
+
+export interface StoredClassGuide {
+  wowClass: string;
+  /** Empty string for the class-level guide. */
+  spec: string;
+  body: string;
+  sources: string[];
+  author?: string;
+  updatedAt: string;
+}
+
+const splitSources = (raw: string | null): string[] =>
+  (raw ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+export function getClassGuides(db: DatabaseSync): StoredClassGuide[] {
+  const rows = db
+    .prepare("SELECT wow_class, spec, body, sources, author, updated_at FROM class_guides")
+    .all() as {
+    wow_class: string;
+    spec: string;
+    body: string;
+    sources: string | null;
+    author: string | null;
+    updated_at: string;
+  }[];
+  return rows.map((r) => ({
+    wowClass: r.wow_class,
+    spec: r.spec,
+    body: r.body,
+    sources: splitSources(r.sources),
+    author: r.author ?? undefined,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function setClassGuide(
+  db: DatabaseSync,
+  guide: { wowClass: string; spec: string; body: string; sources: string[]; author?: string },
+): void {
+  db.prepare(
+    `INSERT INTO class_guides (wow_class, spec, body, sources, author, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(wow_class, spec) DO UPDATE SET
+       body = excluded.body, sources = excluded.sources,
+       author = excluded.author, updated_at = excluded.updated_at`,
+  ).run(
+    guide.wowClass,
+    guide.spec,
+    guide.body,
+    guide.sources.join("\n") || null,
+    guide.author ?? null,
+    new Date().toISOString(),
+  );
+}
+
+/** Remove a guide entirely — an empty one would read as "we have nothing to say". */
+export function deleteClassGuide(db: DatabaseSync, wowClass: string, spec: string): boolean {
+  return (
+    Number(
+      db.prepare("DELETE FROM class_guides WHERE wow_class = ? AND spec = ?").run(wowClass, spec)
+        .changes,
+    ) > 0
+  );
 }
 
 /** A pasted sheet, as stored. The markdown is kept verbatim, never pre-parsed. */
@@ -1353,6 +1607,17 @@ export function insertCharacterComment(db: DatabaseSync, c: CharacterComment): v
   ).run(c.id, c.characterId, c.category, c.body, c.author ?? null, c.createdAt);
 }
 
+export function insertItemComment(db: DatabaseSync, c: ItemComment): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO item_comments (id, item_id, character_id, voice, body, author, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.itemId, c.characterId ?? null, c.voice, c.body, c.author ?? null, c.createdAt);
+}
+
+export function deleteItemComment(db: DatabaseSync, id: string): boolean {
+  return db.prepare("DELETE FROM item_comments WHERE id = ?").run(id).changes > 0;
+}
+
 export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
   db.prepare(
     `INSERT OR REPLACE INTO feedback (id, kind, reporter, body, route, url, context_json, status, created_at)
@@ -1435,11 +1700,12 @@ export function insertRaidSession(db: DatabaseSync, s: RaidSession): void {
 
 export function insertLootAward(db: DatabaseSync, a: LootAward): void {
   db.prepare(
-    `INSERT INTO loot_awards (id, raid_session_id, character_id, raw_winner_name, item_id, item_name, awarded_at, offspec, external, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO loot_awards (id, raid_session_id, character_id, raw_winner_name, item_id, item_name, awarded_at, offspec, external, note, decision_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     a.id, a.raidSessionId, a.characterId, a.rawWinnerName, a.itemId, a.itemName,
     a.awardedAt, a.offspec ? 1 : 0, a.external ? 1 : 0, a.note ?? null,
+    a.decision ? JSON.stringify(a.decision) : null,
   );
 }
 
@@ -1466,16 +1732,18 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        id, report_code, fight_id, encounter_id, encounter_name, kill, fight_percentage,
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
-       prepot, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
+       prepot, prepot_label, death_times_json, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
        upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
     f.spec ?? null, f.role, f.parsePercent ?? null, f.bracketPercent ?? null, f.amount ?? null,
     f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
-    f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
+    f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, f.prepotLabel ?? null,
+    JSON.stringify(f.deathTimes),
+    JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
     JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), JSON.stringify(f.talents),
@@ -1537,6 +1805,13 @@ function rowToCharacterComment(r: Row): unknown {
   };
 }
 
+function rowToItemComment(r: Row): unknown {
+  return {
+    id: r.id, itemId: r.item_id, characterId: opt(r.character_id), voice: r.voice,
+    body: r.body, author: opt(r.author), createdAt: r.created_at,
+  };
+}
+
 function rowToFeedback(r: Row): unknown {
   return {
     id: r.id, kind: r.kind, reporter: opt(r.reporter), body: r.body, route: r.route, url: r.url,
@@ -1583,7 +1858,21 @@ function rowToLootAward(r: Row): unknown {
     id: r.id, raidSessionId: r.raid_session_id, characterId: (r.character_id as string | null) ?? null,
     external: r.external === 1, rawWinnerName: r.raw_winner_name, itemId: r.item_id, itemName: r.item_name,
     awardedAt: r.awarded_at, offspec: r.offspec === 1, note: opt(r.note),
+    decision: parseDecision(r.decision_json),
   };
+}
+
+/**
+ * A stored snapshot, or undefined. Never throws: a decision that can't be read
+ * back is a lost explanation, not a reason to fail the whole ledger.
+ */
+function parseDecision(raw: unknown): unknown {
+  if (typeof raw !== "string" || raw === "") return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 function rowToWclReport(r: Row): unknown {
@@ -1608,6 +1897,8 @@ function rowToWclPlayerFight(r: Row): unknown {
     elixirs: JSON.parse(r.elixirs_json as string),
     scrolls: JSON.parse((r.scrolls_json as string | null) ?? "[]"), food: r.food === 1,
     weaponBuff: r.weapon_buff === 1, prepot: r.prepot === 1,
+    prepotLabel: opt(r.prepot_label),
+    deathTimes: JSON.parse((r.death_times_json as string | null) ?? "[]"),
     potions: JSON.parse(r.potions_json as string),
     otherCasts: JSON.parse((r.other_casts_json as string | null) ?? "[]"),
     extras: JSON.parse((r.extras_json as string | null) ?? "[]"),
@@ -1652,6 +1943,7 @@ export function loadStore(db: DatabaseSync): EntityStore {
     wclPlayerOffPull: parseAll("wcl_player_offpull", wclPlayerOffPullSchema, (db.prepare("SELECT * FROM wcl_player_offpull").all() as Row[]).map(rowToWclPlayerOffPull)),
     attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
     characterComments: parseAll("character_comments", characterCommentSchema, (db.prepare("SELECT * FROM character_comments ORDER BY created_at DESC").all() as Row[]).map(rowToCharacterComment)),
+    itemComments: parseAll("item_comments", itemCommentSchema, (db.prepare("SELECT * FROM item_comments ORDER BY created_at DESC").all() as Row[]).map(rowToItemComment)),
     feedback: parseAll("feedback", feedbackReportSchema, (db.prepare("SELECT * FROM feedback ORDER BY created_at DESC").all() as Row[]).map(rowToFeedback)),
   };
   validateStore(store, "sqlite database");

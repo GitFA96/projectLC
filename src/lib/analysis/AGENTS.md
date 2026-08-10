@@ -12,7 +12,7 @@ the reverse — analysis must not reach for a repo.
 - **No I/O.** No repo, no `fetch`, no `Date.now()` baked into a result you want
   to assert on. Pass time in.
 - **A module gets a `.test.ts` beside it.** Every file here has one except
-  `contention.ts` and `fairness.ts`.
+  `fairness.ts`.
 - **Don't invent domain knowledge the app can't justify.** The house rule
   throughout: name what a source actually says, and stay silent otherwise. An
   enchant nobody's imported list names stays a bare id rather than being graded

@@ -2,12 +2,19 @@ import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
 import type { EnchantReference } from "@/lib/analysis/enchants";
 import type { PrioritySheetDocument } from "@/lib/loot/priority-sheet";
 import type { GuildPolicy, PolicyOverrides } from "@/lib/analysis/policy";
+import type { ClassGuide } from "@/lib/guides";
+import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
+import type { PolicyPreview, PolicyPreviewRow } from "@/lib/analysis/policy-preview";
 import type { AbilityInfo } from "@/lib/items/ability-data";
+import type { RosterStanding } from "@/lib/analysis/standing";
+import type { LootPlan } from "@/lib/analysis/loot-plan";
+import type { DevelopmentSeries } from "@/lib/analysis/development";
 import type {
   AwardWithContext,
   Character,
   CharacterBundle,
   CharacterComment,
+  ItemComment,
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
@@ -154,6 +161,62 @@ export interface Repo {
   getLootPriorityWeights(): Promise<LootPriorityWeights>;
   /** The whole policy in force — defaults where the council has set nothing. */
   getGuildPolicy(): Promise<GuildPolicy>;
+  /** The guild's class/spec guides. Empty until officers write them. */
+  /**
+   * Where each raider stands against the rest of the roster — attendance,
+   * parse and preparation, each as a placing within the guild rather than
+   * against a threshold the app invented.
+   *
+   * Two boards: mains against mains, alts and inactives against each other.
+   * Pooling them lets an occasional alt lift every regular's placing. Pugs are
+   * in neither.
+   */
+  /**
+   * The night's drops with who should get them, per boss — decided before the
+   * raid rather than in front of a corpse. Assembles the item cache, the
+   * wishlists and contention; re-scores nothing.
+   */
+  getLootPlan(zone: string): Promise<LootPlan>;
+  getRosterStanding(): Promise<RosterStanding>;
+  /**
+   * One raider night by night, with the recent window measured against
+   * everything before it — "which way is this going", which no single career
+   * number can answer.
+   */
+  getDevelopment(characterId: string): Promise<DevelopmentSeries>;
+  /**
+   * Every imported or hand-built gear set. Used by the manual set builder to
+   * offer an existing list as a starting point — nothing else needs the whole
+   * lot, since a character's own sets ride along in their bundle.
+   */
+  listGearSets(): Promise<GearSet[]>;
+  listClassGuides(): Promise<ClassGuide[]>;
+  /**
+   * Notes on one item, newest first — a raider's about their own claim, an
+   * officer's about the council's. Nothing here feeds a score: the council
+   * decided the BiS-versus-second-choice call is too situational to automate,
+   * so this carries the situation instead.
+   */
+  listItemComments(itemId: number): Promise<ItemComment[]>;
+  /** How many notes each commented item has, for a badge on a board. */
+  countItemComments(): Promise<Map<number, number>>;
+  /**
+   * Every stored wishlist fallback. The imported set still names the BiS; these
+   * are what a raider said they'd take instead, in their order.
+   */
+  listWishlistAlternatives(): Promise<WishlistAlternative[]>;
+  /**
+   * What a policy change would do, without storing it: the roster measured
+   * under the current policy and under the proposed one.
+   */
+  previewGuildPolicy(overrides: PolicyOverrides): Promise<PolicyPreview>;
+  /**
+   * Each roster raider's policy-sensitive figures, under whatever policy THIS
+   * read model was built with. On its own it just restates the roster; its
+   * purpose is to be run against two models and diffed — see
+   * `previewGuildPolicy`, which is the only caller that should exist.
+   */
+  measureRoster(): Promise<PolicyPreviewRow[]>;
   /**
    * The spec priority chain for one item — an officer's edit when there is
    * one, else the seeded sheet. Names are matched loosely; pass every name the
@@ -294,6 +357,10 @@ export type WclSaveResult =
 
 /** A new officer comment: identity + timestamp are generated at save time. */
 export type CharacterCommentDraft = Omit<CharacterComment, "id" | "createdAt">;
+export type ItemCommentDraft = Omit<ItemComment, "id" | "createdAt">;
+export type AddItemCommentResult =
+  | { ok: true; comment: ItemComment }
+  | { ok: false; error: string };
 
 export type AddCommentResult =
   | { ok: true; comment: CharacterComment }
@@ -395,6 +462,25 @@ export interface WriteRepo extends Repo {
   }): Promise<{ ok: true; ruleCount: number } | { ok: false; error: string }>;
   /** Drop a pasted sheet, reverting the phase to the seed (or to empty). */
   deletePrioritySheet(phase: number): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Replace a slot's fallbacks outright, in the order given. Ranks are
+   * renumbered densely, so a caller never has to reason about gaps.
+   */
+  setWishlistAlternatives(input: {
+    characterId: string;
+    phase: number;
+    slot: string;
+    items: { itemId: number; itemName?: string; note?: string }[];
+  }): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Write one class or spec guide. An empty body deletes it. */
+  setClassGuide(input: {
+    wowClass: string;
+    /** Empty for the class-level guide. */
+    spec: string;
+    body: string;
+    sources: string[];
+    author?: string;
+  }): Promise<{ ok: true; deleted?: boolean } | { ok: false; error: string }>;
   createCharacter(draft: CharacterDraft): Promise<CharacterWriteResult>;
   updateCharacter(id: string, draft: CharacterDraft): Promise<CharacterWriteResult>;
   /**
@@ -494,6 +580,8 @@ export interface WriteRepo extends Repo {
   ): Promise<{ ok: true } | { ok: false; error: string }>;
   /** Append one officer comment to a character's log. */
   addCharacterComment(draft: CharacterCommentDraft): Promise<AddCommentResult>;
+  addItemComment(draft: ItemCommentDraft): Promise<AddItemCommentResult>;
+  deleteItemComment(id: string): Promise<boolean>;
   /** Remove one comment by id. Returns false when it didn't exist. */
   deleteCharacterComment(id: string): Promise<boolean>;
   /** File one bug report. The id and timestamp are assigned here, not by the caller. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
+import { DEFAULT_POLICY } from "@/lib/analysis/policy";
 import type { WclPlayerFight, WclReport } from "@/lib/types";
 
 const report: WclReport = {
@@ -28,6 +29,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     characterId: null,
     role: "dps",
     deaths: 0,
+    deathTimes: [],
     elixirs: [],
     scrolls: [],
     food: true,
@@ -90,9 +92,13 @@ describe("summarizeRaidReport", () => {
     expect(raid.prep.rows).toBe(6);
     // 5 of 6 player-pulls prepared (Morgrave's Leotheras pull is not).
     expect(raid.prep.flaskOrElixirPct).toBe(83);
-    expect(raid.prep.potionsTotal).toBe(1);
+    // Two potions: Kazrak's Haste Potion in-fight, and the one he opened with.
+    // Reports imported before the name was kept only stored a boolean, so that
+    // one counts under a stand-in name rather than not counting at all.
+    expect(raid.prep.potionsTotal).toBe(2);
     expect(raid.prep.potionTypes).toEqual([
       { name: "Haste Potion", uses: 1, providers: [{ name: "Kazrak", slug: "kazrak", count: 1 }] },
+      { name: "Pre-pull potion", uses: 1, providers: [{ name: "Kazrak", slug: "kazrak", count: 1 }] },
     ]);
   });
 
@@ -434,5 +440,129 @@ describe("summarizeRaidReport — parse boards", () => {
       .toEqual(["Hydross"]);
     // Morgrave only played the excluded kill, so he's off the board.
     expect(filtered.parseBoards.find((b) => b.key === "dps")!.rows.map((r) => r.name)).toEqual(["Kazrak"]);
+  });
+});
+
+describe("summarizeRaidReport — elixir coverage", () => {
+  const slugByActor = new Map<string, string>();
+  const summarize = (rows: WclPlayerFight[], policy?: Parameters<typeof summarizeRaidReport>[0]["policy"]) =>
+    summarizeRaidReport({ report, rows, reportPulls: 1, slugByActor, policy });
+
+  it("separates a full set from half of one, which the percentage cannot", () => {
+    const raid = summarize([
+      row({ fightId: 1, actorName: "Flasked", flask: "Flask of Relentless Assault" }),
+      row({ fightId: 1, actorName: "Bothslots", elixirs: ["Elixir of Major Agility", "Elixir of Draenic Wisdom"] }),
+      row({ fightId: 1, actorName: "Halfset", elixirs: ["Elixir of Major Agility"] }),
+      row({ fightId: 1, actorName: "Nothing" }),
+    ]);
+    expect(raid.prep.coverage).toEqual({ flask: 1, full: 1, partial: 1, none: 1 });
+    // All three of those read as covered under the default standard.
+    expect(raid.prep.flaskOrElixirPct).toBe(75);
+  });
+
+  it("names the empty slot in the raider's improvements", () => {
+    const raid = summarize([
+      row({ fightId: 1, actorName: "Halfset", encounterName: "Hydross", potions: ["Haste Potion"],
+        elixirs: ["Elixir of Major Agility"] }),
+    ]);
+    const finding = raid.improvements
+      .find((p) => p.name === "Halfset")!
+      .findings.find((f) => f.label === "Half a set of elixirs")!;
+    expect(finding.detail).toBe("battle elixir, no guardian, all night");
+  });
+
+  it("says nothing about a raider who brought both", () => {
+    const raid = summarize([
+      row({ fightId: 1, actorName: "Bothslots", potions: ["Haste Potion"],
+        elixirs: ["Elixir of Major Agility", "Elixir of Draenic Wisdom"] }),
+    ]);
+    expect(raid.improvements.some((p) => p.name === "Bothslots")).toBe(false);
+  });
+
+  it("reports an unplaced elixir raid-wide rather than blaming the raider for it", () => {
+    // The curated list doesn't name a slot for this one, so the gap is in our
+    // data. Naming a missing half here would be a guess.
+    const raid = summarize([
+      row({ fightId: 1, actorName: "Mystery", potions: ["Haste Potion"],
+        elixirs: ["Elixir of the Uncurated"] }),
+    ]);
+    expect(raid.prep.unplacedElixirs).toEqual([{ label: "Elixir of the Uncurated", pulls: 1 }]);
+    expect(raid.improvements.some((p) => p.name === "Mystery")).toBe(false);
+  });
+
+  it("falls back to the no-coverage finding when the council asks for full sets", () => {
+    const rows = [
+      row({ fightId: 1, actorName: "Halfset", potions: ["Haste Potion"],
+        elixirs: ["Elixir of Major Agility"] }),
+    ];
+    const strict = summarize(rows, { ...DEFAULT_POLICY, preparation: { coverage: "full" } });
+    const findings = strict.improvements.find((p) => p.name === "Halfset")!.findings;
+    // One complaint, not two: under `full` a half set isn't coverage at all.
+    expect(findings.map((f) => f.label)).toEqual(["No flask/elixir all night"]);
+    expect(strict.prep.flaskOrElixirPct).toBe(0);
+  });
+});
+
+describe("summarizeRaidReport — the pre-pull potion counts as a potion", () => {
+  const slugByActor = new Map<string, string>();
+
+  it("counts it in the night's totals and names it when the import kept the name", () => {
+    const raid = summarizeRaidReport({
+      report,
+      rows: [
+        row({ fightId: 1, actorName: "Opener", prepot: true, prepotLabel: "Haste Potion",
+          potions: ["Super Mana Potion"] }),
+      ],
+      reportPulls: 1,
+      slugByActor,
+    });
+    expect(raid.prep.potionsTotal).toBe(2);
+    expect(raid.prep.potionTypes.map((t) => t.name).sort())
+      .toEqual(["Haste Potion", "Super Mana Potion"]);
+    expect(raid.usage.find((u) => u.name === "Opener")!.potions).toBe(2);
+  });
+
+  it("doesn't flag a kill the raider opened potted — that is a potion the fight got", () => {
+    // Counting it as a use and flagging its absence would be having it both
+    // ways. Whether opening with it was the right call is the spec guide's
+    // question, and "fewer than the fight allowed" is the sim context's.
+    const raid = summarizeRaidReport({
+      report,
+      rows: [
+        row({ fightId: 1, actorName: "Opener", encounterName: "Hydross", prepot: true, potions: [],
+          flask: "Flask of Relentless Assault" }),
+      ],
+      reportPulls: 1,
+      slugByActor,
+    });
+    expect(raid.improvements.some((p) => p.name === "Opener")).toBe(false);
+  });
+
+  it("still flags a kill where nothing at all was drunk", () => {
+    const raid = summarizeRaidReport({
+      report,
+      rows: [
+        row({ fightId: 1, actorName: "Dry", encounterName: "Hydross", potions: [],
+          flask: "Flask of Relentless Assault" }),
+      ],
+      reportPulls: 1,
+      slugByActor,
+    });
+    expect(
+      raid.improvements.find((p) => p.name === "Dry")!.findings.some((f) => f.label === "No potion on a kill"),
+    ).toBe(true);
+  });
+
+  it("still spares a wipe, where the fight can end before a repot", () => {
+    const raid = summarizeRaidReport({
+      report,
+      rows: [
+        row({ fightId: 1, actorName: "Wiper", kill: false, fightPercentage: 40, potions: [],
+          flask: "Flask of Relentless Assault" }),
+      ],
+      reportPulls: 1,
+      slugByActor,
+    });
+    expect(raid.improvements.some((p) => p.name === "Wiper")).toBe(false);
   });
 });

@@ -1,7 +1,9 @@
 import { z } from "zod";
+import type { BossDeathProfile } from "@/lib/analysis/deaths";
 import type {
   attendanceExemptionSchema,
   characterCommentSchema,
+  itemCommentSchema,
   characterSchema,
   feedbackContextSchema,
   feedbackReportSchema,
@@ -13,6 +15,7 @@ import type {
   raidSessionSchema,
   slotItemSchema,
   statBlockSchema,
+  awardDecisionSchema,
   wclPlayerFightSchema,
   wclPlayerOffPullSchema,
   wclReportSchema,
@@ -42,6 +45,7 @@ export type GearSet = z.infer<typeof gearSetSchema>;
 export type CurrentGearOverride = z.infer<typeof currentGearOverrideSchema>;
 export type RaidSession = z.infer<typeof raidSessionSchema>;
 export type LootAward = z.infer<typeof lootAwardSchema>;
+export type AwardDecision = z.infer<typeof awardDecisionSchema>;
 export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
 export type WclPlayerOffPull = z.infer<typeof wclPlayerOffPullSchema>;
@@ -51,6 +55,7 @@ export type WclUpkeepTarget = NonNullable<WclPlayerFight["upkeep"][number]["targ
 export type WclRole = z.infer<typeof wclRoleSchema>;
 export type AttendanceExemption = z.infer<typeof attendanceExemptionSchema>;
 export type CharacterComment = z.infer<typeof characterCommentSchema>;
+export type ItemComment = z.infer<typeof itemCommentSchema>;
 export type FeedbackReport = z.infer<typeof feedbackReportSchema>;
 export type FeedbackContext = z.infer<typeof feedbackContextSchema>;
 export type FeedbackStatus = FeedbackReport["status"];
@@ -70,6 +75,12 @@ export interface WishlistRow {
   awardedAt?: string;
   /** The loot award that satisfied the slot — the handle for undoing it. */
   awardId?: string;
+  /**
+   * What they'd take for this slot instead, in their own order. Empty when
+   * nobody has recorded a fallback — which is different from "they'd take
+   * nothing else", and the UI says so.
+   */
+  alternatives: { itemId: number; itemName?: string; rank: number; note?: string }[];
 }
 
 export interface WishlistCompletion {
@@ -272,11 +283,32 @@ export interface ContenderAward {
   slot?: SlotId;
   /** It lands in the contested item's slot family — "they just got a belt". */
   sameSlot: boolean;
+  /**
+   * Where this item sat on their own list: 0 their pick, 1+ a ranked fallback.
+   * The slot-served penalty reads it, because being handed a filler is not the
+   * same as being served.
+   */
+  listRank?: number;
+  /**
+   * We had a list to check and this wasn't on it — they were handed something
+   * nobody asked for. Distinct from both fields being absent, which means
+   * there was no list to check and we can't say either way.
+   */
+  notListed?: boolean;
 }
 
 export interface ContentionWisher {
   character: Character;
   phases: Phase[];
+  /**
+   * Where this item sits on their list for its slot: 0 is the imported BiS,
+   * 1 the first ranked fallback, and so on.
+   *
+   * Shown, never scored. The council decided the BiS-versus-second-choice call
+   * is too situational to encode, so the badge informs the argument and the
+   * item's notes carry it.
+   */
+  listRank: number;
   /** What they currently have in the item's slot family. */
   currentInSlot: SlotItem[];
   satisfied: boolean;
@@ -624,6 +656,18 @@ export interface RaidPrepStats {
   rows: number;
   raiders: number;
   flaskOrElixirPct: number;
+  /**
+   * The same player-pulls graded by how much of the elixir budget was filled.
+   * `flask` and `full` (battle + guardian) are both complete; `partial` is one
+   * slot up and one empty, which the percentage above cannot distinguish.
+   */
+  coverage: { flask: number; full: number; partial: number; none: number };
+  /**
+   * Elixirs the curated list doesn't place in a slot, with how many pulls
+   * carried them. A gap in our data rather than in anyone's night — and the
+   * reason some partial coverage can't name which half is missing.
+   */
+  unplacedElixirs: { label: string; pulls: number }[];
   foodPct: number;
   weaponBuffPct: number;
   prepotPct: number;
@@ -709,7 +753,7 @@ export interface RaiderUsage {
   slug?: string;
   className?: string;
   role: WclRole;
-  /** Combat potions thrown (excludes the pre-pot). */
+  /** Combat potions consumed, the pre-pull one included. */
   potions: number;
   /** Sapper charges thrown (both goblin and super). */
   sappers: number;
@@ -717,7 +761,7 @@ export interface RaiderUsage {
   otherItems: number;
   /** Every in-fight consumable: potions + all non-potion casts (incl. sappers). */
   consumablesTotal: number;
-  /** Pulls opened with a potion already running. */
+  /** Pulls opened with a potion already running. Included in `potions`. */
   prepots: number;
   /** Major class cooldowns cast across the night. */
   cooldowns: number;
@@ -800,6 +844,11 @@ export interface RaidReportView {
   improvements: PlayerImprovements[];
   /** Per-raider usage tallies for the rankings tab, most consumables first. */
   usage: RaiderUsage[];
+  /**
+   * Per-boss death profiles, hardest first — "why do we struggle on this
+   * boss", read through when people die rather than how many.
+   */
+  deathProfiles: BossDeathProfile[];
   /**
    * Parse percentiles as a grid — damage dealers, tanks, healers and boss
    * damage, each with a column per boss kill. Boards nobody has a parse in are

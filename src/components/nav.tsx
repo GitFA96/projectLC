@@ -15,19 +15,86 @@ import { cn } from "@/lib/utils";
  * rather than the layout is what survives the move to many guilds. See
  * docs/guild-and-player-profiles.md.
  */
-const LINKS = [
+/**
+ * Five sections, each owning its own pages.
+ *
+ * Eleven flat links had outgrown the bar, and the pages divide cleanly by the
+ * question being asked rather than by what they're built from. Deliberately NOT
+ * dropdowns: a hover menu hides the destination, is awkward on touch, and this
+ * app already answers "where am I" with in-page tabs on /logs and /sim. So the
+ * second row is a plain sub-nav for whichever section you're in — always
+ * visible, never a surprise.
+ *
+ * A section with one page shows no second row; there is nothing to choose.
+ */
+interface Section {
+  href: string;
+  label: string;
+  pages?: { href: string; label: string }[];
+  /** Paths the section owns without listing — detail pages reached from it. */
+  owns?: string[];
+}
+
+const SECTIONS: Section[] = [
   { href: "/", label: "Guild" },
-  { href: "/roster", label: "Roster" },
-  { href: "/loot", label: "Loot" },
-  { href: "/logs", label: "Logs" },
-  { href: "/raid-planner", label: "Raid planner" },
-  { href: "/fight-graph", label: "Fight graph" },
-  { href: "/sim", label: "Sim" },
-  { href: "/compare", label: "Compare" },
-  { href: "/items", label: "Items" },
-  { href: "/admin/import", label: "Import" },
-  { href: "/admin/feedback", label: "Feedback" },
+  {
+    href: "/roster",
+    label: "Roster",
+    pages: [
+      { href: "/roster", label: "Roster" },
+      { href: "/roster/standing", label: "Standing" },
+      { href: "/compare", label: "Compare" },
+    ],
+    // A character profile is reached from the roster and belongs to it, but it
+    // is nobody's nav destination — the section stays lit, the row stays short.
+    owns: ["/characters"],
+  },
+  {
+    href: "/loot",
+    label: "Loot",
+    pages: [
+      { href: "/loot", label: "Ledger" },
+      { href: "/loot/plan", label: "Loot plan" },
+      { href: "/loot/priority", label: "Priority sheet" },
+      { href: "/items", label: "Items" },
+    ],
+  },
+  {
+    href: "/logs",
+    label: "Raids",
+    pages: [
+      { href: "/logs", label: "Raid logs" },
+      { href: "/raid-planner", label: "Raid planner" },
+      { href: "/fight-graph", label: "Fight graph" },
+      { href: "/sim", label: "Sim" },
+    ],
+  },
+  { href: "/guides", label: "Guides" },
+  {
+    href: "/admin",
+    label: "Admin",
+    pages: [
+      { href: "/admin", label: "Overview" },
+      { href: "/admin/import", label: "Import" },
+      { href: "/admin/feedback", label: "Feedback" },
+    ],
+  },
 ];
+
+/**
+ * Which section a path belongs to. Some pages don't live under their section's
+ * own href (/compare is Roster's, /items is Loot's), so a section owns a path
+ * when the path starts with the section href OR with any of its pages'.
+ */
+function sectionFor(pathname: string): Section | undefined {
+  if (pathname === "/") return SECTIONS[0];
+  return SECTIONS.filter((s) => s.href !== "/").find(
+    (s) =>
+      pathname.startsWith(s.href) ||
+      (s.owns ?? []).some((o) => pathname.startsWith(o)) ||
+      (s.pages ?? []).some((p) => pathname === p.href || pathname.startsWith(`${p.href}/`)),
+  );
+}
 
 export function Nav({
   guildName,
@@ -41,6 +108,16 @@ export function Nav({
   searchItems: QuickSearchItem[];
 }) {
   const pathname = usePathname();
+  const current = sectionFor(pathname);
+  const pages = current?.pages;
+  // Longest match wins, so a section index (/admin) doesn't stay lit while you
+  // are on a page beneath it (/admin/import). Plain `startsWith` lights both.
+  const activePage = pages
+    ?.filter((p) => pathname === p.href || pathname.startsWith(`${p.href}/`))
+    .reduce<string | undefined>(
+      (best, p) => (best === undefined || p.href.length > best.length ? p.href : best),
+      undefined,
+    );
   return (
     <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
@@ -53,23 +130,20 @@ export function Nav({
             <span className="block text-[11px] font-normal text-muted-foreground">{realm}</span>
           </span>
         </Link>
-        <nav className="flex items-center gap-1 text-sm">
-          {LINKS.map((link) => {
-            const active =
-              link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={cn(
-                  "rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                  active && "bg-accent text-foreground",
-                )}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
+        <nav className="flex items-center gap-1 text-sm" aria-label="Sections">
+          {SECTIONS.map((section) => (
+            <Link
+              key={section.href}
+              href={section.pages?.[0].href ?? section.href}
+              className={cn(
+                "rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                section === current && "bg-accent text-foreground",
+              )}
+              aria-current={section === current ? "page" : undefined}
+            >
+              {section.label}
+            </Link>
+          ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <QuickSearch items={searchItems} />
@@ -80,6 +154,32 @@ export function Nav({
           <ThemeToggle />
         </div>
       </div>
+
+      {pages && (
+        <div className="border-t bg-card/60">
+          <nav
+            className="mx-auto flex max-w-6xl items-center gap-1 overflow-x-auto px-4 py-1.5 text-sm"
+            aria-label={`${current?.label} pages`}
+          >
+            {pages.map((page) => {
+              const active = page.href === activePage;
+              return (
+                <Link
+                  key={page.href}
+                  href={page.href}
+                  className={cn(
+                    "shrink-0 rounded-md px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                    active && "bg-accent font-medium text-foreground",
+                  )}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {page.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      )}
     </header>
   );
 }

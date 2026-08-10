@@ -57,6 +57,9 @@ export function loadSeedStore(): EntityStore {
     wclPlayerOffPull: [],
     attendanceExemptions: parse("attendance-exemptions.json", seedAttendanceExemptionsSchema, attendanceExemptionsJson),
     characterComments: parse("character-comments.json", seedCharacterCommentsSchema, characterCommentsJson),
+    // Notes on an item are the council arguing with itself — there is nothing
+    // to demo, and a fabricated one would read like a real decision.
+    itemComments: [],
     // Bug reports are filed by whoever is running the app; the demo has none.
     feedback: [],
   };

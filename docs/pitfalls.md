@@ -129,3 +129,14 @@ and nobody reads any of it.
 - [ ] `docs.test.ts` green because the claims are true, not because the arrays
       were edited.
 - [ ] Comments moved with the code they explain.
+
+## An item id is not a unique key
+
+TBC lets a raider wear two of the same non-unique trinket, and six contender
+rows on this guild's data do. `key={item.itemId}` over a per-slot list is
+therefore a React duplicate-key error and a row that may be dropped — key by
+**slot**, which is unique inside a gear set, and carry the slot through
+whatever maps the list. Same trap for rings.
+
+The list that *is* safe to key by id is a search result over the item cache,
+where ids are the primary key.
