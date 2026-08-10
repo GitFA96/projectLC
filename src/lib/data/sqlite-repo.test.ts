@@ -2966,4 +2966,53 @@ describe("manual gear sets", () => {
     const contention = await repo.getItemContention(40404);
     expect(contention?.wishers.some((w) => w.character.id === kazrak.id)).toBe(true);
   });
+
+  it("reads contested items by phase, the tier being raided first", async () => {
+    /*
+     * The guild page argues about this tier first: open demand picks the rows,
+     * then the phase each item drops in orders them, with the phase being
+     * raided on top and an item nobody has placed in one last.
+     */
+    const repo = getSqliteRepo();
+    await repo.setActivePhase(3);
+
+    const ids = { active: 90003, early: 90001, late: 90005, unplaced: 90000 };
+    const slots = ["head", "chest", "legs", "hands"] as const;
+    // On everyone's list, so open demand can't drop them from the summary.
+    for (const { character } of await repo.listCharacters()) {
+      await repo.upsertGearSet(
+        {
+          characterId: character.id,
+          kind: "wishlist",
+          phase: 3,
+          name: "P3 contest list",
+          source: "manual",
+          stats: {},
+          slots: Object.values(ids).map((itemId, i) => ({
+            slot: slots[i],
+            itemId,
+            itemName: `Item ${itemId}`,
+          })),
+        },
+        { replace: true },
+      );
+    }
+    await repo.setItemCuration(ids.active, { phase: 3, source: null });
+    await repo.setItemCuration(ids.early, { phase: 1, source: null });
+    await repo.setItemCuration(ids.late, { phase: 5, source: null });
+    await repo.setItemCuration(ids.unplaced, { phase: null, source: null });
+
+    const contested = (await repo.getDashboard()).contestedItems;
+    const at = (itemId: number) => contested.findIndex((c) => c.itemId === itemId);
+    expect(at(ids.active)).toBeGreaterThanOrEqual(0);
+    expect(at(ids.active)).toBeLessThan(at(ids.early));
+    expect(at(ids.early)).toBeLessThan(at(ids.late));
+    expect(at(ids.late)).toBeLessThan(at(ids.unplaced));
+
+    // And it holds across the whole summary, not just the four planted rows.
+    const rank = (phase: number | undefined) =>
+      phase === undefined ? Number.MAX_SAFE_INTEGER : phase === 3 ? 0 : phase;
+    const ranks = contested.map((c) => rank(c.item?.phase));
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+  });
 });

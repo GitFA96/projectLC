@@ -1109,15 +1109,6 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
           parses and consumable data — attendance recounts immediately. The same report can always
           be imported again.
         </p>
-        {/* Operational, not cosmetic: extending what the fetch asks for is a
-            no-op on reports already imported, and nothing on screen would
-            otherwise say so. See docs/change-chains.md §1. */}
-        <p className="text-xs text-warn-ink">
-          <strong>Waiting on a refetch:</strong> the Unstable Flasks (the Apexis ones used in
-          Gruul&apos;s Lair) are now read from the buff stream, because Warcraft Logs leaves them
-          out of the pull snapshot every other flask is graded from. Reports fetched before that
-          still show those raiders as unflasked — refetch a report to correct its preparation.
-        </p>
       </CardHeader>
       <CardContent className="space-y-2">
         {reports.length === 0 ? (

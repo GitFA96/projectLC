@@ -6,7 +6,6 @@ import { getRepo } from "@/lib/data/repo";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { ItemLink } from "@/components/item-link";
-import { CharacterLink } from "@/components/class-badge";
 import { FairnessPanel } from "@/components/fairness-panel";
 import { LootWeightsEditor } from "@/components/loot/priority-editor";
 import { ActivePhasePicker } from "@/components/guild/active-phase-picker";
@@ -115,7 +114,8 @@ export default async function GuildPage() {
           <CardHeader>
             <CardTitle>Most contested items</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Wishlisted by 2+ raiders, open demand first, with the phase each drops in ·{" "}
+              Wishlisted by 2+ raiders, picked by open demand — ordered by the phase each drops
+              in, the tier being raided first ·{" "}
               <Link href="/items" className="font-medium text-foreground hover:underline">
                 all items
               </Link>
@@ -130,10 +130,15 @@ export default async function GuildPage() {
                 />
                 <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
                   {/* Which tier it drops in decides whether an argument about
-                      it is this month's or next year's. Absent when nobody has
-                      said — see the phase control on the item's own page. */}
+                      it is this month's or next year's — it orders the list,
+                      and the tier being raided is filled in rather than
+                      outlined. Absent when nobody has said — see the phase
+                      control on the item's own page. */}
                   {c.item?.phase && (
-                    <Badge variant="outline" className="px-1 py-0 text-[10px] font-medium">
+                    <Badge
+                      variant={c.item.phase === data.guild.activePhase ? "secondary" : "outline"}
+                      className="px-1 py-0 text-[10px] font-medium"
+                    >
                       P{c.item.phase}
                     </Badge>
                   )}
@@ -205,31 +210,6 @@ export default async function GuildPage() {
       >
         <ActivePhasePicker activePhase={data.guild.activePhase} />
       </CollapsibleCard>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Where to start</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
-          <p>
-            <CharacterLink name="Thrainn" wowClass="Warrior" /> — full showcase: current gear, P1+P2
-            wishlists, stat deltas and loot history.
-          </p>
-          <p>
-            <ItemLink
-              item={{ itemId: 28830, name: "Dragonspine Trophy", quality: "epic", icon: "inv_misc_bone_10" }}
-              showIcon={false}
-            />{" "}
-            — contention view: who wants it, who got it.
-          </p>
-          <p>
-            <Link href="/loot" className="font-medium text-foreground hover:underline">
-              Loot ledger
-            </Link>{" "}
-            — every award with wishlist-match status, filterable.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

@@ -1477,11 +1477,23 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       // this tier", rather than naming the top few and stopping just as it
       // gets interesting. Still a summary — /items is the whole set.
       const CONTESTED_SHOWN = 12;
+      /**
+       * Which tier an item drops in decides whether the argument over it is
+       * this month's or next year's, so the list reads by phase with the one
+       * being raided first. Demand still *chooses* the rows: sorting by phase
+       * before the slice would fill the summary with the active tier and hide
+       * every other contested item, so the phase only reorders what demand
+       * already picked. Sorts are stable, so the demand order survives inside
+       * each phase. An item nobody has placed in a phase sorts last.
+       */
+      const phaseRank = (phase: Phase | undefined) =>
+        phase === undefined ? Number.MAX_SAFE_INTEGER : phase === guild.activePhase ? 0 : phase;
       const contested = [...wishlistedItemIds()]
         .map(contentionFor)
         .filter((c) => c.wishers.length >= 2)
         .sort((a, b) => b.openCount - a.openCount || b.wishers.length - a.wishers.length)
-        .slice(0, CONTESTED_SHOWN);
+        .slice(0, CONTESTED_SHOWN)
+        .sort((a, b) => phaseRank(a.item?.phase) - phaseRank(b.item?.phase));
 
       // "All raids" plus one tab per phase that actually has awards.
       const phasesWithAwards = [...new Set(
