@@ -395,9 +395,11 @@ CREATE TABLE IF NOT EXISTS feedback (
   /* NULL when the reporter declined to share page context. */
   context_json   TEXT,
   status         TEXT NOT NULL DEFAULT 'open',
-  /* Triage, both added after the table shipped — see migrate(). */
+  /* Triage, all added after the table shipped — see migrate(). */
   priority       TEXT NOT NULL DEFAULT 'unset',
   admin_note     TEXT,
+  admin_note_author TEXT,
+  admin_note_at  TEXT,
   created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feedback_by_status ON feedback(status, created_at DESC);
@@ -465,6 +467,10 @@ function migrate(db: DatabaseSync): void {
   // the default says — no backfill can invent a judgement nobody made.
   addColumn("feedback", "priority", "priority TEXT NOT NULL DEFAULT 'unset'");
   addColumn("feedback", "admin_note", "admin_note TEXT");
+  // Notes written before anyone signed them keep no author, which is honest:
+  // nothing recorded who wrote them and nothing can now.
+  addColumn("feedback", "admin_note_author", "admin_note_author TEXT");
+  addColumn("feedback", "admin_note_at", "admin_note_at TEXT");
   // Awards made before this shipped have no snapshot, and cannot gain one: the
   // policy that produced them is gone. NULL says exactly that.
   addColumn("loot_awards", "decision_json", "decision_json TEXT");
@@ -490,6 +496,10 @@ function migrate(db: DatabaseSync): void {
   // once, and are never asked again whether or not a phase came back.
   addColumn("items", "phase_checked", "phase_checked INTEGER NOT NULL DEFAULT 0");
   addColumn("items", "redeems_from", "redeems_from INTEGER");
+  // Last, and it has to be: this reads `armor_token` and `redeems_from`, and
+  // both are created directly above — after the rebuild that would otherwise
+  // drop them.
+  repairArmorTokenClass(db);
 }
 
 /**
@@ -502,6 +512,48 @@ function migrate(db: DatabaseSync): void {
  * What this does buy is the common case: an aura the raid used all night is
  * confirmed as tracked without asking the officer to refetch everything again.
  */
+/**
+ * Un-file the rings that were filed as tier tokens.
+ *
+ * `parseWowheadItemXml` tested Wowhead's subclass without its class, and -2
+ * under the Armor class means Rings rather than Armor Tokens. Two things
+ * followed, both silent: the token-mapping queue filled with rings whose pages
+ * name no pieces, so it never drained however many times an officer pressed;
+ * and an authoritative write clears the slot of anything it believes is a
+ * token, so every ring in the cache lost its slot — which is what the wishlist
+ * slot families and the "already served this slot" loot penalty read.
+ *
+ * The flag is cleared rather than corrected, because "not a token" and "nobody
+ * has asked" are the same state as far as the queue is concerned. **Rows
+ * something redeems from are left alone**: a piece pointing at them is proof
+ * the vendor listing named pieces, which no ring will ever do.
+ *
+ * `verified` goes with it, and that is what actually repairs the damage. The
+ * token queue skips any row a gear set names, so clearing the flag alone would
+ * leave every ring somebody wishlisted flagless *and* slotless for ever —
+ * invisible to both queues. Un-verifying is also the honest description: these
+ * rows were written by a classifier that was wrong about them, so the one thing
+ * `verified` is supposed to promise isn't true. The item backfill re-asks, and
+ * the same authoritative write puts the slot back.
+ *
+ * Runs once. Without the sentinel it would clear a real token that simply has
+ * no pieces mapped yet, on every boot, and the queue would ping-pong for ever —
+ * which is the exact symptom this exists to fix.
+ */
+function repairArmorTokenClass(db: DatabaseSync): void {
+  const KEY = "repair:armor_token_needs_class";
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(KEY)) return;
+  db.prepare(
+    `UPDATE items SET armor_token = NULL, verified = 0
+      WHERE armor_token = 1
+        AND id NOT IN (SELECT redeems_from FROM items WHERE redeems_from IS NOT NULL)`,
+  ).run();
+  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(
+    KEY,
+    new Date().toISOString(),
+  );
+}
+
 function backfillUpkeepTracks(db: DatabaseSync): void {
   const stale = db
     .prepare("SELECT code FROM wcl_reports WHERE upkeep_tracks_json = '[]' OR upkeep_tracks_json IS NULL")
@@ -1391,6 +1443,58 @@ export function setGuildPolicy(db: DatabaseSync, policy: unknown): void {
   ).run(POLICY_KEY, JSON.stringify(sanitizePolicy(policy)));
 }
 
+const SHEET_ITEM_IDS_KEY = "sheet_item_ids";
+
+/**
+ * Item ids an officer pinned to a name the priority sheet uses.
+ *
+ * The sheet is written in names and everything else here is keyed by id, so a
+ * name Wowhead can't identify renders as bare text — no icon, no hover — on the
+ * page officers read while deciding a drop. Most are closed automatically by
+ * exact-name lookup; these are the ones that can't be:
+ *
+ *  - Two items share a name exactly. Both Warglaives of Azzinoth are called
+ *    "Warglaive of Azzinoth", and the sheet tells them apart with "(Main Hand)"
+ *    — an annotation no index can resolve. Only a person knows which is which.
+ *  - The sheet's spelling is simply not the item's, and correcting the document
+ *    isn't wanted.
+ *
+ * Guild-wide and keyed by the normalized name, so it survives the sheet being
+ * re-pasted — which is the whole point: an officer should not have to redo this
+ * every phase.
+ */
+export function getSheetItemIds(db: DatabaseSync): Record<string, number> {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(SHEET_ITEM_IDS_KEY) as
+    | { value: string }
+    | undefined;
+  if (!row) return {};
+  try {
+    const raw = JSON.parse(row.value) as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === "number" && Number.isInteger(value) && value > 0) out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Pin one name to an item id, or unpin it with `undefined`. */
+export function setSheetItemId(db: DatabaseSync, key: string, itemId?: number): void {
+  const current = getSheetItemIds(db);
+  if (itemId === undefined) delete current[key];
+  else current[key] = itemId;
+  if (Object.keys(current).length === 0) {
+    db.prepare("DELETE FROM meta WHERE key = ?").run(SHEET_ITEM_IDS_KEY);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(SHEET_ITEM_IDS_KEY, JSON.stringify(current));
+}
+
 export interface StoredPriorityRule {
   itemName: string;
   chain: string;
@@ -1704,12 +1808,13 @@ export function deleteItemComment(db: DatabaseSync, id: string): boolean {
 export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
   db.prepare(
     `INSERT OR REPLACE INTO feedback
-       (id, kind, reporter, body, route, url, context_json, status, priority, admin_note, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, kind, reporter, body, route, url, context_json, status, priority, admin_note,
+        admin_note_author, admin_note_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.kind, f.reporter ?? null, f.body, f.route, f.url,
     f.context ? JSON.stringify(f.context) : null, f.status, f.priority,
-    f.adminNote ?? null, f.createdAt,
+    f.adminNote ?? null, f.adminNoteAuthor ?? null, f.adminNoteAt ?? null, f.createdAt,
   );
 }
 
@@ -1746,12 +1851,11 @@ export function insertItem(db: DatabaseSync, i: Item): void {
  *   overwrites what it knows and stamps `verified`, because a guess that
  *   survived is exactly the bug this exists to fix.
  *
- * Even authoritative writes never *overwrite* `source_json` or `phase`. Zone
- * and boss are the guild's own answers and the XML says nothing about them.
- * Phase it does say — the grey "Phase 2" beside the item's name — so an empty
- * column is filled from Wowhead while a curated one still wins: an officer who
- * files a token under the phase their guild uses it in has made a decision,
- * and a backfill must not quietly overrule it.
+ * Even authoritative writes never *overwrite* `source_json` or `phase`: an
+ * empty column is filled from Wowhead, a curated one still wins. An officer who
+ * files a token under the phase their guild uses it in has made a decision, and
+ * a backfill must not quietly overrule it. Both now come out of the item XML —
+ * the phase from the tooltip markup, the zone and boss from its JSON block.
  *
  * With one exception, and it is the whole reason this got written. When an
  * unverified row's name and Wowhead's name for the same id disagree, the row
@@ -2021,6 +2125,7 @@ function rowToFeedback(r: Row): unknown {
     id: r.id, kind: r.kind, reporter: opt(r.reporter), body: r.body, route: r.route, url: r.url,
     context: r.context_json ? JSON.parse(r.context_json as string) : undefined,
     status: r.status, priority: r.priority, adminNote: opt(r.admin_note),
+    adminNoteAuthor: opt(r.admin_note_author), adminNoteAt: opt(r.admin_note_at),
     createdAt: r.created_at,
   };
 }

@@ -25,12 +25,16 @@ import type { Phase } from "@/lib/types";
  * recording where something comes from should not be limited to the ones we
  * happened to think of.
  *
- * **Phase is filled in by the item resolver**, which reads it off the same
- * Wowhead response it already fetches for the name and icon. An officer editing
- * it here is overruling Wowhead, and the panel says so — a curated phase is
- * kept forever and no backfill will touch it again. Zone and boss stay manual:
- * Wowhead's XML names the boss but locates it only by a numeric zone id, and a
- * zone this app can't name is worse than an empty field.
+ * **All three are filled in by the item resolver**, off the same Wowhead
+ * response it already fetches for the name and icon: the phase from the tooltip
+ * tag, the boss from the JSON block, and the zone by putting that boss through
+ * this app's own raid table. An officer editing them here is overruling
+ * Wowhead, and the panel says so — curated values are kept forever and no
+ * backfill touches them again.
+ *
+ * What the resolver cannot answer it leaves blank rather than guessing: a boss
+ * outside the raid table (heroics, world drops), or an item several bosses in
+ * different raids drop.
  */
 export function ItemCurationEditor({
   itemId,
@@ -174,9 +178,9 @@ export function ItemCurationEditor({
       </span>
       <span className="text-[11px] text-muted-foreground">
         Leave the zone empty to record nothing — the item drops off that raid&apos;s loot plan.{" "}
-        {phase === undefined
-          ? "The phase fills itself in from Wowhead the next time the item resolver runs on the import page — set it here only if you want a different answer."
-          : "The phase came from Wowhead unless somebody set it here; whatever you save now is kept and never overwritten."}
+        {phase === undefined && source === undefined
+          ? "Phase and drop source fill themselves in from Wowhead the next time the item resolver runs on the import page — set them here only if you want a different answer, or if Wowhead has none (heroics and world drops have no raid)."
+          : "These came from Wowhead unless somebody set them here; whatever you save now is kept and never overwritten."}
       </span>
       {error && <span className="text-[11px] text-destructive">{error}</span>}
     </span>

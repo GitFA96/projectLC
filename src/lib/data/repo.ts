@@ -426,6 +426,8 @@ export interface FeedbackTriage {
   priority?: FeedbackPriority;
   /** Empty string clears the note; undefined leaves it alone. */
   adminNote?: string;
+  /** Who is writing it. Stamped with the note, and cleared with it. */
+  adminNoteAuthor?: string;
 }
 
 export type AddFeedbackResult =
@@ -654,6 +656,14 @@ export interface WriteRepo extends Repo {
    * combination. Returns false when the id didn't exist.
    */
   setFeedbackTriage(id: string, triage: FeedbackTriage): Promise<boolean>;
+  /**
+   * Pin a priority-sheet name to an item id, or unpin it with `undefined`.
+   *
+   * The escape hatch for names no lookup can settle — two items sharing a name
+   * exactly (the Warglaives), or a sheet spelling nobody wants to change. Keyed
+   * by the normalized name so it survives the sheet being re-pasted.
+   */
+  setSheetItemId(itemName: string, itemId?: number): Promise<{ ok: boolean; error?: string }>;
   /** Remove one report for good. Returns false when it didn't exist. */
   deleteFeedback(id: string): Promise<boolean>;
   /**
@@ -668,10 +678,9 @@ export interface WriteRepo extends Repo {
    *
    * The counterpart to `addItemsIfMissing`, and the only writer allowed to
    * overwrite: every other source is a guess, and a guess that outranks the
-   * authority is how a wrong icon becomes permanent. Zone and boss are still
-   * never touched — Wowhead's XML has no opinion on those, the guild does.
-   * Phase it does carry, so an empty phase is filled and a curated one is left
-   * exactly where the officer put it.
+   * authority is how a wrong icon becomes permanent. Zone, boss and phase go
+   * the other way — filled when empty, never overwritten — so an officer's
+   * curation outlives every backfill.
    */
   saveResolvedItems(items: Item[]): Promise<number>;
   /**

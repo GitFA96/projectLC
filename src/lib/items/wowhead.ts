@@ -1,5 +1,5 @@
 import type { Item, Phase, Quality } from "@/lib/types";
-import { PHASE_IDS } from "@/lib/constants/wow";
+import { PHASE_IDS, raidOfBoss } from "@/lib/constants/wow";
 import { normalizeIcon, slotFromInventoryType } from "@/lib/items/item-data";
 import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import {
@@ -22,7 +22,18 @@ const XML_URL = (itemId: number) => `https://www.wowhead.com/tbc/item=${itemId}&
 /** The full item page — the only place the vendor listing appears. Redirects to a slug. */
 const PAGE_URL = (itemId: number) => `https://www.wowhead.com/tbc/item=${itemId}`;
 
-/** Wowhead's subclass for "Armor Tokens", under the Miscellaneous item class. */
+/**
+ * Wowhead's "Armor Tokens" bucket: subclass -2 of the Miscellaneous class.
+ *
+ * **Both halves are load-bearing.** Subclass ids are only unique within their
+ * class, and -2 under class 4 (Armor) means *Rings* — so testing the subclass
+ * alone filed every ring in the game as a tier token. That was not cosmetic:
+ * an authoritative write clears the slot of anything it believes is a token,
+ * because a token has none, so it wiped the slot off every ring in the cache
+ * and the token-mapping queue filled with rings whose pages name no pieces and
+ * never drained.
+ */
+const ARMOR_TOKEN_CLASS = 15;
 const ARMOR_TOKEN_SUBCLASS = -2;
 
 /** Wowhead's numeric quality scale. */
@@ -73,6 +84,49 @@ export function parseWowheadPhase(xml: string): Phase | undefined {
   return (PHASE_IDS as readonly number[]).includes(phase) ? (phase as Phase) : undefined;
 }
 
+/**
+ * Where an item drops, from the JSON block of the same item XML.
+ *
+ * Wowhead names the boss outright and locates it by a numeric zone id:
+ *
+ *     "source":[2],"sourcemore":[{"n":"Kael'thas Sunstrider","t":1,"z":3845}]
+ *
+ * The zone id would need a second request to turn into a name, and the name it
+ * gave back would be Wowhead's spelling rather than this app's. So the boss is
+ * what gets used: `raidOfBoss` already maps encounter names to raids, loosely
+ * enough for apostrophes, and it returns the exact zone strings the loot plan
+ * and ZONE_TO_PHASE are keyed on. One source of truth for what a raid is called,
+ * and no extra network call.
+ *
+ * Deliberately narrow:
+ *
+ *  - **A boss the raid table doesn't know yields nothing.** Heroics, quests and
+ *    world drops are real answers this can't give, and a blank field an officer
+ *    fills in beats a confident wrong zone on a raid's loot plan.
+ *  - **Several droppers only settle the zone if they agree on it.** Trash and
+ *    shared drops are common; the boss is recorded only when there is exactly
+ *    one, because "one of these four" is not what the field means.
+ */
+export function parseWowheadDropSource(xml: string): { zone: string; boss?: string } | undefined {
+  const block = /<json><!\[CDATA\[([\s\S]*?)\]\]><\/json>/.exec(xml)?.[1];
+  if (!block) return undefined;
+  let parsed: { sourcemore?: { n?: string; t?: number }[] };
+  try {
+    // A fragment rather than an object — Wowhead omits the braces.
+    parsed = JSON.parse(`{${block}}`);
+  } catch {
+    return undefined;
+  }
+  const droppers = (parsed.sourcemore ?? []).filter(
+    (d): d is { n: string; t?: number } => typeof d?.n === "string" && d.n.length > 0,
+  );
+  if (droppers.length === 0) return undefined;
+  const raids = droppers.map((d) => raidOfBoss(d.n));
+  const first = raids[0];
+  if (!first || raids.some((r) => r?.name !== first.name)) return undefined;
+  return { zone: first.name, boss: droppers.length === 1 ? droppers[0].n : undefined };
+}
+
 /** Parse the fields we cache out of one item's XML. Exported for testing. */
 export function parseWowheadItemXml(itemId: number, xml: string): Item | undefined {
   if (!/<item[\s>]/.test(xml) || /<error>/.test(xml)) return undefined;
@@ -81,13 +135,27 @@ export function parseWowheadItemXml(itemId: number, xml: string): Item | undefin
   const quality = qualityId !== undefined ? QUALITY_BY_ID[qualityId] : undefined;
   const icon = normalizeIcon(tag(xml, "icon")?.toLowerCase());
   const slot = slotFromInventoryType(attr(xml, "inventorySlot", "id"));
-  // Wowhead files the raid tokens under a subclass of their own, which is the
-  // only machine-readable way to tell "this thing has no slot" from "we don't
-  // know its slot yet" — both of which arrive here as a missing slot.
+  // Wowhead files the raid tokens under a class and subclass of their own,
+  // which is the only machine-readable way to tell "this thing has no slot"
+  // from "we don't know its slot yet" — both of which arrive here as a missing
+  // slot. The class is checked too; see ARMOR_TOKEN_SUBCLASS for why.
+  const itemClass = attr(xml, "class", "id", { signed: true });
   const subclass = attr(xml, "subclass", "id", { signed: true });
-  const armorToken = subclass === undefined ? undefined : subclass === ARMOR_TOKEN_SUBCLASS;
+  const armorToken =
+    itemClass === undefined || subclass === undefined
+      ? undefined
+      : itemClass === ARMOR_TOKEN_CLASS && subclass === ARMOR_TOKEN_SUBCLASS;
   if (!name && !icon && !quality) return undefined;
-  return { id: itemId, name, quality, icon, slot, armorToken, phase: parseWowheadPhase(xml) };
+  return {
+    id: itemId,
+    name,
+    quality,
+    icon,
+    slot,
+    armorToken,
+    phase: parseWowheadPhase(xml),
+    source: parseWowheadDropSource(xml),
+  };
 }
 
 type FetchOutcome =
@@ -244,25 +312,63 @@ interface SearchHit {
  * officer never saw us make.
  */
 export function pickExactItem(queryName: string, results: unknown): SearchHit | undefined {
+  return matchExactItem(queryName, results).hit;
+}
+
+/**
+ * Why a name could not be identified, in the words an officer needs.
+ *
+ * Every one of these is a human's job, and they are different jobs — a
+ * misspelling is fixed in the sheet, a shared name can only be settled by
+ * somebody who knows which of the two the council meant. Reporting them as one
+ * undifferentiated "no match" is what left an officer staring at a count with
+ * nothing to act on.
+ */
+export type NameMissReason =
+  /** Wowhead's index has nothing by this name — usually a typo in the sheet. */
+  | "unknown"
+  /** Results came back, but none of them *is* this name. */
+  | "no-exact"
+  /** Several items share the name exactly (the Warglaives). Only a human can pick. */
+  | "ambiguous"
+  /** The request itself failed. Worth another press, unlike the rest. */
+  | "error";
+
+export interface NameMatch {
+  hit?: SearchHit;
+  reason?: NameMissReason;
+  /** The exact names Wowhead offered, so a near-miss is obvious on sight. */
+  near: string[];
+}
+
+export function matchExactItem(queryName: string, results: unknown): NameMatch {
   const hits = Array.isArray((results as { results?: unknown[] })?.results)
     ? ((results as { results: SearchHit[] }).results)
     : [];
+  const items = hits.filter((h) => h?.type === SEARCH_TYPE_ITEM && typeof h.id === "number");
   const wanted = normalizeItemName(queryName);
-  const exact = hits.filter(
-    (h) =>
-      h?.type === SEARCH_TYPE_ITEM &&
-      typeof h.id === "number" &&
-      typeof h.name === "string" &&
-      normalizeItemName(h.name) === wanted,
+  const exact = items.filter(
+    (h) => typeof h.name === "string" && normalizeItemName(h.name) === wanted,
   );
-  return exact.length === 1 ? exact[0] : undefined;
+  const near = items.map((h) => h.name ?? "").filter(Boolean).slice(0, 4);
+  if (exact.length === 1) return { hit: exact[0], near };
+  if (exact.length > 1) return { reason: "ambiguous", near };
+  return { reason: items.length === 0 ? "unknown" : "no-exact", near };
+}
+
+/** A name that stayed plain text, and enough for a person to finish the job. */
+export interface UnmatchedName {
+  name: string;
+  reason: NameMissReason;
+  /** What Wowhead did offer — "Antonidas's …" beside the sheet's "Antonidas' …". */
+  near: string[];
 }
 
 export interface NameResolveResult {
   /** Names Wowhead identified exactly, as cache rows. */
   resolved: Item[];
   /** Names with no single exact match. Left for a person — never guessed at. */
-  unmatched: string[];
+  unmatched: UnmatchedName[];
   throttled: boolean;
 }
 
@@ -287,7 +393,7 @@ export async function resolveItemIdsByName(
   const { limit = 40, pauseMs = 300, timeoutMs = 8000 } = opts;
   const queue = [...new Set(names.map((n) => n.trim()).filter(Boolean))].slice(0, limit);
   const resolved: Item[] = [];
-  const unmatched: string[] = [];
+  const unmatched: UnmatchedName[] = [];
 
   for (const [index, name] of queue.entries()) {
     if (index > 0) await sleep(pauseMs);
@@ -303,14 +409,15 @@ export async function resolveItemIdsByName(
         return { resolved, unmatched, throttled: true };
       }
       if (!res.ok) {
-        unmatched.push(name);
+        unmatched.push({ name, reason: "error", near: [] });
         continue;
       }
-      const hit = pickExactItem(name, await res.json());
-      if (!hit || hit.id === undefined) {
-        unmatched.push(name);
+      const match = matchExactItem(name, await res.json());
+      if (!match.hit || match.hit.id === undefined) {
+        unmatched.push({ name, reason: match.reason ?? "no-exact", near: match.near });
         continue;
       }
+      const hit = match.hit as SearchHit & { id: number };
       resolved.push({
         id: hit.id,
         name: hit.name,
@@ -318,7 +425,7 @@ export async function resolveItemIdsByName(
         icon: normalizeIcon(hit.icon?.toLowerCase()),
       });
     } catch {
-      unmatched.push(name);
+      unmatched.push({ name, reason: "error", near: [] });
     } finally {
       clearTimeout(timer);
     }

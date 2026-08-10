@@ -55,6 +55,44 @@ export async function saveItemPriorityAction(input: {
   }
 }
 
+/**
+ * Pin a sheet name to an item id, so the row renders like every other item.
+ *
+ * Accepts a Wowhead URL as well as a bare id, because that is what an officer
+ * has in hand when they have just looked the thing up. An empty value unpins.
+ */
+export async function setSheetItemIdAction(input: {
+  itemName: string;
+  /** Bare id, a Wowhead link, or empty to unpin. */
+  value: string;
+}): Promise<PriorityActionResult> {
+  const raw = input.value.trim();
+  let itemId: number | undefined;
+  if (raw) {
+    // `item=32837`, `/item=32837/warglaive…`, or just the number.
+    const match = /item=(\d+)/.exec(raw) ?? /^(\d+)$/.exec(raw);
+    const parsed = match ? Number(match[1]) : Number.NaN;
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return { ok: false, message: "Paste a Wowhead item link, or the item id on its own." };
+    }
+    itemId = parsed;
+  }
+  try {
+    const repo = await getWriteRepo();
+    const result = await repo.setSheetItemId(input.itemName, itemId);
+    if (!result.ok) return { ok: false, message: result.error ?? "Could not pin that item." };
+    refreshAfterWrite("/", "layout");
+    return {
+      ok: true,
+      message: itemId
+        ? `Pinned to item ${itemId} — its icon and tooltip appear once the item backfill has seen it.`
+        : "Unpinned. The name is matched automatically again.",
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not pin that item." };
+  }
+}
+
 export async function saveLootWeightsAction(
   weights: Partial<LootPriorityWeights>,
 ): Promise<PriorityActionResult> {

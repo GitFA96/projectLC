@@ -11,6 +11,8 @@ import {
   getReportConsumableAdjustments,
   setReportConsumableAdjustments,
   getItemPriorityRules,
+  getSheetItemIds,
+  setSheetItemId,
   getPrioritySheets,
   getClassGuides,
   getWishlistAlternatives,
@@ -166,6 +168,7 @@ function readModel(): CachedModel {
       policy: getGuildPolicy(db),
       itemPriorityRules: getItemPriorityRules(db),
       prioritySheetsByPhase: getPrioritySheets(db),
+      sheetItemIds: getSheetItemIds(db),
       classGuides: getClassGuides(db),
       wishlistAlternatives: getWishlistAlternatives(db) as WishlistAlternative[],
       enchantNames: getEnchantNames(db),
@@ -1127,6 +1130,21 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return changed;
   },
 
+  async setSheetItemId(itemName, itemId) {
+    const key = normalizeItemName(itemName);
+    if (!key) return { ok: false as const, error: "That name is empty." };
+    const db = getDb();
+    withTx(db, () => {
+      setSheetItemId(db, key, itemId);
+      // A pinned id the cache has never seen would render as nothing at all.
+      // Seeding a bare row puts it in front of the item resolver, which fills
+      // in the name and icon on the next backfill.
+      if (itemId !== undefined) mergeItems(db, [{ id: itemId }]);
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
   async setFeedbackTriage(id, triage) {
     // Built from the fields actually present: a caller setting only a priority
     // must not blank the note somebody else wrote in the same sitting.
@@ -1141,8 +1159,15 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       values.push(triage.priority);
     }
     if (triage.adminNote !== undefined) {
+      const note = triage.adminNote.trim() || null;
       sets.push("admin_note = ?");
-      values.push(triage.adminNote.trim() || null);
+      values.push(note);
+      // Author and time go with the note, and are cleared with it — a signature
+      // left behind on a note somebody deleted attributes nothing to anybody.
+      sets.push("admin_note_author = ?");
+      values.push(note ? triage.adminNoteAuthor?.trim() || null : null);
+      sets.push("admin_note_at = ?");
+      values.push(note ? new Date().toISOString() : null);
     }
     if (sets.length === 0) return false;
     const db = getDb();
@@ -1512,6 +1537,7 @@ export function getSqliteRepo(): WriteRepo {
         policy: merged,
         itemPriorityRules: getItemPriorityRules(db),
         prioritySheetsByPhase: getPrioritySheets(db),
+        sheetItemIds: getSheetItemIds(db),
         classGuides: getClassGuides(db),
         enchantNames: getEnchantNames(db),
         consumableAdjustmentsByCode: getAllConsumableAdjustments(db),

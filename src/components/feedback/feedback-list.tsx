@@ -45,6 +45,29 @@ const PRIORITY_META: Record<
 const PRIORITY_ORDER: FeedbackPriority[] = ["unset", "minor", "major"];
 
 /**
+ * Who is triaging, and when they last read the page — both per browser.
+ *
+ * There are no accounts in this app, so "a note from a different officer"
+ * cannot be known for certain; what *can* be known is that a note appeared
+ * since this browser last opened the page, and who signed it. That is the
+ * honest version of a notification here, and the card says the name rather
+ * than claiming it wasn't yours.
+ */
+const AUTHOR_KEY = "projectlc:feedback-author";
+const SEEN_KEY = "projectlc:feedback-seen-at";
+
+/** Nothing external changes while the page is open, so there is nothing to subscribe to. */
+const subscribeNever = () => () => {};
+
+/** Cached on first read: the stamp is rewritten on mount, and a snapshot that
+ *  changed underneath the render would clear the markers it just drew. */
+let seenAtSnapshot: string | null | undefined;
+function readSeenAt(): string | null {
+  if (seenAtSnapshot === undefined) seenAtSnapshot = localStorage.getItem(SEEN_KEY);
+  return seenAtSnapshot;
+}
+
+/**
  * Copy to clipboard, reporting whether it landed.
  *
  * `navigator.clipboard` needs a secure context, and this app is often served
@@ -129,10 +152,100 @@ export function FeedbackList({ reports }: { reports: FeedbackReport[] }) {
     );
   }
 
-  const open = reports.filter((r) => r.status === "open");
+  return <FilterableList reports={reports} />;
+}
+
+type Filter = { kind: string; priority: string; status: string };
+
+const MATCHES = (r: FeedbackReport, f: Filter) =>
+  (f.kind === "all" || r.kind === f.kind) &&
+  (f.priority === "all" || r.priority === f.priority) &&
+  (f.status === "all" || r.status === f.status);
+
+/**
+ * Triage with the list narrowed to what you came for.
+ *
+ * Defaults to open only, because that is the working set — a page that opens
+ * on 27 resolved reports buries the six that need something. The counts on
+ * each control are of the *whole* set, so narrowing never hides how much there
+ * is; that was the thing the count-only summary got wrong.
+ */
+function FilterableList({ reports }: { reports: FeedbackReport[] }) {
+  const [filter, setFilter] = React.useState<Filter>({
+    kind: "all",
+    priority: "all",
+    status: "open",
+  });
+  /*
+   * The moment this browser last opened the page.
+   *
+   * Read through `useSyncExternalStore` rather than an effect, because the
+   * server has no localStorage: it renders the "no stamp yet" case, and React
+   * swaps in the real one after hydration instead of the two disagreeing. The
+   * snapshot is cached on first read so re-stamping below can't change it
+   * mid-render — otherwise marking a note read would un-mark it.
+   */
+  const seenBefore = React.useSyncExternalStore(subscribeNever, readSeenAt, () => null);
+  React.useEffect(() => {
+    // Stamped for *next* visit, immediately. Writing to an external system is
+    // what an effect is for; nothing in React state depends on it.
+    localStorage.setItem(SEEN_KEY, new Date().toISOString());
+  }, []);
+  const shown = reports.filter((r) => MATCHES(r, filter));
+  const open = shown.filter((r) => r.status === "open");
+
+  const group = (
+    key: keyof Filter,
+    label: string,
+    options: { value: string; label: string }[],
+  ) => (
+    <span className="flex flex-wrap items-center gap-1">
+      <span className="mr-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {options.map((o) => {
+        const active = filter[key] === o.value;
+        const count =
+          o.value === "all"
+            ? reports.length
+            : reports.filter((r) => String(r[key as keyof FeedbackReport]) === o.value).length;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => setFilter((f) => ({ ...f, [key]: o.value }))}
+            className={cn(
+              "rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent",
+              active && "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary",
+            )}
+          >
+            {o.label} <span className="tabular-nums opacity-70">{count}</span>
+          </button>
+        );
+      })}
+    </span>
+  );
 
   return (
     <div>
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {group("status", "Status", [
+          { value: "open", label: "Open" },
+          { value: "resolved", label: "Resolved" },
+          { value: "all", label: "All" },
+        ])}
+        {group("kind", "Kind", [
+          { value: "all", label: "All" },
+          { value: "bug", label: "Bugs" },
+          { value: "feedback", label: "Feedback" },
+        ])}
+        {group("priority", "Priority", [
+          { value: "all", label: "All" },
+          { value: "major", label: "Major" },
+          { value: "unset", label: "Untriaged" },
+          { value: "minor", label: "Minor" },
+        ])}
+      </div>
       {/* Bulk export sits above the list: handing over "everything still open"
           is the common case, and per-report copying is the exception. */}
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
@@ -140,25 +253,46 @@ export function FeedbackList({ reports }: { reports: FeedbackReport[] }) {
           Copy as markdown to hand to a developer or a coding agent — includes the route, the
           element and the likely source file.
         </p>
-        {open.length > 0 && (
+        {/* What you are looking at, not what exists — an officer who filtered to
+            "open bugs" wants to hand over open bugs. */}
+        {open.length > 0 && open.length !== shown.length && (
           <CopyButton
             label={`Copy ${open.length} open`}
             text={() => formatReportsForAgent(open)}
           />
         )}
-        <CopyButton label="Copy all" text={() => formatReportsForAgent(reports)} />
+        <CopyButton
+          label={shown.length === reports.length ? "Copy all" : `Copy these ${shown.length}`}
+          text={() => formatReportsForAgent(shown)}
+        />
       </div>
 
-      <ul className="space-y-3">
-        {reports.map((report) => (
-          <FeedbackCard key={report.id} report={report} />
-        ))}
-      </ul>
+      {shown.length === 0 ? (
+        <p className="rounded-lg border bg-card p-3 text-sm text-muted-foreground">
+          Nothing matches these filters.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {shown.map((report) => (
+            <FeedbackCard key={report.id} report={report} seenBefore={seenBefore} />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function FeedbackCard({ report }: { report: FeedbackReport }) {
+function FeedbackCard({
+  report,
+  seenBefore,
+}: {
+  report: FeedbackReport;
+  /** When this browser last opened the page; null on a first visit. */
+  seenBefore: string | null;
+}) {
+  // A first visit marks nothing new — everything would be, which says nothing.
+  const isNew =
+    seenBefore !== null && report.adminNoteAt !== undefined && report.adminNoteAt > seenBefore;
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | undefined>();
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
@@ -166,6 +300,9 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
   // a textarea on every card turns a scannable list into a wall of forms.
   const [editingNote, setEditingNote] = React.useState(false);
   const [note, setNote] = React.useState(report.adminNote ?? "");
+  // Remembered per browser, because there are no accounts here — the same
+  // compromise as the reporter's name on the widget.
+  const [author, setAuthor] = React.useState("");
   const resolved = report.status === "resolved";
   const lines = report.context ? contextLines(report.context) : [];
   const KindIcon = KIND_META[report.kind].icon;
@@ -273,7 +410,12 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
             size="sm"
             variant="ghost"
             className="ml-auto h-7 gap-1.5 text-xs"
-            onClick={() => setEditingNote(true)}
+            onClick={() => {
+              // Read here rather than on mount: it only matters once the
+              // editor is open, and by then hydration is long done.
+              setAuthor(localStorage.getItem(AUTHOR_KEY) ?? "");
+              setEditingNote(true);
+            }}
           >
             <MessageSquare className="h-3 w-3" aria-hidden />
             {report.adminNote ? "Edit note" : "Add note"}
@@ -284,7 +426,16 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
       {/* The officer's note, beside the reporter's words and never over them. */}
       {report.adminNote && !editingNote && (
         <p className="mt-2 rounded-md border border-info-line bg-info-soft px-2.5 py-1.5 text-xs whitespace-pre-wrap text-info-ink">
-          <span className="font-medium">Officer</span> · {report.adminNote}
+          <span className="font-medium">{report.adminNoteAuthor || "Officer"}</span>
+          {report.adminNoteAt && (
+            <span className="opacity-75"> · {format(parseISO(report.adminNoteAt), "d MMM HH:mm")}</span>
+          )}
+          {isNew && (
+            <span className="ml-1.5 rounded-full bg-info-ink px-1.5 py-0.5 text-[10px] font-medium text-info-soft">
+              new
+            </span>
+          )}{" "}
+          · {report.adminNote}
         </p>
       )}
 
@@ -299,15 +450,30 @@ function FeedbackCard({ report }: { report: FeedbackReport }) {
             placeholder="What was decided, what it's waiting on, why it was closed."
             className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
           />
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+              placeholder="Your name"
+              maxLength={60}
+              className="h-7 w-32 rounded-md border bg-background px-2 text-xs"
+              aria-label="Your name"
+            />
             <Button
               size="sm"
               className="h-7 text-xs"
               disabled={pending}
               onClick={() =>
                 run(async () => {
-                  const result = await setFeedbackTriage({ id: report.id, adminNote: note });
-                  if (result.ok) setEditingNote(false);
+                  const result = await setFeedbackTriage({
+                    id: report.id,
+                    adminNote: note,
+                    adminNoteAuthor: author,
+                  });
+                  if (result.ok) {
+                    localStorage.setItem(AUTHOR_KEY, author.trim());
+                    setEditingNote(false);
+                  }
                   return result;
                 })
               }

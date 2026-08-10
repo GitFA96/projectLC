@@ -1622,6 +1622,72 @@ describe("sqlite repo", () => {
     expect((await repo.getItem(99970))!.verified).toBe(true);
   });
 
+  it("pins a sheet name to an item id when no lookup can settle it", async () => {
+    const repo = getSqliteRepo();
+    // Both Warglaives are called "Warglaive of Azzinoth"; the sheet tells them
+    // apart with an annotation that is nobody's item name, so only a person can.
+    const name = "Warglaive of Azzinoth (Main Hand)";
+    expect(await repo.listUnmatchedSheetNames()).toContain(name);
+
+    expect((await repo.setSheetItemId(name, 32837)).ok).toBe(true);
+    // Settled: it stops being offered to the automatic lookup, which would only
+    // ever come back with "two items share this name".
+    expect(await repo.listUnmatchedSheetNames()).not.toContain(name);
+    // The pinned id is seeded into the cache, so the resolver fills it in and
+    // the row renders with an icon rather than as an id nobody has heard of.
+    expect(await repo.getItem(32837)).toBeDefined();
+
+    // Punctuation and case don't count, so a re-pasted sheet keeps the pin.
+    expect((await repo.setSheetItemId("warglaive of azzinoth (main hand)", 32838)).ok).toBe(true);
+
+    // Unpinning hands the name back to automatic matching.
+    expect((await repo.setSheetItemId(name, undefined)).ok).toBe(true);
+    expect(await repo.listUnmatchedSheetNames()).toContain(name);
+    expect((await repo.setSheetItemId("   ", 1)).ok).toBe(false);
+  });
+
+  it("puts rings back in the token queue after they were filed as tokens", async () => {
+    // The state the buggy classifier left: rings flagged as armor tokens with
+    // their slot wiped, plus one genuine token something redeems from.
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE items (
+      id INTEGER PRIMARY KEY, name TEXT, quality TEXT, icon TEXT, slot TEXT,
+      source_json TEXT, phase INTEGER, verified INTEGER NOT NULL DEFAULT 0,
+      armor_token INTEGER, redeems_from INTEGER
+    )`);
+    const ins = old.prepare(
+      "INSERT INTO items (id, name, verified, armor_token, redeems_from, slot) VALUES (?, ?, 1, ?, ?, ?)",
+    );
+    ins.run(29997, "Band of the Ranger-General", 1, null, null); // a ring, mis-flagged
+    ins.run(30242, "Helm of the Vanquished Champion", 1, null, null); // a real token
+    ins.run(30169, "A tier helm", null, 30242, "head"); // proof 30242 buys something
+    old.close();
+
+    const repo = getSqliteRepo();
+    // The ring is handed back to the item resolver, so the fixed classifier
+    // re-answers and the same write restores the slot it lost.
+    const ring = (await repo.getItem(29997))!;
+    expect(ring.armorToken).toBeUndefined();
+    expect(ring.verified).toBe(false);
+    expect(await repo.listUnresolvedItemIds()).toContain(29997);
+    // Deliberately that queue and not the token one: the token queue skips any
+    // row a gear set names, so a ring somebody wishlisted would have sat there
+    // flagless and slotless for ever, invisible to both.
+    expect((await repo.listTokenBackfill()).unchecked).not.toContain(29997);
+    // The token is left alone: a piece pointing at it is proof no ring can fake.
+    expect((await repo.getItem(30242))!.armorToken).toBe(true);
+
+    // And it is stamped as done, which is what stops it running again: without
+    // that, a real token with no pieces mapped yet would be cleared on every
+    // boot and the queue would ping-pong for ever — the very symptom it fixes.
+    const db = new DatabaseSync(process.env.PROJECTLC_DB!);
+    const stamp = db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get("repair:armor_token_needs_class");
+    db.close();
+    expect(stamp).toBeDefined();
+  });
+
   it("migrates a database created before item provenance was tracked", async () => {
     // The pre-verified items table, with one row of each kind: a curated entry
     // (the seed is the only writer of source_json) and one harvested from a
@@ -2618,17 +2684,31 @@ describe("sqlite repo", () => {
       expect(added.report.adminNote).toBeUndefined();
 
       expect(await repo.setFeedbackTriage(added.report.id, { priority: "major" })).toBe(true);
-      expect(await repo.setFeedbackTriage(added.report.id, { adminNote: "  Fixed in the sheet editor.  " })).toBe(true);
+      expect(
+        await repo.setFeedbackTriage(added.report.id, {
+          adminNote: "  Fixed in the sheet editor.  ",
+          adminNoteAuthor: "Fredrik",
+        }),
+      ).toBe(true);
       const [stored] = await repo.listFeedback();
       expect(stored.priority).toBe("major");
       expect(stored.adminNote).toBe("Fixed in the sheet editor.");
+      // Signed and stamped: "somebody decided this" and "Fredrik decided this
+      // on Tuesday" are different messages to whoever reads it next.
+      expect(stored.adminNoteAuthor).toBe("Fredrik");
+      expect(stored.adminNoteAt).toBeDefined();
       // Setting one field never blanks the other, and the report itself stands.
       expect(stored.body).toBe("Two edit buttons on the priority sheet");
       expect(stored.status).toBe("open");
 
       // An empty note clears it; an empty triage changes nothing at all.
       expect(await repo.setFeedbackTriage(added.report.id, { adminNote: "" })).toBe(true);
-      expect((await repo.listFeedback())[0].adminNote).toBeUndefined();
+      const cleared = (await repo.listFeedback())[0];
+      expect(cleared.adminNote).toBeUndefined();
+      // The signature goes with it — a name left on a deleted note attributes
+      // nothing to anybody.
+      expect(cleared.adminNoteAuthor).toBeUndefined();
+      expect(cleared.adminNoteAt).toBeUndefined();
       expect((await repo.listFeedback())[0].priority).toBe("major");
       expect(await repo.setFeedbackTriage(added.report.id, {})).toBe(false);
     });

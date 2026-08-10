@@ -138,6 +138,8 @@ namespaced key. The ones that exist:
 | `guild_roster:<id>` | `setGuildRoster` / `updateGuildRoster` (one row per named roster) |
 | `guild_policy` | `setGuildPolicy` (guild-wide, no suffix) |
 | `sim_profile:<class>:<spec>` | `setSimProfile` (not per report — per class and spec) |
+| `sheet_item_ids` | `setSheetItemId` (guild-wide, no suffix) |
+| `repair:<name>` | one-off data repairs in `migrate()` — a sentinel, not a setting |
 
 **`excluded_fights:<code>` reaches every page that counts a pull, not just the
 raid page.** It is the officer's "this one doesn't count" switch, and it used to
@@ -485,18 +487,37 @@ supply item data, it fills gaps — it does not get to mark rows verified,
 however good it is, or the queue stops meaning anything.
 
 One asymmetry worth knowing: an authoritative write never *overwrites*
-`source_json` or `phase`. Zone and boss are the guild's alone. The phase Wowhead
-does answer — it rides in the tooltip markup of the same XML the resolver
-already fetches — so an empty column is filled and a curated one still wins.
-The exception is a name that contradicts an unverified row: that row was curated
+`source_json` or `phase` — an empty column is filled, a curated one still wins.
+Both come out of the same XML the resolver already fetches: the phase from the
+tooltip markup, the zone and boss from the JSON block's `sourcemore`. The
+exception is a name that contradicts an unverified row: that row was curated
 onto the wrong id, so its zone, boss and phase describe some other item and are
 dropped rather than carried.
+
+**The zone comes from `raidOfBoss`, not from Wowhead's zone id.** The response
+locates the boss by a numeric id, and turning that into a name would cost a
+second request *and* give back Wowhead's spelling — while `ZONE_TO_PHASE` and
+the loot plan are keyed on this app's. Mapping the boss name through the raid
+table keeps one source of truth for what a raid is called. The cost is that a
+boss the table doesn't know (heroics, world drops) yields nothing, which is the
+right answer: `items.source.zone` is what puts a drop on a raid's loot plan, so
+a confident wrong zone is worse than a blank an officer fills in.
 
 **`phase_checked` is why that backfill terminates.** Most of TBC's launch items
 carry no phase tag at all, so a queue built on "has no phase" would ask about
 them again on every press for ever. The column records that we asked, not what
 came back — the same absent/false/true distinction `armor_token` makes — and the
 lowest tier of `listUnresolvedItemIds` drains on it exactly once per item.
+
+**Wowhead's subclass ids are only unique within their class.** `-2` is "Armor
+Tokens" under class 15 (Miscellaneous) and "Rings" under class 4 (Armor), so
+testing the subclass alone filed every ring as a tier token. Nothing failed
+loudly: the token-mapping queue filled with rings whose pages name no pieces and
+never drained however often an officer pressed, and — worse — an authoritative
+write clears the slot of anything it believes is a token, so every ring in the
+cache lost the slot that the wishlist slot families and the "already served this
+slot" loot penalty read. `repairArmorTokenClass` un-verifies the affected rows so
+the resolver re-answers and the same write puts the slot back.
 
 **A second lookup goes the other way: name → id.** The priority sheet is written
 in item names, and most of what a sheet lists nobody has wishlisted or won, so
@@ -506,6 +527,12 @@ exactly one hit (`pickExactItem`) — a search will happily answer a misspelling
 with something plausible, and a plausible id here puts the wrong item's tooltip
 under an officer's cursor mid-raid. Those rows land **unverified**, so the
 ordinary resolver still confirms them afterwards.
+
+What no lookup can settle is a name two items share exactly — both Warglaives of
+Azzinoth are called "Warglaive of Azzinoth", and the sheet's "(Main Hand)" is the
+council's annotation rather than anyone's item name. That is what `sheet_item_ids`
+is for: an officer pins the id, keyed by the normalized name so a re-pasted sheet
+keeps it.
 
 Because they can be dropped, they have to be reachable: `setItemCuration` is
 the officer's way back, on the item's own page. **`items.source.zone` is the

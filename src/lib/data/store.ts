@@ -196,6 +196,12 @@ export interface StoreConfig {
   /** Officer edits to the seeded priority sheet, keyed by normalized item name. */
   itemPriorityRules?: Record<string, { itemName: string; chain: string; note?: string }>;
   /**
+   * Item ids an officer pinned to a sheet name the cache can't match, keyed by
+   * the normalized name. Consulted before the cache, because a person who
+   * pinned an id has already answered the question the lookup is guessing at.
+   */
+  sheetItemIds?: Record<string, number>;
+  /**
    * Sheets an officer has pasted, keyed by phase. A phase with none falls back
    * to the seeded sheet (phase 3) or to nothing at all.
    */
@@ -951,7 +957,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     },
 
     async listUnmatchedSheetNames(): Promise<string[]> {
-      const known = new Set<string>();
+      const known = new Set<string>(Object.keys(config.sheetItemIds ?? {}));
       for (const item of items) {
         if (item.name) known.add(normalizeItemName(item.name));
       }
@@ -1085,7 +1091,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         // Item rules are guild-wide rather than per phase — an officer's chain
         // for an item is their chain for it, whichever sheet lists it.
         overrides: config.itemPriorityRules ?? {},
-        itemIdFor: (name) => idByName.get(normalizeItemName(name)),
+        // The officer's pin wins over the name match: they set it precisely
+        // because the name couldn't be matched, or matched the wrong thing.
+        itemIdFor: (name) =>
+          config.sheetItemIds?.[normalizeItemName(name)] ?? idByName.get(normalizeItemName(name)),
       });
       // Icon and quality for the rows whose name the cache matched, so the
       // sheet renders items the way every other list does. Done here, not in

@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/empty-state";
 import { ItemLink } from "@/components/item-link";
 import { ItemPriorityEditor } from "@/components/loot/priority-editor";
+import { setSheetItemIdAction } from "@/app/loot-policy-actions";
 import type { Quality } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +66,62 @@ function Chain({ tiers, chain }: { tiers: SheetRow["tiers"]; chain: string }) {
   );
 }
 
+/**
+ * Which item this sheet row means, when the name alone can't say.
+ *
+ * Most rows link themselves: the name is matched against the item cache, and
+ * anything still unmatched is looked up on Wowhead by exact name. What neither
+ * can do is choose between two items that share a name — both Warglaives of
+ * Azzinoth are called "Warglaive of Azzinoth", and "(Main Hand)" is the
+ * council's annotation, not part of any item's name. Guessing there would put
+ * the wrong tooltip under an officer's cursor mid-raid, so it is asked instead.
+ *
+ * Takes a Wowhead link as readily as a bare id, because a link is what you have
+ * in your clipboard the moment you have found the right one.
+ */
+function ItemIdPin({ itemName, itemId }: { itemName: string; itemId?: number }) {
+  const [value, setValue] = React.useState(itemId ? String(itemId) : "");
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <label htmlFor={`pin-${itemName}`} className="text-muted-foreground">
+        Item id
+      </label>
+      <Input
+        id={`pin-${itemName}`}
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setMsg(null);
+        }}
+        placeholder="32837 or a Wowhead link"
+        className="h-7 w-56 text-xs"
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const result = await setSheetItemIdAction({ itemName, value });
+            setMsg({ ok: result.ok, text: result.message });
+          })
+        }
+      >
+        {pending && <Loader2 className="h-3 w-3 animate-spin" />}
+        {value.trim() ? "Pin" : "Unpin"}
+      </Button>
+      <span className={cn("text-[11px]", msg?.ok === false ? "text-danger-ink" : "text-muted-foreground")}>
+        {msg?.text ??
+          "Only needed when the name can't be matched — two items sharing a name, or a spelling of the council's own."}
+      </span>
+    </div>
+  );
+}
+
 function Row({ row }: { row: SheetRow }) {
   const [editing, setEditing] = React.useState(false);
 
@@ -94,19 +152,22 @@ function Row({ row }: { row: SheetRow }) {
              `formOnly`: this row already draws the chain and owns the button
              that got you here, so the editor must not bring a second read view
              and a second Edit button along with it. */
-          <ItemPriorityEditor
-            key={row.chain}
-            itemName={row.itemName}
-            formOnly
-            onDone={() => setEditing(false)}
-            rule={{
-              itemName: row.itemName,
-              chain: row.chain,
-              tiers: row.tiers,
-              origin: row.origin,
-              note: row.note,
-            }}
-          />
+          <div className="space-y-2">
+            <ItemPriorityEditor
+              key={row.chain}
+              itemName={row.itemName}
+              formOnly
+              onDone={() => setEditing(false)}
+              rule={{
+                itemName: row.itemName,
+                chain: row.chain,
+                tiers: row.tiers,
+                origin: row.origin,
+                note: row.note,
+              }}
+            />
+            <ItemIdPin itemName={row.itemName} itemId={row.itemId} />
+          </div>
         ) : (
           <>
             <Chain tiers={row.tiers} chain={row.chain} />

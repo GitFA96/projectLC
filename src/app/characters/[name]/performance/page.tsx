@@ -518,6 +518,13 @@ export default async function PerformancePage({
                 bracket); wipes don&apos;t parse. A <span className="text-success-ink">+</span> in
                 Used means a pre-pot was already running at the pull. Click a row for the
                 pull&apos;s items, cooldowns and upkeep.
+                {" "}
+                Content the guild has stopped gearing for &mdash; last phase&apos;s raid, cleared
+                on the way past &mdash; can be excused from preparation for good on the{" "}
+                <Link href="/" className="underline underline-offset-2">
+                  guild page
+                </Link>
+                ; those pulls still parse and still count as turning up.
                 {excused.size > 0 && (
                   <>
                     {" "}

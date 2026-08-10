@@ -612,6 +612,16 @@ export const feedbackReportSchema = z.object({
    * was closed. Kept apart from `body`, which stays exactly as it was filed.
    */
   adminNote: z.string().max(2000).optional(),
+  /**
+   * Who left the note and when.
+   *
+   * Free text and self-declared, like every other name in this app — there is
+   * no auth here. It is still what makes a note answerable: "somebody decided
+   * this" and "Fredrik decided this on Tuesday" are different messages, and an
+   * officer coming back to the page needs to know whether the note is theirs.
+   */
+  adminNoteAuthor: z.string().max(60).optional(),
+  adminNoteAt: z.string().optional(),
   createdAt: z.string().min(1),
 });
 

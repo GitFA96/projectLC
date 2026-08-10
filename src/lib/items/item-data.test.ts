@@ -9,7 +9,13 @@ import {
   normalizeIcon,
   qualityFromId,
 } from "@/lib/items/item-data";
-import { parseWowheadItemXml, parseWowheadPhase, pickExactItem } from "@/lib/items/wowhead";
+import {
+  matchExactItem,
+  parseWowheadDropSource,
+  parseWowheadItemXml,
+  parseWowheadPhase,
+  pickExactItem,
+} from "@/lib/items/wowhead";
 import type { GearSet, LootAward, WclPlayerFight } from "@/lib/types";
 
 describe("item names", () => {
@@ -151,6 +157,22 @@ describe("parseWowheadItemXml", () => {
     expect(parseWowheadItemXml(1, "<!DOCTYPE html><html>404</html>")).toBeUndefined();
   });
 
+  it("tells a tier token from a ring", () => {
+    // Subclass ids repeat across classes: -2 is "Armor Tokens" under class 15
+    // (Miscellaneous) and "Rings" under class 4 (Armor). Testing the subclass
+    // alone filed every ring as a token, and an authoritative write then wiped
+    // the slot off all of them.
+    const item = (cls: number, sub: number) =>
+      `<item id="1"><name><![CDATA[X]]></name><quality id="4">Epic</quality>` +
+      `<class id="${cls}"><![CDATA[c]]></class><subclass id="${sub}"><![CDATA[s]]></subclass></item>`;
+    expect(parseWowheadItemXml(1, item(15, -2))?.armorToken).toBe(true);
+    expect(parseWowheadItemXml(1, item(4, -2))?.armorToken).toBe(false);
+    expect(parseWowheadItemXml(1, item(2, 2))?.armorToken).toBe(false);
+    // Neither stated: nobody has asked, which is not the same as "not a token".
+    expect(parseWowheadItemXml(1, `<item id="1"><name><![CDATA[X]]></name></item>`)?.armorToken)
+      .toBeUndefined();
+  });
+
   it("reads the phase off a real response", () => {
     // Captured from item=29997 — the item the officer was filling in by hand
     // when they asked whether this could come from Wowhead. It can: the phase
@@ -159,6 +181,45 @@ describe("parseWowheadItemXml", () => {
       name: "Band of the Ranger-General",
       phase: 2,
     });
+  });
+});
+
+describe("parseWowheadDropSource", () => {
+  const json = (fragment: string) => `<item id="1"><json><![CDATA[${fragment}]]></json></item>`;
+
+  it("names the boss and the raid it belongs to", () => {
+    // The real block off item=29997.
+    expect(parseWowheadDropSource(realXml)).toEqual({
+      zone: "Tempest Keep",
+      boss: "Kael'thas Sunstrider",
+    });
+  });
+
+  it("settles the zone when several bosses agree on it, but names no boss", () => {
+    // A shared drop. "One of these three" isn't what the boss field means, but
+    // the raid is unambiguous and that is what puts it on the loot plan.
+    const shared = json(
+      `"sourcemore":[{"n":"Hydross the Unstable","t":1},{"n":"Lady Vashj","t":1}]`,
+    );
+    expect(parseWowheadDropSource(shared)).toEqual({ zone: "Serpentshrine Cavern" });
+  });
+
+  it("says nothing when the droppers disagree about the raid", () => {
+    const split = json(`"sourcemore":[{"n":"Lady Vashj","t":1},{"n":"Illidan Stormrage","t":1}]`);
+    expect(parseWowheadDropSource(split)).toBeUndefined();
+  });
+
+  it("says nothing for a boss the raid table doesn't know", () => {
+    // Heroics, world drops and quest rewards are real answers this can't give.
+    // A blank an officer fills in beats a wrong zone on a raid's loot plan.
+    expect(parseWowheadDropSource(json(`"sourcemore":[{"n":"Some Heroic Boss","t":1}]`))).toBeUndefined();
+  });
+
+  it("survives a vendor item, and a body it can't parse", () => {
+    // Badge of Justice: a source list, but nothing that drops it.
+    expect(parseWowheadDropSource(json(`"source":[2,4]`))).toBeUndefined();
+    expect(parseWowheadDropSource("<item id=\"1\"/>")).toBeUndefined();
+    expect(parseWowheadDropSource(json("not json at all"))).toBeUndefined();
   });
 });
 
@@ -201,6 +262,25 @@ describe("pickExactItem", () => {
     // plausible. A plausible id on a loot sheet is the failure this guards.
     const body = { results: [hit({ id: 999, name: "Blue Suede Boots" })] };
     expect(pickExactItem("Blue Suede Shoes", body)).toBeUndefined();
+  });
+
+  it("names why it refused, so an officer knows whose job it is", () => {
+    // The four the officer was left staring at, each a different fix.
+    expect(matchExactItem("Hammer of Judgment", { results: [] }).reason).toBe("unknown");
+
+    const apostrophe = {
+      results: [hit({ id: 30909, name: "Antonidas's Aegis of Rapt Concentration" })],
+    };
+    const near = matchExactItem("Antonidas' Aegis of Rapt Concentration", apostrophe);
+    expect(near.reason).toBe("no-exact");
+    // The offered spelling rides along — that is what makes it fixable on sight.
+    expect(near.near).toEqual(["Antonidas's Aegis of Rapt Concentration"]);
+
+    // Both Warglaives carry the same name; picking one would be a coin flip.
+    const twins = {
+      results: [hit({ id: 32837, name: "Warglaive of Azzinoth" }), hit({ id: 32838, name: "Warglaive of Azzinoth" })],
+    };
+    expect(matchExactItem("Warglaive of Azzinoth", twins).reason).toBe("ambiguous");
   });
 
   it("refuses a tie, and anything that isn't an item", () => {

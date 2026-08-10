@@ -8,6 +8,7 @@ import {
   type BackfillItemsResult,
   type SheetNameResult,
 } from "@/app/admin/import/item-actions";
+import type { UnmatchedName } from "@/lib/items/wowhead";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -28,6 +29,53 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  * on the page officers read while deciding a drop. That lookup goes by name
  * and only accepts an exact match.
  */
+/**
+ * The names that stayed plain text, and what to do about each.
+ *
+ * Named rather than counted: these are the rows an officer reads while deciding
+ * a drop, so "4 had no single exact match" is a to-do list with the contents
+ * missing. Each reason points at a different fix, and the link is the fastest
+ * way to settle one — the sheet is editable, so correcting the spelling there
+ * resolves it on the next press.
+ */
+const MISS_HELP: Record<UnmatchedName["reason"], string> = {
+  unknown: "Wowhead has nothing by this name — likely a typo in the sheet.",
+  "no-exact": "Close, but not the same name. Fix the spelling in the sheet.",
+  ambiguous: "Several items share this name exactly, so only a person can pick.",
+  error: "The lookup itself failed — press again.",
+};
+
+function UnmatchedNames({ rows }: { rows: UnmatchedName[] }) {
+  return (
+    <div className="w-full space-y-1 rounded-md border border-warn-line bg-warn-soft p-2.5">
+      <p className="text-xs font-medium text-warn-ink">
+        {rows.length} name{rows.length === 1 ? "" : "s"} stayed plain text — no icon or hover on
+        the priority sheet until this is settled by hand.
+      </p>
+      <ul className="space-y-1">
+        {rows.map((row) => (
+          <li key={row.name} className="text-xs text-warn-ink">
+            <a
+              href={`https://www.wowhead.com/tbc/search?q=${encodeURIComponent(row.name)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium underline underline-offset-2"
+            >
+              {row.name}
+            </a>{" "}
+            — {MISS_HELP[row.reason]}
+            {row.near.length > 0 && (
+              <span className="block text-[11px] opacity-80">
+                Wowhead offered: {row.near.join(", ")}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ItemCacheCard({
   unresolved,
   /** Priority-sheet names with no item id — see `resolveSheetItemNames`. */
@@ -91,6 +139,9 @@ export function ItemCacheCard({
           <span className={result.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
             {result.message}
           </span>
+        )}
+        {result && "unmatched" in result && result.unmatched.length > 0 && (
+          <UnmatchedNames rows={result.unmatched} />
         )}
       </CardContent>
     </Card>

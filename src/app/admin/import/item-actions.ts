@@ -6,6 +6,7 @@ import {
   fetchTokenRedemptions,
   resolveItemIdsByName,
   resolveItemsFromWowhead,
+  type UnmatchedName,
 } from "@/lib/items/wowhead";
 
 /**
@@ -229,8 +230,15 @@ export interface SheetNameResult {
   message: string;
   /** Sheet names that now have an item id, so they render like every other item. */
   matched: number;
-  /** Names Wowhead had no single exact match for. Left alone, not guessed at. */
-  unmatched: number;
+  /**
+   * The names that stayed plain text, each with why.
+   *
+   * The list, not a count: every one of these is a person's job and they are
+   * different jobs — fix a misspelling in the sheet, or decide which of two
+   * identically named items the council meant. A count alone told an officer
+   * that four things needed doing and nothing about what.
+   */
+  unmatched: UnmatchedName[];
   /** Still unlooked-at after this run — the per-run cap left some over. */
   remaining: number;
 }
@@ -264,7 +272,7 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
         ok: true,
         message: "Every item on every sheet already has an id.",
         matched: 0,
-        unmatched: 0,
+        unmatched: [],
         remaining: 0,
       };
     }
@@ -278,9 +286,6 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
     const parts = [
       `${resolved.length} of ${Math.min(names.length, NAME_LIMIT)} names identified`,
       matched > 0 ? `${matched} added to the cache` : undefined,
-      unmatched.length > 0
-        ? `${unmatched.length} had no single exact match — those stay plain text`
-        : undefined,
       throttled
         ? `Wowhead started refusing requests — press again in a few minutes for the remaining ${remaining}`
         : remaining > 0
@@ -291,7 +296,7 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
       ok: true,
       message: parts.join(" · "),
       matched,
-      unmatched: unmatched.length,
+      unmatched,
       remaining,
     };
   } catch (e) {
@@ -299,7 +304,7 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
       ok: false,
       message: e instanceof Error ? e.message : "Could not look the sheet's items up.",
       matched: 0,
-      unmatched: 0,
+      unmatched: [],
       remaining: 0,
     };
   }

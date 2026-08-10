@@ -83,6 +83,7 @@ const triageSchema = z.object({
   priority: z.enum(["unset", "minor", "major"]).optional(),
   /** An empty string is a real value here — it clears the note. */
   adminNote: z.string().max(2000).optional(),
+  adminNoteAuthor: z.string().max(60).optional(),
 });
 
 /**
@@ -98,6 +99,7 @@ export async function setFeedbackTriage(input: {
   status?: "open" | "resolved";
   priority?: "unset" | "minor" | "major";
   adminNote?: string;
+  adminNoteAuthor?: string;
 }): Promise<{ ok: boolean; message?: string }> {
   const parsed = triageSchema.safeParse(input);
   if (!parsed.success) {
