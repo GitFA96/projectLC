@@ -18,6 +18,8 @@ import {
   type UptimeTrack,
 } from "@/lib/wcl/class-tracks";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Pure normalization of raw Warcraft Logs v2 responses into the rows we
  * persist. Everything raw is parsed through loose zod schemas: WCL's JSON
@@ -76,7 +78,7 @@ const rawRankingsSchema = z.looseObject({
   data: z.array(rawRankingFightSchema).optional(),
 });
 
-export const rawReportSchema = z.looseObject({
+const rawReportSchema = z.looseObject({
   title: z.string().optional(),
   startTime: z.number(),
   endTime: z.number(),
@@ -168,8 +170,6 @@ const rawAuraEventSchema = z.looseObject({
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
-
-export const rawEventsSchema = z.array(z.unknown());
 
 /* Normalized output */
 
@@ -942,20 +942,20 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         (a, b) =>
           Number(b.boss) - Number(a.boss) ||
           b.pct - a.pct ||
-          a.target.localeCompare(b.target) ||
+          compareText(a.target, b.target) ||
           (a.instance ?? 0) - (b.instance ?? 0),
       );
     row.upkeep.push({ name: trackLabel(track), pct: bestPct, targets });
   }
   for (const row of rows.values()) {
-    row.upkeep.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
-    row.castTimes.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
+    row.upkeep.sort((a, b) => b.pct - a.pct || compareText(a.name, b.name));
+    row.castTimes.sort((a, b) => a.atMs - b.atMs || compareText(a.name, b.name));
     row.deathTimes.sort((a, b) => a - b);
   }
 
   // Stable order: pull order, then name.
   const allRows = [...rows.values()].sort(
-    (a, b) => a.fightId - b.fightId || a.actorName.localeCompare(b.actorName),
+    (a, b) => a.fightId - b.fightId || compareText(a.actorName, b.actorName),
   );
 
   return {
@@ -972,7 +972,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         (o) =>
           o.potions.length > 0 || o.otherCasts.length > 0 || o.petConsumables.length > 0,
       )
-      .sort((a, b) => a.actorName.localeCompare(b.actorName)),
+      .sort((a, b) => compareText(a.actorName, b.actorName)),
     warnings,
     ignoredCombatantInfo: {
       total: orphanCombatantInfo,
@@ -980,7 +980,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       sample: ignoredSample,
     },
     unclassifiedAuras: [...unclassified.values()]
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .sort((a, b) => b.count - a.count || compareText(a.name, b.name))
       .slice(0, 80),
   };
 }

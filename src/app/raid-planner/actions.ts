@@ -11,6 +11,8 @@ import {
 } from "@/lib/analysis/raid-planner";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 
 /**
  * Saving a board.
@@ -71,6 +73,7 @@ export async function saveBoard(input: SaveBoardInput): Promise<SaveBoardResult>
   const parsed = boardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "That board doesn't look valid." };
   try {
+    requireCapability(await resolveViewer(), "raid.plan");
     const repo = await getWriteRepo();
     // Sanitized again server-side: the board validating first is a convenience,
     // not a guarantee, and a duplicated name would have somebody buffing two
@@ -116,6 +119,7 @@ export type RosterResult = { ok: boolean; message: string; id?: string };
  */
 export async function createGuildRoster(name?: string): Promise<RosterResult> {
   try {
+    requireCapability(await resolveViewer(), "raid.plan");
     const repo = await getWriteRepo();
     const existing = await repo.listGuildRosters();
     const board = newGuildRoster(
@@ -135,6 +139,7 @@ export async function renameGuildRoster(id: string, name: string): Promise<Roste
   const clean = name.trim().slice(0, 40);
   if (!clean) return { ok: false, message: "A roster needs a name." };
   try {
+    requireCapability(await resolveViewer(), "raid.plan");
     const repo = await getWriteRepo();
     await repo.updateGuildRoster(id, { name: clean });
     refreshAfterWrite("/raid-planner");
@@ -153,6 +158,7 @@ export async function renameGuildRoster(id: string, name: string): Promise<Roste
  */
 export async function deleteGuildRoster(id: string): Promise<RosterResult> {
   try {
+    requireCapability(await resolveViewer(), "raid.plan");
     const repo = await getWriteRepo();
     await repo.deleteGuildRoster(id);
     refreshAfterWrite("/raid-planner");
@@ -189,6 +195,7 @@ export async function setRosterProspects(
   const parsed = prospectsSchema.safeParse(prospects);
   if (!parsed.success) return { ok: false, message: "That doesn't look like a list of players." };
   try {
+    requireCapability(await resolveViewer(), "raid.plan");
     const repo = await getWriteRepo();
     await repo.updateGuildRoster(id, { prospects: sanitizeProspects(parsed.data) });
     refreshAfterWrite("/raid-planner");

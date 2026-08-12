@@ -97,7 +97,7 @@ describe("likelyRouteFile", () => {
   it("maps a static route to its App Router page", () => {
     expect(likelyRouteFile("/")).toBe("src/app/page.tsx");
     expect(likelyRouteFile("/roster")).toBe("src/app/roster/page.tsx");
-    expect(likelyRouteFile("/admin/import")).toBe("src/app/admin/import/page.tsx");
+    expect(likelyRouteFile("/guild/import")).toBe("src/app/guild/import/page.tsx");
   });
 
   it("collapses a segment carrying a value into a dynamic one", () => {

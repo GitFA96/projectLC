@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * The fight-graph playground: up to four player instances — any (player,
  * report, fight) combination, including the same player across raids —
@@ -467,7 +469,7 @@ function overlayLanes(instances: OverlayInstance[], buffFilter?: BuffFilterState
     }
     const consumeLanes: OverlayLane[] = [...consumesByName]
       .map(([name, times]): OverlayLane => ({ kind: "consume", inst, name, times }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => compareText(a.name, b.name));
     // Uptime lanes first (alphabetical from the fetch), then consumes.
     return [...buffLanes, ...consumeLanes];
   });

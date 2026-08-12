@@ -5,7 +5,7 @@ import { RefreshCw, Sparkles } from "lucide-react";
 import {
   backfillEnchantNames,
   type BackfillEnchantsResult,
-} from "@/app/admin/import/enchant-actions";
+} from "@/app/guild/import/enchant-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 

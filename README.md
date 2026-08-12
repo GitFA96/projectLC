@@ -52,16 +52,110 @@ WCL_CLIENT_SECRET=…
 
 One report import costs ~7 API calls; the free tier allows thousands per hour.
 
+### Accounts and sign-in
+
+People sign in with Discord. Create an application at
+[discord.com/developers](https://discord.com/developers/applications), add
+`http://localhost:3000/api/auth/discord/callback` as a redirect, and add:
+
+```
+DISCORD_CLIENT_ID=…
+DISCORD_CLIENT_SECRET=…
+DISCORD_REDIRECT_URI=http://localhost:3000/api/auth/discord/callback
+
+PROJECTLC_AUTH=on
+```
+
+`PROJECTLC_AUTH` is what makes permissions real. **Leave it off until Discord
+works and you have claimed the deployment** — switching it on with no way to
+sign in locks everybody out of an app that is working exactly as designed. With
+it off, every check passes, which is how this app behaved before it had
+accounts.
+
+Then start the server and read the console: it prints a **claim code** once. Take
+it to `/claim` and you become the first guild master. Everybody after you gets in
+by invitation, issued on `/roster/members`.
+
 ---
 
 # The pages
 
+## Getting in — `/claim`, `/signin`, `/join`
+
+Three doors, and only these three are open to somebody with no account.
+
+**`/claim`** runs once. Whoever holds the claim code printed on the server
+console becomes the first guild master, and the page closes itself the moment
+anybody holds an account — leaving the form up would invite people to try codes
+against it.
+
+**`/signin`** is the only other way in: Discord, `identify` scope, and the token
+is thrown away once it has answered who you are. There is no password to lose.
+Whether you also operate the service is a flag on your account, not a second
+account and not a mode you pick here.
+
+**`/join`** redeems an invitation. Invitations are the only way into a guild
+after the claim — there is no request-to-join and no open registration, because
+an invite is issued *against a character already on the roster*, which is what
+makes "who is this person" answerable at the moment they arrive.
+
+Every other page needs a session. A signed-out visitor is sent here; a signed-in
+member without the capability gets a plain refusal rather than a 404, because
+pretending a page does not exist is a worse answer than saying no.
+
 ## Guild `/`
 
-The guild's identity and standing: roster size, awards this phase, average
+Two different pages behind one address, chosen by who is asking.
+
+**A member** gets the guild's standing: roster size, awards this phase, average
 wishlist completion, recent raids, the most contested items, and loot
-distribution. It also holds **policy** — the loot-priority weighting the council
-scores contenders with.
+distribution. It also holds the guild's **settings** — the loot-priority
+weighting the council scores contenders with, loot policy, the guild's own name
+and realm, the active phase, how long owners may be quiet before the guild can
+appoint its own, and what it publishes.
+
+**Everybody else** gets the public profile, which is composed separately rather
+than filtered — it is never handed the ledger, standing, attendance or a council
+note, so there is no rule to get wrong. It starts on **Private**: name, realm
+and faction and nothing else, because a deployment that upgrades into this must
+not publish a roster by surprise.
+
+## Members `/roster/members`
+
+Who is in this guild as a *person*, as opposed to `/roster`, which is who is in
+it as a *character*. Officers invite somebody against a character already on the
+roster, hand out the guild's roles, link a raider to the characters they play,
+and remove people. Invite codes are shown once and stored only as a hash — an
+officer who loses one issues another, which supersedes it.
+
+The two are separate on purpose. A raider is one person with several characters;
+permissions hang off the person, and loot weight hangs off the character.
+
+## Roles `/guild/roles`
+
+What this guild's roles *mean*. `Member`, `Raider` and `Officer` ship as a
+starting point and can be renamed, recoloured, regranted or deleted — they are
+the guild's, not the app's. Handing somebody an existing role is a smaller act
+and lives on the members screen.
+
+Note that whoever can edit roles can grant themselves anything, which the editor
+says out loud rather than burying.
+
+## Audit `/guild/audit`
+
+Everything that changed who is in this guild and what they may do — who joined,
+who let them in, who changed what a role means, who owns the guild, and anyone
+who reached in from outside. **Every member can read it**, not just officers:
+the entries it exists hardest to surface are the ones the people being
+administered most need.
+
+Not loot decisions. Those are on the ledger, where they are defensible.
+
+## Public preview `/guild/preview`
+
+What each publishing level would show, side by side, before choosing one.
+Answering "what does an outsider actually see?" by reading the code is not a
+question a guild master should have to ask twice.
 
 ## Roster `/roster`
 
@@ -456,14 +550,33 @@ Saving an empty summary clears that guide: "nobody has written it yet" and "we
 looked and had nothing to say" are different claims, and only the first one is
 true of a blank.
 
-## Admin `/admin`
+## Service `/service`
 
-Two cards, each carrying the one number that decides whether you need to open
-it: how many reports are in and when the last one was, and how many bug reports
-nobody has looked at. A landing page that only listed links would make you visit
-both pages to find out there was nothing to do.
+Running the deployment, as opposed to running a guild — and the split is the
+point. Importing logs and sheets is *guild* work and lives on the guild's own
+import page; what is left here is the tenancy, the shared item cache, and the
+reports people file about the app itself.
 
-## Import `/admin/import`
+Each card carries the one number that decides whether you need to open it, so a
+glance is enough to know there is nothing to do.
+
+**An operator is not a member of the guilds on their deployment.** Nothing here
+reads a guild's judgements, and no role inside a guild can reach these pages.
+
+## Tenancy `/service/tenancy`
+
+The accounts on this deployment, and the levers for when one goes wrong:
+disabling an account ends its access to the service, and revoking its sessions
+signs it out everywhere at once. It shows *how many* guilds somebody belongs to
+and never which — an operator administers the tenancy, and what somebody holds
+inside a guild is that guild's business.
+
+Also where an operator reaches into a guild they are not in: a **break-glass**
+override, which needs a written reason, expires by itself, and is announced in
+that guild's audit log when it opens and again for every capability it is used
+for. An override the guild cannot see would be a back door.
+
+## Import `/guild/import`
 
 Commit SixtyUpgrades sets, Gargul pastes and Warcraft Logs reports, with preview
 and validation. Also **backfills item names, icons and enchant names** for
@@ -526,7 +639,7 @@ SixtyUpgrades first. **Start from** copies an existing list so you change the
 few slots that differ rather than typing seventeen item ids. Saved with
 `source: "manual"`, so it stays obvious that a person typed it.
 
-## Feedback `/admin/feedback`
+## Feedback `/service/feedback`
 
 **Report a bug** and **Feedback** sit in the bottom-right corner of every page —
 one for what's broken, one for what would be better. Same workflow either way,
@@ -568,6 +681,10 @@ attached.
   import time. Older reports keep working, but show less until re-fetched.
 - **Some spell ids are genuinely ambiguous** — 28499 is both Super Mana Potion
   and Auchenai Mana Potion, and no log can separate them.
+- **One deployment holds one guild.** The permission model is guild-scoped
+  throughout and one account can hold a membership in several, but the routing
+  and the shared item cache still assume a single guild. See
+  [`docs/backlog.md`](docs/backlog.md).
 
 > **On the seed data:** the demo roster, gear sets and awards are fictional. Item
 > IDs and names are best-effort real TBC entries so Wowhead tooltips work; expect

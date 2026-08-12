@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { ITEM_COMMENT_VOICES } from "@/lib/comments";
 
 /**
@@ -35,6 +37,7 @@ export async function addItemComment(input: {
   const parsed = addSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid note." };
   try {
+    requireCapability(await resolveViewer(), "comments.write");
     const repo = await getWriteRepo();
     const result = await repo.addItemComment({
       itemId: parsed.data.itemId,
@@ -56,6 +59,7 @@ export async function deleteItemComment(input: {
 }): Promise<{ ok: boolean; message?: string }> {
   if (!input.commentId) return { ok: false, message: "Missing note id." };
   try {
+    requireCapability(await resolveViewer(), "comments.write");
     const repo = await getWriteRepo();
     const removed = await repo.deleteItemComment(input.commentId);
     if (!removed) return { ok: false, message: "Note not found — it may already be gone." };

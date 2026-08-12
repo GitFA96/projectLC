@@ -62,6 +62,12 @@ export function loadSeedStore(): EntityStore {
     itemComments: [],
     // Bug reports are filed by whoever is running the app; the demo has none.
     feedback: [],
+    // The seed demo has no accounts, so it has no memberships, roles or
+    // invites either. A seed backend is read-only and can never gain them.
+    memberships: [],
+    guildRoles: [],
+    guildInvites: [],
+    guildAudit: [],
   };
   validateStore(store, "seed data");
   return store;

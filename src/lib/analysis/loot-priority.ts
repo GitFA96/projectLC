@@ -10,6 +10,8 @@ import type {
 import type { CharacterStatus } from "@/lib/constants/wow";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * "Who should get it?" — the council's shortlist, argued rather than decreed.
  *
@@ -38,11 +40,6 @@ import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
  */
 
 export const LOOT_PRIORITY_WEIGHTS: LootPriorityWeights = DEFAULT_POLICY.weights;
-
-/** The council's weighting with any unset factor falling back to the default. */
-export function resolveWeights(overrides?: Partial<LootPriorityWeights>): LootPriorityWeights {
-  return { ...LOOT_PRIORITY_WEIGHTS, ...overrides };
-}
 
 /**
  * Roster standing as a multiplier rather than a fifth factor: it's a category,
@@ -316,14 +313,14 @@ export function rankLootContenders(
         tier(a) - tier(b) ||
         (b.priority.score ?? -1) - (a.priority.score ?? -1) ||
         a.onSpecAwardsActivePhase - b.onSpecAwardsActivePhase ||
-        a.character.name.localeCompare(b.character.name),
+        compareText(a.character.name, b.character.name),
     )
     .map((wisher, i) => ({ ...wisher, rank: i + 1 }));
 
   const satisfied = wishers
     .filter((w) => w.satisfied)
     .map((wisher) => ({ ...wisher, metrics: metricsOf(wisher.character.id) }))
-    .sort((a, b) => a.character.name.localeCompare(b.character.name));
+    .sort((a, b) => compareText(a.character.name, b.character.name));
 
   return [...ranked, ...satisfied];
 }

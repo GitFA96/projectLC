@@ -5,8 +5,14 @@ import type {
   characterCommentSchema,
   itemCommentSchema,
   characterSchema,
+  accountSchema,
+  authSessionSchema,
   feedbackContextSchema,
   feedbackReportSchema,
+  guildAuditEntrySchema,
+  guildInviteSchema,
+  guildRoleSchema,
+  membershipSchema,
   currentGearOverrideSchema,
   gearSetSchema,
   guildSchema,
@@ -61,6 +67,15 @@ export type FeedbackContext = z.infer<typeof feedbackContextSchema>;
 export type FeedbackStatus = FeedbackReport["status"];
 export type FeedbackKind = FeedbackReport["kind"];
 export type FeedbackPriority = FeedbackReport["priority"];
+
+/* Identity. See docs/guild-and-player-profiles.md §3. */
+export type Account = z.infer<typeof accountSchema>;
+export type AuthSession = z.infer<typeof authSessionSchema>;
+export type GuildVisibility = Guild["visibility"];
+export type GuildRole = z.infer<typeof guildRoleSchema>;
+export type Membership = z.infer<typeof membershipSchema>;
+export type GuildInvite = z.infer<typeof guildInviteSchema>;
+export type GuildAuditEntry = z.infer<typeof guildAuditEntrySchema>;
 
 /* Derived view models (computed, never stored) */
 

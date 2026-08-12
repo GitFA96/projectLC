@@ -18,6 +18,8 @@
 
 import type { WclPlayerFight } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 export interface DeathEvent {
   actorName: string;
   className?: string;
@@ -158,7 +160,7 @@ export function buildBossDeathProfile(rows: WclPlayerFight[]): BossDeathProfile 
     .filter((o) => o.deaths > 0)
     .sort(
       (a, b) =>
-        b.deaths - a.deaths || b.firstDeaths - a.firstDeaths || a.actorName.localeCompare(b.actorName),
+        b.deaths - a.deaths || b.firstDeaths - a.firstDeaths || compareText(a.actorName, b.actorName),
     );
 
   return {
@@ -192,6 +194,6 @@ export function buildDeathProfiles(rows: WclPlayerFight[]): BossDeathProfile[] {
       (a, b) =>
         b.wipes - a.wipes ||
         b.deathsTotal - a.deathsTotal ||
-        a.encounterName.localeCompare(b.encounterName),
+        compareText(a.encounterName, b.encounterName),
     );
 }

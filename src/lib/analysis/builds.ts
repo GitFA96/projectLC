@@ -1,5 +1,7 @@
 import type { WclPlayerFight } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Talent builds as played, for deciding whether two performances can honestly
  * be set side by side.
@@ -47,7 +49,7 @@ export function buildOf(talents: number[] | undefined): BuildInfo {
 }
 
 /** The build a pull was played with. */
-export function buildOfFight(fight: Pick<WclPlayerFight, "talents">): BuildInfo {
+function buildOfFight(fight: Pick<WclPlayerFight, "talents">): BuildInfo {
   return buildOf(fight.talents);
 }
 
@@ -89,6 +91,6 @@ export function buildsPlayed(
     else byKey.set(build.key, { build, pulls: 1 });
   }
   return [...byKey.values()].sort(
-    (x, y) => y.pulls - x.pulls || (x.build.label ?? "").localeCompare(y.build.label ?? ""),
+    (x, y) => y.pulls - x.pulls || compareText((x.build.label ?? ""), y.build.label ?? ""),
   );
 }

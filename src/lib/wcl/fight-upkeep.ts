@@ -2,6 +2,8 @@ import { z } from "zod";
 import { wclQuery } from "@/lib/wcl/client";
 import { resolveFightActor } from "@/lib/wcl/fight-graph";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Who kept which debuff on the boss during one pull, fetched live.
  *
@@ -143,7 +145,7 @@ export async function fetchFightDebuffUptime(
     if (!hit || hit.pct < pct) best.set(`${source}|${ability}`, { source, ability, pct });
   }
 
-  const out = [...best.values()].sort((a, b) => b.pct - a.pct || a.source.localeCompare(b.source));
+  const out = [...best.values()].sort((a, b) => b.pct - a.pct || compareText(a.source, b.source));
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);

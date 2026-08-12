@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { itemDisplayName, isPlaceholderName } from "@/lib/items/item-data";
 import { resolveItemsFromWowhead } from "@/lib/items/wowhead";
 
@@ -45,6 +47,7 @@ export async function awardItemAction(input: AwardItemInput): Promise<AwardActio
   const { characterId, itemId, offspec, note, target } = parsed.data;
 
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const character = (await repo.listCharacters()).find((c) => c.character.id === characterId);
     if (!character) return { ok: false, message: "That character no longer exists." };
@@ -105,6 +108,7 @@ export async function clearAwardAction(input: { awardId: string }): Promise<Awar
   const parsed = clearSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Nothing to clear." };
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const removed = await repo.deleteLootAward(parsed.data.awardId);
     if (!removed) return { ok: false, message: "That award was already gone." };

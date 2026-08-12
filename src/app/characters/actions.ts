@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { CHARACTER_STATUSES, ROLES, WOW_CLASSES } from "@/lib/constants/wow";
 
 /**
@@ -82,6 +84,7 @@ export async function saveCharacter(
 
   let savedName: string;
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const result = id ? await repo.updateCharacter(id, draft) : await repo.createCharacter(draft);
     if (!result.ok) return { error: result.error, values: raw };
@@ -101,6 +104,7 @@ export interface DeleteGearSetResult {
 
 export async function deleteGearSet(setId: string): Promise<DeleteGearSetResult> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const deleted = await repo.deleteGearSet(setId);
     if (!deleted) return { ok: false, message: "That set no longer exists." };

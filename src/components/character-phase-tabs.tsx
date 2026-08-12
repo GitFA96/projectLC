@@ -25,7 +25,7 @@ export interface PhaseTabView {
 }
 
 function importHref(characterName: string, phase?: Phase): string {
-  const base = `/admin/import?character=${encodeURIComponent(characterName)}&kind=wishlist`;
+  const base = `/guild/import?character=${encodeURIComponent(characterName)}&kind=wishlist`;
   return phase ? `${base}&phase=${phase}` : base;
 }
 

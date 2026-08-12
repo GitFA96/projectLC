@@ -1,5 +1,7 @@
 import type { Quality, SlotId } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /** Slim item entry shipped to the nav for instant client-side lookup. */
 export interface QuickSearchItem {
   itemId: number;
@@ -44,7 +46,7 @@ export function rankItemMatches(
         b.item.openCount - a.item.openCount ||
         b.item.wisherCount - a.item.wisherCount ||
         b.item.awardCount - a.item.awardCount ||
-        a.item.name.localeCompare(b.item.name),
+        compareText(a.item.name, b.item.name),
     )
     .slice(0, limit)
     .map((s) => s.item);

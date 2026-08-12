@@ -4,6 +4,8 @@ import * as React from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import type { RotationCast } from "@/lib/analysis/rotation";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * One lane per ability, markers where it was pressed — the shape wowsims' own
  * timeline uses, so an officer can put the two side by side.
@@ -34,7 +36,7 @@ const TONE = {
 } as const;
 
 /** Seconds per gridline segment. */
-export const SEGMENTS = [1, 5, 10, 20, 30] as const;
+const SEGMENTS = [1, 5, 10, 20, 30] as const;
 /** Pixels per segment — fixed, so the segment choice IS the zoom. */
 const SEGMENT_PX = 72;
 
@@ -45,7 +47,7 @@ export function lanesOf(tracks: TimelineTrack[]): string[] {
     for (const c of t.casts) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
   }
   return [...counts]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
     .map(([name]) => name);
 }
 

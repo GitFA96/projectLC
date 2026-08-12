@@ -2,8 +2,9 @@
 
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
-import { isSpecTag } from "@/lib/loot/spec-tags";
 import { parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import type { LootPriorityWeights } from "@/lib/types";
 import type { PolicyOverrides } from "@/lib/analysis/policy";
@@ -21,6 +22,16 @@ import type { PolicyOverrides } from "@/lib/analysis/policy";
  * page and applies everywhere, while a chain is edited on the item it governs.
  * When the app grows past one guild these become the first things that need a
  * guild id — see docs/guild-and-player-profiles.md.
+ *
+ * **Capability checks enforce** (`PROJECTLC_AUTH=on` since 2026-08-12).
+ * `resolveViewer()` resolves a real session and a viewer without `policy.edit`
+ * is refused. They were written and wired long before that, while every check
+ * still passed, which is what made switching it on a flip rather than an
+ * archaeology project — see docs/guild-and-player-profiles.md §9 step 6.
+ *
+ * The two preview actions are deliberately **not** gated: they parse the
+ * caller's own paste and read nothing about the guild, so a check would buy no
+ * safety and cost a throw on a page an officer is mid-edit in.
  */
 
 export interface PriorityActionResult {
@@ -37,6 +48,7 @@ export async function saveItemPriorityAction(input: {
   note?: string;
 }): Promise<PriorityActionResult> {
   try {
+    requireCapability(await resolveViewer(), "priority.edit");
     const repo = await getWriteRepo();
     const result = await repo.setItemPriorityRule(input.itemName, input.chain, input.note);
     if (!result.ok) return { ok: false, message: result.error };
@@ -78,6 +90,7 @@ export async function setSheetItemIdAction(input: {
     itemId = parsed;
   }
   try {
+    requireCapability(await resolveViewer(), "priority.edit");
     const repo = await getWriteRepo();
     const result = await repo.setSheetItemId(input.itemName, itemId);
     if (!result.ok) return { ok: false, message: result.error ?? "Could not pin that item." };
@@ -110,6 +123,7 @@ export async function savePolicyAction(
   overrides: PolicyOverrides,
 ): Promise<PriorityActionResult> {
   try {
+    requireCapability(await resolveViewer(), "policy.edit");
     const repo = await getWriteRepo();
     const current = await repo.getGuildPolicy();
     // Merge against what's stored, one level deep — the same shape resolvePolicy
@@ -138,6 +152,7 @@ export async function savePolicyAction(
 /** Hand the whole policy back to the app's defaults. */
 export async function resetPolicyAction(): Promise<PriorityActionResult> {
   try {
+    requireCapability(await resolveViewer(), "policy.edit");
     const repo = await getWriteRepo();
     const result = await repo.setGuildPolicy({});
     if (!result.ok) return { ok: false, message: result.error };
@@ -146,18 +161,6 @@ export async function resetPolicyAction(): Promise<PriorityActionResult> {
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Resetting the policy failed." };
   }
-}
-
-/** Which tokens of a draft chain the app can actually rank on — for live feedback. */
-export async function checkPriorityChainAction(
-  chain: string,
-): Promise<{ tiers: { label: string; manual: boolean }[]; unknown: string[] }> {
-  const parsed = parsePriorityChain(chain);
-  const unknown = [...new Set(parsed.tiers.flatMap((t) => t.tags).filter((t) => !isSpecTag(t)))];
-  return {
-    tiers: parsed.tiers.map((t) => ({ label: t.tags.join(" = "), manual: t.manual })),
-    unknown,
-  };
 }
 
 export interface SheetActionResult {
@@ -180,6 +183,7 @@ export async function savePrioritySheetAction(input: {
   note?: string;
 }): Promise<SheetActionResult> {
   try {
+    requireCapability(await resolveViewer(), "priority.edit");
     const repo = await getWriteRepo();
     const result = await repo.setPrioritySheet(input);
     if (!result.ok) return { ok: false, message: result.error };
@@ -196,6 +200,7 @@ export async function savePrioritySheetAction(input: {
 /** Drop a pasted sheet, handing the phase back to the seeded one (or to empty). */
 export async function resetPrioritySheetAction(phase: number): Promise<SheetActionResult> {
   try {
+    requireCapability(await resolveViewer(), "priority.edit");
     const repo = await getWriteRepo();
     const result = await repo.deletePrioritySheet(phase);
     if (!result.ok) return { ok: false, message: result.error };
@@ -226,6 +231,9 @@ export async function previewPrioritySheetAction(
  * officer should meet that before pressing save.
  */
 export async function previewPolicyAction(overrides: PolicyOverrides) {
+  // Gated where its siblings are not: this one reads the guild's real numbers
+  // back, so it is guild data, not a parse of what the caller just typed.
+  requireCapability(await resolveViewer(), "policy.edit");
   const repo = await getWriteRepo();
   return repo.previewGuildPolicy(overrides);
 }

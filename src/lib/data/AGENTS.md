@@ -56,6 +56,18 @@ identically to SQLite. Never compute a summary in a backend.
   rather than gap-fills. `store.ts` reads the column once into the lookup every
   wishlist and contention reader takes. See change-chains §4g.
 - **Multi-row writes go in `withTx`** — one transaction, one version bump.
+- **`accounts` and `auth_sessions` are outside the read model, and their writes
+  do NOT bump `data_version`.** They are not guild data, they change on every
+  login, and a bump there would rebuild the entire in-memory store each time
+  somebody signs in — a silent performance collapse that nothing tests catch.
+  The other identity tables (memberships, roles, invites, audit) *are* guild
+  data and bump like anything else; a membership change that skips the bump
+  leaves the roster showing a claim that is no longer there until restart.
+- **An app admin may hold memberships**, and normally does. What keeps an
+  operator out of a guild is not the schema — it is that `decide()` grants guild
+  capabilities from a membership and never from the flag. A trigger enforcing
+  the opposite existed briefly and was removed; see
+  `consolidateAccountPrincipals` and docs/guild-and-player-profiles.md §7.
 - **Zero-argument views are memoized for the life of a read model**
   (`MEMOIZED_VIEWS` in `store.ts`). They are pure over an immutable store and
   the model is rebuilt whenever `data_version` changes, so "this read model" is

@@ -24,7 +24,7 @@ export function LootPlanView({ plan }: { plan: LootPlan }) {
           <p className="text-sm text-muted-foreground">
             Nothing cached for {plan.zone} yet. The plan is built from the item cache, so it fills
             in as loot is imported —{" "}
-            <Link href="/admin/import" className="font-medium text-foreground underline-offset-2 hover:underline">
+            <Link href="/guild/import" className="font-medium text-foreground underline-offset-2 hover:underline">
               import a Gargul export or a log
             </Link>{" "}
             and the drops this zone has actually produced appear here.

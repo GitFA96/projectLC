@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Roster" };
 
 function asWowClass(name?: string): WowClass | undefined {
@@ -22,6 +24,9 @@ function asWowClass(name?: string): WowClass | undefined {
 }
 
 export default async function RosterPage() {
+  const access = await pageView("roster.view", { returnTo: "/roster" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const [guild, summaries, untrackedPlayers] = await Promise.all([
     repo.getGuild(),

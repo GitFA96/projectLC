@@ -5,10 +5,14 @@ import { getRepo } from "@/lib/data/repo";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 import {
   FightGraphCompare,
   type PickerReport,
 } from "@/components/performance/fight-graph-compare";
+
+import { compareText } from "@/lib/sort";
 
 export const metadata: Metadata = { title: "Fight graph" };
 
@@ -20,6 +24,9 @@ export const metadata: Metadata = { title: "Fight graph" };
  * instance; this page only ships the picker options.
  */
 export default async function FightGraphPage() {
+  const access = await pageView("logs.view", { returnTo: "/fight-graph" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const reports = await repo.listWclReports();
 
@@ -39,7 +46,7 @@ export default async function FightGraphPage() {
             kill: f.kill,
             fightPercentage: f.fightPercentage,
           })),
-          players: view.usage.map((u) => u.name).sort((a, b) => a.localeCompare(b)),
+          players: view.usage.map((u) => u.name).sort((a, b) => compareText(a, b)),
         };
       }),
     )
@@ -57,7 +64,7 @@ export default async function FightGraphPage() {
           description="Import a report on the Warcraft Logs tab of the import page — every pull becomes graphable here."
           action={
             <Button asChild size="sm">
-              <Link href="/admin/import?tab=wcl">Import a report</Link>
+              <Link href="/guild/import?tab=wcl">Import a report</Link>
             </Button>
           }
         />

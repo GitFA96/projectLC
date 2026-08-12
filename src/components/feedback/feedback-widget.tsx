@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { submitFeedback } from "@/app/admin/feedback/actions";
+import { submitFeedback } from "@/app/service/feedback/actions";
 import {
   FEEDBACK_CONSENT_KEY,
   FEEDBACK_NAME_KEY,

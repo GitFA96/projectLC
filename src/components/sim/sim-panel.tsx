@@ -40,6 +40,8 @@ import {
 } from "@/lib/sim/profile";
 import { RotationTimeline } from "@/components/sim/rotation-timeline";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * One raider's pulls against their own wowsims setup.
  *
@@ -117,7 +119,7 @@ export function groupPulls<T extends SimPull>(pulls: readonly T[], mode: BrowseM
   for (const g of groups) {
     g.pulls.sort(
       mode === "boss"
-        ? (a, b) => (b.parsePercent ?? -1) - (a.parsePercent ?? -1) || b.raidDate.localeCompare(a.raidDate)
+        ? (a, b) => (b.parsePercent ?? -1) - (a.parsePercent ?? -1) || compareText(b.raidDate, a.raidDate)
         : (a, b) => a.fightId - b.fightId,
     );
   }
@@ -126,8 +128,8 @@ export function groupPulls<T extends SimPull>(pulls: readonly T[], mode: BrowseM
       ? (a, b) =>
           raidOrder(a.key) - raidOrder(b.key) ||
           bossOrder(a.key) - bossOrder(b.key) ||
-          a.key.localeCompare(b.key)
-      : (a, b) => b.key.localeCompare(a.key),
+          compareText(a.key, b.key)
+      : (a, b) => compareText(b.key, a.key),
   );
 }
 
@@ -470,7 +472,7 @@ function short(n: number | undefined): string {
 function RotationSection({ result }: { result: Extract<SimComparisonResult, { status: "ok" }> }) {
   const [tab, setTab] = React.useState<"table" | "timeline" | "log">("table");
   const abilities = React.useMemo(
-    () => [...result.comparison.abilities].sort((x, y) => x.name.localeCompare(y.name)),
+    () => [...result.comparison.abilities].sort((x, y) => compareText(x.name, y.name)),
     [result.comparison.abilities],
   );
 
@@ -845,7 +847,7 @@ export function SimPanel({
   const raiders = React.useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of pulls) counts.set(p.actorName, (counts.get(p.actorName) ?? 0) + 1);
-    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return [...counts].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]));
   }, [pulls]);
 
   /*

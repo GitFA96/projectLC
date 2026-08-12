@@ -36,6 +36,8 @@ import {
   getReportExcludedFights,
   insertAttendanceExemption,
   insertCharacter,
+  getCharacterMembershipId,
+  membershipLastSeenByGuild,
   insertCharacterComment,
   insertItemComment,
   deleteItemComment,
@@ -136,6 +138,8 @@ import type {
   WclPlayerFight,
   WclPlayerOffPull,
 } from "@/lib/types";
+
+import { compareText } from "@/lib/sort";
 
 /**
  * SQLite-backed repository. Reads go through the same derived read model as
@@ -615,6 +619,9 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       mainCharacterId: draft.mainCharacterId ?? null,
       id: `chr_${randomUUID()}`,
       guildId: guild.id,
+      // A character is created unclaimed. An account claims one by redeeming an
+      // invite, or an officer links it — never as a side effect of adding it.
+      membershipId: null,
     } satisfies Character);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid character." };
     withTx(db, () => {
@@ -635,6 +642,15 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       mainCharacterId: draft.mainCharacterId ?? null,
       id,
       guildId: current.guildId,
+      // Carried across, never read off the draft. insertCharacter is INSERT OR
+      // REPLACE over a fixed column list, so a claim omitted here is a claim
+      // deleted — silently, on every spec change an officer makes. Claiming is
+      // members.manage and has its own writer; this is roster.edit.
+      //
+      // Read from the row rather than from `current`, which comes off the read
+      // model: if that model has not caught up with a claim made moments ago,
+      // preserving it from there preserves a null.
+      membershipId: getCharacterMembershipId(getDb(), id),
     } satisfies Character);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid character." };
     const db = getDb();
@@ -1418,6 +1434,30 @@ export function getSqliteRepo(): WriteRepo {
     getItemContention: (itemId) => readModel().repo.getItemContention(itemId),
     listItemDemand: () => readModel().repo.listItemDemand(),
     listFeedback: () => readModel().repo.listFeedback(),
+    /*
+     * Rebuilt per call rather than served from the cached model.
+     *
+     * Two things here are outside the read model and would otherwise be stale:
+     * `last_seen_at` (a login must not bump `data_version`) and the clock that
+     * decides whether an invitation has lapsed. Both are cheap; the view is one
+     * officer screen, not a hot path.
+     */
+    getPublicProfile: (visibility) => readModel().repo.getPublicProfile(visibility),
+    listGuildAudit: () => readModel().repo.listGuildAudit(),
+    getMembersView: async (now) => {
+      const model = readModel();
+      return createRepoFromStore(model.store, {
+        membershipLastSeen: membershipLastSeenByGuild(getDb(), model.store.guild.id),
+      }).getMembersView(now);
+    },
+    // Same treatment, and for the same two reasons: last-seen is outside the
+    // read model, and "how long have they been quiet" is a question about now.
+    getSuccessionState: async (now) => {
+      const model = readModel();
+      return createRepoFromStore(model.store, {
+        membershipLastSeen: membershipLastSeenByGuild(getDb(), model.store.guild.id),
+      }).getSuccessionState(now);
+    },
     getDashboard: () => readModel().repo.getDashboard(),
     listWclReports: () => readModel().repo.listWclReports(),
     getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
@@ -1455,7 +1495,7 @@ export function getSqliteRepo(): WriteRepo {
           });
       }
       return [...byKey.values()].sort(
-        (a, b) => a.wowClass.localeCompare(b.wowClass) || a.spec.localeCompare(b.spec),
+        (a, b) => compareText(a.wowClass, b.wowClass) || compareText(a.spec, b.spec),
       );
     },
     getSimSpec: async (wowClass, spec) => {

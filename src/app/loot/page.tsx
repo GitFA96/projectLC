@@ -7,9 +7,14 @@ import { itemDisplayName } from "@/lib/items/item-data";
 import { PageHeader } from "@/components/page-header";
 import { LootView, type LootRow, type SessionOption } from "@/components/loot-view";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Loot ledger" };
 
 export default async function LootPage() {
+  const access = await pageView("loot.view", { returnTo: "/loot" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const [awards, sessions, characters] = await Promise.all([
     repo.listLootAwards(),

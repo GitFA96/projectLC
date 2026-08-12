@@ -4,6 +4,8 @@ import type { WclPlayerFight } from "@/lib/types";
 import type { IndividualSimSettings } from "@/lib/sim/request";
 import type { BloodFrenzyEvidence } from "@/lib/sim/inference";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Auditing a simulation's assumptions against the pull it's being compared to.
  *
@@ -70,8 +72,8 @@ export interface SimContextAudit {
  * "Sunder Armor was up"). Between the two it's a real partial, and the sim
  * is over-assuming.
  */
-export const PRESENT_PCT = 80;
-export const ABSENT_PCT = 20;
+const PRESENT_PCT = 80;
+const ABSENT_PCT = 20;
 
 /**
  * Armor reduction is ONE debuff slot, not two.
@@ -731,7 +733,7 @@ export function auditSimContext(input: AuditInput): SimContextAudit {
    * Nothing is lost: the verdict badge still says which rows disagree.
    */
   return {
-    rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
+    rows: rows.sort((a, b) => compareText(a.name, b.name)),
     favoursSim: count("sim"),
     favoursLog: count("log"),
     unknown: rows.filter((r) => r.verdict === "unknown").length,

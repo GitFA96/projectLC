@@ -94,15 +94,17 @@ leave them describing the old arrangement. **When you move code, move its
 reasoning with it,** and re-read the comment to check it's still true of the new
 location.
 
-## 7. Not every doc in `docs/` is normative.
+## 7. Check what a doc claims about itself before believing it.
 
-[`guild-and-player-profiles.md`](guild-and-player-profiles.md) is **ideation** —
-its own header says "nothing here is built yet except where marked." It describes
-a possible multi-tenant future so today's changes don't accidentally close doors.
+[`guild-and-player-profiles.md`](guild-and-player-profiles.md) **was** ideation
+and is now the design of record for identity and permissions — partly built,
+partly not. Its own status table says which is which, and that table is the
+thing to read first: implementing from the unbuilt half is fine, assuming the
+unbuilt half exists is not.
 
-Do not implement from it. Do not treat it as a spec, a backlog, or evidence that
-something exists. If a doc's status isn't obvious in its first paragraph, say so
-when you add it.
+The general rule stands. A doc that describes a future is not evidence that the
+future arrived, and the only way to tell is that the doc says so plainly. If a
+doc's status isn't obvious in its first paragraph, say so when you add it.
 
 ## 8. Documentation is not the work.
 
@@ -140,3 +142,117 @@ whatever maps the list. Same trap for rings.
 
 The list that *is* safe to key by id is a search result over the item cache,
 where ids are the primary key.
+
+## `localeCompare()` sorts differently depending on who runs the process
+
+A bare `a.localeCompare(b)` uses the *host's* default locale, and this project
+is developed under `nb-NO`. Norwegian collation treats "aa" as "å", which sorts
+after "z" — so a character named Aandor appears below Zul here, and above
+Baldur on a container that defaults to `en`. Nothing fails; the roster is just
+in a different order in dev than in production, and it reads as a sorting bug
+that cannot be reproduced.
+
+**Nothing calls it directly any more.** Every comparison goes through
+`compareText` in `src/lib/sort.ts`, and `sort.test.ts` fails if a bare
+`.localeCompare(` reappears anywhere in `src/` — because the failure mode here
+is a *new* call site written the obvious way, not the ones already found.
+
+The sweep deliberately covered the sites sorting ISO timestamps and ids too,
+where no locale can disagree. Nothing was gained on those individually; what was
+gained is that the rule needs no judgement at the call site, which is what makes
+it enforceable at all.
+
+## The theme script warns on every client render, and that is correct
+
+React logs *"Encountered a script tag while rendering React component"* against
+`src/app/layout.tsx`. The string lives only in
+`react-dom-client.development.js` — it is not in the production build — and
+what it means is that the inline theme script will not run again during a
+client re-render. That is the desired behaviour: the class was stamped before
+first paint and re-running it would achieve nothing.
+
+Do not "fix" it. The script exists to beat the stylesheet to the first paint,
+and every alternative loses that: `next/script` with `beforeInteractive` is
+documented as not blocking hydration, a `<template>` needs JS to activate it,
+and moving the preference to a cookie so the server can stamp the class means
+reading a cookie during layout render — which opts every page in the app out of
+static rendering. The warning is the cheapest of the four options.
+
+
+## "Inactive" means two unrelated things
+
+`characters.status = "inactive"` is a **loot-scoring judgement about a toon** —
+the guild has decided this one carries less weight. An inactive *person* is
+`accounts.last_seen_at` going quiet, which is a fact about a login and nothing
+to do with any character.
+
+Only the second has anything to do with succession. Reading the first one there
+would start the countdown on a guild master because they benched an alt, and
+then hand their guild to somebody else — which looks from every angle like the
+succession logic being wrong rather than like a word being read twice.
+
+The same trap in general form is §2 of `guild-and-player-profiles.md`: nothing
+about a *character* may ever decide what a *person* may do.
+
+
+## A writer with no caller is not a finished feature
+
+Seven of them accumulated here before anybody noticed: `deleteMembership`,
+`removeGuildOwner`, `transferGuildOwnership`, `setAccountDisabled`,
+`revokeAccountSessions`, `purgeExpiredAuthSessions`, `purgeExpiredInvites` —
+each written, tested, carefully reasoned, and reachable from nothing. Four
+appeared in the codebase *only inside comments describing what they would do*.
+The same happened to `signOutAction`, to `succession.ts` and to break-glass.
+All of them have a surface now; `transferGuildOwnership` and `listBreakGlass`
+were the two that ended the other way, deleted once it was clear the paths
+already wired did the same job in steps a person can see.
+
+It reads as done from every angle that usually catches things. The code exists,
+the tests pass, the doc describes it. What was missing was the sentence "and
+here is where a person clicks it", and no test asks that question.
+
+So when a layer's writers land ahead of its UI — which is the right order —
+**leave the list of what is not yet reachable somewhere that will be read**, and
+check it before calling the layer finished. `grep -rn "functionName" src/ |
+grep -v db.ts | grep -v test` takes ten seconds and answers it exactly.
+
+
+## Gating every page still leaves the chrome wide open
+
+Read gating was built, every `page.tsx` declared what it needed, a test proved
+none had been missed, and a rehearsal showed a signed-out visitor being turned
+away from all of them. All true, and the app was still serving 216 KB of the
+council's item-demand data to anybody who loaded the public profile — because
+the nav's search box was handed the whole list in `layout.tsx`, one level above
+everything the gate could see.
+
+The lesson generalises past this app: **an authorization layer is only as good
+as its least-examined entry point**, and the entry point nobody examines is the
+one that is not a page. Layouts, providers, error boundaries and any component
+rendered for everybody all sit outside a per-page check and are serialized into
+the response regardless.
+
+Two habits catch it. Measure a real anonymous response and grep it for something
+that should never be there, rather than reasoning about which pages are gated.
+And when a component needs a whole table to do one lookup, notice — that was
+already written down as its own pitfall for the award dialog, and it turned out
+to be the same bug wearing a different hat.
+
+
+## A log nobody can read is not accountability
+
+`guild_audit` was written to by every governance path in the app — the claim,
+invitations, role changes, ownership, character links, break-glass — for the
+whole time the identity layer was being built, and **nothing could read it**.
+No repo method, no page, no component.
+
+That is not merely a missing feature. Several safeguards were justified *by*
+that table: "an override the guild cannot see is a back door, so the audit write
+is part of the grant" is only true if the guild can see it, and it could not.
+The code was right, the reasoning was right, and the conclusion was false
+because one end of it was never built.
+
+When a design leans on visibility as the thing that makes a power safe — an
+audit trail, a notification, a public record — **the reader is part of the
+safeguard, not a follow-up**. Ship it in the same change, or write down plainly
+that the power is currently unaccountable.

@@ -32,6 +32,8 @@ import type { BoardTarget } from "@/app/raid-planner/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Raid planner" };
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -64,6 +66,9 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
  * twenty-five would make the record a fiction.
  */
 export default async function RaidPlannerPage({ searchParams }: { searchParams: Search }) {
+  const access = await pageView("raid.plan", { returnTo: "/raid-planner" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const sp = await searchParams;
 
   const repo = await getRepo();

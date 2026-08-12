@@ -7,9 +7,11 @@ may be stale. `params` and `searchParams` are **Promises** — `await` them.
 ## Layout
 
 Each route colocates its own server actions (`actions.ts`, `award-actions.ts`,
-`wcl-actions.ts`, …). There is one `route.ts` API handler (`api/fight-graph`),
-and it exists because that data is fetched live per request rather than at
-import time — everything else reads the database.
+`wcl-actions.ts`, …). `route.ts` handlers are the exception rather than the
+pattern: the sign-in hop needs real HTTP redirects and cookies, and
+`api/fight-graph` fetches live per request rather than at import time because
+four compared players through a server action ran serially. Everything else
+reads the database.
 
 ## Rules
 
@@ -18,6 +20,14 @@ import time — everything else reads the database.
 - **Nothing fetches while rendering.** Wowhead and Warcraft Logs are called at
   *import* time only, and the results are cached in the database. A `fetch` in a
   page is a layering mistake — the page will be slow, flaky and offline-hostile.
+- **A `route.ts` gates itself.** `pageView()` covers `page.tsx` and nothing
+  else, so a handler that reads guild data checks its own capability — and the
+  moment somebody converts a server action into a route for speed, the
+  `requireCapability` at the top of the action is not carried across by
+  anything. That is not hypothetical: it is how `/api/fight-graph` came to serve
+  live Warcraft Logs data, on this deployment's own API credentials, to
+  anonymous callers. `src/lib/auth/routes.test.ts` fails on a handler with no
+  check, and its allowlist is the sign-in flow only.
 - **Every action ends with `refreshAfterWrite()`** from `@/lib/refresh`, never a
   bare `revalidatePath()` inside a try block. Read that file's header once: a
   throw from the cache layer would otherwise report a *committed* write as
@@ -28,7 +38,13 @@ import time — everything else reads the database.
   React state — so only one variant renders server-side and every view is
   shareable. Officers paste these links at each other; that's the point.
 - **Data comes from `@/lib/data/repo`**, never from `db.ts` or a backend
-  directly.
+  directly. **One exception: identity writes go through `@/lib/auth`.**
+  Invites, character claims and the deployment claim have rules that exist in
+  exactly one place — hashing a code, one use only, refusing a character
+  somebody already holds, all inside a single transaction. Routing them through
+  `WriteRepo` would either duplicate those rules or make it a passthrough that
+  pretends to own something it doesn't. *Reads* still come through the repo, and
+  the read model serves them (`getMembersView`).
 
 ## Result shapes
 

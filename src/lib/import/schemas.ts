@@ -26,12 +26,35 @@ export const phaseSchema = z
   .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)])
   .refine((p) => (PHASE_IDS as readonly number[]).includes(p));
 
+/**
+ * What the guild shows the world. Guild settings, deliberately **not**
+ * `GuildPolicy`: policy is consumed by pure functions in `src/lib/analysis`,
+ * and visibility there would drag authorization into the one layer whose value
+ * is having no idea who is asking. See docs/guild-and-player-profiles.md §6.
+ *
+ * **The order matters.** `VISIBILITY_LADDER` in `src/lib/analysis/public-profile.ts`
+ * is this array, and the picker reads it as least-published first.
+ */
+export const GUILD_VISIBILITIES = ["private", "recruiting", "open"] as const;
+
 export const guildSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   realm: z.string().min(1),
   faction: z.enum(FACTIONS),
   activePhase: phaseSchema,
+  /** Defaults closed, so a database that predates this publishes nothing. */
+  visibility: z.enum(GUILD_VISIBILITIES).default("private"),
+  /**
+   * How long every owner may be quiet before the guild can appoint its own.
+   *
+   * Stored raw and clamped on read by `clampWindows`, not clamped on write: the
+   * bounds are a rule about what the app will act on, and a hand-edited row
+   * should be brought into range rather than trusted or rejected. Absent means
+   * the defaults, which is what every guild has until it says otherwise.
+   */
+  successionAdminDays: z.number().int().positive().optional(),
+  successionMemberDays: z.number().int().positive().optional(),
 });
 
 export const characterSchema = z.object({
@@ -60,6 +83,18 @@ export const characterSchema = z.object({
    */
   mainCharacterId: z.string().nullable().default(null),
   note: z.string().optional(),
+  /**
+   * The membership that has claimed this character. Null is the normal state —
+   * most characters are never claimed.
+   *
+   * **Not part of the officer's edit form**, and deliberately so: claiming is
+   * `members.manage`, editing a character is `roster.edit`, and they are
+   * different rights. `updateCharacter` carries the stored value across rather
+   * than reading it off the draft — see the comment there, because
+   * `insertCharacter` is INSERT OR REPLACE and would otherwise wipe it on every
+   * spec change.
+   */
+  membershipId: z.string().nullable().default(null),
 });
 
 /**
@@ -276,7 +311,7 @@ export const lootAwardSchema = z.object({
 export const wclRoleSchema = z.enum(["tank", "healer", "dps"]);
 
 /** One worn item from a combatant-info gear array (slim, JSON-persisted). */
-export const wclGearItemSchema = z.object({
+const wclGearItemSchema = z.object({
   /** Equipment-slot index in WCL's gear-array order. */
   slot: z.number().int().nonnegative(),
   id: z.number().int().positive(),
@@ -518,12 +553,10 @@ export const seedGuildSchema = guildSchema;
 export const seedRosterSchema = z.array(characterSchema);
 export const seedItemsSchema = z.array(itemSchema);
 export const seedGearSetsSchema = z.array(gearSetSchema);
-export const seedCurrentGearOverridesSchema = z.array(currentGearOverrideSchema);
 export const seedRaidSessionsSchema = z.array(raidSessionSchema);
 export const seedLootAwardsSchema = z.array(lootAwardSchema);
 export const seedWclReportsSchema = z.array(wclReportSchema);
 export const seedWclPlayerFightsSchema = z.array(wclPlayerFightSchema);
-export const seedWclPlayerOffPullSchema = z.array(wclPlayerOffPullSchema);
 export const seedAttendanceExemptionsSchema = z.array(attendanceExemptionSchema);
 /**
  * A note on one item — from a raider about their own claim, or from an officer
@@ -549,8 +582,6 @@ export const itemCommentSchema = z.object({
   author: z.string().optional(),
   createdAt: z.string().min(1),
 });
-
-export const seedItemCommentsSchema = z.array(itemCommentSchema);
 
 export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 
@@ -625,32 +656,151 @@ export const feedbackReportSchema = z.object({
   createdAt: z.string().min(1),
 });
 
-export const seedFeedbackSchema = z.array(feedbackReportSchema);
+/* Identity — accounts, sessions, memberships, roles, invites.
+ *
+ * See docs/guild-and-player-profiles.md. Three shapes worth knowing before
+ * reading these: an **account** is a login and is global to the deployment; a
+ * **membership** is that account inside one guild and is what the app means by
+ * "player"; a **character** is a toon, which a membership may or may not have
+ * claimed. Nothing crosses a guild boundary, so a membership carries its own
+ * display name rather than reading one off the account. */
 
-/* Parser output contracts (used by the M1 import preview; M2 parsers emit these) */
-
-/** A gear set as parsed from a SixtyUpgrades export: GearSet minus identity fields. */
-export const gearSetImportSchema = z.looseObject({
-  name: z.string().optional(),
-  character: z
-    .looseObject({
-      name: z.string().optional(),
-      class: z.string().optional(),
-      spec: z.string().optional(),
-      race: z.string().optional(),
-    })
-    .optional(),
-  stats: statBlockSchema.optional().default({}),
-  slots: z.array(slotItemSchema).min(1),
+/**
+ * A login. Discord is the only identity this app stores — a guild already has
+ * Discord, so the invite lands in the officer channel and no password is ever
+ * held here to leak.
+ */
+export const accountSchema = z.object({
+  id: z.string().min(1),
+  /** Discord's snowflake. The account's real primary key as far as identity goes. */
+  discordId: z.string().min(1),
+  /** For display only, and refreshed on each login — Discord names change. */
+  discordUsername: z.string().max(80).optional(),
+  avatarUrl: z.string().max(300).optional(),
+  /**
+   * Runs the service. **Orthogonal to guild membership, not exclusive of it** —
+   * the person operating a deployment is normally also somebody's guild master,
+   * and this deployment's owner is exactly that.
+   *
+   * What keeps an operator out of a guild is not the schema: it is that
+   * `decide()` reads guild capabilities off a membership and never off this
+   * flag. An earlier design enforced exclusivity with a database trigger; the
+   * trigger was removed along with the two-account model it belonged to,
+   * because the separation it protected was already guaranteed one layer up.
+   * See docs/guild-and-player-profiles.md §7.
+   */
+  appAdmin: z.boolean().default(false),
+  disabled: z.boolean().default(false),
+  createdAt: z.string().min(1),
+  lastSeenAt: z.string().optional(),
 });
-export type GearSetImport = z.infer<typeof gearSetImportSchema>;
 
-/** One award line as parsed from a Gargul export paste. */
-export const gargulAwardLineSchema = z.object({
-  awardedAt: z.string().min(1),
-  itemId: z.number().int().positive(),
-  itemName: z.string().min(1),
-  rawWinnerName: z.string().min(1),
-  offspec: z.boolean(),
+/**
+ * A logged-in browser.
+ *
+ * Called `AuthSession` rather than `Session` on purpose: `raid_sessions` are a
+ * raid night, and this codebase talks about those constantly. Two things named
+ * "session" in one app is a bug waiting for a tired reader.
+ *
+ * The row's id **is** the SHA-256 of the cookie value, never the value itself.
+ * A stolen database therefore yields no usable cookies.
+ */
+export const authSessionSchema = z.object({
+  /** SHA-256 of the cookie value. */
+  id: z.string().min(1),
+  accountId: z.string().min(1),
+  createdAt: z.string().min(1),
+  expiresAt: z.string().min(1),
+  /** Set when signed out or revoked; a revoked row is kept so it can't be reused. */
+  revokedAt: z.string().optional(),
+  userAgent: z.string().max(300).optional(),
 });
-export type GargulAwardLine = z.infer<typeof gargulAwardLineSchema>;
+
+/**
+ * A guild-defined role.
+ *
+ * `capabilities` is a JSON list on the row rather than a join table: a role
+ * owns its grants, the update flow is replace-all, and there is no query that
+ * wants them separately. Same shape as a gear set owning its slots.
+ *
+ * `colour` names a **role**, not a hex — `class-warrior`, `accent`. Invariant 7:
+ * only globals.css knows what a colour looks like in each theme.
+ */
+export const guildRoleSchema = z.object({
+  id: z.string().min(1),
+  guildId: z.string().min(1),
+  name: z.string().min(1).max(40),
+  colour: z.string().max(40).optional(),
+  sort: z.number().int().default(0),
+  /** Unknown strings are dropped on read — see sanitizeCapabilities. */
+  capabilities: z.array(z.string()).default([]),
+  /**
+   * The implicit baseline every membership carries. Exactly one per guild, and
+   * it cannot be deleted: it is what makes "what can a plain raider see" one
+   * editable row instead of a role somebody has to remember to assign.
+   */
+  baseline: z.boolean().default(false),
+});
+
+/** An account inside one guild. The app's "player". */
+export const membershipSchema = z.object({
+  id: z.string().min(1),
+  guildId: z.string().min(1),
+  accountId: z.string().min(1),
+  /** What this person is called *in this guild*. Nothing crosses a boundary. */
+  displayName: z.string().min(1).max(60),
+  /** Ownership, not a role. Exactly one per guild; holds every capability. */
+  isGuildMaster: z.boolean().default(false),
+  roleIds: z.array(z.string()).default([]),
+  joinedAt: z.string().min(1),
+});
+
+/**
+ * An officer's invitation, issued **for a character already on the roster**.
+ *
+ * Redeeming it creates the membership and claims that character in one act,
+ * which is what makes "prove you are who you say" an officer's judgement rather
+ * than an identity-verification problem this project would have to solve.
+ *
+ * The code handed out is never stored — only its hash, exactly like a session.
+ */
+export const guildInviteSchema = z.object({
+  id: z.string().min(1),
+  guildId: z.string().min(1),
+  characterId: z.string().min(1),
+  /** SHA-256 of the code an officer hands over. */
+  codeHash: z.string().min(1),
+  /** Roles the redeemer lands with. Empty means the baseline alone. */
+  roleIds: z.array(z.string()).default([]),
+  /** Membership id of the issuing officer, or "system" for the bootstrap invite. */
+  createdBy: z.string().min(1),
+  createdAt: z.string().min(1),
+  expiresAt: z.string().min(1),
+  redeemedAt: z.string().optional(),
+  /** Membership id created by the redemption. */
+  redeemedBy: z.string().optional(),
+});
+
+/**
+ * Something the guild is entitled to know happened to it.
+ *
+ * Break-glass is the reason this exists: an override the guild cannot see is a
+ * back door, so the audit write is part of the grant rather than a nicety. It
+ * lives in the guild's own data, readable by its officers — not in a
+ * service-side log only the admin can reach.
+ */
+export const guildAuditEntrySchema = z.object({
+  id: z.string().min(1),
+  guildId: z.string().min(1),
+  /** e.g. `break-glass.open`. Read by officers, so keep it legible. */
+  kind: z.string().min(1).max(60),
+  /** Who, as the guild should read it — a display name, not an opaque id. */
+  actor: z.string().min(1).max(120),
+  /** Required for break-glass; no reason, no access. */
+  reason: z.string().max(500).optional(),
+  detail: z.string().max(1000).optional(),
+  at: z.string().min(1),
+  /** When the access it records expires, for entries that grant something. */
+  expiresAt: z.string().optional(),
+});
+

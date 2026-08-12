@@ -32,6 +32,10 @@ import type { ItemRef } from "@/components/item-link";
 import type { Repo } from "@/lib/data/repo";
 import type { SlotItem } from "@/lib/types";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 type Params = { itemId: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
@@ -56,6 +60,9 @@ async function toItemRef(repo: Repo, slot: SlotItem): Promise<ItemRef & { slot: 
 }
 
 export default async function ItemPage({ params }: { params: Promise<Params> }) {
+  const access = await pageView("loot.view", { returnTo: "/items" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const { itemId: itemIdRaw } = await params;
   const itemId = Number(itemIdRaw);
   if (!Number.isInteger(itemId) || itemId <= 0) notFound();
@@ -82,7 +89,7 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
   for (const a of awards) {
     if (a.character) commentTargetsById.set(a.character.id, { id: a.character.id, name: a.character.name });
   }
-  const commentTargets = [...commentTargetsById.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const commentTargets = [...commentTargetsById.values()].sort((a, b) => compareText(a.name, b.name));
 
   // Zones the cache already uses, so a hand-curated source spells them the
   // same way the loot plan groups them.
@@ -91,7 +98,7 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
   // Every character, not just the ones who wanted it — see AwardToAnyoneButton.
   const awardCandidates = roster
     .map((r) => ({ id: r.character.id, name: r.character.name }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareText(a.name, b.name));
 
   const contenders: ContenderView[] = await Promise.all(
     wishers.map(async (w) => ({

@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getRepo, getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { can, requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import {
   activity,
   compareRotations,
@@ -46,6 +48,8 @@ import {
   type AbilityInfo,
   type AbilityRef,
 } from "@/lib/items/ability-data";
+
+import { compareText } from "@/lib/sort";
 
 /**
  * Running one pull against that raider's simulation.
@@ -116,6 +120,11 @@ export async function runSimComparison(input: {
   const parsed = runSchema.safeParse(input);
   if (!parsed.success) return { status: "error", message: "Invalid request." };
   if (!simConfigured()) return { status: "not-configured" };
+  // Before the first read, not inside the narrow try below: that catch reports
+  // "the saved setup is unreadable", which a denial is not.
+  if (!can(await resolveViewer(), "logs.view")) {
+    return { status: "error", message: "You don't have permission to do that." };
+  }
 
   const { wowClass, spec, reportCode, fightId, actorName } = parsed.data;
   const repo = await getRepo();
@@ -370,7 +379,7 @@ export async function runSimComparison(input: {
             amount: d.amount,
           })),
         ]
-          .sort((x, y) => x.tMs - y.tMs || x.kind.localeCompare(y.kind))
+          .sort((x, y) => x.tMs - y.tMs || compareText(x.kind, y.kind))
           .slice(0, 4000),
         sim: parseSimEvents(timelineResult?.logs, names).slice(0, 4000),
       },
@@ -412,6 +421,7 @@ export async function resolveSimAbilities(input: {
   const parsed = resolveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Nothing to look up." };
   try {
+    requireCapability(await resolveViewer(), "import.run");
     const repo = await getWriteRepo();
     const known = new Set((await repo.listAbilities()).map((a) => refKey(a)));
     const todo = parsed.data.keys
@@ -473,6 +483,11 @@ export async function saveSimProfile(input: {
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid input." };
   const { wowClass, spec, link } = parsed.data;
+  // Ahead of the write below: clearing a profile returns before the try block,
+  // so a check placed in there would guard saving and not clearing.
+  if (!can(await resolveViewer(), "sim.edit")) {
+    return { ok: false, message: "You don't have permission to do that." };
+  }
   const repo = await getWriteRepo();
 
   if (!link) {
@@ -525,6 +540,10 @@ export async function adoptSimSetting(input: {
 }): Promise<{ ok: boolean; message: string }> {
   const parsed = adoptSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid input." };
+  // No try block here, so ask rather than throw — same result shape either way.
+  if (!can(await resolveViewer(), "sim.edit")) {
+    return { ok: false, message: "You don't have permission to do that." };
+  }
   const { wowClass, spec, slug } = parsed.data;
   const repo = await getWriteRepo();
   const detail = await repo.getSimSpec(wowClass, spec);

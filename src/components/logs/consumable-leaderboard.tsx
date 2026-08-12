@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Consumable-usage leaderboard with a Count ↔ Gold toggle: "Count" ranks by raw
  * items thrown, "Gold spent" multiplies each raider's breakdown by this raid's
@@ -40,7 +42,7 @@ export function ConsumableLeaderboard({
     .filter((u) => u.consumablesTotal > 0)
     .map((u) => ({ u, gold: goldOfBreakdown(u.itemBreakdown, costPerUse) }));
   const ordered = gold
-    ? [...leaders].sort((a, b) => b.gold - a.gold || a.u.name.localeCompare(b.u.name))
+    ? [...leaders].sort((a, b) => b.gold - a.gold || compareText(a.u.name, b.u.name))
     : leaders; // rows arrive pre-sorted by total consumables
 
   return (

@@ -66,7 +66,7 @@ export function TimeAxis({ durationMs, ticks }: { durationMs: number; ticks: num
 }
 
 /** Vertical gridlines behind a lane's bands, one per axis tick. */
-export function TickGrid({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
+function TickGrid({ durationMs, ticks }: { durationMs: number; ticks: number[] }) {
   const dur = Math.max(1, durationMs);
   return (
     <>

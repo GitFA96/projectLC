@@ -25,7 +25,7 @@ function visibleText(el: Element): string {
  * screen reader would use, and for the same reason: it's what the element is
  * *for*, not what it's made of.
  */
-export function describeElement(el: Element): string {
+function describeElement(el: Element): string {
   const tag = el.tagName.toLowerCase();
   const role = el.getAttribute("role");
   const kind = role ? `${tag} (${role})` : tag;
@@ -45,7 +45,7 @@ export function describeElement(el: Element): string {
  * chain of nth-child from <body>. Capped at six steps — beyond that the path
  * is noise, and the element label is what actually locates it.
  */
-export function cssPath(el: Element): string {
+function cssPath(el: Element): string {
   const steps: string[] = [];
   let node: Element | null = el;
 

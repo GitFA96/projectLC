@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Swords } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { QuickSearch } from "@/components/quick-search";
+import { whoAmI } from "@/app/account-actions";
+import { AccountMenu } from "@/components/account-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { QuickSearchItem } from "@/lib/analysis/quick-search";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,13 +36,25 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { href: "/", label: "Guild" },
+  {
+    href: "/",
+    label: "Guild",
+    pages: [
+      { href: "/", label: "Guild" },
+      { href: "/guild/roles", label: "Roles" },
+      { href: "/guild/import", label: "Import" },
+      { href: "/guild/preview", label: "Permissions" },
+      { href: "/guild/audit", label: "Audit" },
+    ],
+    owns: ["/guild"],
+  },
   {
     href: "/roster",
     label: "Roster",
     pages: [
       { href: "/roster", label: "Roster" },
       { href: "/roster/standing", label: "Standing" },
+      { href: "/roster/members", label: "Members" },
       { href: "/compare", label: "Compare" },
     ],
     // A character profile is reached from the roster and belongs to it, but it
@@ -70,16 +82,47 @@ const SECTIONS: Section[] = [
     ],
   },
   { href: "/guides", label: "Guides" },
+  /*
+   * Running the service, not running a guild.
+   *
+   * Import used to live here, which put a guild's own business behind a tab
+   * called Admin and implied an operator ran it. It is guild work — whoever
+   * holds `import.run` — so it sits with the guild's other pages now.
+   *
+   * Nav-by-capability hides this section entirely from anybody who is not an
+   * app admin, so most people never learn it exists.
+   */
   {
-    href: "/admin",
-    label: "Admin",
+    href: "/service",
+    label: "Service",
     pages: [
-      { href: "/admin", label: "Overview" },
-      { href: "/admin/import", label: "Import" },
-      { href: "/admin/feedback", label: "Feedback" },
+      { href: "/service", label: "Overview" },
+      { href: "/service/tenancy", label: "Tenancy" },
+      { href: "/service/feedback", label: "Feedback" },
     ],
   },
 ];
+
+/**
+ * Routes that are not inside the guild yet.
+ *
+ * Somebody redeeming an invite is not a member — they are a person holding a
+ * code, deciding whether to accept. Wrapping that in the guild's own chrome,
+ * Admin link and all, claims a belonging they do not have yet and offers
+ * navigation they cannot use.
+ *
+ * Done here rather than with an `(auth)` route group because the nav lives in
+ * the **root** layout: a nested layout cannot remove its parent's chrome, so
+ * the route-group version means moving every existing route into an `(app)`
+ * group. That is a large mechanical change to buy what one already-available
+ * pathname buys.
+ *
+ * This is presentation, not protection. What an unregistered visitor may
+ * *read* is a different question, and it is answered by read gating — hiding
+ * links to pages that still serve their data would only be a lie in the other
+ * direction. See docs/guild-and-player-profiles.md §5, §9 step 8.
+ */
+const OUTSIDE_THE_GUILD = ["/signin", "/join", "/claim"];
 
 /**
  * Which section a path belongs to. Some pages don't live under their section's
@@ -99,17 +142,49 @@ function sectionFor(pathname: string): Section | undefined {
 export function Nav({
   guildName,
   realm,
-  activePhase,
-  searchItems,
 }: {
-  guildName: string;
-  realm: string;
-  activePhase: number;
-  searchItems: QuickSearchItem[];
+  /** Null for somebody who is not in this guild — see the note in layout.tsx. */
+  guildName: string | null;
+  realm: string | null;
 }) {
   const pathname = usePathname();
+  const [reachable, setReachable] = React.useState<Set<string> | null>(null);
+
+  /*
+   * Which links to show, asked of the server rather than decided here.
+   *
+   * A client component cannot resolve a session, and re-implementing the rule
+   * from a prop would be a second copy of it that drifts. Asked after mount for
+   * the same reason the account menu is: resolving the viewer in `layout.tsx`
+   * reads a cookie during render and would opt every page out of static
+   * rendering — which read gating has now done anyway, but through a decision
+   * rather than a side effect.
+   *
+   * **Hiding a link is presentation, never protection.** Until the answer
+   * arrives every section renders, and that is fine: the page it points at
+   * refuses on its own. This only stops officers being offered doors that shut
+   * in their face.
+   */
+  React.useEffect(() => {
+    let live = true;
+    whoAmI()
+      .then((me) => {
+        if (live) setReachable(new Set(me.reachable));
+      })
+      .catch(() => {
+        // No answer is not "nothing is reachable" — showing an empty nav on a
+        // failed request would read as the app being broken.
+      });
+    return () => {
+      live = false;
+    };
+  }, [pathname]);
+
+  const visible = (href: string) => reachable === null || reachable.has(href);
+  if (OUTSIDE_THE_GUILD.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
+
   const current = sectionFor(pathname);
-  const pages = current?.pages;
+  const pages = current?.pages?.filter((p) => visible(p.href));
   // Longest match wins, so a section index (/admin) doesn't stay lit while you
   // are on a page beneath it (/admin/import). Plain `startsWith` lights both.
   const activePage = pages
@@ -126,15 +201,19 @@ export function Nav({
             <Swords className="h-4 w-4" />
           </span>
           <span className="text-sm font-semibold leading-tight">
-            {guildName}
-            <span className="block text-[11px] font-normal text-muted-foreground">{realm}</span>
+            {guildName ?? "projectLC"}
+            {realm && (
+              <span className="block text-[11px] font-normal text-muted-foreground">{realm}</span>
+            )}
           </span>
         </Link>
         <nav className="flex items-center gap-1 text-sm" aria-label="Sections">
-          {SECTIONS.map((section) => (
+          {SECTIONS.filter((section) =>
+            section.pages ? section.pages.some((p) => visible(p.href)) : visible(section.href),
+          ).map((section) => (
             <Link
               key={section.href}
-              href={section.pages?.[0].href ?? section.href}
+              href={section.pages?.find((p) => visible(p.href))?.href ?? section.href}
               className={cn(
                 "rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
                 section === current && "bg-accent text-foreground",
@@ -146,16 +225,12 @@ export function Nav({
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          <QuickSearch items={searchItems} />
-          <Badge variant="outline" className="gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-            Phase {activePhase} active
-          </Badge>
           <ThemeToggle />
+          <AccountMenu />
         </div>
       </div>
 
-      {pages && (
+      {pages && pages.length > 0 && (
         <div className="border-t bg-card/60">
           <nav
             className="mx-auto flex max-w-6xl items-center gap-1 overflow-x-auto px-4 py-1.5 text-sm"

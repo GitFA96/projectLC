@@ -27,6 +27,8 @@ import type {
   WclReport,
 } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Raid-wide rollup of one report (one raid night): preparation coverage,
  * maintained debuff/buff uptime, cooldown usage, and per-raider preparation
@@ -47,7 +49,7 @@ function pct(part: number, total: number): number {
 }
 
 /** Overlapping/adjacent up-intervals folded into disjoint ones, in time order. */
-export function mergeSegments(segments: [number, number][]): [number, number][] {
+function mergeSegments(segments: [number, number][]): [number, number][] {
   const sorted = [...segments].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const merged: [number, number][] = [];
   for (const [from, to] of sorted) {
@@ -188,9 +190,9 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         uses: [...providerMap.values()].reduce((s, n) => s + n, 0),
         providers: [...providerMap]
           .map(([actorName, count]) => ({ name: actorName, slug: slugOf(actorName), count }))
-          .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+          .sort((a, b) => b.count - a.count || compareText(a.name, b.name)),
       }))
-      .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
+      .sort((a, b) => b.uses - a.uses || compareText(a.name, b.name));
   // The flask/elixir percentage answers "did they bring something"; this
   // answers "did they bring a set". A flask fills both slots, battle plus
   // guardian fills the same budget, and one elixir alone fills half of it —
@@ -209,7 +211,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     flaskOrElixirPct: pct(rows.filter((r) => hasConsumableCoverage(r, policy.preparation)).length, rows.length),
     coverage,
     unplacedElixirs: [...unplaced]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
       .map(([label, pulls]) => ({ label, pulls })),
     foodPct: pct(rows.filter((r) => hasFood(r)).length, rows.length),
     weaponBuffPct: pct(rows.filter((r) => r.weaponBuff).length, rows.length),
@@ -292,7 +294,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       const rank = (m: Map<string, number>) =>
         [...m]
           .map(([name, count]) => ({ name, count }))
-          .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+          .sort((a, b) => b.count - a.count || compareText(a.name, b.name));
       // Duration + death aware: flask survives death but re-buys over a long
       // night; consumed buffs add one per death; situational extras stay death-aware.
       const apps = (kind: keyof typeof present, persistsDeath: boolean) =>
@@ -304,7 +306,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         ...[...extraNames].map((name) => ({ name, count: 1 + deaths })),
         ...(anyFood ? [{ name: "Food", count: apps("food", false) }] : []),
         ...(anyWeapon ? [{ name: "Weapon oil/stone", count: apps("weapon", false) }] : []),
-      ].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+      ].sort((a, b) => b.count - a.count || compareText(a.name, b.name));
       return {
         name: actorName,
         slug: slugOf(actorName),
@@ -322,7 +324,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         prepBreakdown,
       };
     })
-    .sort((a, b) => b.consumablesTotal - a.consumablesTotal || a.name.localeCompare(b.name));
+    .sort((a, b) => b.consumablesTotal - a.consumablesTotal || compareText(a.name, b.name));
 
   /* ---- Maintained debuff/buff uptime ---- */
   // Per track → per provider: average their pct across the pulls they were in.
@@ -371,7 +373,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     const perFight = [...(upkeepByTrackFight.get(name) ?? new Map<number, UpkeepFightProvider[]>())]
       .map(([fightId, fightProviders]) => ({
         fightId,
-        providers: fightProviders.sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name)),
+        providers: fightProviders.sort((a, b) => b.pct - a.pct || compareText(a.name, b.name)),
       }))
       .sort((a, b) => a.fightId - b.fightId);
     return {
@@ -385,7 +387,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   });
   // Debuffs (on the boss) first, then by best uptime descending.
   const kindOrder = { debuff: 0, selfbuff: 1, buff: 1 } as const;
-  upkeep.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || b.bestPct - a.bestPct || a.name.localeCompare(b.name));
+  upkeep.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || b.bestPct - a.bestPct || compareText(a.name, b.name));
 
   /* ---- Raid buffs from the receiving end ("uptime by player") ---- */
   // The provider's row carries the per-victim breakdown; invert it into
@@ -460,12 +462,12 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
                   segments: mergeSegments(s.segments),
                   ...(s.casts ? { casts: [...new Set(s.casts)].sort((a, b) => a - b) } : {}),
                 }))
-                .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+                .sort((a, b) => b.pct - a.pct || compareText(a.name, b.name));
               const pct = coveragePct(sources.flatMap((s) => s.segments), durationMs);
               coverageByRecipient.set(recipient, (coverageByRecipient.get(recipient) ?? 0) + pct);
               return { name: recipient, slug: slugOf(recipient), className: classByActor.get(recipient), pct, sources };
             })
-            .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+            .sort((a, b) => b.pct - a.pct || compareText(a.name, b.name));
           return { fightId, recipients };
         })
         .sort((a, b) => a.fightId - b.fightId);
@@ -477,7 +479,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
           pct: Math.round(total / Math.max(1, pullsByActor.get(recipient) ?? 1)),
           pulls: pullsByActor.get(recipient) ?? 0,
         }))
-        .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+        .sort((a, b) => b.pct - a.pct || compareText(a.name, b.name));
       const providers = [...acc.applicationsByProvider]
         .map(([provider, applications]) => ({
           name: provider,
@@ -485,11 +487,11 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
           className: classByActor.get(provider),
           applications,
         }))
-        .sort((a, b) => b.applications - a.applications || a.name.localeCompare(b.name));
+        .sort((a, b) => b.applications - a.applications || compareText(a.name, b.name));
       return { name, className: acc.className, recipients, providers, perFight };
     })
     // Raid-wide buffs (shouts, totems) first, spot buffs like Innervate after.
-    .sort((a, b) => b.recipients.length - a.recipients.length || a.name.localeCompare(b.name));
+    .sort((a, b) => b.recipients.length - a.recipients.length || compareText(a.name, b.name));
 
   /* ---- Totem drops ---- */
   // TBC logs the drop but never the buff a totem hands out, so the timeline of
@@ -506,14 +508,14 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       drops: [],
     };
     lane.drops.push(...drops.map((c) => ({ name: c.name, atMs: c.atMs })));
-    lane.drops.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
+    lane.drops.sort((a, b) => a.atMs - b.atMs || compareText(a.name, b.name));
     lanes.set(r.actorName, lane);
     totemsByFight.set(r.fightId, lanes);
   }
   const totems: RaidTotemFight[] = [...totemsByFight]
     .map(([fightId, lanes]) => ({
       fightId,
-      lanes: [...lanes.values()].sort((a, b) => b.drops.length - a.drops.length || a.name.localeCompare(b.name)),
+      lanes: [...lanes.values()].sort((a, b) => b.drops.length - a.drops.length || compareText(a.name, b.name)),
     }))
     .sort((a, b) => a.fightId - b.fightId);
 
@@ -534,7 +536,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         .map(([actorName, count]) => ({ name: actorName, slug: slugOf(actorName), count }))
         .sort((a, b) => b.count - a.count),
     }))
-    .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
+    .sort((a, b) => b.uses - a.uses || compareText(a.name, b.name));
 
   /* ---- Per-raider preparation gaps ---- */
   const improvements: PlayerImprovements[] = [];
@@ -628,7 +630,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       findings: findings.sort((a, b) => severity[b.severity] - severity[a.severity]),
     });
   }
-  improvements.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  improvements.sort((a, b) => b.score - a.score || compareText(a.name, b.name));
 
   /* ---- Why we struggle on a boss ---- */
   const deathProfiles = buildDeathProfiles(rows);
@@ -748,7 +750,7 @@ function buildParseBoards(
           cells,
         };
       })
-      .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || a.name.localeCompare(b.name));
+      .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || compareText(a.name, b.name));
 
     boards.push({
       key: def.key,

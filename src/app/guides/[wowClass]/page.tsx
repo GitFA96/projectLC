@@ -9,6 +9,8 @@ import { PageHeader } from "@/components/page-header";
 import { GuideEditor } from "@/components/guides/guide-editor";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export async function generateMetadata({
   params,
 }: {
@@ -31,6 +33,9 @@ export default async function ClassGuidePage({
 }: {
   params: Promise<{ wowClass: string }>;
 }) {
+  const access = await pageView("guild.view", { returnTo: "/guides" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const { wowClass: slug } = await params;
   const wowClass = classFromSlug(slug);
   if (!wowClass) notFound();

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { equipLoggedGearAction } from "@/app/characters/[name]/current-gear-actions";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { CHARACTER_STATUSES, WOW_CLASSES, type Role, type WowClass } from "@/lib/constants/wow";
 
 export type RosterActionResult = { ok: boolean; message: string };
@@ -31,6 +33,7 @@ export async function equipRosterFromLogs(input: {
   const parsed = equipFromLogsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Select at least one character." };
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const byId = new Map((await repo.listCharacters()).map((s) => [s.character.id, s.character]));
     const names = parsed.data.characterIds
@@ -54,6 +57,7 @@ export async function setCharactersStatus(input: SetStatusInput): Promise<Roster
   const parsed = setStatusSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid status change." };
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const byId = new Map((await repo.listCharacters()).map((s) => [s.character.id, s.character]));
     const failures: string[] = [];
@@ -98,6 +102,7 @@ export async function deleteCharacters(input: DeleteCharactersInput): Promise<Ro
   const parsed = deleteSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid delete request." };
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const failures: string[] = [];
     let deleted = 0;
@@ -168,6 +173,7 @@ export async function trackLogPlayers(input: TrackPlayersInput): Promise<RosterA
   const { players, status } = parsed.data;
 
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const skipped: string[] = [];
     const failures: string[] = [];
@@ -209,6 +215,7 @@ export async function trackLogPlayers(input: TrackPlayersInput): Promise<RosterA
 /** Remove the seeded demo content, keeping everything imported since. */
 export async function purgeDemoData(): Promise<RosterActionResult> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const removed = await repo.purgeDemoData();
     refreshAfterWrite("/", "layout");

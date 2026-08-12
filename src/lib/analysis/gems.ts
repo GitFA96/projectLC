@@ -53,7 +53,7 @@ const BELOW_RARE = new Set<Quality>(["poor", "common", "uncommon"]);
  * a rare cut to move to, so the rare-gem rule stays silent no matter how good
  * the gear is — the flag has to name a purchase the raider can actually make.
  */
-export const EPIC_GEM_PHASE = 3;
+const EPIC_GEM_PHASE = 3;
 
 /**
  * Is this piece from the guild's current tier — the gear worth investing in?

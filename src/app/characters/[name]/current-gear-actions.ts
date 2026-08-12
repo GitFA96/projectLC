@@ -2,6 +2,8 @@
 
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { buildLoggedGear, type LoggedGearReport } from "@/lib/analysis/logged-gear";
 import { LOGGED_GEAR_RAIDS, loggedSlotOptions, reportsInSpec } from "@/lib/analysis/current-gear";
 import { itemDisplayName } from "@/lib/items/item-data";
@@ -81,6 +83,7 @@ export async function setCurrentSlotAction(
   input: SetCurrentSlotInput,
 ): Promise<CurrentGearActionResult> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     if (!isSlotId(input.slot)) return { ok: false, message: "Unknown gear slot." };
     const repo = await getWriteRepo();
     const character = await repo.findCharacterByName(input.characterName);
@@ -212,6 +215,7 @@ export async function equipLoggedGearAction(
   input: EquipLoggedGearInput,
 ): Promise<CurrentGearActionResult> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const spec: GearSpec = input.spec ?? "main";
     let written = 0;
@@ -302,6 +306,7 @@ export async function clearCurrentSlotsAction(
   spec: GearSpec = "main",
 ): Promise<CurrentGearActionResult> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const character = await repo.findCharacterByName(characterName);
     if (!character) return { ok: false, message: "Character not found." };

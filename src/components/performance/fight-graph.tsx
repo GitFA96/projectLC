@@ -36,6 +36,8 @@ import {
   type BuffFilterState,
 } from "@/components/performance/buff-filter";
 
+import { compareText } from "@/lib/sort";
+
 /* Chart geometry (viewBox units; the SVG scales to its container). */
 const W = 840;
 const GUTTER = 150; // left label gutter shared by the plot and the lanes
@@ -177,7 +179,7 @@ export function DpsChart({
     }
     return [...byName]
       .map(([name, times]) => ({ name, times }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => compareText(a.name, b.name));
   }, [casts]);
 
   /* Vertical layout: DPS plot, boss-health strip, buff lanes, consume lanes. */

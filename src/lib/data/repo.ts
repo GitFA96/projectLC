@@ -1,3 +1,6 @@
+import type { MembersView } from "@/lib/analysis/members";
+import type { GuildVisibility, PublicProfile } from "@/lib/analysis/public-profile";
+import type { SuccessionState } from "@/lib/auth/succession";
 import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
 import type { EnchantReference } from "@/lib/analysis/enchants";
 import type { PrioritySheetDocument } from "@/lib/loot/priority-sheet";
@@ -11,6 +14,7 @@ import type { RosterStanding } from "@/lib/analysis/standing";
 import type { LootPlan } from "@/lib/analysis/loot-plan";
 import type { DevelopmentSeries } from "@/lib/analysis/development";
 import type {
+  GuildAuditEntry,
   AwardWithContext,
   Character,
   CharacterBundle,
@@ -79,6 +83,28 @@ export interface Repo {
   listItemDemand(): Promise<ItemDemand[]>;
   /** Bug reports filed from the app: open ones first, newest first within each. */
   listFeedback(): Promise<FeedbackReport[]>;
+  /**
+   * The guild as people: memberships, who they play, and invitations in flight.
+   *
+   * Takes `now` because invite expiry is a judgement about the clock, and this
+   * view is deliberately **not** memoized — a memoized `now` would keep calling
+   * a lapsed invitation live until the next write to the guild.
+   */
+  getMembersView(now?: string): Promise<MembersView>;
+  /**
+   * What an outsider sees. Composed from its own narrow input rather than
+   * filtered from a member view — see `public-profile.ts` for why that
+   * distinction is the whole design.
+   */
+  getPublicProfile(visibility?: GuildVisibility): Promise<PublicProfile>;
+  /** What has happened to this guild, newest first. Governance, not loot. */
+  listGuildAudit(): Promise<GuildAuditEntry[]>;
+  /**
+   * Where the guild stands if its owners go quiet. Takes `now` and is not
+   * memoized for the same reason `getMembersView` isn't: a frozen clock would
+   * keep reporting a guild healthy well past the point it wasn't.
+   */
+  getSuccessionState(now?: string): Promise<SuccessionState>;
   getDashboard(): Promise<DashboardData>;
   /** Fetched Warcraft Logs reports, newest first. */
   listWclReports(): Promise<WclReportView[]>;
@@ -268,8 +294,17 @@ export interface Repo {
 
 /* Write-side inputs: entities minus the fields the repo generates. */
 export type GearSetDraft = Omit<GearSet, "id" | "importedAt">;
-/** mainCharacterId is optional on input — omitting it defaults to no link. */
-export type CharacterDraft = Omit<Character, "id" | "guildId" | "mainCharacterId"> & {
+/**
+ * mainCharacterId is optional on input — omitting it defaults to no link.
+ *
+ * `membershipId` is absent entirely, and that is a permission boundary rather
+ * than a convenience: editing a character is `roster.edit`, claiming one for an
+ * account is `members.manage`. Letting the edit form carry a claim would let
+ * anyone who can fix a raider's spec also attach that raider's loot history to
+ * an account. `updateCharacter` preserves the stored value; claiming has its
+ * own writer.
+ */
+export type CharacterDraft = Omit<Character, "id" | "guildId" | "mainCharacterId" | "membershipId"> & {
   mainCharacterId?: string | null;
 };
 export type RaidSessionDraft = Omit<RaidSession, "id" | "guildId">;

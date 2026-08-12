@@ -3,6 +3,8 @@ import { PHASES } from "@/lib/constants/wow";
 import type { AwardContext } from "@/components/award-item-controls";
 import type { Guild, RaidSession } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Everything the award dialog needs to file a hand-entered award: the recent
  * raid nights to attach it to, and the zones a brand-new entry can name.
@@ -27,7 +29,7 @@ export function buildAwardTarget(guild: Guild, sessions: RaidSession[]): AwardTa
   const activePhaseZones = PHASES.find((p) => p.phase === guild.activePhase)?.zones ?? [];
   return {
     sessions: [...sessions]
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .sort((a, b) => compareText(b.date, a.date))
       .slice(0, RECENT_SESSIONS)
       .map((s) => ({
         id: s.id,

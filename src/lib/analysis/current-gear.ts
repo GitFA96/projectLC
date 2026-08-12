@@ -32,7 +32,7 @@ import type { CurrentGearOverride, GearSet, GearSpec, Quality, SlotId } from "@/
 export const LOGGED_GEAR_RAIDS = 3;
 
 /** The id of the set synthesised for a character who has pins but no import. */
-export function overrideSetId(characterId: string, spec: GearSpec = "main"): string {
+function overrideSetId(characterId: string, spec: GearSpec = "main"): string {
   return spec === "off" ? `cgo_off_${characterId}` : `cgo_${characterId}`;
 }
 

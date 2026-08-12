@@ -1,6 +1,8 @@
 import { parsePriorityChain, type PriorityChain } from "@/lib/loot/priority-chain";
 import type { Quality } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * The council's written sheet, read straight out of its markdown.
  *
@@ -212,7 +214,7 @@ export function buildPrioritySheetView(input: PrioritySheetViewInput): PriorityS
       note: o.note,
       itemId: itemIdFor?.(o.itemName),
     }))
-    .sort((a, b) => a.itemName.localeCompare(b.itemName));
+    .sort((a, b) => compareText(a.itemName, b.itemName));
 
   return {
     sections: [...sections].map(([source, rows]) => ({ source, rows })),

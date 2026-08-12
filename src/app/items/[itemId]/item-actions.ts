@@ -2,6 +2,8 @@
 
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import type { Phase } from "@/lib/types";
 
 /**
@@ -29,6 +31,7 @@ export async function setItemCurationAction(
   curation: { phase: Phase | null; source: { zone: string; boss?: string } | null },
 ): Promise<ItemActionResult> {
   try {
+    requireCapability(await resolveViewer(), "items.curate");
     const repo = await getWriteRepo();
     const result = await repo.setItemCuration(itemId, curation);
     if (!result.ok) return { ok: false, message: result.error };

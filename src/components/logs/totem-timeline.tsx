@@ -8,6 +8,8 @@ import { LANE_GRID, mmss, TimeAxis, TimelineLane, timeTicks } from "@/components
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * A stable color per totem so one lane's drops stay readable — earth, air,
  * fire, water, roughly in that order.
@@ -48,7 +50,7 @@ export function TotemTimeline({ fights, totems }: { fights: RaidFight[]; totems:
       for (const d of lane.drops) dropCounts.set(d.name, (dropCounts.get(d.name) ?? 0) + 1);
     }
   }
-  const order = [...dropCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([n]) => n);
+  const order = [...dropCounts].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0])).map(([n]) => n);
   const colorOf = (name: string) => totemColor(order.indexOf(name));
 
   return (

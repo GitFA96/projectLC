@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 
 /**
  * Toggle one reset week as an excused absence for a character. Used by the
@@ -23,6 +25,7 @@ export async function setWeekExcused(input: {
   const parsed = schema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid request." };
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const result = await repo.setAttendanceExemption(
       parsed.data.characterId,

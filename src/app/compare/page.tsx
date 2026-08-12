@@ -22,6 +22,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 export const metadata: Metadata = { title: "Compare characters" };
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -39,6 +43,9 @@ function bestIndices(values: (number | undefined)[], dir: "high" | "low"): Set<n
 }
 
 export default async function ComparePage({ searchParams }: { searchParams: Search }) {
+  const access = await pageView("roster.view", { returnTo: "/compare" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const sp = await searchParams;
   const raw = sp.chars;
   const slugs = (Array.isArray(raw) ? raw : raw ? [raw] : [])
@@ -72,7 +79,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Sear
       spec: s.character.spec,
       status: s.character.status,
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareText(a.name, b.name));
 
   return (
     <div className="space-y-5">

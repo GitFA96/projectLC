@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getRepo } from "@/lib/data/repo";
 import { Nav } from "@/components/nav";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { WowheadRefresher, WowheadScripts } from "@/components/wowhead";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { THEME_SCRIPT } from "@/lib/theme";
@@ -33,18 +34,19 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const repo = await getRepo();
-  const [guild, demand] = await Promise.all([repo.getGuild(), repo.listItemDemand()]);
-  // Slim copy for the nav's instant item lookup (guild scale: a few hundred rows).
-  const searchItems = demand.map((d) => ({
-    itemId: d.itemId,
-    name: d.name,
-    quality: d.quality,
-    icon: d.icon,
-    slot: d.slot,
-    wisherCount: d.wisherCount,
-    openCount: d.openCount,
-    awardCount: d.awardCount,
-  }));
+  /*
+   * The viewer is resolved here now, which it deliberately was not before.
+   *
+   * Reading a cookie in the layout opts every page out of static rendering —
+   * which is why the account menu asks a server action after mount instead.
+   * Read gating has since made every route dynamic anyway, so the cost is
+   * already paid, and the alternative (a third round trip to answer "am I in
+   * this guild") would be worse.
+   */
+  const [guild, viewer] = await Promise.all([repo.getGuild(), resolveViewer()]);
+  // The banner says "you are inside this guild". An outsider on the public
+  // profile is not, and the page they are looking at names the guild anyway.
+  const inside = viewer.unrestricted || viewer.guild !== null;
   return (
     // suppressHydrationWarning: browser extensions (LanguageTool, dark-mode
     // togglers) stamp attributes onto <html> before React hydrates; only this
@@ -60,6 +62,20 @@ export default async function RootLayout({
           reader never gets a white flash. Must stay ahead of the stylesheet's
           first render — hence a raw inline script rather than next/script,
           which does not guarantee pre-paint execution.
+
+          React logs "Encountered a script tag while rendering React component"
+          against this line on every client re-render. It is dev-only noise
+          about correct behaviour — the string appears only in
+          react-dom-client.development.js, never in the production build — and
+          it is saying the script will not run again on the client, which is
+          exactly right: the theme is already stamped and re-running it would
+          achieve nothing. Every way of silencing it is worse. `next/script`
+          with beforeInteractive is documented as not blocking hydration, so the
+          flash comes back; a <template> needs JS to activate it, so the flash
+          comes back; reading the preference from a cookie instead would let the
+          server stamp the class with no script at all, but it reads a cookie
+          during layout render and opts EVERY page out of static rendering.
+          Leave it alone.
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
@@ -68,10 +84,8 @@ export default async function RootLayout({
         <WowheadRefresher />
         <TooltipProvider delayDuration={200}>
           <Nav
-            guildName={guild.name}
-            realm={guild.realm}
-            activePhase={guild.activePhase}
-            searchItems={searchItems}
+            guildName={inside ? guild.name : null}
+            realm={inside ? guild.realm : null}
           />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
           <footer className="border-t py-4 text-center text-xs text-muted-foreground">

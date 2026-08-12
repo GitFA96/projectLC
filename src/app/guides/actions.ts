@@ -2,6 +2,8 @@
 
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 
 /**
  * Writing a class or spec guide.
@@ -26,6 +28,7 @@ export async function saveClassGuideAction(input: {
   author?: string;
 }): Promise<GuideActionResult> {
   try {
+    requireCapability(await resolveViewer(), "guides.edit");
     const repo = await getWriteRepo();
     const result = await repo.setClassGuide({
       wowClass: input.wowClass,

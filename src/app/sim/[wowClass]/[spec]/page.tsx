@@ -13,6 +13,8 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 /**
  * One spec's workbench: its saved setup, and every kill it can be run against.
  *
@@ -38,6 +40,9 @@ export default async function SimSpecPage({
   params: Promise<Params>;
   searchParams: Search;
 }) {
+  const access = await pageView("logs.view", { returnTo: "/sim" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const [{ wowClass: rawClass, spec: rawSpec }, sp] = await Promise.all([params, searchParams]);
   const wowClass = decodeURIComponent(rawClass);
   const spec = decodeURIComponent(rawSpec);

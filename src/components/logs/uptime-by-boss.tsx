@@ -19,6 +19,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { clockTime, PctLane, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
 
+import { compareText } from "@/lib/sort";
+
 /** One provider's up-intervals on one target, as bands over the pull. */
 function SegmentLane({
   provider,
@@ -116,10 +118,10 @@ function groupByTarget(tracks: { name: string; providers: UpkeepFightProvider[] 
   // Comparison reads best clustered per track, best keeper first within each.
   for (const g of list) {
     g.lanes.sort(
-      (a, b) => a.trackIdx - b.trackIdx || b.target.pct - a.target.pct || a.provider.name.localeCompare(b.provider.name),
+      (a, b) => a.trackIdx - b.trackIdx || b.target.pct - a.target.pct || compareText(a.provider.name, b.provider.name),
     );
   }
-  return list.sort((a, b) => Number(b.boss) - Number(a.boss) || b.bestPct - a.bestPct || a.label.localeCompare(b.label));
+  return list.sort((a, b) => Number(b.boss) - Number(a.boss) || b.bestPct - a.bestPct || compareText(a.label, b.label));
 }
 
 /**

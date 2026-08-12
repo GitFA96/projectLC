@@ -69,7 +69,7 @@ function buffTitle(cover: BuffCoverage): string {
   return lines.join("\n");
 }
 
-export function BuffChip({
+function BuffChip({
   cover,
   compact = false,
 }: {

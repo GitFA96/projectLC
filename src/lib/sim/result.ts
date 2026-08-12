@@ -2,6 +2,8 @@ import type { RotationAbility, RotationCast, RotationProfile } from "@/lib/analy
 import { buildOf } from "@/lib/analysis/builds";
 import { refKey, refLabel, type AbilityRef } from "@/lib/items/ability-data";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Reading a wowsims RaidSimResult back into the same shape a logged pull
  * produces, so one comparison engine serves both.
@@ -280,7 +282,7 @@ export function parseSimEvents(logs: string | undefined, names: NameBook): Timed
     const name = labelOfBody(cast[2], names);
     if (name) out.push({ tMs: Math.round(Number.parseFloat(cast[1]) * 1000), name, kind: "cast" });
   }
-  return out.sort((a, b) => a.tMs - b.tMs || a.kind.localeCompare(b.kind));
+  return out.sort((a, b) => a.tMs - b.tMs || compareText(a.kind, b.kind));
 }
 
 /**
@@ -364,7 +366,7 @@ export function simProfile(result: RaidSimResult, opts: SimProfileOptions): Rota
       casts: Math.round(x.casts * 10) / 10,
       ...(x.damage > 0 ? { damage: Math.round(x.damage) } : {}),
     }))
-    .sort((a, b) => b.casts - a.casts || a.name.localeCompare(b.name));
+    .sort((a, b) => b.casts - a.casts || compareText(a.name, b.name));
 
   const timeline = parseSimTimeline(opts.timelineLogs ?? result.logs, names);
 

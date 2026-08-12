@@ -31,7 +31,7 @@ function cacheOf(): Map<string, RaidSimResult> {
   return (globalCache.__projectlcSimCache ??= new Map());
 }
 
-export function simBinaryPath(): string | undefined {
+function simBinaryPath(): string | undefined {
   const p = process.env.WOWSIMCLI_PATH?.trim();
   return p ? p : undefined;
 }

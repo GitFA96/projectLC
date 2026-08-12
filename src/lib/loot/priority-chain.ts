@@ -40,11 +40,6 @@ export function parsePriorityChain(source: string): PriorityChain {
   return { tiers, source: source.trim() };
 }
 
-/** Back to the sheet's own notation, so an edit round-trips unchanged. */
-export function formatPriorityChain(chain: PriorityChain): string {
-  return chain.tiers.map((t) => t.tags.join(" = ")).join(" > ");
-}
-
 export interface TierMatch {
   /** 0-based; lower wins. Undefined when the chain names nobody they satisfy. */
   index?: number;

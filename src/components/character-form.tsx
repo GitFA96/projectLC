@@ -66,7 +66,7 @@ export interface SeenSpec {
  * a whole gear kit, which belongs next to the gear rather than buried in the
  * identity form — but it's still one character, saved in one write.
  */
-export const CHARACTER_FORM_ID = "character-form";
+const CHARACTER_FORM_ID = "character-form";
 
 export function CharacterForm({
   character,

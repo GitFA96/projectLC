@@ -29,7 +29,7 @@ function SetRow({ set, characterName }: { set: GearSetRow; characterName: string
   const [error, setError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
 
-  const updateHref = `/admin/import?character=${encodeURIComponent(characterName)}&kind=${set.kind}${
+  const updateHref = `/guild/import?character=${encodeURIComponent(characterName)}&kind=${set.kind}${
     set.phase ? `&phase=${set.phase}` : ""
   }`;
 
@@ -111,7 +111,7 @@ export function GearSetManager({
           <SetRow key={set.id} set={set} characterName={characterName} />
         ))}
         <Button asChild variant="outline" size="sm">
-          <Link href={`/admin/import?character=${encodeURIComponent(characterName)}`}>
+          <Link href={`/guild/import?character=${encodeURIComponent(characterName)}`}>
             Import another set
           </Link>
         </Button>

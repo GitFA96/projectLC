@@ -11,7 +11,7 @@ import type { ConsumablePrice } from "@/lib/types";
  * from it (Drums ~50, most consumables 1). Cost per use = gold / charges.
  * Conjured/self-made items (mage mana gems, warlock healthstones) are 0 gold.
  */
-export const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
+const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   /* Combat potions (single use) */
   "Haste Potion": { gold: 15, charges: 1 },
   "Destruction Potion": { gold: 17, charges: 1 },

@@ -58,6 +58,10 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 export const metadata: Metadata = { title: "Raid logs" };
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -77,6 +81,9 @@ const SEVERITY_VARIANT: Record<ImprovementSeverity, "destructive" | "warning" | 
 type WclReportList = Awaited<ReturnType<Awaited<ReturnType<typeof getRepo>>["listWclReports"]>>;
 
 export default async function LogsPage({ searchParams }: { searchParams: Search }) {
+  const access = await pageView("logs.view", { returnTo: "/logs" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const sp = await searchParams;
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const seasonMode = requested === "all";
@@ -158,7 +165,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           description="Import a report on the Warcraft Logs tab of the import page — the whole raid's preparation, uptime and cooldown usage rolls up here."
           action={
             <Button asChild size="sm">
-              <Link href="/admin/import?tab=wcl">Import a report</Link>
+              <Link href="/guild/import?tab=wcl">Import a report</Link>
             </Button>
           }
         />
@@ -573,7 +580,7 @@ function RankingsPanel({
   const { usage, upkeep } = raid;
   const cooldownLeaders = [...usage]
     .filter((u) => u.cooldowns > 0)
-    .sort((a, b) => b.cooldowns - a.cooldowns || a.name.localeCompare(b.name));
+    .sort((a, b) => b.cooldowns - a.cooldowns || compareText(a.name, b.name));
 
   // In-fight items thrown this raid drive the (precise) gold toggle here.
   const itemNames = new Set(usage.flatMap((u) => u.itemBreakdown.map((b) => b.name)));
@@ -588,7 +595,7 @@ function RankingsPanel({
           No boss-damage parses in this report, so the boards show all damage only — boss damage
           was added to the importer after this report was fetched. Re-import it on the{" "}
           <Link
-            href="/admin/import?tab=wcl"
+            href="/guild/import?tab=wcl"
             className="font-medium text-foreground underline-offset-2 hover:underline"
           >
             Warcraft Logs tab
@@ -729,7 +736,7 @@ function GoldPanel({
       return { u, inFight, prep, delta, total: inFight + prep + delta, lines, adjusted: mine.length };
     })
     .filter((x) => x.total > 0 || x.adjusted > 0)
-    .sort((a, b) => b.total - a.total || a.u.name.localeCompare(b.u.name));
+    .sort((a, b) => b.total - a.total || compareText(a.u.name, b.u.name));
 
   const raidTotal = ranked.reduce((s, x) => s + x.total, 0);
   const adjustmentTotal = ranked.reduce((s, x) => s + x.delta, 0);
@@ -840,8 +847,8 @@ function GoldPanel({
         key={`adj-${raid.report.code}`}
         code={raid.report.code}
         adjustments={adjustments}
-        raiders={usage.map((u) => u.name).sort((a, b) => a.localeCompare(b))}
-        consumables={[...names].sort((a, b) => a.localeCompare(b))}
+        raiders={usage.map((u) => u.name).sort((a, b) => compareText(a, b))}
+        consumables={[...names].sort((a, b) => compareText(a, b))}
         goldDelta={adjustmentTotal}
       />
 

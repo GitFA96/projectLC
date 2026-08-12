@@ -14,6 +14,8 @@ import type {
 } from "@/lib/types";
 import { prettifyKey } from "@/lib/utils";
 
+import { compareText } from "@/lib/sort";
+
 /** Rings/trinkets are interchangeable pairs — compare by family multiset, never by slot index. */
 function familyKey(slot: SlotId): string {
   return SLOT_FAMILIES[slot] ?? slot;
@@ -60,7 +62,7 @@ export function computeWishlistRows(
     // only runs the one direction.
     const award = onSpecAwards
       .filter((a) => redemptions.delivers(a.itemId, wished.itemId))
-      .sort((a, b) => a.awardedAt.localeCompare(b.awardedAt))[0];
+      .sort((a, b) => compareText(a.awardedAt, b.awardedAt))[0];
 
     return {
       slot: wished.slot,
@@ -135,7 +137,7 @@ export function computeStatDeltas(
   keys.sort((a, b) => {
     const ai = STAT_ORDER.get(a) ?? Number.MAX_SAFE_INTEGER;
     const bi = STAT_ORDER.get(b) ?? Number.MAX_SAFE_INTEGER;
-    return ai === bi ? a.localeCompare(b) : ai - bi;
+    return ai === bi ? compareText(a, b) : ai - bi;
   });
   return keys.map((key) => {
     const cur = current?.[key] ?? 0;

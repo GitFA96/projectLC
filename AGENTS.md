@@ -48,6 +48,11 @@ touch. Most bugs here are complete-looking edits that silently do nothing,
 because a second or third place had to change with them. Start there, not in the
 code.
 
+**[`docs/backlog.md`](docs/backlog.md)** — work that is understood but not
+started, and why. Read it before beginning anything large; multi-guild in
+particular is blocked on a schema decision that should land before a second
+guild exists, not after.
+
 **[`docs/pitfalls.md`](docs/pitfalls.md)** — how this codebase and these docs
 will mislead you. Read it before a refactor that crosses layers. In particular:
 the lists in `docs/` tell you a coupling *exists*, never that the list is
@@ -60,6 +65,7 @@ there. Don't read them all up front.
 
 | Directory | Owns |
 |---|---|
+| `src/lib/auth/` | capabilities, the viewer, and the permission check — **enforcing** |
 | `src/lib/data/` | schema, migrations, the repo boundary, the read-model cache |
 | `src/lib/wcl/` | Warcraft Logs ingest and the curated consumable/class lists |
 | `src/lib/analysis/` | pure derived views — wishlists, gold, priority, uptime |

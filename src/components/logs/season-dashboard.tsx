@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { compareText } from "@/lib/sort";
+
 function uptimeClass(pct: number): string {
   return pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : "";
 }
@@ -29,7 +31,7 @@ function uptimeClass(pct: number): string {
  */
 export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
   const sorted = React.useMemo(
-    () => [...reports].sort((a, b) => b.startTime.localeCompare(a.startTime)),
+    () => [...reports].sort((a, b) => compareText(b.startTime, a.startTime)),
     [reports],
   );
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set(sorted.map((r) => r.code)));

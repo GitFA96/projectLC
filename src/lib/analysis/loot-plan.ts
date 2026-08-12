@@ -25,6 +25,8 @@
 import { TBC_RAIDS } from "@/lib/constants/wow";
 import type { Item, ItemContention, Quality, SlotId } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 export interface LootPlanContender {
   characterId: string;
   name: string;
@@ -152,7 +154,7 @@ export function buildLootPlan(zone: string, entries: LootPlanEntry[]): LootPlan 
         (a, b) =>
           rankOfStatus(a.status) - rankOfStatus(b.status) ||
           b.openCount - a.openCount ||
-          a.name.localeCompare(b.name),
+          compareText(a.name, b.name),
       ),
       contestedCount: list.filter((i) => i.status === "contested").length,
     }))
@@ -162,7 +164,7 @@ export function buildLootPlan(zone: string, entries: LootPlanEntry[]): LootPlan 
       // Unattributed drops sit last, whatever they are called.
       if (a.boss === "") return 1;
       if (b.boss === "") return -1;
-      return ai - bi || a.boss.localeCompare(b.boss);
+      return ai - bi || compareText(a.boss, b.boss);
     });
 
   return {

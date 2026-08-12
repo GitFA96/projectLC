@@ -20,6 +20,8 @@ import { manualTiers, parsePriorityChain, tierFor } from "@/lib/loot/priority-ch
 import { itemDisplayName } from "@/lib/items/item-data";
 import { NO_TOKEN_REDEMPTIONS, type TokenRedemptions } from "@/lib/items/tier-tokens";
 
+import { compareText } from "@/lib/sort";
+
 interface ContentionInput {
   itemId: number;
   item?: Item;
@@ -91,7 +93,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
   // piece's page shows the token award that bought it.
   const itemAwards = awards
     .filter((a) => redemptions.delivers(a.award.itemId, itemId))
-    .sort((a, b) => b.award.awardedAt.localeCompare(a.award.awardedAt));
+    .sort((a, b) => compareText(b.award.awardedAt, a.award.awardedAt));
 
   const wishers: ContentionWisher[] = [];
   // Alts contend only when the council says so (policy.loot.altsContend).
@@ -220,7 +222,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
           notListed: hasAnyList && listed === undefined,
         };
       })
-      .sort((a, b) => b.awardedAt.localeCompare(a.awardedAt));
+      .sort((a, b) => compareText(b.awardedAt, a.awardedAt));
 
     const tier = chain ? tierFor(chain, character) : {};
     wishers.push({
@@ -253,7 +255,7 @@ export function computeItemContention(input: ContentionInput): ItemContention {
     wishers: ranked,
     awards: itemAwards,
     openCount: ranked.filter((w) => !w.satisfied).length,
-    altWishers: altWishers.sort((a, b) => a.localeCompare(b)),
+    altWishers: altWishers.sort((a, b) => compareText(a, b)),
     priorityRule: input.priorityRule,
     manualTiers: chain ? manualTiers(chain) : [],
   };

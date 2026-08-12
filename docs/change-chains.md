@@ -123,6 +123,21 @@ Changing a **primary key or constraint** cannot be done with `addColumn`; SQLite
 needs a table rebuild (create new → copy → drop → rename). There are worked
 examples in `db.ts` (`current_gear_overrides_spec`, `items_relaxed`).
 
+**The `INSERT OR REPLACE` trap.** Several `insert*` writers name their columns
+explicitly and are used as the *update* path — `updateCharacter` calls
+`insertCharacter`. OR REPLACE deletes the row and reinserts it, so a column
+missing from that list is set back to its default on **every update**, not just
+on insert. Nothing fails: the write succeeds, the tests pass, and the field
+empties out whenever somebody edits something unrelated. `characters.membership_id`
+is the live example — an officer fixing a raider's spec would have silently
+unclaimed their account.
+
+Two things follow. Add the column to the writer's list in the same change. And
+if the value is not part of the caller's draft, read it **from the row**, not
+from the read model — `updateCharacter` uses `getCharacterMembershipId` because
+a read model that has not caught up yet would hand back a null and the preserve
+would preserve nothing.
+
 ## 3. Add a per-report setting
 
 **Do not create a table.** Per-report officer settings live in `meta` under a
@@ -728,6 +743,125 @@ both the `CREATE TABLE` entry (fresh databases) and the `addColumn` line (every
 database that already filed a report).
 
 ---
+
+## 11. Add a capability, or gate something with one
+
+**Chain:** `src/lib/auth/capabilities.ts` → at least one enforcement site → the
+role templates a guild starts from → whether it may sit in the **baseline**.
+
+`src/lib/auth/enforcement.test.ts` pins the set of write capabilities with no
+enforcement site at **empty**. It used to be an allowlist of features not yet
+built; it is not any more, so a failure there means a capability was added
+without wiring it up.
+
+Every step fails silently on its own:
+
+- **A capability with no enforcement site** renders as a checkbox in the grant
+  editor that protects nothing. The guild reads it, believes it, and hands out
+  a role on the strength of it. Nothing errors — the permission is simply a
+  claim the app does not keep.
+- **An enforcement site with no capability** is the reverse: a page or action
+  that nothing can grant. Since enforcement went on it is unreachable for
+  everyone but the guild master, immediately and silently.
+- **A capability nobody's role template holds** ships denied to every existing
+  guild. That is the *intended* default (deny by default, §4 of the design
+  doc), but it means adding a capability to gate an existing feature silently
+  takes that feature away from everyone below GM. Grant it in the templates in
+  the same change, or say out loud that it is meant to be re-granted by hand.
+
+- **A capability that hands out capabilities cannot be in the baseline.**
+  `NEVER_BASELINE` refuses it, because every member holds the baseline and any
+  of them could then grant themselves everything — the permission system would
+  still render and mean nothing. That list is drawn at exactly that
+  contradiction and nothing wider: which *other* writes a guild puts under
+  every member is the guild's call, the same way loot weights are, and the
+  editor states the consequence instead of refusing.
+
+**Checks enforce.** `PROJECTLC_AUTH=on` since 2026-08-12, so a check added
+today refuses somebody the moment it is wrong — there is no longer a dormant
+period in which a mistake is invisible. Test the capability, not the call site.
+Reads are gated too now, but by a *different* mechanism: `pageView()` at the top
+of each `page.tsx`, and each `route.ts` for itself. A `requireCapability` in an
+action says nothing about who can read the page that action sits on.
+
+**Hiding a button is not a permission check — but showing one that always
+fails is its own bug.** A `can()` in a component is cosmetic: it stops a raider
+clicking something that would fail. The server action checks again, every time.
+
+The converse is the failure that actually gets reported: a control rendered to
+somebody whose action will refuse it reads as the app being broken, and the
+raider tells an officer who cannot reproduce it. Every editor on the guild page
+was in that state until the settings were gated on the capability each one's
+action requires. When you add a control, gate its *visibility* on the same
+capability its action checks — two expressions of one decision, and neither is
+optional. Exactly the same rule as input validation,
+where the client-side preview is a convenience and never a guarantee — and the
+same failure if you skip it, except this one is a data leak rather than a bad
+row.
+
+See [`src/lib/auth/AGENTS.md`](../src/lib/auth/AGENTS.md) and
+[`guild-and-player-profiles.md`](guild-and-player-profiles.md).
+
+---
+
+## 12. Add a page, or change who may see one
+
+**Chain:** the `page.tsx` → its `pageView()` declaration → the public allowlist
+in `src/lib/auth/pages.test.ts`.
+
+**Every page declares what it needs, in its first two lines.** `pageView()`
+resolves the viewer and either hands it back or refuses; a signed-out visitor
+who needs more than `"public"` is redirected to sign in, and a member who lacks
+the capability gets `<NoAccess>` rather than a 404 — they know the guild exists,
+they are standing in it, and a 404 reads as the site being broken.
+
+The failure this chain exists to catch is an **omission**. A new page with no
+declaration compiles, renders, looks right, and serves whatever it reads to
+anyone with the URL. Nothing else notices, which is why `pages.test.ts`
+enumerates every `page.tsx` and fails when one is undeclared. Treat a failure
+there as the prompt it is; `pageView("public")` is an acceptable answer, but it
+has to be given rather than assumed.
+
+**The public allowlist is a decision, not a default.** That test also pins the
+exact set of routes declared `"public"`. Growing it is a choice about what this
+guild publishes to the world, so it takes a deliberate edit in two places.
+§6 of the design doc draws the line: the public face may show what Warcraft
+Logs already publishes, and may never show the guild's own judgements — the
+ledger, the priority sheet, standing, attendance, comments.
+
+**A page gate is not a write check.** Hiding a page does not stop a POST. The
+server action still calls `requireCapability`, every time, exactly as before —
+these are two independent layers and dropping either is a hole. Same rule as
+§11's "hiding a button is not a permission check", one level up.
+
+**Widening the public face is a four-place change**, and every one of them is
+deliberate on purpose: `PublicProfileInput` (what may be published at all), the
+mapping in `store.ts` (what is actually copied across), `buildPublicProfile`
+(which preset reveals it), and the leak test in `public-profile.test.ts`. The
+projection is never handed an award, a standing or a `status`, so there is no
+filter anybody can forget — but there is also no shortcut. That is the trade §6
+chose over a filtered member page.
+
+**A `route.ts` is not a page either.** `pages.test.ts` walks `page.tsx`, so a
+route handler declares nothing and is gated by nothing. Converting a server
+action into a route handler — which is a *performance* change, and reads like
+one in review — silently drops the `requireCapability` the action carried.
+`src/lib/auth/routes.test.ts` is the counterpart, and it strips comments before
+matching, because the first version of it was satisfied by its own header.
+
+**The layout is not a page, and `pageView()` does not reach it.** Whatever
+`layout.tsx` fetches is serialized into *every* response, including a signed-out
+stranger's — so it may only ask for things an outsider may have.
+`src/app/layout.test.ts` pins that list. This is not hypothetical: the nav's
+item search was handed the whole demand list there, and every anonymous request
+to the public profile carried 1458 item names with `wisherCount` and
+`awardCount` attached, through an app whose pages were all correctly gated. The
+same applies to any component the layout renders for everybody.
+
+**Reading a session makes a route dynamic.** `pageView()` reaches the cookie, so
+every gated page is server-rendered per request and no longer prerendered. That
+is the price of the gate and it is already paid across the app; do not try to
+claw a page back to static by skipping the declaration.
 
 ## Operational chains (things the officer must do, not the code)
 

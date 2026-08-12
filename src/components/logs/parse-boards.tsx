@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ParseBoard, ParseBoardCell } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * The night's parses as a grid — one table per role, a column per boss kill,
  * in the shape Warcraft Logs' own rankings view uses.
@@ -74,7 +76,7 @@ function ParseBoardCard({ board }: { board: ParseBoard }) {
 
   const rows = [...board.rows].sort((a, b) => {
     if (sort.by === "name") {
-      const byName = a.name.localeCompare(b.name);
+      const byName = compareText(a.name, b.name);
       return sort.dir === "asc" ? byName : -byName;
     }
     // The average follows the metric on screen — it's the column people read.
@@ -82,9 +84,9 @@ function ParseBoardCard({ board }: { board: ParseBoard }) {
     const bv = showBoss ? b.bossAvg : b.avg;
     // Unranked raiders sit at the bottom either way: they have nothing to rank.
     if (av === undefined || bv === undefined) {
-      return (av === undefined ? 1 : 0) - (bv === undefined ? 1 : 0) || a.name.localeCompare(b.name);
+      return (av === undefined ? 1 : 0) - (bv === undefined ? 1 : 0) || compareText(a.name, b.name);
     }
-    return (sort.dir === "desc" ? bv - av : av - bv) || a.name.localeCompare(b.name);
+    return (sort.dir === "desc" ? bv - av : av - bv) || compareText(a.name, b.name);
   });
 
   return (

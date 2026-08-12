@@ -32,6 +32,8 @@ import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { summarizePerformance } from "@/lib/analysis/performance";
 import type { WclPlayerFight } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /** The report facts a night needs. Any shape carrying them works. */
 export interface DevelopmentReport {
   code: string;
@@ -55,7 +57,7 @@ export interface DevelopmentNight {
   potionsPerFight: number;
 }
 
-export const DEVELOPMENT_METRICS = ["performance", "preparation"] as const;
+const DEVELOPMENT_METRICS = ["performance", "preparation"] as const;
 export type DevelopmentMetricKey = (typeof DEVELOPMENT_METRICS)[number];
 
 export interface DevelopmentTrend {
@@ -111,7 +113,7 @@ export function buildDevelopmentSeries(
   }
 
   const nights: DevelopmentNight[] = [...reports]
-    .sort((a, b) => a.startTime.localeCompare(b.startTime))
+    .sort((a, b) => compareText(a.startTime, b.startTime))
     .flatMap((report) => {
       const mine = rowsByReport.get(report.code);
       if (mine === undefined || mine.length === 0) return [];

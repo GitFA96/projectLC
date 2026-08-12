@@ -14,6 +14,8 @@ import type {
   SeasonUptimeRow,
 } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Cross-raid rollup over a set of reports: per-raider consumable/gold/death
  * tallies with per-raid MEDIANS (a single wild night doesn't crown anyone),
@@ -124,7 +126,7 @@ export function summarizeSeason(reports: SeasonReportInput[]): SeasonRankingsVie
       deathsTotal: a.deaths.reduce((s, n) => s + n, 0),
       deathsMedianPerRaid: round1(median(a.deaths)),
     }))
-    .sort((a, b) => b.goldTotal - a.goldTotal || a.name.localeCompare(b.name));
+    .sort((a, b) => b.goldTotal - a.goldTotal || compareText(a.name, b.name));
 
   const uptime: SeasonUptimeRow[] = [...trackMap]
     .map(([name, t]) => ({
@@ -133,9 +135,9 @@ export function summarizeSeason(reports: SeasonReportInput[]): SeasonRankingsVie
       className: t.className,
       providers: [...t.providers.values()]
         .map((p) => ({ name: p.name, slug: p.slug, pct: Math.round(p.sum / Math.max(1, p.raids)), raids: p.raids }))
-        .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name)),
+        .sort((a, b) => b.pct - a.pct || compareText(a.name, b.name)),
     }))
-    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (b.providers[0]?.pct ?? 0) - (a.providers[0]?.pct ?? 0) || a.name.localeCompare(b.name));
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (b.providers[0]?.pct ?? 0) - (a.providers[0]?.pct ?? 0) || compareText(a.name, b.name));
 
   return {
     reportCount: reports.length,

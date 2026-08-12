@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { COMMENT_CATEGORIES } from "@/lib/comments";
 
 /**
@@ -27,6 +29,7 @@ export async function addComment(input: {
   const parsed = addSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid comment." };
   try {
+    requireCapability(await resolveViewer(), "comments.write");
     const repo = await getWriteRepo();
     const result = await repo.addCharacterComment({
       characterId: parsed.data.characterId,
@@ -47,6 +50,7 @@ export async function deleteComment(input: {
 }): Promise<{ ok: boolean; message?: string }> {
   if (!input.commentId) return { ok: false, message: "Missing comment id." };
   try {
+    requireCapability(await resolveViewer(), "comments.write");
     const repo = await getWriteRepo();
     const removed = await repo.deleteCharacterComment(input.commentId);
     if (!removed) return { ok: false, message: "Comment not found — it may already be gone." };

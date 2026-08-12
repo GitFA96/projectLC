@@ -37,7 +37,7 @@ import {
   commitSixtyUpgrades,
   type GargulCommitActionResult,
   type SixtyCommitResult,
-} from "@/app/admin/import/actions";
+} from "@/app/guild/import/actions";
 import {
   deleteWclReportAction,
   deleteWclReportsAction,
@@ -45,7 +45,7 @@ import {
   updateWclReportMetaAction,
   importWclReport,
   type WclImportActionResult,
-} from "@/app/admin/import/wcl-actions";
+} from "@/app/guild/import/wcl-actions";
 import { parseReportCodes } from "@/lib/wcl/report-codes";
 import { ActionResultLine, DangerButton, useRosterAction } from "@/components/roster-actions";
 

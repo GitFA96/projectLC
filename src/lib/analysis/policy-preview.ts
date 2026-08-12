@@ -12,6 +12,8 @@
  * read models and hands in the two sets of figures.
  */
 
+import { compareText } from "@/lib/sort";
+
 /** One raider's before/after on the figures a policy change can move. */
 export interface PolicyPreviewRow {
   name: string;
@@ -57,7 +59,7 @@ export function buildPolicyPreview(rows: PolicyPreviewRow[]): PolicyPreview {
       (r) =>
         r.preparedBefore !== r.preparedAfter || r.attendanceBefore !== r.attendanceAfter,
     )
-    .sort((a, b) => magnitude(b) - magnitude(a) || a.name.localeCompare(b.name));
+    .sort((a, b) => magnitude(b) - magnitude(a) || compareText(a.name, b.name));
 
   return {
     moved,

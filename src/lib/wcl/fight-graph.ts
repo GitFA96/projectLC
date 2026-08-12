@@ -3,6 +3,8 @@ import { WclError, wclQuery } from "@/lib/wcl/client";
 import { SAPPER_CAST_NAMES, TRACKED_CAST_IDS, classifyAura, classifyCast } from "@/lib/wcl/consumables";
 import { COOLDOWN_BY_ID, COOLDOWN_CAST_IDS } from "@/lib/wcl/class-tracks";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * On-demand per-player fight graph: the DPS-over-time series for one pull,
  * with the moments that explain it — class-cooldown and consumable casts, and
@@ -426,7 +428,7 @@ export async function fetchFightGraph(code: string, fightId: number, actorName: 
       };
     })
     .filter((b) => b.segments.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => compareText(a.name, b.name))
     .slice(0, 24);
 
   /* Boss health %: Resources graph, series data is [timestamp, pct] pairs.

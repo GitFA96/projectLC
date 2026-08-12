@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 import { getRepo, getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
 import type { Quality } from "@/lib/types";
 
@@ -30,6 +32,7 @@ export async function resolveAwardAction(input: ResolveAwardInput): Promise<Reso
   if (!parsed.success) return { ok: false, message: "Invalid resolution request." };
 
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const data = parsed.data;
     const result = await repo.resolveAward(
@@ -119,6 +122,7 @@ export async function addAwardAction(input: AddAwardInput): Promise<LootActionRe
   const parsed = addAwardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid award." };
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const built = await buildAwardInput(repo, parsed.data);
     if ("error" in built) return { ok: false, message: built.error };
@@ -135,6 +139,7 @@ export async function updateAwardAction(input: UpdateAwardInput): Promise<LootAc
   const parsed = updateAwardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid award." };
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const built = await buildAwardInput(repo, parsed.data);
     if ("error" in built) return { ok: false, message: built.error };
@@ -154,6 +159,7 @@ export async function deleteAwardsAction(input: DeleteAwardsInput): Promise<Loot
   const parsed = deleteAwardsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Nothing selected to delete." };
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     let deleted = 0;
     for (const id of parsed.data.awardIds) {
@@ -173,6 +179,7 @@ export async function deleteSessionAction(input: DeleteSessionInput): Promise<Lo
   const parsed = deleteSessionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Invalid request." };
   try {
+    requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
     const result = await repo.deleteRaidSession(parsed.data.sessionId);
     if (!result.ok) return { ok: false, message: result.error };

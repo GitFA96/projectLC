@@ -34,7 +34,7 @@ export interface AdjustedLine extends ConsumableLine {
 }
 
 /** Case- and space-insensitive, so "super mana potion" matches the logged name. */
-export function normalizeConsumableName(name: string): string {
+function normalizeConsumableName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 

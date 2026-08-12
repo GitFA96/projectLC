@@ -3,6 +3,8 @@ import { auditHeadline, auditSimContext, bossDebuffUptime, playerBuffUptime } fr
 import type { IndividualSimSettings } from "@/lib/sim/request";
 import type { WclPlayerFight } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /** Katzewarr's real Void Reaver pull, trimmed to the fields the audit reads. */
 function pull(over: Partial<WclPlayerFight> = {}): WclPlayerFight {
   return {
@@ -529,7 +531,7 @@ describe("auditSimContext", () => {
     // Was "differences first", which reads well the first time and badly every
     // time after — you come back to this table looking for one row.
     const names = audit.rows.map((r) => r.name);
-    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect(names).toEqual([...names].sort((a, b) => compareText(a, b)));
   });
 
   describe("a spell-damage debuff is a row like any other", () => {

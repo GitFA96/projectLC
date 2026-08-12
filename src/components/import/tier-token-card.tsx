@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Coins, RefreshCw } from "lucide-react";
-import { backfillTierTokens, type BackfillTokensResult } from "@/app/admin/import/item-actions";
+import { backfillTierTokens, type BackfillTokensResult } from "@/app/guild/import/item-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 

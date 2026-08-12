@@ -7,7 +7,7 @@ import {
   resolveSheetItemNames,
   type BackfillItemsResult,
   type SheetNameResult,
-} from "@/app/admin/import/item-actions";
+} from "@/app/guild/import/item-actions";
 import type { UnmatchedName } from "@/lib/items/wowhead";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

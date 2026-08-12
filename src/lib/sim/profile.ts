@@ -1,6 +1,8 @@
 import type { WclPlayerFight } from "@/lib/types";
 import { talentsToTreePoints, type IndividualSimSettings } from "@/lib/sim/request";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * A sim setup belongs to a class and spec, not to a raider — and this module is
  * how we tell whether the raider we're about to point it at is actually that
@@ -65,7 +67,7 @@ export function professionsOfSettings(settings: IndividualSimSettings): string[]
 }
 
 /** Points per talent tree, from whichever form the side has it in. */
-export function treePointsOfSettings(settings: IndividualSimSettings): number[] | undefined {
+function treePointsOfSettings(settings: IndividualSimSettings): number[] | undefined {
   const s = settings.player?.talentsString;
   return s ? talentsToTreePoints(s) : undefined;
 }
@@ -128,7 +130,7 @@ export function specFingerprints(pulls: readonly WclPlayerFight[]): SpecFingerpr
       key,
       [...inner]
         .map(([spec, pulls]) => ({ spec, pulls }))
-        .sort((a, b) => b.pulls - a.pulls || a.spec.localeCompare(b.spec)),
+        .sort((a, b) => b.pulls - a.pulls || compareText(a.spec, b.spec)),
     );
   }
   return out;
@@ -308,7 +310,3 @@ export function profileCheck(input: ProfileCheckInput): ProfileCheckRow[] {
   return rows;
 }
 
-/** The rows worth interrupting for — a shared profile pointed at the wrong build. */
-export function profileCheckWarnings(rows: ProfileCheckRow[]): ProfileCheckRow[] {
-  return rows.filter((r) => r.state === "differs");
-}

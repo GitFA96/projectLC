@@ -165,7 +165,7 @@ export function elixirCategoryOf(label: string): ElixirSlot | undefined {
  * as `elixirCategoryOf`, and for the same reason: the alternative is telling a
  * raider they turned up unfed until somebody re-imports a season of logs.
  */
-export const NAMED_FOOD_LABELS: readonly string[] = AURA_DEFS.filter(
+const NAMED_FOOD_LABELS: readonly string[] = AURA_DEFS.filter(
   (d) => d.category === "food",
 ).map((d) => d.label);
 
@@ -343,7 +343,7 @@ export interface TrackedCast {
  * Spell IDs of in-combat consumable casts worth counting. These are the spell
  * ids the cast event reports (= the use-effect of the item).
  */
-export const TRACKED_CASTS: TrackedCast[] = [
+const TRACKED_CASTS: TrackedCast[] = [
   { id: 28507, name: "Haste Potion", category: "potion" },
   { id: 28508, name: "Destruction Potion", category: "potion" },
   { id: 28494, name: "Insane Strength Potion", category: "potion" },

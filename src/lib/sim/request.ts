@@ -80,7 +80,7 @@ export function talentsToTreePoints(talentsString: string): number[] {
  * of the same pull — which is worse than useless when the officer is trying to
  * tell a rotation problem from noise. 3,000 costs a fraction of a second here.
  */
-export const MIN_ITERATIONS = 3000;
+const MIN_ITERATIONS = 3000;
 
 export interface SimOverrides {
   /** Worn gear from the pull. Omit to keep whatever the saved settings carry. */

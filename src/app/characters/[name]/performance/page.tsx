@@ -49,6 +49,10 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 type Params = { name: string };
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
@@ -141,6 +145,9 @@ export default async function PerformancePage({
   params: Promise<Params>;
   searchParams: Search;
 }) {
+  const access = await pageView("logs.view", { returnTo: "/roster" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const [{ name }, sp] = await Promise.all([params, searchParams]);
   const repo = await getRepo();
   const perf = await repo.getCharacterPerformance(decodeURIComponent(name));
@@ -240,7 +247,7 @@ export default async function PerformancePage({
           description="Import a report on the Warcraft Logs tab of the import page — every raider in the log gets their pulls, parses and consumable usage recorded."
           action={
             <Button asChild size="sm">
-              <Link href="/admin/import?tab=wcl">Import a report</Link>
+              <Link href="/guild/import?tab=wcl">Import a report</Link>
             </Button>
           }
         />
@@ -654,7 +661,7 @@ function countedList(values: string[]): string {
   const counts = new Map<string, number>();
   for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
   return [...counts]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
     .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
     .join(" · ");
 }
@@ -821,7 +828,7 @@ function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
   const tally = (names: string[]) => {
     const counts = new Map<string, number>();
     for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
-    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return [...counts].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]));
   };
   const groups: { label: string; entries: [string, number][] }[] = [
     { label: "Off-pull potions", entries: tally(offPull.potions) },

@@ -2,6 +2,8 @@
 
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 
 /**
  * Recording what a raider will take when their BiS doesn't drop.
@@ -17,6 +19,7 @@ export async function saveWishlistAlternativesAction(input: {
   items: { itemId: number; itemName?: string; note?: string }[];
 }): Promise<{ ok: boolean; message: string }> {
   try {
+    requireCapability(await resolveViewer(), "roster.edit");
     const repo = await getWriteRepo();
     const result = await repo.setWishlistAlternatives(input);
     if (!result.ok) return { ok: false, message: result.error };

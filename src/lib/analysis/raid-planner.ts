@@ -7,6 +7,8 @@ import {
 import { CLASS_SPECS, WOW_CLASSES, type WowClass } from "@/lib/constants/wow";
 import type { WclPlayerFight, WclRole } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Raid board: who stands in which group, and what that buys.
  *
@@ -155,7 +157,7 @@ export const emptyBoard = (groups: number = GROUP_COUNT): Board => ({
 });
 
 /** Boards run from one group to eight — a raid frame has no more room than that. */
-export const clampGroupCount = (n: number): number =>
+const clampGroupCount = (n: number): number =>
   Math.min(Math.max(Math.round(Number.isFinite(n) ? n : GROUP_COUNT), 1), GROUP_COUNT);
 
 /** What a group is called: the officer's name for it, or its number. */
@@ -255,7 +257,7 @@ function toSlot(entry: unknown): BoardSlot | undefined {
 }
 
 /** Every name placed in a group, in board order. */
-export const assignedNames = (comp: Board): string[] =>
+const assignedNames = (comp: Board): string[] =>
   comp.groups.flat().map((s) => s.name);
 
 /**
@@ -400,13 +402,13 @@ export function slotOf(
 }
 
 /** A slot sitting on a stored bench, if this board keeps one. */
-export function benchSlotOf(comp: Board, ref: SlotRef): BoardSlot | undefined {
+function benchSlotOf(comp: Board, ref: SlotRef): BoardSlot | undefined {
   const key = keyOf(ref);
   return comp.bench?.find((s) => slotKey(s) === key);
 }
 
 /** The lowest-numbered group with room, or undefined when the board is full. */
-export function firstOpenGroup(comp: Board): number | undefined {
+function firstOpenGroup(comp: Board): number | undefined {
   const index = comp.groups.findIndex((g) => g.length < GROUP_SIZE);
   return index < 0 ? undefined : index;
 }
@@ -833,8 +835,8 @@ export function boardView(
     .sort(
       (a, b) =>
         scopeOrder[a.buff.scope] - scopeOrder[b.buff.scope] ||
-        a.buff.category.localeCompare(b.buff.category) ||
-        a.buff.name.localeCompare(b.buff.name),
+        compareText(a.buff.category, b.buff.category) ||
+        compareText(a.buff.name, b.buff.name),
     );
 
   const roles: Record<WclRole, number> = { tank: 0, healer: 0, dps: 0 };
@@ -865,7 +867,7 @@ export function boardView(
     roles,
     classes: [...classCounts]
       .map(([wowClass, count]) => ({ wowClass, count }))
-      .sort((a, b) => b.count - a.count || a.wowClass.localeCompare(b.wowClass)),
+      .sort((a, b) => b.count - a.count || compareText(a.wowClass, b.wowClass)),
     assigned: assigned.length,
   };
 }
@@ -972,7 +974,7 @@ export function partiesFromLogs(rows: readonly WclPlayerFight[]): RecoveredParty
   }
 
   return [...seen.values()].sort(
-    (a, b) => b.members.length - a.members.length || b.pulls - a.pulls || a.wearer.localeCompare(b.wearer),
+    (a, b) => b.members.length - a.members.length || b.pulls - a.pulls || compareText(a.wearer, b.wearer),
   );
 }
 
@@ -1032,7 +1034,7 @@ export function poolFromPullRows(rows: readonly WclPlayerFight[]): PoolMember[] 
       const specs = new Map<string, number>();
       for (const r of actorRows) if (r.spec) specs.set(r.spec, (specs.get(r.spec) ?? 0) + 1);
       const ranked = [...specs]
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
         .map(([spec]) => spec);
       return {
         name,
@@ -1044,7 +1046,7 @@ export function poolFromPullRows(rows: readonly WclPlayerFight[]): PoolMember[] 
         broughtBuffs: buffsProvidedBy(actorRows),
       } satisfies PoolMember;
     })
-    .sort((a, b) => b.pulls - a.pulls || a.name.localeCompare(b.name));
+    .sort((a, b) => b.pulls - a.pulls || compareText(a.name, b.name));
 }
 
 /* --------------------------------------------------- the template's palette */
@@ -1057,7 +1059,7 @@ export interface Archetype {
   name: string;
 }
 
-export const archetypeName = (wowClass: string, spec: string) => `${spec} ${wowClass}`;
+const archetypeName = (wowClass: string, spec: string) => `${spec} ${wowClass}`;
 
 /**
  * Spec names the logs emit that the guild doesn't plan with.
@@ -1103,7 +1105,7 @@ export function archetypePalette(
   }
 
   return [...out.values()].sort(
-    (a, b) => a.wowClass.localeCompare(b.wowClass) || a.spec.localeCompare(b.spec),
+    (a, b) => compareText(a.wowClass, b.wowClass) || compareText(a.spec, b.spec),
   );
 }
 
@@ -1303,7 +1305,7 @@ export function poolFromRoster(roster: readonly RosterMember[]): PoolMember[] {
       (a, b) =>
         (a.rosterStatus === "alt" ? 1 : 0) - (b.rosterStatus === "alt" ? 1 : 0) ||
         classOrder(a.wowClass) - classOrder(b.wowClass) ||
-        a.name.localeCompare(b.name),
+        compareText(a.name, b.name),
     );
 }
 
@@ -1328,7 +1330,7 @@ export function withProspects(
   }
   // Appended, and by class among themselves — the same rule the roster follows,
   // so the bench reads the same way in all three of its sections.
-  extra.sort((a, b) => classOrder(a.wowClass) - classOrder(b.wowClass) || a.name.localeCompare(b.name));
+  extra.sort((a, b) => classOrder(a.wowClass) - classOrder(b.wowClass) || compareText(a.name, b.name));
   return [...pool, ...extra];
 }
 
@@ -1430,7 +1432,7 @@ export interface BoardSelection {
   reportCode?: string;
 }
 
-export const ROSTER_BOARD_PREFIX = "roster:";
+const ROSTER_BOARD_PREFIX = "roster:";
 
 /** The `?board=` value for one of the guild's rosters. */
 export const rosterBoardKey = (id: string) => `${ROSTER_BOARD_PREFIX}${id}`;

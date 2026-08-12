@@ -243,7 +243,7 @@ export function bossOrder(encounterName: string): number {
   return raid.bosses.findIndex((b) => bossKey(b) === bossKey(encounterName));
 }
 
-export const ZONE_TO_PHASE: Record<string, Phase> = Object.fromEntries(
+const ZONE_TO_PHASE: Record<string, Phase> = Object.fromEntries(
   PHASES.flatMap((p) => p.zones.map((z) => [z, p.phase])),
 );
 
@@ -277,7 +277,7 @@ export function phaseForZones(zones: string[]): Phase | undefined {
 }
 
 /** Canonical class colors — use as backgrounds/accents (chips, bars). */
-export const CLASS_COLORS: Record<WowClass, string> = {
+const CLASS_COLORS: Record<WowClass, string> = {
   Druid: "#FF7C0A",
   Hunter: "#AAD372",
   Mage: "#3FC7EB",
@@ -366,7 +366,7 @@ export const QUALITY_TEXT_COLORS: Record<Quality, string> = {
  * Display metadata for known stat keys (label + order). StatBlocks are open maps:
  * unknown keys are still displayed, prettified, after the known ones.
  */
-export const STAT_META: { key: string; label: string }[] = [
+const STAT_META: { key: string; label: string }[] = [
   { key: "health", label: "Health" },
   { key: "mana", label: "Mana" },
   { key: "armor", label: "Armor" },
@@ -464,11 +464,6 @@ export const STATUS_HELP: Record<CharacterStatus, string> = {
   inactive: "Left the roster. Kept so their loot history still explains itself.",
   pug: "A known player from outside the guild.",
 };
-
-/** Statuses that count as the guild's own roster (vs known off-roster players). */
-export function isGuildMember(status: CharacterStatus): boolean {
-  return status !== "pug";
-}
 
 export const GEAR_SET_KINDS = ["current", "wishlist"] as const;
 export const GEAR_SET_SOURCES = ["sixtyupgrades", "seed", "manual"] as const;

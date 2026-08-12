@@ -1180,9 +1180,10 @@ describe("poolFromRoster", () => {
   });
 
   it("offers the off-spec as a second option, and no options at all with one spec", () => {
-    // By name, not by position: `localeCompare` follows the machine's locale,
-    // and this guild's is one where "aa" collates as "å" — so a test that
-    // indexed into the sorted array would pass or fail by where it was run.
+    // By name, not by position. The order itself is now stable everywhere
+    // (`compareText`, src/lib/sort.ts), but a test that indexed into a sorted
+    // array would still break the day the sort key changes, which is a worse
+    // failure than it looks: it reports a comparator change as a spec bug.
     const pool = poolFromRoster([
       rosterMember({ name: "Duospec", spec: "Fury", offSpec: "Protection" }),
       rosterMember({ name: "Monospec", spec: "Fury", offSpec: undefined }),

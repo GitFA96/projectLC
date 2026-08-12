@@ -18,6 +18,10 @@ import type { ItemRef } from "@/components/item-link";
 import type { QuickSearchItem } from "@/lib/analysis/quick-search";
 import type { CurrentGearOverride, GearSet, Item, SlotItem } from "@/lib/types";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 type Params = { name: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
@@ -39,6 +43,9 @@ function toRow(set: GearSet): GearSetRow {
 }
 
 export default async function CharacterEditPage({ params }: { params: Promise<Params> }) {
+  const access = await pageView("roster.edit", { returnTo: "/roster" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const { name } = await params;
   const repo = await getRepo();
   const decoded = decodeURIComponent(name);
@@ -53,7 +60,7 @@ export default async function CharacterEditPage({ params }: { params: Promise<Pa
   const mains: MainOption[] = (await repo.listCharacters())
     .filter((s) => s.character.id !== bundle.character.id && s.character.status !== "pug")
     .map((s) => ({ id: s.character.id, name: s.character.name, wowClass: s.character.class }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareText(a.name, b.name));
 
   // Specs their logs actually show, most-played first — the evidence that an
   // off-spec exists at all. WCL only says tank/healer/dps, so a role is only

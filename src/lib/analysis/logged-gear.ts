@@ -1,6 +1,8 @@
 import { GEAR_SLOT_IDS, GEAR_SLOT_LABELS } from "@/lib/wcl/enchants";
 import type { Quality, SlotId, WclPlayerFight } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * What a raider actually wore, summarised per slot.
  *
@@ -146,7 +148,7 @@ export function buildLoggedGear(
         void rank; // ordering only — callers get recency from `current`/`lastSeen`
         return {
           ...option,
-          encounters: [...encounters].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+          encounters: [...encounters].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0])),
           current: i === 0,
         };
       });

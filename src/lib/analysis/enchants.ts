@@ -1,6 +1,8 @@
 import { ENCHANT_NAMES, GEAR_SLOT_IDS } from "@/lib/wcl/enchants";
 import type { GearSet, Role, SlotId, WowClass } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Reading a raider's enchants out of a log — by name, and against what their
  * own list asks for.
@@ -129,9 +131,9 @@ export function buildEnchantReference(
     names: [...names.values()].sort((a, b) => a.id - b.id),
     consensus: consensus.sort(
       (a, b) =>
-        a.wowClass.localeCompare(b.wowClass) ||
-        a.role.localeCompare(b.role) ||
-        a.slot.localeCompare(b.slot),
+        compareText(a.wowClass, b.wowClass) ||
+        compareText(a.role, b.role) ||
+        compareText(a.slot, b.slot),
     ),
   };
 }

@@ -10,6 +10,8 @@ import { PrioritySheetEditor } from "@/components/loot/priority-sheet-editor";
 import { EmptyState } from "@/components/empty-state";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Priority sheet" };
 
 /**
@@ -25,6 +27,9 @@ export default async function PrioritySheetPage({
 }: {
   searchParams: Promise<{ phase?: string }>;
 }) {
+  const access = await pageView("priority.view", { returnTo: "/loot/priority" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const { phase: phaseParam } = await searchParams;
   const repo = await getRepo();
   const guild = await repo.getGuild();

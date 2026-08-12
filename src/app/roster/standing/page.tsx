@@ -8,9 +8,14 @@ import { StandingBoardView, type StandingBoardRow } from "@/components/roster/st
 import type { StandingBoard } from "@/lib/analysis/standing";
 import type { WowClass } from "@/lib/constants/wow";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Standing" };
 
 export default async function StandingPage() {
+  const access = await pageView("roster.view", { returnTo: "/roster/standing" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const [standing, characters, policy] = await Promise.all([
     repo.getRosterStanding(),

@@ -1,5 +1,7 @@
 import { buildOf, type BuildInfo } from "@/lib/analysis/builds";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * A rotation as a comparable profile — what was pressed, how often, and when.
  *
@@ -74,7 +76,7 @@ function tally(casts: CastEvent[]): RotationAbility[] {
   for (const c of casts) byName.set(c.name, (byName.get(c.name) ?? 0) + 1);
   return [...byName]
     .map(([name, n]) => ({ name, casts: n }))
-    .sort((a, b) => b.casts - a.casts || a.name.localeCompare(b.name));
+    .sort((a, b) => b.casts - a.casts || compareText(a.name, b.name));
 }
 
 export function profileFromCasts(input: {
@@ -289,7 +291,7 @@ export function compareRotations(a: RotationProfile, b: RotationProfile, openerS
         ...(aEst.has(name) ? { aEstimated: true } : {}),
       };
     })
-    .sort((x, y) => Math.abs(y.perMinDelta) - Math.abs(x.perMinDelta) || x.name.localeCompare(y.name));
+    .sort((x, y) => Math.abs(y.perMinDelta) - Math.abs(x.perMinDelta) || compareText(x.name, y.name));
 
   const aOpen = a.timeline ?? [];
   const bOpen = b.timeline ?? [];

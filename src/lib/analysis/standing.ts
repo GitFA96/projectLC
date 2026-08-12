@@ -28,10 +28,12 @@
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type { CharacterStatus, RaiderMetrics } from "@/lib/types";
 
-export const STANDING_KPIS = ["attendance", "performance", "preparation"] as const;
+import { compareText } from "@/lib/sort";
+
+const STANDING_KPIS = ["attendance", "performance", "preparation"] as const;
 export type StandingKpiKey = (typeof STANDING_KPIS)[number];
 
-export const STANDING_KPI_LABELS: Record<StandingKpiKey, string> = {
+const STANDING_KPI_LABELS: Record<StandingKpiKey, string> = {
   attendance: "Attendance",
   performance: "Median parse",
   preparation: "Preparation",
@@ -301,10 +303,10 @@ export function buildStandingBoard(
   // Lowest first; the unranked sit at the end, because they are a question
   // rather than an answer.
   rows.sort((a, b) => {
-    if (a.standing === undefined && b.standing === undefined) return a.name.localeCompare(b.name);
+    if (a.standing === undefined && b.standing === undefined) return compareText(a.name, b.name);
     if (a.standing === undefined) return 1;
     if (b.standing === undefined) return -1;
-    return a.standing - b.standing || a.name.localeCompare(b.name);
+    return a.standing - b.standing || compareText(a.name, b.name);
   });
 
   const pool = raiders.filter(placeable).length;

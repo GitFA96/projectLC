@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
+import { requireCapability } from "@/lib/auth/can";
+import { resolveViewer } from "@/lib/auth/viewer";
 
 const priceSchema = z.object({
   gold: z.number().min(0).max(1_000_000),
@@ -22,6 +24,7 @@ export async function saveReportConsumablePrices(input: SavePricesInput): Promis
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Those prices don't look valid." };
   try {
+    requireCapability(await resolveViewer(), "logs.edit");
     const repo = await getWriteRepo();
     await repo.setReportConsumablePrices(parsed.data.code, parsed.data.prices);
     refreshAfterWrite("/logs");
@@ -48,6 +51,7 @@ export async function saveReportFightFilter(input: SaveFightFilterInput): Promis
   const parsed = fightFilterSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "That pull selection doesn't look valid." };
   try {
+    requireCapability(await resolveViewer(), "logs.edit");
     const repo = await getWriteRepo();
     await repo.setReportExcludedFights(parsed.data.code, parsed.data.excludedFightIds);
     refreshAfterWrite("/logs");
@@ -89,6 +93,7 @@ export async function saveReportConsumableAdjustments(
     return { ok: false, message: parsed.error.issues[0]?.message ?? "That adjustment doesn't look valid." };
   }
   try {
+    requireCapability(await resolveViewer(), "logs.edit");
     const repo = await getWriteRepo();
     await repo.setReportConsumableAdjustments(parsed.data.code, parsed.data.adjustments);
     refreshAfterWrite("/", "layout");

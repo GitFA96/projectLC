@@ -47,6 +47,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { canSeeCharacter } from "@/lib/auth/can";
 type Params = { name: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
@@ -80,6 +83,19 @@ export default async function CharacterPage({
   params: Promise<Params>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  /*
+   * Gated at "member", then again per character below.
+   *
+   * `roster.view` cannot be the gate on its own: a raider must be able to reach
+   * **their own** character without it, because seeing your own record is
+   * ownership rather than a grant — express it as a capability and a guild
+   * master can switch it off by accident, taking away the reason a raider signs
+   * in at all. `canSeeCharacter` is that rule, and it needs the character, so
+   * the second half waits until the bundle is loaded.
+   */
+  const access = await pageView("member", { returnTo: "/roster" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const [{ name }, sp] = await Promise.all([params, searchParams]);
   const repo = await getRepo();
   const [guild, bundle, sessions, performance, items] = await Promise.all([
@@ -90,6 +106,9 @@ export default async function CharacterPage({
     repo.listItems(),
   ]);
   if (!bundle) notFound();
+  if (!canSeeCharacter(access.viewer, bundle.character.id)) {
+    return <NoAccess reason="This page needs the “See the roster” permission, unless it is your own character." />;
+  }
   const { character, current, wishlists, awards, summary, comments, currentOverrides, importedCurrent } =
     bundle;
 
@@ -357,7 +376,7 @@ export default async function CharacterPage({
           description="Import a SixtyUpgrades set as current gear or a phase wishlist to populate this profile."
           action={
             <Button asChild size="sm">
-              <Link href={`/admin/import?character=${encodeURIComponent(character.name)}`}>
+              <Link href={`/guild/import?character=${encodeURIComponent(character.name)}`}>
                 Import for {character.name}
               </Link>
             </Button>
@@ -422,7 +441,7 @@ export default async function CharacterPage({
                     )}
                     {" · "}
                     <Link
-                      href={`/admin/import?character=${encodeURIComponent(character.name)}&kind=current`}
+                      href={`/guild/import?character=${encodeURIComponent(character.name)}&kind=current`}
                       className="font-medium text-foreground underline-offset-2 hover:underline"
                     >
                       Update
@@ -465,7 +484,7 @@ export default async function CharacterPage({
                   action={
                     <Button asChild size="sm" variant="outline">
                       <Link
-                        href={`/admin/import?character=${encodeURIComponent(character.name)}&kind=current`}
+                        href={`/guild/import?character=${encodeURIComponent(character.name)}&kind=current`}
                       >
                         Import current gear
                       </Link>

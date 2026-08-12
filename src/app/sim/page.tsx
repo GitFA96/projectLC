@@ -12,6 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
+import { compareText } from "@/lib/sort";
+
 export const metadata: Metadata = { title: "Sim" };
 
 /**
@@ -39,12 +43,15 @@ function bySpec(specs: SimSpecView[]): { wowClass: string; specs: SimSpecView[] 
   return [...byClass]
     .map(([wowClass, list]) => ({
       wowClass,
-      specs: [...list].sort((a, b) => b.kills - a.kills || a.spec.localeCompare(b.spec)),
+      specs: [...list].sort((a, b) => b.kills - a.kills || compareText(a.spec, b.spec)),
     }))
-    .sort((a, b) => a.wowClass.localeCompare(b.wowClass));
+    .sort((a, b) => compareText(a.wowClass, b.wowClass));
 }
 
 export default async function SimIndexPage() {
+  const access = await pageView("logs.view", { returnTo: "/sim" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const specs = await repo.listSimSpecs();
   const configured = simConfigured();

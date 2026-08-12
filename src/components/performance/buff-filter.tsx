@@ -3,6 +3,8 @@
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Per-buff display state shared by the fight graphs. Interaction lives on the
  * lanes themselves: click toggles highlight on/off (no need to pass through
@@ -44,7 +46,7 @@ export function HiddenBuffsMenu({
 }) {
   const hidden = Object.keys(filter)
     .filter((name) => filter[name] === "hidden")
-    .sort((a, b) => a.localeCompare(b));
+    .sort((a, b) => compareText(a, b));
   const anyState = Object.keys(filter).length > 0;
   if (!anyState) return null;
   return (

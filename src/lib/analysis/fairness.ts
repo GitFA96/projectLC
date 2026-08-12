@@ -1,5 +1,7 @@
 import type { AwardWithContext, Character, FairnessEntry, Phase } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * On-spec / off-spec award counts per character (optionally restricted to a phase,
  * attributed by raid zone). Zero-award raiders are included — that IS the signal.
@@ -22,6 +24,6 @@ export function computeFairness(
       };
     });
   return entries.sort(
-    (a, b) => b.onSpec - a.onSpec || b.offSpec - a.offSpec || a.character.name.localeCompare(b.character.name),
+    (a, b) => b.onSpec - a.onSpec || b.offSpec - a.offSpec || compareText(a.character.name, b.character.name),
   );
 }

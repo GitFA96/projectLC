@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Class guides" };
 
 /**
@@ -18,6 +20,9 @@ export const metadata: Metadata = { title: "Class guides" };
  * defend, rather than a list somebody hard-coded.
  */
 export default async function GuidesPage() {
+  const access = await pageView("guild.view", { returnTo: "/guides" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const repo = await getRepo();
   const guides = await repo.listClassGuides();
 

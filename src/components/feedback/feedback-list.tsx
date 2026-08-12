@@ -16,7 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
-import { deleteFeedback, setFeedbackStatus, setFeedbackTriage } from "@/app/admin/feedback/actions";
+import { deleteFeedback, setFeedbackStatus, setFeedbackTriage } from "@/app/service/feedback/actions";
 import { contextLines, formatReportForAgent, formatReportsForAgent } from "@/lib/feedback";
 import type { FeedbackPriority, FeedbackReport } from "@/lib/types";
 import { cn } from "@/lib/utils";

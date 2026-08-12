@@ -19,6 +19,8 @@ import type {
   WclRole,
 } from "@/lib/types";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * Character-vs-character comparison (up to 4): the "important aspects of
  * contribution to the raid" — damage/output, performance, attendance,
@@ -269,7 +271,7 @@ export function summarizeComparison(
       cooldownsPerFight: rows.length === 0 ? 0 : Math.round((cooldownsTotal / rows.length) * 10) / 10,
       cooldownBreakdown: [...cdCounts]
         .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+        .sort((a, b) => b.count - a.count || compareText(a.name, b.name)),
       sappers: rows.reduce((s, r) => s + r.sappers, 0),
       healthstones: rows.reduce((s, r) => s + r.healthstones, 0),
       runes: rows.reduce((s, r) => s + r.runes, 0),
@@ -287,7 +289,7 @@ export function summarizeComparison(
   }
   const upkeepTracks = [...trackKinds]
     .map(([name, kind]) => ({ name, kind }))
-    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.name.localeCompare(b.name));
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || compareText(a.name, b.name));
 
   return { characters, upkeepTracks };
 }

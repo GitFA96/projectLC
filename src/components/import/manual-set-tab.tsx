@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { Loader2, Plus, X } from "lucide-react";
-import { commitManualGearSet } from "@/app/admin/import/actions";
-import type { SixtyCommitResult } from "@/app/admin/import/actions";
+import { commitManualGearSet } from "@/app/guild/import/actions";
+import type { SixtyCommitResult } from "@/app/guild/import/actions";
 import { GEAR_SET_KINDS, PHASES, SLOT_IDS, SLOT_LABELS, type SlotId } from "@/lib/constants/wow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

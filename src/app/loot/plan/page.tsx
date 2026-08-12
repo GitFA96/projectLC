@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/page-header";
 import { PHASES } from "@/lib/constants/wow";
 import { LootPlanView } from "@/components/loot/loot-plan-view";
 
+import { pageView } from "@/lib/auth/view";
+import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Loot plan" };
 
 /**
@@ -19,6 +21,9 @@ export default async function LootPlanPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const access = await pageView("loot.award", { returnTo: "/loot/plan" });
+  if (!access.allowed) return <NoAccess reason={access.reason} />;
+
   const sp = await searchParams;
   const repo = await getRepo();
   const guild = await repo.getGuild();

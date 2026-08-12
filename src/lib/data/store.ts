@@ -1,3 +1,6 @@
+import { buildMembersView, type MembersView } from "@/lib/analysis/members";
+import { buildPublicProfile, type GuildVisibility, type PublicProfile } from "@/lib/analysis/public-profile";
+import { clampWindows, successionState, type SuccessionState } from "@/lib/auth/succession";
 import {
   computeCompletion,
   computeStatDeltas,
@@ -42,6 +45,10 @@ import type {
   ItemComment,
   CharacterComparisonView,
   FeedbackReport,
+  GuildAuditEntry,
+  GuildInvite,
+  GuildRole,
+  Membership,
   CharacterPerformance,
   CharacterSummary,
   ConsumableAdjustment,
@@ -72,6 +79,8 @@ import type {
 } from "@/lib/types";
 import type { Repo, TokenBackfillQueue } from "@/lib/data/repo";
 
+import { compareText } from "@/lib/sort";
+
 /**
  * The plain entities a backend loads (seed JSON or SQLite rows). All derived
  * data — summaries, contention, wishlist matching — is computed here so every
@@ -100,6 +109,20 @@ export interface EntityStore {
    * identically, and so the read model is the single place pages read from.
    */
   feedback: FeedbackReport[];
+  /**
+   * Identity, as far as the read model is concerned.
+   *
+   * `accounts` and `auth_sessions` are deliberately **absent**: they are not
+   * guild data, they change on every login, and a session write that bumped
+   * `data_version` would rebuild this entire model each time somebody signed
+   * in. Those two are read straight from SQLite; everything here is guild data
+   * that changes rarely and belongs in the cache like anything else.
+   */
+  memberships: Membership[];
+  guildRoles: GuildRole[];
+  guildInvites: GuildInvite[];
+  /** What the guild is entitled to know happened to it — newest first. */
+  guildAudit: GuildAuditEntry[];
 }
 
 /** Referential integrity — hard errors; these always indicate a broken data source. */
@@ -126,6 +149,45 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
       throw new Error(`${sourceLabel}: award ${award.id} references unknown characterId ${award.characterId}`);
     }
   }
+  /*
+   * Identity. A dangling claim is the failure that matters here: a character
+   * pointing at a membership that no longer exists would read as "claimed by
+   * nobody", which is a different and much more confusing state than unclaimed.
+   * Invariant 6 says deleting a membership UNLINKS its characters — so if one
+   * still points at a missing membership, the unlink was skipped.
+   */
+  const membershipIds = new Set(store.memberships.map((m) => m.id));
+  const roleGuild = new Map(store.guildRoles.map((r) => [r.id, r.guildId]));
+  for (const character of store.roster) {
+    if (character.membershipId !== null && !membershipIds.has(character.membershipId)) {
+      throw new Error(
+        `${sourceLabel}: character ${character.name} is claimed by unknown membershipId ${character.membershipId}`,
+      );
+    }
+  }
+  for (const membership of store.memberships) {
+    for (const roleId of membership.roleIds) {
+      const owner = roleGuild.get(roleId);
+      if (owner === undefined) {
+        throw new Error(`${sourceLabel}: membership ${membership.id} holds unknown roleId ${roleId}`);
+      }
+      // A role from another guild would be capabilities crossing a boundary,
+      // which §3 says never happens. `resolve.ts` filters by guild and so would
+      // not grant it — but a store that can express the state at all is a store
+      // where some future reader forgets to filter.
+      if (owner !== membership.guildId) {
+        throw new Error(
+          `${sourceLabel}: membership ${membership.id} holds roleId ${roleId} from another guild`,
+        );
+      }
+    }
+  }
+  for (const invite of store.guildInvites) {
+    if (!charIds.has(invite.characterId)) {
+      throw new Error(`${sourceLabel}: invite ${invite.id} references unknown characterId ${invite.characterId}`);
+    }
+  }
+
   const reportCodes = new Set(store.wclReports.map((r) => r.code));
   for (const report of store.wclReports) {
     if (report.raidSessionId !== null && !sessionIds.has(report.raidSessionId)) {
@@ -187,6 +249,14 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
  */
 export interface StoreConfig {
   excludedFightsByCode?: Record<string, number[]>;
+  /**
+   * membershipId → when that person was last actually here.
+   *
+   * Supplied by the backend rather than read from the store: `accounts` is
+   * outside the read model on purpose (a login must not rebuild it), so this is
+   * the one identity fact the store cannot look up for itself.
+   */
+  membershipLastSeen?: Record<string, string | null>;
   /**
    * The council's policy — every number that encodes a judgement. Anything
    * unset falls back to the code defaults, so an empty record behaves exactly
@@ -319,7 +389,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   }
   // Officer comments per character, newest first.
   const commentsByCharacter = new Map<string, CharacterComment[]>();
-  for (const c of [...characterComments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+  for (const c of [...characterComments].sort((a, b) => compareText(b.createdAt, a.createdAt))) {
     const list = commentsByCharacter.get(c.characterId) ?? [];
     list.push(c);
     commentsByCharacter.set(c.characterId, list);
@@ -330,7 +400,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   // about one raider's claim and a note about the item itself belong on the
   // same page, and the council reads them as one thread.
   const itemCommentsByItem = new Map<number, ItemComment[]>();
-  for (const c of [...itemComments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+  for (const c of [...itemComments].sort((a, b) => compareText(b.createdAt, a.createdAt))) {
     const list = itemCommentsByItem.get(c.itemId) ?? [];
     list.push(c);
     itemCommentsByItem.set(c.itemId, list);
@@ -407,7 +477,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           : { matched: false, phases: [] },
       } satisfies AwardWithContext;
     })
-    .sort((a, b) => b.award.awardedAt.localeCompare(a.award.awardedAt));
+    .sort((a, b) => compareText(b.award.awardedAt, a.award.awardedAt));
 
   function awardsOf(characterId: string) {
     return lootAwards.filter((a) => a.characterId === characterId);
@@ -617,10 +687,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       byKey.set(key, view);
     }
     for (const view of byKey.values()) {
-      view.raiders.sort((a, b) => b.kills - a.kills || a.actorName.localeCompare(b.actorName));
+      view.raiders.sort((a, b) => b.kills - a.kills || compareText(a.actorName, b.actorName));
     }
     return [...byKey.values()].sort(
-      (a, b) => a.wowClass.localeCompare(b.wowClass) || a.spec.localeCompare(b.spec),
+      (a, b) => compareText(a.wowClass, b.wowClass) || compareText(a.spec, b.spec),
     );
   }
 
@@ -649,7 +719,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         sappers: row.sappers,
       });
     }
-    return out.sort((a, b) => b.raidDate.localeCompare(a.raidDate) || a.fightId - b.fightId);
+    return out.sort((a, b) => compareText(b.raidDate, a.raidDate) || a.fightId - b.fightId);
   }
 
   /** Boss pulls per report (across all players) — the attendance denominator. */
@@ -671,7 +741,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
 
     // Fair denominator: only raids since their first logged appearance count.
-    const chronological = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const chronological = [...wclReports].sort((a, b) => compareText(a.startTime, b.startTime));
     const firstIdx = chronological.findIndex((r) => attended.has(r.code));
     const since = firstIdx === -1 ? [] : chronological.slice(firstIdx);
     // Excused weeks drop out of the raid-level markup entirely (not counted as
@@ -693,7 +763,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       weekBuckets.set(start, bucket);
     }
     const weeks = [...weekBuckets]
-      .sort((a, b) => a[0].localeCompare(b[0]))
+      .sort((a, b) => compareText(a[0], b[0]))
       .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports, excused: exemptWeeks.has(start) }))
       .slice(-policy.attendance.weeks);
     const countedWeeks = weeks.filter((w) => !w.excused);
@@ -760,7 +830,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   }
 
   function careerRowsOf(characterId: string): WclPlayerFight[] {
-    const chronologicalReports = [...wclReports].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const chronologicalReports = [...wclReports].sort((a, b) => compareText(a.startTime, b.startTime));
     const mine = wclPlayerFights.filter(
       (r) => wclRowCharacterId(r) === characterId && !isExcusedPull(r),
     );
@@ -778,7 +848,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
   /** Spec from the character's most recent logged pulls (newest report first). */
   function loggedSpecOf(characterId: string): string | undefined {
-    const newestFirst = [...wclReports].sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const newestFirst = [...wclReports].sort((a, b) => compareText(b.startTime, a.startTime));
     for (const report of newestFirst) {
       for (const row of wclPlayerFights) {
         if (row.reportCode !== report.code || wclRowCharacterId(row) !== characterId) continue;
@@ -835,7 +905,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     },
 
     async listRaidSessions() {
-      return [...raidSessions].sort((a, b) => b.date.localeCompare(a.date));
+      return [...raidSessions].sort((a, b) => compareText(b.date, a.date));
     },
 
     async listLootAwards() {
@@ -858,6 +928,100 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return contention;
     },
 
+    /**
+     * The guild seen as people rather than characters.
+     *
+     * `lastSeen` comes in through `config` because it lives on `accounts`,
+     * which is deliberately outside the read model: a login must not rebuild
+     * the store. The seed backend simply has none, and every member reads as
+     * never having signed in — which, for a demo with no accounts, is true.
+     */
+    /**
+     * The face this guild shows the world.
+     *
+     * The mapping below is the entire public surface — a field that is not
+     * copied here cannot reach a stranger, whatever gets added to `Character`
+     * or `RaidSession` later. `status` is copied deliberately *nowhere*: main,
+     * alt, trial and pug are the guild's opinion of a person, and "who is on
+     * trial" is not something Warcraft Logs publishes. See §6.
+     */
+    /**
+     * What has happened to this guild, newest first.
+     *
+     * Every governance write lands here — the claim, invitations, role changes,
+     * ownership, character links, and every use of an operator's break-glass.
+     * Until this reader existed the table was **write-only**, which quietly made
+     * the argument for break-glass untrue: "an override the guild cannot see is
+     * a back door" is only a safeguard if the guild can, in fact, see it.
+     */
+    async listGuildAudit(): Promise<GuildAuditEntry[]> {
+      return [...store.guildAudit].sort((a, b) => compareText(b.at, a.at));
+    },
+
+    async getPublicProfile(visibility?: GuildVisibility): Promise<PublicProfile> {
+      return buildPublicProfile({
+        guild: { name: guild.name, realm: guild.realm, faction: guild.faction, activePhase: guild.activePhase },
+        roster: roster
+          // Pugs are somebody else's raiders who came once. Publishing them as
+          // "our roster" is wrong twice over: it overstates the guild to a
+          // recruit, and it publishes another guild's members under this
+          // guild's name. Filtered here, where `status` is still in scope —
+          // the projection below never receives it, because "who is on trial"
+          // is a judgement and not a thing Warcraft Logs prints.
+          .filter((c) => c.status !== "pug")
+          .map((c) => ({ name: c.name, wowClass: c.class, spec: c.spec, role: c.role })),
+        raidNights: raidSessions.map((s) => ({ date: s.date, zones: s.zones })),
+        // Overridable so the permissions preview can show all three presets
+        // without touching the guild's setting. Read-only by construction:
+        // there is no path from here to a write.
+        visibility: visibility ?? guild.visibility,
+      });
+    },
+
+    /**
+     * Where this guild stands if its owners go quiet.
+     *
+     * Built on top of `getMembersView` rather than beside it: that view already
+     * expands each member's effective capabilities, and the administrative tier
+     * is defined by holding one. Computing them twice from different code is
+     * how the banner and the claim button end up disagreeing about who is
+     * eligible.
+     */
+    async getSuccessionState(now?: string): Promise<SuccessionState> {
+      const view = await this.getMembersView(now);
+      return successionState(
+        view.members.map((m) => ({
+          membershipId: m.membershipId,
+          displayName: m.displayName,
+          isOwner: m.isGuildMaster,
+          // An owner's capability list is empty by construction (they hold
+          // everything implicitly), and owners are excluded from every tier
+          // anyway — succession is about a guild with nobody home, not about
+          // one owner replacing another.
+          capabilities: m.capabilities,
+          lastSeenAt: m.lastSeenAt,
+        })),
+        new Date(now ?? Date.now()),
+        clampWindows({
+          administrativeDays: guild.successionAdminDays,
+          memberDays: guild.successionMemberDays,
+        }),
+      );
+    },
+
+    async getMembersView(now?: string): Promise<MembersView> {
+      return buildMembersView(
+        {
+          memberships: store.memberships,
+          roles: store.guildRoles,
+          roster,
+          invites: store.guildInvites,
+          lastSeen: config.membershipLastSeen,
+        },
+        now ?? new Date().toISOString(),
+      );
+    },
+
     async listFeedback(): Promise<FeedbackReport[]> {
       /*
        * Open first, then by how much it matters, then newest.
@@ -873,7 +1037,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return [...feedback].sort((a, b) => {
         if (a.status !== b.status) return a.status === "open" ? -1 : 1;
         if (rank[a.priority] !== rank[b.priority]) return rank[a.priority] - rank[b.priority];
-        return b.createdAt.localeCompare(a.createdAt);
+        return compareText(b.createdAt, a.createdAt);
       });
     },
 
@@ -913,13 +1077,13 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
             b.openCount - a.openCount ||
             b.wisherCount - a.wisherCount ||
             b.awardCount - a.awardCount ||
-            a.name.localeCompare(b.name),
+            compareText(a.name, b.name),
         );
     },
 
     async listWclReports(): Promise<WclReportView[]> {
       return [...wclReports]
-        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+        .sort((a, b) => compareText(b.startTime, a.startTime))
         .map((report) => {
           const rows = wclPlayerFights.filter((r) => r.reportCode === report.code);
           return {
@@ -934,7 +1098,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
     async getRaidReport(code?: string): Promise<RaidReportView | null> {
       if (wclReports.length === 0) return null;
-      const sorted = [...wclReports].sort((a, b) => b.startTime.localeCompare(a.startTime));
+      const sorted = [...wclReports].sort((a, b) => compareText(b.startTime, a.startTime));
       const report = (code ? sorted.find((r) => r.code === code) : undefined) ?? sorted[0];
       const rows = wclPlayerFights.filter((r) => r.reportCode === report.code);
       if (rows.length === 0) return null;
@@ -971,12 +1135,12 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           if (!known.has(key) && !missing.has(key)) missing.set(key, rule.itemName);
         }
       }
-      return [...missing.values()].sort((a, b) => a.localeCompare(b));
+      return [...missing.values()].sort((a, b) => compareText(a, b));
     },
 
     async listEncounterNames(): Promise<string[]> {
       return [...new Set(wclPlayerFights.map((r) => r.encounterName))].sort((a, b) =>
-        a.localeCompare(b),
+        compareText(a, b),
       );
     },
 
@@ -1342,7 +1506,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       const reportPulls = pullsByReport();
       const myOffPull = offPullOf(character.id);
       const reports: PerformanceReportView[] = [...wclReports]
-        .sort((a, b) => b.startTime.localeCompare(a.startTime))
+        .sort((a, b) => compareText(b.startTime, a.startTime))
         .map((report): PerformanceReportView | undefined => {
           const rows = myRows
             .filter((r) => r.reportCode === report.code)
@@ -1399,7 +1563,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         const codesForChar = new Set(careerRows.map((r) => r.reportCode));
         const availableReports = [...wclReports]
           .filter((r) => codesForChar.has(r.code))
-          .sort((a, b) => b.startTime.localeCompare(a.startTime))
+          .sort((a, b) => compareText(b.startTime, a.startTime))
           .map((r) => ({ code: r.code, title: r.title, zone: r.zone, startTime: r.startTime }));
         // Apply the per-character log filter; an empty/unknown selection falls
         // back to all logs so a column is never accidentally blank.
@@ -1461,12 +1625,12 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         }
       }
       return [...byName.values()].sort(
-        (a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name),
+        (a, b) => b.appearances - a.appearances || compareText(a.name, b.name),
       );
     },
 
     async getDashboard() {
-      const sessions = [...raidSessions].sort((a, b) => b.date.localeCompare(a.date));
+      const sessions = [...raidSessions].sort((a, b) => compareText(b.date, a.date));
       // Guild KPIs describe the guild — known pugs stay out of all of them.
       const summaries = roster.filter((c) => c.status !== "pug").map(summarize);
       const activeCompletions = summaries
