@@ -10,6 +10,8 @@ const ACTORS = [
   { id: 2, name: "Katzewarr", type: "Player", subType: "Warrior" },
   { id: 9, name: "Void Reaver", type: "NPC", subType: "Boss" },
   { id: 10, name: "Some Add", type: "NPC", subType: "NPC" },
+  // The same add under a second id — WCL does this, see the split-id tests.
+  { id: 12, name: "Some Add", type: "NPC", subType: "NPC" },
   { id: 11, name: "Healer", type: "Player", subType: "Priest" },
 ];
 
@@ -146,5 +148,50 @@ describe("fetchFightDebuffUptime", () => {
       reportData: { report: { fights: [], masterData: { actors: [] }, events: { data: [] } } },
     });
     expect(await fetchFightDebuffUptime("J", 1, ["Rend"])).toEqual([]);
+  });
+});
+
+/**
+ * The two rules this path used to get wrong, both proven against a real report.
+ * See the note in fight-upkeep.ts and the matching tests in normalize.test.ts —
+ * the import path and this one claim to share their interval rules, so a fix to
+ * one that misses the other is exactly the kind of half-edit docs/pitfalls warns
+ * about.
+ */
+describe("fetchFightDebuffUptime — shared stacking debuffs", () => {
+  beforeEach(() => {
+    wclQuery.mockReset();
+    vi.stubGlobal("__projectlcFightUpkeepCache", undefined);
+  });
+
+  it("joins a debuff whose apply and removal name different ids for one mob", async () => {
+    // Applied against id 10, removed against 12 — same mob, same instance.
+    // Keyed on the raw id this was two windows, and the one holding the apply
+    // never closed, so it ran to the end of the fight and won best-target.
+    wclQuery.mockResolvedValue(
+      reply([
+        ev("applydebuff", 11_000, { targetID: 10 }),
+        ev("applydebuffstack", 12_000, { targetID: 12 }),
+        ev("removedebuff", 31_000, { targetID: 12 }),
+      ]),
+    );
+    const out = await fetchFightDebuffUptime("split", 1, ["Deep Wounds"]);
+    // 11s → 31s of a 100s fight. The phantom half would have read 90%.
+    expect(out).toEqual([{ source: "Dëltâ", ability: "Deep Wounds", pct: 20 }]);
+  });
+
+  it("keeps the window open when a stack drops off a debuff that is still up", async () => {
+    // `removedebuffstack` is one stack expiring, not the debuff falling off.
+    // startsWith("remove") treated it as a removal and closed the window.
+    wclQuery.mockResolvedValue(
+      reply([
+        ev("applydebuff", 11_000),
+        ev("applydebuffstack", 12_000),
+        ev("removedebuffstack", 21_000),
+        ev("removedebuff", 61_000),
+      ]),
+    );
+    const out = await fetchFightDebuffUptime("stackdrop", 1, ["Deep Wounds"]);
+    expect(out[0].pct).toBe(50);
   });
 });

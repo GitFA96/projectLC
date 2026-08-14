@@ -324,8 +324,23 @@ function FeedbackCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant={resolved ? "success" : "warning"}>
+            {/* The closure signs itself. A report resolved before this existed
+                shows the bare badge — nothing recorded who closed it, and
+                inventing a name would be worse than the gap. */}
+            <Badge
+              variant={resolved ? "success" : "warning"}
+              title={
+                resolved && report.resolvedAt
+                  ? `Closed ${format(parseISO(report.resolvedAt), "d MMM yyyy, HH:mm")}${
+                      report.resolvedBy ? ` by ${report.resolvedBy}` : ""
+                    }`
+                  : undefined
+              }
+            >
               {resolved ? "Resolved" : "Open"}
+              {resolved && report.resolvedBy && (
+                <span className="ml-1 font-normal opacity-80">by {report.resolvedBy}</span>
+              )}
             </Badge>
             <Badge variant="muted" className="gap-1">
               <KindIcon className="h-3 w-3" aria-hidden />
@@ -356,7 +371,14 @@ function FeedbackCard({
             disabled={pending}
             onClick={() =>
               run(() =>
-                setFeedbackStatus({ id: report.id, status: resolved ? "open" : "resolved" }),
+                setFeedbackStatus({
+                  id: report.id,
+                  status: resolved ? "open" : "resolved",
+                  // The same name the note editor remembers, so closing a report
+                  // signs itself without asking for a name that is already known.
+                  // Empty is allowed: an unsigned closure beats refusing to close.
+                  by: localStorage.getItem(AUTHOR_KEY) ?? undefined,
+                }),
               )
             }
           >

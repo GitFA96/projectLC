@@ -64,6 +64,30 @@ const AURA_DEFS: AuraDef[] = [
    * ids also ride the Buffs fetch and why `normalize` stamps them onto a pull
    * from an interval rather than from the snapshot. See FLASK_BUFF_IDS below.
    */
+  /*
+   * Vanilla flasks this guild still runs, curated by id because the log sends
+   * only the BARE buff name and nothing matched it.
+   *
+   * Probed, not remembered: an import of this guild's own report listed
+   * `17628 Supreme Power ×11` and `17629 Chromatic Resistance ×1` in the
+   * unrecognized-aura dump. `classifyAura` matches "Flask of Supreme Power" via
+   * the generic "…flask of…" pattern, but the log never says that — so eleven
+   * pulls of a real flask graded as no flask at all, on the preparation column
+   * that feeds the loot score.
+   *
+   * The **label carries "Flask of"** deliberately. `defaultPriceFor` prices any
+   * name containing "flask" at the flask default and everything it doesn't
+   * recognise at zero, so labelling these with the bare buff name would have
+   * counted them as free. The ids and buff names are what the log stated; the
+   * label is the flask those buffs come from.
+   */
+  { label: "Flask of Supreme Power", category: "flask", ids: [17628], buffNames: ["Supreme Power"] },
+  {
+    label: "Flask of Chromatic Resistance",
+    category: "flask",
+    ids: [17629],
+    buffNames: ["Chromatic Resistance"],
+  },
   { label: "Unstable Flask of the Beast", category: "flask", ids: [40572] },
   { label: "Unstable Flask of the Bandit", category: "flask", ids: [40567] },
   { label: "Unstable Flask of the Elder", category: "flask", ids: [40568] },
@@ -252,7 +276,13 @@ const NONCONSUMABLE_AURA_IDS = new Set<number>([
 
 const NONCONSUMABLE_AURA_NAMES = new Set<string>(
   [
-    "Arcane Brilliance", "Arcane Intellect", "Battle Shout", "Commanding Shout",
+    // "Greater Intellect" is the sibling of the two beside it that slipped
+    // through: the auto-filer flagged it at 11 pulls, and probing the pull
+    // snapshot settled it — held by a Mage, applied by that same Mage to
+    // themself, 14 times. A class buff, so it belongs here rather than in
+    // AURA_DEFS. Nothing about the name says that; the source did.
+    "Arcane Brilliance", "Arcane Intellect", "Greater Intellect",
+    "Battle Shout", "Commanding Shout",
     "Power Word: Fortitude", "Divine Spirit", "Shadow Protection", "Fear Ward",
     "Inner Fire", "Mark of the Wild", "Gift of the Wild", "Thorns",
     "Leader of the Pack", "Righteous Fury", "Mage Armor", "Ice Armor",

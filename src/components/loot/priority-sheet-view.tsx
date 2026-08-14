@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/empty-state";
 import { ItemLink } from "@/components/item-link";
 import { ItemPriorityEditor } from "@/components/loot/priority-editor";
-import { setSheetItemIdAction } from "@/app/loot-policy-actions";
+import { moveItemPriorityAction, setSheetItemIdAction } from "@/app/loot-policy-actions";
 import type { Quality } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,8 @@ export interface SheetRow {
   itemId?: number;
   quality?: Quality;
   icon?: string;
+  /** The phase the item cache places this drop in, when it knows one. */
+  itemPhase?: number;
   shadowed?: boolean;
 }
 
@@ -122,7 +124,62 @@ function ItemIdPin({ itemName, itemId }: { itemName: string; itemId?: number }) 
   );
 }
 
-function Row({ row }: { row: SheetRow }) {
+/**
+ * A chain filed against one phase for an item that drops in another.
+ *
+ * Two stored values disagreeing, not a judgement about the sheet: the item page
+ * files a chain under the active phase when the cache can't place the drop, and
+ * a later Wowhead backfill can then fill in a different phase — leaving the
+ * ruling on a sheet whose raid never drops the item. Nothing else would say so.
+ *
+ * Only for an officer's chain. A council sheet that lists a drop from another
+ * tier is the council's document saying what it means to say, and badging that
+ * would be second-guessing the paste.
+ */
+function MisfiledNotice({
+  itemName,
+  filedUnder,
+  dropsIn,
+}: {
+  itemName: string;
+  filedUnder: number;
+  dropsIn: number;
+}) {
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-warn-ink">
+      <TriangleAlert className="h-3 w-3 shrink-0" />
+      <span>
+        Filed under phase {filedUnder} · drops in phase {dropsIn}
+      </span>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const result = await moveItemPriorityAction({
+              itemName,
+              fromPhase: filedUnder,
+              toPhase: dropsIn,
+            });
+            setMsg({ ok: result.ok, text: result.message });
+          })
+        }
+        className="rounded border border-warn-ink/30 px-1.5 py-0.5 font-medium hover:bg-warn-soft disabled:opacity-50"
+        title={`Re-file this chain under the phase ${dropsIn} sheet, unchanged`}
+      >
+        {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : `Move to P${dropsIn}`}
+      </button>
+      {msg && (
+        <span className={cn(msg.ok ? "text-muted-foreground" : "text-danger-ink")}>{msg.text}</span>
+      )}
+    </div>
+  );
+}
+
+function Row({ row, phase }: { row: SheetRow; phase: number }) {
   const [editing, setEditing] = React.useState(false);
 
   return (
@@ -156,6 +213,7 @@ function Row({ row }: { row: SheetRow }) {
             <ItemPriorityEditor
               key={row.chain}
               itemName={row.itemName}
+              phase={phase}
               formOnly
               onDone={() => setEditing(false)}
               rule={{
@@ -177,6 +235,15 @@ function Row({ row }: { row: SheetRow }) {
               </div>
             )}
             {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
+            {row.origin === "officer" &&
+              row.itemPhase !== undefined &&
+              row.itemPhase !== phase && (
+                <MisfiledNotice
+                  itemName={row.itemName}
+                  filedUnder={phase}
+                  dropsIn={row.itemPhase}
+                />
+              )}
           </>
         )}
       </div>
@@ -226,9 +293,12 @@ const matches = (row: SheetRow, q: string) =>
 export function PrioritySheetView({
   sections,
   unlisted,
+  phase,
 }: {
   sections: SheetSection[];
   unlisted: SheetRow[];
+  /** The sheet being read — every edit made here is written against it. */
+  phase: number;
 }) {
   const [query, setQuery] = React.useState("");
   const q = query.trim().toLowerCase();
@@ -284,7 +354,7 @@ export function PrioritySheetView({
             <section key={section.source} className="overflow-hidden rounded-xl border bg-card">
               <h2 className="px-3 py-2 text-sm font-semibold">{section.source}</h2>
               {section.rows.map((row, i) => (
-                <Row key={`${row.itemName}-${i}`} row={row} />
+                <Row key={`${row.itemName}-${i}`} row={row} phase={phase} />
               ))}
             </section>
           ))}
@@ -292,15 +362,16 @@ export function PrioritySheetView({
           {visibleUnlisted.length > 0 && (
             <section className="overflow-hidden rounded-xl border bg-card">
               <div className="px-3 py-2">
-                <h2 className="text-sm font-semibold">Not on any sheet</h2>
+                <h2 className="text-sm font-semibold">Not on this sheet</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Chains an officer wrote for items no sheet lists. They aren&apos;t tied to a
-                  phase — an officer&apos;s chain for an item is their chain for it — so they show
-                  here whichever phase you&apos;re reading, and they apply exactly like the rest.
+                  Chains an officer wrote against phase {phase} for items its sheet doesn&apos;t
+                  list. They apply exactly like the rest. A chain written against another
+                  phase&apos;s sheet lives on that phase&apos;s page — it still applies to its drop,
+                  wherever the guild is now.
                 </p>
               </div>
               {visibleUnlisted.map((row, i) => (
-                <Row key={`${row.itemName}-${i}`} row={row} />
+                <Row key={`${row.itemName}-${i}`} row={row} phase={phase} />
               ))}
             </section>
           )}

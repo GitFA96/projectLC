@@ -38,6 +38,7 @@ import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard"
 import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { ConsumableAdjustmentsPanel } from "@/components/logs/consumable-adjustments-panel";
+import { BreakdownAdjuster } from "@/components/logs/breakdown-adjuster";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
@@ -833,7 +834,15 @@ function GoldPanel({
                       {Math.round(total).toLocaleString("en-US")}g
                     </TableCell>
                     <TableCell>
-                      <BreakdownBadges items={lines} />
+                      {/* Correctable in place — the panel below stays the audit
+                          trail and the only way to add a line the log never
+                          produced. See BreakdownAdjuster. */}
+                      <BreakdownAdjuster
+                        code={raid.report.code}
+                        actorName={u.name}
+                        items={lines}
+                        adjustments={adjustments}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

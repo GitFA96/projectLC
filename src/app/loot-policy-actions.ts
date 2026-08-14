@@ -43,6 +43,8 @@ export interface PriorityActionResult {
 
 export async function saveItemPriorityAction(input: {
   itemName: string;
+  /** The sheet the chain is written against — the page the officer is editing from. */
+  phase: number;
   /** Empty hands the item back to the seeded sheet. */
   chain: string;
   note?: string;
@@ -50,11 +52,11 @@ export async function saveItemPriorityAction(input: {
   try {
     requireCapability(await resolveViewer(), "priority.edit");
     const repo = await getWriteRepo();
-    const result = await repo.setItemPriorityRule(input.itemName, input.chain, input.note);
+    const result = await repo.setItemPriorityRule(input);
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
     if (!input.chain.trim()) {
-      return { ok: true, message: "Back to the guild's sheet for this item." };
+      return { ok: true, message: `Back to the phase ${input.phase} sheet for this item.` };
     }
     // A rung of pure free text still saves — it just can't rank anyone, and an
     // officer should hear that from us rather than discover it mid-raid.
@@ -64,6 +66,31 @@ export async function saveItemPriorityAction(input: {
     return { ok: true, message: "Priority saved.", manualTokens };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Saving the priority failed." };
+  }
+}
+
+/**
+ * Re-file a chain under the phase its item actually drops in.
+ *
+ * The sheet page offers this only when the two disagree, which happens when a
+ * chain was written before the item cache knew the drop's phase — the item page
+ * files against the active phase when it has nothing better, and a later Wowhead
+ * backfill can then fill in a different one.
+ */
+export async function moveItemPriorityAction(input: {
+  itemName: string;
+  fromPhase: number;
+  toPhase: number;
+}): Promise<PriorityActionResult> {
+  try {
+    requireCapability(await resolveViewer(), "priority.edit");
+    const repo = await getWriteRepo();
+    const result = await repo.moveItemPriorityRule(input);
+    if (!result.ok) return { ok: false, message: result.error };
+    refreshAfterWrite("/", "layout");
+    return { ok: true, message: `Filed under phase ${input.toPhase}.` };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Moving the chain failed." };
   }
 }
 

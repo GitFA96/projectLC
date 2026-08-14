@@ -190,6 +190,66 @@ export async function updateWclReportMetaAction(input: {
   }
 }
 
+/**
+ * How many pulls an unknown aura has to appear at before it files itself.
+ *
+ * Not in `policy.ts`: that holds the numbers where changing one changes a loot
+ * verdict, and this one only decides whether the app writes itself a note. One
+ * sighting is usually a world buff or somebody's trinket proc; a consumable the
+ * raid actually runs shows up repeatedly, which is what makes it worth curating.
+ */
+const AURA_FLAG_MIN_PULLS = 5;
+
+/**
+ * File the unknown auras an import met, so a blind spot outlives the tab.
+ *
+ * The dump has always been shown on the import screen and never kept, so a
+ * finding survived exactly as long as the officer left the page open — which is
+ * how eleven pulls of an uncounted flask sat there for weeks. The app knows it
+ * failed to understand something; saying so in the same place raiders file bugs
+ * is the honest version of that.
+ *
+ * **Deduped by ability id against every existing report**, open or resolved: the
+ * same aura turns up every raid night, and a tool that files a fresh copy weekly
+ * teaches officers to ignore it. Never throws — the import is already committed
+ * by the time this runs, and losing a night's data over a self-addressed note
+ * would be a bad trade.
+ */
+async function flagUnknownAuras(
+  repo: Awaited<ReturnType<typeof getWriteRepo>>,
+  code: string,
+  auras: UnclassifiedAura[],
+): Promise<void> {
+  try {
+    const worth = auras.filter((a) => a.count >= AURA_FLAG_MIN_PULLS && a.abilityId !== undefined);
+    if (worth.length === 0) return;
+
+    const existing = await repo.listFeedback();
+    const alreadyFiled = (aura: UnclassifiedAura) =>
+      existing.some((r) => r.body.includes(`#${aura.abilityId} `) || r.body.includes(`(${aura.abilityId})`));
+    const fresh = worth.filter((a) => !alreadyFiled(a));
+    if (fresh.length === 0) return;
+
+    const lines = fresh.map((a) => `- #${a.abilityId} “${a.name}” — at ${a.count} pulls`);
+    await repo.addFeedback({
+      kind: "feedback",
+      reporter: "Import",
+      body: [
+        `${fresh.length} aura${fresh.length === 1 ? "" : "s"} at boss pulls that the consumable tables don't recognise:`,
+        "",
+        ...lines,
+        "",
+        "If any is a consumable, curating it in src/lib/wcl/consumables.ts makes it",
+        "count — and the reports that already saw it need re-importing before it shows.",
+      ].join("\n"),
+      route: "/guild/import",
+      url: `/guild/import?report=${code}`,
+    });
+  } catch {
+    // Deliberately silent: see above.
+  }
+}
+
 export async function importWclReport(input: WclImportInput): Promise<WclImportActionResult> {
   const parsed = importInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -217,11 +277,16 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
         startTime: normalized.startTime,
         endTime: normalized.endTime,
         raidSessionId: parsed.data.raidSessionId || null,
+        unclassifiedAuras: normalized.unclassifiedAuras,
       },
       normalized.rows,
       normalized.offPull,
     );
     if (!saved.ok) return { status: "error", message: saved.error };
+
+    // The import is already committed, so a failure to file the report below
+    // must not fail the import — it is a note to ourselves, not the work.
+    await flagUnknownAuras(repo, saved.report.code, normalized.unclassifiedAuras);
 
     refreshAfterWrite("/", "layout");
     return {

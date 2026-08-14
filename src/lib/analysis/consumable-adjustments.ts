@@ -112,3 +112,42 @@ export function adjustmentGold(
 ): number {
   return goldOfLines(adjusted, costPerUse) - goldOfLines(logged, costPerUse);
 }
+
+/**
+ * The adjustment list after one ± press on a raider's consumable line.
+ *
+ * Pure, and here rather than in the badge component, for the same reason the
+ * bug-report widget keeps its arithmetic outside the DOM: the rule about which
+ * entry a press lands on is the part worth testing, and it has a sharp edge.
+ *
+ * **A press merges into that raider's existing unnoted correction** — five
+ * presses read as "+5", not as five entries in the audit list. An entry carrying
+ * a NOTE is never touched; a new one is appended beside it instead, because
+ * somebody wrote a sentence explaining that number and a ± button must not
+ * quietly change what the sentence refers to.
+ *
+ * A merge that lands on zero drops the row: "+0" in the audit list would claim
+ * a correction nobody is making.
+ */
+export function bumpAdjustment(input: {
+  adjustments: ConsumableAdjustment[];
+  actorName: string;
+  name: string;
+  direction: 1 | -1;
+  /** Stamped on the row this press touches. */
+  at: string;
+}): ConsumableAdjustment[] {
+  const { adjustments, actorName, name, direction, at } = input;
+  const sameActor = (a: ConsumableAdjustment) =>
+    a.actorName.trim().toLowerCase() === actorName.trim().toLowerCase();
+  const sameName = (a: ConsumableAdjustment) =>
+    normalizeConsumableName(a.name) === normalizeConsumableName(name);
+
+  const mergeable = adjustments.findIndex((a) => sameActor(a) && sameName(a) && !a.note);
+  const next =
+    mergeable === -1
+      ? [...adjustments, { actorName: actorName.trim(), name: name.trim(), delta: direction, at }]
+      : adjustments.map((a, i) => (i === mergeable ? { ...a, delta: a.delta + direction, at } : a));
+
+  return next.filter((a) => a.delta !== 0);
+}

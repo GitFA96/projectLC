@@ -7,11 +7,12 @@
  * different fixes: one is a mechanic somebody isn't handling, the other is a
  * healing or damage-time problem. The timestamps separate them.
  *
- * What this deliberately does **not** do is name a cause. It has no idea what
- * ability killed anybody — the app doesn't fetch that, and inventing "died to
- * Flame Wreath" from a clock reading would be exactly the domain knowledge the
- * house rules forbid. It says *when*, *who* and *how consistently*, and the
- * officer who was in the raid supplies the rest.
+ * It says *when*, *who*, *how consistently* — and, when the log said so, *what*.
+ * The killing blow is carried through from the death event rather than derived:
+ * Warcraft Logs names it, so passing it on costs nothing and invents nothing.
+ * What is still refused is the reading nobody logged — "died to Flame Wreath"
+ * off a clock is exactly the domain knowledge the house rules forbid, and a
+ * death whose report named no killer stays unexplained rather than guessed at.
  *
  * Pure.
  */
@@ -26,6 +27,12 @@ export interface DeathEvent {
   role: WclPlayerFight["role"];
   /** ms from the pull start. */
   atMs: number;
+  /** Who landed the killing blow, when the log named one. */
+  killer?: string;
+  /** The killing ability as the log names it ("Melee" for a swing). */
+  ability?: string;
+  /** What they took in the seconds before, newest first. See the schema. */
+  recap?: { atMs: number; ability: string; source?: string; amount: number; absorbed?: number }[];
 }
 
 export interface BossPullDeaths {
@@ -115,13 +122,17 @@ export function buildBossDeathProfile(rows: WclPlayerFight[]): BossDeathProfile 
     const deaths: DeathEvent[] = [];
     for (const row of fightRows) {
       deathsTotal += row.deaths;
-      for (const atMs of row.deathTimes) {
+      for (const death of row.deathTimes) {
+        const atMs = death.atMs;
         anyTiming = true;
         deaths.push({
           actorName: row.actorName,
           className: row.className,
           role: row.role,
           atMs,
+          ...("killer" in death && death.killer ? { killer: death.killer } : {}),
+          ...("ability" in death && death.ability ? { ability: death.ability } : {}),
+          ...("recap" in death && death.recap ? { recap: death.recap } : {}),
         });
         const duration = Math.max(1, row.durationMs);
         const tenth = Math.min(9, Math.floor((atMs / duration) * 10));
@@ -154,7 +165,7 @@ export function buildBossDeathProfile(rows: WclPlayerFight[]): BossDeathProfile 
         deaths: mine.reduce((s, r) => s + r.deaths, 0),
         pulls: mine.length,
         firstDeaths: firstDeathCount.get(actorName) ?? 0,
-        medianAtMs: median(mine.flatMap((r) => r.deathTimes)),
+        medianAtMs: median(mine.flatMap((r) => r.deathTimes.map((d) => d.atMs))),
       };
     })
     .filter((o) => o.deaths > 0)

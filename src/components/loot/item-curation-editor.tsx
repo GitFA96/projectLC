@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { setItemCurationAction } from "@/app/items/[itemId]/item-actions";
+import { reportWrongItemDataAction, setItemCurationAction } from "@/app/items/[itemId]/item-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ export function ItemCurationEditor({
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | undefined>();
+  const [notice, setNotice] = React.useState<string | undefined>();
 
   const [draftPhase, setDraftPhase] = React.useState<Phase | undefined>(phase);
   const [zone, setZone] = React.useState(source?.zone ?? "");
@@ -79,6 +80,27 @@ export function ItemCurationEditor({
         return;
       }
       setOpen(false);
+      router.refresh();
+    });
+  };
+
+  /**
+   * Ask Wowhead again about this row.
+   *
+   * Stays open on success, unlike Save: the button reports what will happen on
+   * the next backfill rather than changing anything visible here, and closing
+   * the panel would read as "done" when nothing has been looked up yet.
+   */
+  const requeue = () => {
+    setError(undefined);
+    setNotice(undefined);
+    startTransition(async () => {
+      const result = await reportWrongItemDataAction(itemId);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setNotice(result.message);
       router.refresh();
     });
   };
@@ -176,12 +198,35 @@ export function ItemCurationEditor({
           Cancel
         </Button>
       </span>
+      {/* The other half of "what the app believes about this item", and the half
+          that used to need a bug report: name, icon and quality are Wowhead's
+          answer, and a confirmed row is never asked about again. */}
+      <span className="flex flex-wrap items-center gap-1.5 border-t pt-2">
+        <Label className="mr-1 text-xs">Name or icon wrong?</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-[11px]"
+          disabled={pending}
+          onClick={requeue}
+          title="Ask Wowhead about this item again on the next backfill"
+        >
+          {pending && <Loader2 className="h-3 w-3 animate-spin" />}
+          Look it up again
+        </Button>
+        <span className="text-[11px] text-muted-foreground">
+          Queues one more lookup; the row keeps what it has until a better answer arrives. Your
+          phase and source above are untouched.
+        </span>
+      </span>
       <span className="text-[11px] text-muted-foreground">
         Leave the zone empty to record nothing — the item drops off that raid&apos;s loot plan.{" "}
         {phase === undefined && source === undefined
           ? "Phase and drop source fill themselves in from Wowhead the next time the item resolver runs on the import page — set them here only if you want a different answer, or if Wowhead has none (heroics and world drops have no raid)."
           : "These came from Wowhead unless somebody set them here; whatever you save now is kept and never overwritten."}
       </span>
+      {notice && <span className="text-[11px] text-success-ink">{notice}</span>}
       {error && <span className="text-[11px] text-destructive">{error}</span>}
     </span>
   );

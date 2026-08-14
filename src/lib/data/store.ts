@@ -263,8 +263,12 @@ export interface StoreConfig {
    * as the app did before the record existed.
    */
   policy?: PolicyOverrides;
-  /** Officer edits to the seeded priority sheet, keyed by normalized item name. */
-  itemPriorityRules?: Record<string, { itemName: string; chain: string; note?: string }>;
+  /**
+   * Officer edits to the seeded priority sheet, by phase and then normalized
+   * item name. A chain belongs to the sheet it was written against — see the
+   * `item_priority_rules` phase key.
+   */
+  itemPriorityRules?: Record<number, Record<string, { itemName: string; chain: string; note?: string }>>;
   /**
    * Item ids an officer pinned to a sheet name the cache can't match, keyed by
    * the normalized name. Consulted before the cache, because a person who
@@ -576,7 +580,12 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       .filter((n): n is string => n !== undefined && n.trim() !== "")
       .map(normalizeItemName);
     for (const key of keys) {
-      const edited = config.itemPriorityRules?.[key];
+      // The same phase order the sheets are consulted in, and for the same
+      // reason: an officer's chain for a P3 drop is still their chain while the
+      // guild farms P2, so scoping this to the active phase would silently
+      // strip it. The phase only decides which sheet PAGE lists the chain.
+      const editedPhase = lookupPhases.find((phase) => config.itemPriorityRules?.[phase]?.[key]);
+      const edited = editedPhase === undefined ? undefined : config.itemPriorityRules?.[editedPhase]?.[key];
       if (edited) {
         return {
           itemName: edited.itemName,
@@ -584,6 +593,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
           tiers: parsePriorityChain(edited.chain).tiers,
           note: edited.note,
           origin: "officer",
+          phase: editedPhase,
         };
       }
     }
@@ -1252,9 +1262,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       const stored = config.prioritySheetsByPhase?.[forPhase];
       const view = buildPrioritySheetView({
         rules: rulesForPhase(forPhase),
-        // Item rules are guild-wide rather than per phase — an officer's chain
-        // for an item is their chain for it, whichever sheet lists it.
-        overrides: config.itemPriorityRules ?? {},
+        // This phase's chains only. A chain an officer wrote against another
+        // tier's sheet still applies to its drop (priorityRuleFor walks every
+        // phase), but listing it here put both Warglaives on the phase 2 page.
+        overrides: config.itemPriorityRules?.[forPhase] ?? {},
         // The officer's pin wins over the name match: they set it precisely
         // because the name couldn't be matched, or matched the wrong thing.
         itemIdFor: (name) =>
@@ -1265,7 +1276,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       // the builder: the builder is pure and only ever sees names.
       const withItem = <T extends { itemId?: number }>(row: T): T => {
         const item = row.itemId === undefined ? undefined : itemsById.get(row.itemId);
-        return item ? { ...row, quality: item.quality, icon: item.icon } : row;
+        return item ? { ...row, quality: item.quality, icon: item.icon, itemPhase: item.phase } : row;
       };
       return {
         ...view,

@@ -3,6 +3,7 @@ import {
   adjustmentGold,
   adjustmentsFor,
   applyAdjustments,
+  bumpAdjustment,
   goldOfLines,
 } from "@/lib/analysis/consumable-adjustments";
 import type { ConsumableAdjustment } from "@/lib/types";
@@ -114,5 +115,63 @@ describe("adjustmentGold", () => {
   it("prices a hand-added consumable nobody was logged using", () => {
     const out = applyAdjustments(logged, [adj("x", "Haste Potion", 2)]);
     expect(adjustmentGold(logged, out, costPerUse)).toBe(30);
+  });
+});
+
+describe("bumpAdjustment", () => {
+  const at = "2026-08-13T20:00:00.000Z";
+  const press = (adjustments: ConsumableAdjustment[], direction: 1 | -1 = 1) =>
+    bumpAdjustment({ adjustments, actorName: "Katzewarr", name: "Super Mana Potion", direction, at });
+
+  it("opens a correction when the raider has none", () => {
+    expect(press([])).toEqual([
+      { actorName: "Katzewarr", name: "Super Mana Potion", delta: 1, at },
+    ]);
+  });
+
+  it("merges repeat presses into one entry rather than a row each", () => {
+    let list = press([]);
+    list = press(list);
+    list = press(list);
+    expect(list).toHaveLength(1);
+    expect(list[0].delta).toBe(3);
+  });
+
+  it("matches the raider and consumable however they're punctuated", () => {
+    const list = press([
+      { actorName: "katzewarr", name: "super mana potion", delta: 2, at: "2026-08-01T00:00:00.000Z" },
+    ]);
+    expect(list).toHaveLength(1);
+    expect(list[0].delta).toBe(3);
+    expect(list[0].at).toBe(at);
+  });
+
+  it("leaves somebody else's line alone", () => {
+    const other = { actorName: "Scomb", name: "Super Mana Potion", delta: 2, at };
+    const list = press([other]);
+    expect(list).toHaveLength(2);
+    expect(list).toContainEqual(other);
+  });
+
+  it("never rewrites a correction that carries a note", () => {
+    // Someone explained that number. A ± press must not change what their
+    // sentence refers to, so it gets its own entry beside it.
+    const noted = {
+      actorName: "Katzewarr",
+      name: "Super Mana Potion",
+      delta: 2,
+      note: "client dropped mid-Vashj",
+      at: "2026-08-01T00:00:00.000Z",
+    };
+    const list = press([noted]);
+    expect(list).toContainEqual(noted);
+    expect(list).toHaveLength(2);
+    expect(list[1].delta).toBe(1);
+  });
+
+  it("drops a correction that presses back to zero", () => {
+    // "+0" in the audit list would claim a change nobody is making.
+    const list = press(press([]), -1);
+    expect(list).toEqual([]);
   });
 });

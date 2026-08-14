@@ -74,12 +74,14 @@ export async function submitFeedback(input: {
 export async function setFeedbackStatus(input: {
   id: string;
   status: "open" | "resolved";
+  /** Who is closing it. Self-declared, like every other name here. */
+  by?: string;
 }): Promise<{ ok: boolean; message?: string }> {
   if (!input.id) return { ok: false, message: "Missing report id." };
   try {
     requireAppAdmin(await resolveViewer());
     const repo = await getWriteRepo();
-    const changed = await repo.setFeedbackStatus(input.id, input.status);
+    const changed = await repo.setFeedbackStatus(input.id, input.status, input.by);
     if (!changed) return { ok: false, message: "Report not found — it may already be gone." };
     refreshAfterWrite("/service/feedback", "page");
     return { ok: true };
@@ -95,6 +97,7 @@ const triageSchema = z.object({
   /** An empty string is a real value here — it clears the note. */
   adminNote: z.string().max(2000).optional(),
   adminNoteAuthor: z.string().max(60).optional(),
+  resolvedBy: z.string().max(60).optional(),
 });
 
 /**
@@ -111,6 +114,7 @@ export async function setFeedbackTriage(input: {
   priority?: "unset" | "minor" | "major";
   adminNote?: string;
   adminNoteAuthor?: string;
+  resolvedBy?: string;
 }): Promise<{ ok: boolean; message?: string }> {
   const parsed = triageSchema.safeParse(input);
   if (!parsed.success) {

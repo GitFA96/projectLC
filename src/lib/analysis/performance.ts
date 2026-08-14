@@ -45,10 +45,13 @@ export function attendanceFacts(a: AttendanceSummary): AttendanceFact[] {
     // denominator, is what made this unreadable.
     {
       label: "Raids",
+      // The unit is named because the reset card answers the same question in
+      // weeks, and an officer comparing the two figures has no way to tell that
+      // they disagree by design rather than by mistake.
       value: `${a.raidsAttended} of ${a.raidsTracked} · ${a.raidPct}%`,
       note: a.firstSeenAt
-        ? `every raid logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")}`
-        : "every raid logged since their first",
+        ? `every raid logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")} — per raid, not per reset week`
+        : "every raid logged since their first — per raid, not per reset week",
     },
     { label: "Boss pulls", value: `${a.pullPct}% when present` },
   ];
@@ -70,7 +73,10 @@ export function attendanceFacts(a: AttendanceSummary): AttendanceFact[] {
     facts.push({
       label: "Dots",
       value: `last ${a.weeks.length} reset week${a.weeks.length === 1 ? "" : "s"}`,
-      note: "green = raided that week",
+      // The rule, not just the colour. One night and three nights score a week
+      // identically, which is the single biggest reason the weekly figure sits
+      // above the per-raid one — and it was readable nowhere.
+      note: "green = raided that week; any one raid counts the whole week",
     });
   }
   return facts;

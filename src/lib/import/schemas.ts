@@ -355,6 +355,24 @@ export const wclReportSchema = z.object({
    * Empty on reports imported before this was recorded.
    */
   upkeepTracks: z.array(z.string()).default([]),
+  /**
+   * Auras present at this report's boss pulls that the consumable tables
+   * couldn't place, most frequent first.
+   *
+   * Empty means "none recorded", which on a report imported before this was kept
+   * is NOT the same as "nothing was unknown" — the dump existed at import time
+   * and was thrown away. Curating one of these is what makes a report worth
+   * re-importing, so keeping the list is what lets the app say which.
+   */
+  unclassifiedAuras: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        abilityId: z.number().int().optional(),
+        count: z.number().int().nonnegative(),
+      }),
+    )
+    .default([]),
   /** Optional link to the Gargul raid session covering the same night. */
   raidSessionId: z.string().nullable().default(null),
 });
@@ -433,15 +451,60 @@ export const wclPlayerFightSchema = z.object({
     )
     .default([]),
   /**
-   * When they died, ms from the pull start, in order.
+   * Each death, ms from the pull start, in order — and what landed it.
    *
    * The count alone says a raid loses people; the timing says whether they lose
    * them to an opener nobody survived or to attrition at 40%, and those are
    * different problems with different fixes. Empty on reports imported before
    * the timing was kept — the events were always fetched, the timestamp was
    * simply dropped — so a re-import is what fills them in.
+   *
+   * `killer` and `ability` were dropped the same way and for longer: Warcraft
+   * Logs puts `killerID` and a fully named `killingAbility` on every death event
+   * it serves, and the schema simply never read them. **A bare number is how a
+   * row imported before that looks**, so it parses to a record with the time and
+   * nothing else — which is exactly what such a row knows. Re-import to fill in
+   * the rest.
    */
-  deathTimes: z.array(z.number().nonnegative()).default([]),
+  deathTimes: z
+    .array(
+      z.union([
+        z.number().nonnegative().transform((atMs) => ({ atMs })),
+        z.object({
+          atMs: z.number().nonnegative(),
+          /** Who landed the killing blow — a boss, an add, or nothing named. */
+          killer: z.string().min(1).optional(),
+          /** The killing ability as the log names it ("Melee" for a swing). */
+          ability: z.string().min(1).optional(),
+          /**
+           * What they took in the ~10s before it, newest first.
+           *
+           * The killing blow alone says "Melee", which for a raider at 3% health
+           * is the least interesting fact about their death. The run-up is what
+           * says whether they were being ground down, stood in something, or got
+           * hit by one enormous thing.
+           *
+           * Absent on reports imported before it was fetched, and on deaths
+           * where the log named no ability for a single hit — a shorter recap
+           * beats one padded with "Unknown Ability".
+           */
+          recap: z
+            .array(
+              z.object({
+                atMs: z.number().nonnegative(),
+                ability: z.string().min(1),
+                source: z.string().min(1).optional(),
+                /** Damage that landed, after mitigation. */
+                amount: z.number().nonnegative(),
+                /** What a shield ate, when any did. */
+                absorbed: z.number().nonnegative().optional(),
+              }),
+            )
+            .optional(),
+        }),
+      ]),
+    )
+    .default([]),
   /**
    * Maintained debuff/buff uptimes (warlock curses, Thunder Clap, shouts…),
    * % of the pull for the best target. `targets` (absent on pre-timeline
@@ -469,6 +532,28 @@ export const wclPlayerFightSchema = z.object({
               segments: z.array(z.tuple([z.number(), z.number()])),
               /** ≈ times the aura was applied/refreshed (stacking spam like Sunder Armor counts each landed cast). */
               applications: z.number().int().nonnegative().optional(),
+              /**
+               * Landed casts that raised the stack, and landed casts that only
+               * renewed the duration — the two halves of `applications`.
+               *
+               * They answer different questions about a stacking debuff. Stack-ups
+               * are the raid *building* Sunder; refreshes are somebody *holding* it
+               * at whatever it reached. A warrior with 20 refreshes and 4 stack-ups
+               * did a different job from one with the reverse, and `applications`
+               * alone reads them as identical.
+               */
+              stackUps: z.number().int().nonnegative().optional(),
+              refreshes: z.number().int().nonnegative().optional(),
+              /**
+               * `[msFromPullStart, stack]` each time THIS source moved the stack.
+               *
+               * Per source, because a cast belongs to whoever made it — the
+               * target's actual stack timeline is the merge of every source's
+               * points, which is what `mergeDebuffOnTarget` reconstructs. Absent on
+               * reports imported before the stack was kept; WCL has always sent it
+               * on `applydebuffstack` and it was dropped.
+               */
+              stackPoints: z.array(z.tuple([z.number(), z.number().int()])).optional(),
             }),
           )
           .optional(),
@@ -653,6 +738,19 @@ export const feedbackReportSchema = z.object({
    */
   adminNoteAuthor: z.string().max(60).optional(),
   adminNoteAt: z.string().optional(),
+  /**
+   * Who closed it and when.
+   *
+   * `status` used to flip in place, so a resolved report recorded the decision
+   * and lost the decider — the one thing the note field bothers to keep. Both
+   * are cleared when a report is reopened: a signature on a report that is open
+   * again claims a call nobody is standing behind.
+   *
+   * Absent on everything closed before this existed, and no backfill can invent
+   * it — nothing recorded who, and nothing can now.
+   */
+  resolvedBy: z.string().max(60).optional(),
+  resolvedAt: z.string().optional(),
   createdAt: z.string().min(1),
 });
 

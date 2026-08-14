@@ -39,6 +39,72 @@ report zero uses forever.
   snapshot and match **by name first**, so those degrade more gracefully — but
   they still only appear in reports fetched after the name was known.
 
+**A shared debuff needs two numbers, and they answer different questions.**
+Uptime accumulates per source, which answers "did this raider do their job" and
+cannot answer "was Sunder up on the boss" — the one the council asks. `mergeTargets`
+in `analysis/debuff-merge.ts` unions every source's intervals per target: **union,
+never sum**, since two warriors covering the same thirty seconds kept it up for
+thirty. It reads `segments` that are already stored, so it answers for nights
+imported months ago. Stacks are the other half: `applications` splits into
+`stackUps` and `refreshes`, and `stackPoints` records the value the log reported
+so `msAtStack` can reconstruct the target's real stack timeline from every
+source's contributions. **Refreshes are derived, never counted** — one landed
+Sunder emits a stack event and a refresh at the same millisecond, so counting
+both would depend on which the log sends first and could exceed the casts they
+split. Stacks need a re-import; the merge does not.
+
+**Death recaps are fetched per pull, not per death or per night.** Per death is
+~97 queries on a quiet night against an import that otherwise costs about seven;
+the whole night unfiltered is ~5,000 events in the first page alone and pages
+further. `fetchDeathRecapWindows` asks once per fight that had a death, filtered
+to the players who died in *that* fight — about a dozen extra calls for a raid —
+and `normalize` slices each death's own window out. The window is duplicated as a
+plain number in `normalize` rather than imported from the fetch layer, because
+normalize is pure and must not depend on it; the fetch deliberately asks for
+slightly more than the slice keeps.
+
+**Change an interval rule and you have two places, not one.** `normalize.ts`
+computes uptime at import and `fight-upkeep.ts` computes it live for one pull,
+and their comments say they share the same rules — which is exactly why a fix
+lands in one and rots in the other. Both were wrong the same way: keyed on the
+raw `targetID`, while WCL puts a *different* id on a debuff's `applydebuff` than
+on its stacks and removal (probed: 161 for the apply, 163 for the rest of the
+same Enchanted Elemental, instance 24 throughout). One debuff became two
+accumulators, the half holding the apply never met its removal, and an unclosed
+window is credited to the end of the fight — which then wins `bestPct`, because
+the headline is the best single target. It read 88% off one application on an add
+that lived twelve seconds. Both now key on **target name + instance**, and only
+an exact `removedebuff`/`removebuff` closes a window (`removedebuffstack` is a
+stack expiring off a debuff that is still up).
+
+**A stored uptime number is only as good as the code that imported it.** The fix
+above corrects new imports; 763 track entries already in the database keep their
+inflated figures until those reports are re-imported, because the events behind
+them were never stored. Same rule as the curated lists above.
+
+**An import now files its own blind spots.** Auras seen at boss pulls that
+`classifyAura` can't place are stored on the report
+(`wcl_reports.unclassified_auras_json`) instead of being shown once in the import
+result and lost, and anything appearing at several pulls opens a feedback report
+from the import path — deduped by ability id against every existing report, open
+or resolved, because the same aura turns up every raid night. The threshold is a
+plain const in the import action, deliberately not a policy field (§4b): it
+decides whether the app writes itself a note, not what any loot verdict is.
+
+Two things follow for whoever curates the aura next. The stored dump is what lets
+a curation say **which** reports are worth re-importing — `findStaleReports` asks
+today's tables about each report's dump and badges the row beside its refetch
+button, but only for reports imported after the column existed, so it says nothing
+about older nights. And filing is best-effort: it runs after the import has
+committed and swallows its own errors, because losing a night's data over a
+self-addressed note would be a bad trade.
+
+**Only a consumable makes a report stale.** An aura later ruled a class buff —
+`Greater Intellect` was, after the auto-filer flagged it and a probe showed a mage
+applying it to themself — changes nothing measurable, so flagging it would spend
+an officer's evening tidying a dump. `findStaleReports` takes the classifier as an
+argument and counts only what now classifies.
+
 **Uptime tracks record their own staleness.** Every report stores the aura names
 it was fetched with (`WclReport.upkeepTracks`, stamped in `saveWclReport`), so a
 reader can tell "the raid never applied this" from "this report predates the
@@ -47,13 +113,21 @@ this report", and it can only do so because the record exists. Nothing else is
 self-describing this way: cast ids, consumables and totems still need the rule
 above.
 
-**Three facts were fetched all along and thrown away at normalize.** The
-pre-potted potion's name, the timestamp on every death, and the label of a food
-whose buff isn't called "Well Fed" all arrived in the events and were reduced to
-a boolean or a counter. Recovering them needed no
-new query — only storing what was already there — but it is still §1: the rows
-already in the database don't have them, so **a re-import is what fills them
-in**, and both features say so on screen rather than reading as "no data".
+**Facts keep turning up that were fetched all along and thrown away at
+normalize.** The pre-potted potion's name, the timestamp on every death, the
+label of a food whose buff isn't called "Well Fed", and the *killing blow* — WCL
+puts `killerID` and a named `killingAbility` on every death event, and because
+the events query already asks with `useAbilityIDs: false` the ability arrives as
+"Arcing Smash" rather than an id to look up. All of them arrived in the events
+and were reduced to a boolean or a counter. Recovering them needed no new query —
+only storing what was already there — but it is still §1: the rows already in the
+database don't have them, so **a re-import is what fills them in**, and each
+feature says so on screen rather than reading as "no data".
+
+The death record shows the gentlest version of that: `deathTimes` widened from
+`number[]` to records, and its zod schema accepts **either**, so a bare number
+from an older row parses to a record holding just the time. No table rebuild, and
+the UI says "cause not recorded" for those rows instead of inventing one.
 
 The food label is the exception that shows the pattern: it lands in `extras`
 rather than being dropped, so `hasFood` recovers it at read time and curating a
@@ -169,6 +243,20 @@ The character page keeps the excused rows and marks them
 (`PerformanceReportView.excusedFightIds`) rather than dropping them: the parse
 on a farm boss is still worth reading. Only the summary is over the counted
 ones.
+
+**`consumable_adjustments:<code>` is saved as a whole list, and two surfaces now
+write it** — the panel's form and the ± on each gold-breakdown badge. Both send
+the entire list, so each carries the snapshot it rendered with: two officers
+editing the same raid at once means the later save wins outright rather than
+merging. That has always been true of the panel; the ± only adds a second door to
+it. If it ever matters, the fix is a targeted upsert per (raider, consumable),
+not more client state.
+
+Which entry a ± press lands on is `bumpAdjustment` in
+`analysis/consumable-adjustments.ts`, pure and tested there rather than in the
+component: it merges into the raider's existing **unnoted** correction and
+appends beside a noted one, because a ± button must not silently change the
+number somebody wrote a reason against.
 
 **`raid_board:<code>` is the one per-report setting that is not a correction to
 something derived.** Warcraft Logs records no group assignments at all, so a
@@ -485,6 +573,51 @@ with a BiS wisher, badged. That is a council decision, recorded here so nobody
 other options and what those block, so the argument goes in the item's notes
 (§5c). Making the rank score something is a policy change (§4b), not a bug fix.
 
+## 4h. An officer's chain for one item
+
+**Chain:** `item_priority_rules` → `getItemPriorityRules` → `store.ts`
+(`priorityRuleFor` **and** `getPrioritySheet`) → `setItemPriorityRule` →
+`saveItemPriorityAction` → `ItemPriorityEditor`, which is handed its phase by
+**every** caller.
+
+**A chain is keyed by phase as well as name, and the two readers use that key
+differently.** Getting this backwards is what shipped the bug:
+
+- **`getPrioritySheet(phase)` passes only that phase's chains.** A chain the
+  phase's sheet doesn't name is listed as "not on this sheet", so a guild-wide
+  key put both Warglaives — a P3 ruling — on the P2 page under "Officer edit".
+- **`priorityRuleFor` walks `lookupPhases`** — active phase first, then the rest
+  newest back to oldest, exactly as the sheet lookup does (§4c). The phase
+  decides which sheet *page* lists a chain, never whether the chain is in force:
+  a P3 ruling still governs a P3 drop while the guild farms P2.
+
+Two consequences worth knowing before you touch either side. Clearing a chain is
+**phase-scoped** — an empty chain hands the item back to one phase's sheet and
+leaves the other phase's ruling standing, which is why the UI only offers "Reset
+to sheet" on a chain the page's own phase owns. And the editor takes its phase
+from the caller rather than reading the active one, because the sheet page and
+the item page mean different things by "this item's phase": the sheet page means
+the sheet being read, the item page means the tier its drop comes from.
+
+**The phase key can go stale, so the row says when it has.** The item page files
+a chain under `item.phase ?? activePhase`, and most of TBC's launch items carry no
+phase until the `phase_checked` backfill answers for them (§4f) — so a chain filed
+today can end up describing a drop from another tier. `getPrioritySheet` carries
+`itemPhase` beside `quality` for exactly this comparison, and a mismatch renders
+as "filed under P2 · drops in P4" with `moveItemPriorityRule` behind the button.
+That move is **one repo call** rather than a write plus a clear (the halves
+failing apart would duplicate or lose the ruling), and it **refuses** when the
+target phase already has a chain, because that is a second ruling somebody made.
+The warning is for an officer's chain only: a council sheet listing another
+tier's drop is the document meaning what it says.
+
+The migration is a **table rebuild**, not an `addColumn` (§2): the primary key
+gained a column. Its backfill resolves each existing chain through the same
+name → id path the sheet view uses — an officer's `sheet_item_ids` pin first,
+then an exact name match — and takes that item's phase, falling back to the
+guild's active phase for a name the cache can't place. It runs *after*
+`relaxItemColumns` because it reads `items.phase`.
+
 ## 4f. Trust a new source of item data
 
 **Chain:** the writer → `items.verified` → `listUnresolvedItemIds` in `store.ts`.
@@ -548,6 +681,13 @@ Azzinoth are called "Warglaive of Azzinoth", and the sheet's "(Main Hand)" is th
 council's annotation rather than anyone's item name. That is what `sheet_item_ids`
 is for: an officer pins the id, keyed by the normalized name so a re-pasted sheet
 keeps it.
+
+**A verified row is never asked about again, which is also how a wrong answer
+becomes permanent.** That is what eight "wrong icon" reports were, each fixed by
+hand. `unverifyItem` withdraws the stamp and nothing else — the row keeps its
+name and icon until a better answer arrives, and keeps the guild's curation,
+which is not Wowhead's to overwrite. It is on the item's own curation panel,
+because "the icon is wrong" and "it drops in Karazhan" are the same job.
 
 Because they can be dropped, they have to be reachable: `setItemCuration` is
 the officer's way back, on the item's own page. **`items.source.zone` is the
@@ -734,6 +874,13 @@ rules follow from that, and neither is stylistic:
   reporter's words and exports under its own heading, never merged into theirs.
   `priority` starts at `unset` because "nobody has looked at this" is a state,
   and the listing sorts it *above* `minor` for the same reason.
+- **Closing a report signs it; reopening unsigns it.** `resolved_by` and
+  `resolved_at` are written by **both** doors — `setFeedbackStatus` and a
+  `setFeedbackTriage` that sets `status` — and cleared when a report goes back to
+  open, because a signature on a live report claims a call nobody is standing
+  behind. Closing without a name is allowed: an unsigned closure beats a tool
+  that refuses to close. Reports closed before this existed carry neither, and no
+  backfill can invent them.
 
 A new **table**, unlike a new column, needs no `migrate()` line — `db.exec(SCHEMA)`
 runs `CREATE TABLE IF NOT EXISTS` on every boot. §2's warning is about columns

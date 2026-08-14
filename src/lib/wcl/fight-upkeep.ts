@@ -120,8 +120,17 @@ export async function fetchFightDebuffUptime(
     if (!name || source?.type !== "Player" || target?.type === "Player") continue;
 
     const at = Math.min(Math.max(timestamp, fight.startTime), fight.endTime);
-    const acc = accs.get(`${source.name}|${name}|${targetID}|${e.data.targetInstance ?? 0}`) ?? { total: 0 };
-    if (type.startsWith("remove")) {
+    // By target NAME and instance, not actor id — WCL puts a different id on a
+    // debuff's `applydebuff` than on its stacks and its removal, which split one
+    // debuff in two and left the half holding the apply open to the fight end.
+    // Same fix, same reason as the import path; see the note in normalize.ts.
+    const key = `${source.name}|${name}|${(target?.name ?? targetID).toString().toLowerCase()}|${e.data.targetInstance ?? 0}`;
+    const acc = accs.get(key) ?? { total: 0 };
+    // Only a real removal closes a window. `removedebuffstack` means one stack
+    // dropped off a debuff that is still up — treating it as a removal would
+    // read a stacking debuff as falling off every time it ticked down. The
+    // import path has always been exact here; this one used startsWith.
+    if (type === "removedebuff" || type === "removebuff") {
       if (acc.open !== undefined) {
         acc.total += at - acc.open;
         acc.open = undefined;
@@ -131,7 +140,7 @@ export async function fetchFightDebuffUptime(
     } else if (type.startsWith("apply") || type.startsWith("refresh")) {
       acc.open ??= at;
     }
-    accs.set(`${source.name}|${name}|${targetID}|${e.data.targetInstance ?? 0}`, acc);
+    accs.set(key, acc);
   }
 
   const best = new Map<string, DebuffUpkeep>();

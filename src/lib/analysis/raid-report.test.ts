@@ -11,6 +11,7 @@ const report: WclReport = {
   endTime: "2026-06-10T23:00:00.000Z",
   fetchedAt: "2026-06-11T08:00:00.000Z",
   upkeepTracks: [],
+  unclassifiedAuras: [],
   raidSessionId: null,
 };
 

@@ -39,12 +39,20 @@ export function ItemPriorityEditor({
   formOnly = false,
   /** Called when the form closes itself, so the caller can put its row back. */
   onDone,
+  phase,
 }: {
   itemName: string;
   /** The chain in force — the seeded sheet's, or an officer's edit of it. */
   rule?: ItemPriorityRule;
   formOnly?: boolean;
   onDone?: () => void;
+  /**
+   * The sheet this edit is written against. Passed by the caller rather than
+   * inferred: the sheet page knows its own phase, and the item page knows the
+   * phase its drop belongs to — guessing here is how chains ended up on the
+   * wrong sheet in the first place.
+   */
+  phase: number;
 }) {
   const [editing, setEditing] = React.useState(formOnly);
   const [chain, setChain] = React.useState(rule?.chain ?? "");
@@ -56,7 +64,7 @@ export function ItemPriorityEditor({
     setError(null);
     setWarning(null);
     startTransition(async () => {
-      const result = await saveItemPriorityAction({ itemName, chain: next });
+      const result = await saveItemPriorityAction({ itemName, phase, chain: next });
       if (!result.ok) {
         setError(result.message);
         return;
@@ -94,9 +102,16 @@ export function ItemPriorityEditor({
                 </React.Fragment>
               ))}
             </span>
+            {/* Which phase an officer's chain was written against, whenever it
+                isn't the one being edited. A chain still applies to its drop
+                from any phase, so the alternative — saying nothing — reads as
+                "edited here" on a page whose Save would write a different
+                phase's ruling instead of changing this one. */}
             <span className="text-[11px] text-muted-foreground">
               {rule.origin === "officer"
-                ? "edited here"
+                ? rule.phase === undefined || rule.phase === phase
+                  ? "edited here"
+                  : `edited on the phase ${rule.phase} sheet`
                 : `from the guild sheet${rule.source ? ` · ${rule.source}` : ""}`}
             </span>
           </>
@@ -116,7 +131,10 @@ export function ItemPriorityEditor({
         >
           <Pencil className="h-3 w-3" /> Edit
         </Button>
-        {rule?.origin === "officer" && (
+        {/* Only for a chain this phase owns. Clearing is phase-scoped, so on a
+            chain belonging to another phase the button would report success and
+            delete nothing — the other phase's ruling would still be in force. */}
+        {rule?.origin === "officer" && (rule.phase === undefined || rule.phase === phase) && (
           <Button
             variant="ghost"
             size="sm"

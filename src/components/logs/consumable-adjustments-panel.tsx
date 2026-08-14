@@ -117,6 +117,12 @@ export function ConsumableAdjustmentsPanel({
           raider&apos;s total, this raid&apos;s combined total and their gold-per-raid all follow.
           Nothing is overwritten — removing an entry restores exactly what the log said.
         </p>
+        <p className="text-xs text-muted-foreground">
+          For a consumable already on a raider&apos;s line, the ± beside it in the table above is the
+          same edit with fewer fields. This form is what you need to{" "}
+          <strong className="font-medium">add one the log never saw</strong> — there is no badge up
+          there to press — and to leave a note saying why.
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_5rem]">

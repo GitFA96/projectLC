@@ -19,6 +19,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { clockTime, PctLane, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
 
+import { coveredMs, msAtStack } from "@/lib/analysis/debuff-merge";
+
 import { compareText } from "@/lib/sort";
 
 /** One provider's up-intervals on one target, as bands over the pull. */
@@ -75,6 +77,78 @@ interface Lane {
   trackIdx: number;
 }
 
+/**
+ * What the raid had up on this target, from anybody — per track.
+ *
+ * The lanes below it are per provider, which is the right way to read "did this
+ * raider do their job" and cannot answer "was Sunder up on the boss". Two
+ * warriors covering different halves of a pull show as 40% and 40% and the
+ * council wants the 80%. **Union, never sum**: overlapping cover is the same
+ * seconds twice, so `coveredMs` folds it before dividing.
+ *
+ * Stacks come with it when the report recorded them. For Sunder the stack is the
+ * point of the debuff — one stack and five are not the same armour — and a raid
+ * that held 5 for 90% of a pull did a different job from one that reached 5 once.
+ * Reports imported before the stack was kept say nothing rather than "0".
+ */
+function RaidCover({ lanes, durationMs }: { lanes: Lane[]; durationMs: number }) {
+  const perTrack = new Map<string, Lane[]>();
+  for (const lane of lanes) {
+    perTrack.set(lane.trackName, [...(perTrack.get(lane.trackName) ?? []), lane]);
+  }
+
+  return (
+    <>
+      {[...perTrack].map(([trackName, trackLanes]) => {
+        // A single provider needs no merging — its own lane already says this.
+        if (trackLanes.length < 2 && trackLanes[0]?.target.stackPoints === undefined) return null;
+        const ms = coveredMs(trackLanes.flatMap((l) => l.target.segments as [number, number][]));
+        const pct = durationMs > 0 ? Math.round(Math.min(100, (ms / durationMs) * 100)) : 0;
+        const points = trackLanes.flatMap((l) => l.target.stackPoints ?? []) as [number, number][];
+        const stacks = msAtStack(points, durationMs);
+        const casts = trackLanes.reduce(
+          (sum, l) => sum + (l.target.stackUps ?? 0) + (l.target.refreshes ?? 0),
+          0,
+        );
+        return (
+          <Badge
+            key={trackName}
+            variant="outline"
+            className="gap-1 font-normal"
+            title={
+              `${trackName}: up ${pct}% of the pull counting every source at once` +
+              (trackLanes.length > 1 ? ` (${trackLanes.length} providers)` : "") +
+              (stacks
+                ? `. Peaked at ${stacks.maxStack} stacks, held there ${Math.round(
+                    (stacks.msAtMax / Math.max(1, durationMs)) * 100,
+                  )}% of the pull.`
+                : ". Stacks not recorded on this report — re-import to fill them in.")
+            }
+          >
+            <span className="text-muted-foreground">raid</span>
+            {pct}%
+            {stacks && (
+              <span className="text-muted-foreground">
+                · {stacks.maxStack}× {Math.round((stacks.msAtMax / Math.max(1, durationMs)) * 100)}%
+              </span>
+            )}
+            {casts > 0 && (
+              <span
+                className="text-muted-foreground"
+                title="Landed casts that raised the stack, then those that only renewed it"
+              >
+                ·{" "}
+                {trackLanes.reduce((s, l) => s + (l.target.stackUps ?? 0), 0)}↑
+                {trackLanes.reduce((s, l) => s + (l.target.refreshes ?? 0), 0)}↻
+              </span>
+            )}
+          </Badge>
+        );
+      })}
+    </>
+  );
+}
+
 /** All selected tracks' lanes on one victim (the boss, one add instance, or a buffed friendly). */
 interface TargetGroup {
   key: string;
@@ -105,6 +179,20 @@ function groupByTarget(tracks: { name: string; providers: UpkeepFightProvider[] 
             applications:
               lane.target.applications !== undefined || target.applications !== undefined
                 ? (lane.target.applications ?? 0) + (target.applications ?? 0)
+                : undefined,
+            // The stack fields fold the same way, or the second actor id's
+            // stacks vanish from a mob whose events WCL split across two.
+            stackUps:
+              lane.target.stackUps !== undefined || target.stackUps !== undefined
+                ? (lane.target.stackUps ?? 0) + (target.stackUps ?? 0)
+                : undefined,
+            refreshes:
+              lane.target.refreshes !== undefined || target.refreshes !== undefined
+                ? (lane.target.refreshes ?? 0) + (target.refreshes ?? 0)
+                : undefined,
+            stackPoints:
+              lane.target.stackPoints !== undefined || target.stackPoints !== undefined
+                ? [...(lane.target.stackPoints ?? []), ...(target.stackPoints ?? [])]
                 : undefined,
           };
         } else {
@@ -260,11 +348,12 @@ export function UptimeByBoss({
                   {hasTimelines &&
                     targetGroups.map((group) => (
                       <div key={group.key} className="space-y-1">
-                        <p className="flex items-center gap-1.5 text-sm font-medium">
+                        <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
                           {group.label}
                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                             {group.boss ? "boss" : "add"}
                           </span>
+                          <RaidCover lanes={group.lanes} durationMs={fight.durationMs} />
                         </p>
                         <div className="space-y-1">
                           {group.lanes.map(({ provider, target, trackName }) => (

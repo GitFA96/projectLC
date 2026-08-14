@@ -24,6 +24,12 @@ those events. So:
 Whenever you extend a curated list, **tell the user to re-import**. That is part
 of the change, not a footnote.
 
+You will not always be the one who notices. An import stores the auras it could
+not place on the report and files a feedback report for anything that shows up at
+several pulls, so the curation queue arrives on its own — that is how the two
+vanilla flasks below were found, after eleven pulls of one had already graded as
+"no flask".
+
 ## Rules
 
 - **Never add a spell id or aura name from memory — probe a real report.** WCL
@@ -47,6 +53,21 @@ of the change, not a footnote.
   aren't covered by its GraphQL schema. Unknown fields must never break an
   import; missing expected fields degrade to "metric unavailable". Keep new
   schemas `z.looseObject`.
+- **One mob is not one actor id.** A debuff's `applydebuff` can name a different
+  `targetID` than its own stacks and removal — probed on a Vashj pull: id 161 for
+  the apply, 163 for everything after, same name, same `targetInstance`. Uptime
+  accumulators therefore key on **target name + instance**, in both
+  `normalize.ts` and `fight-upkeep.ts`. Keying on the id split one debuff in two
+  and left the half holding the apply with nothing to close it, so it ran to the
+  end of the fight and won `bestPct` — 763 stored track entries were inflated
+  that way, up to 88% off one application on an add that lived twelve seconds.
+- **A death recap is one fetch per pull that had a death**, filtered to the
+  players who died in that pull. Not per death — 97 queries on a quiet night —
+  and not the whole night, which is ~5,000 events in the first page alone. See
+  `fetchDeathRecapWindows`.
+- **Only `removedebuff`/`removebuff` close a window.** `removedebuffstack` is one
+  stack expiring off a debuff that is still up. The two paths above must agree on
+  this; they claim to share the same interval rules.
 - **`normalize.ts` is pure** — no db, no network. That's what makes
   `normalize.test.ts` possible.
 - Ids under-count when wrong, names break when wrong. Prefer id matching for

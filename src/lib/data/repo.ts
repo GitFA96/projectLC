@@ -405,8 +405,18 @@ export type DeleteSessionResult =
  * `upkeepTracks` is stamped there too — the fetcher shouldn't have to remember
  * to state what it asked for, and a drifting record would be worse than none.
  */
-export type WclReportDraft = Omit<WclReport, "fetchedAt" | "raidSessionId" | "upkeepTracks"> & {
+export type WclReportDraft = Omit<
+  WclReport,
+  "fetchedAt" | "raidSessionId" | "upkeepTracks" | "unclassifiedAuras"
+> & {
   raidSessionId?: string | null;
+  /**
+   * The fetch's unrecognized-aura dump. Optional and NOT stamped centrally like
+   * `upkeepTracks`: it is a fact about this particular fetch's events, so only
+   * the caller holding the normalized report can supply it. Absent stores an
+   * empty list, which reads as "none recorded" rather than "none existed".
+   */
+  unclassifiedAuras?: WclReport["unclassifiedAuras"];
 };
 export type WclPlayerFightDraft = Omit<WclPlayerFight, "id" | "reportCode" | "characterId">;
 /** One player's off-pull consumables, before identity/roster matching. */
@@ -461,6 +471,11 @@ export interface FeedbackTriage {
   priority?: FeedbackPriority;
   /** Empty string clears the note; undefined leaves it alone. */
   adminNote?: string;
+  /**
+   * Who closed it, when `status` is being set to resolved. Falls back to
+   * `adminNoteAuthor`, since the person triaging is usually the one signing.
+   */
+  resolvedBy?: string;
   /** Who is writing it. Stamped with the note, and cleared with it. */
   adminNoteAuthor?: string;
 }
@@ -538,15 +553,32 @@ export interface WriteRepo extends Repo {
    */
   setActivePhase(phase: Phase): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
-   * Override one item's spec priority chain, keyed by item name so it covers
-   * drops the item cache has never seen. An empty chain clears the override and
-   * hands the item back to the seeded sheet.
+   * Override one item's spec priority chain for one phase, keyed by item name so
+   * it covers drops the item cache has never seen. An empty chain clears that
+   * phase's override and hands the item back to the phase's sheet — leaving any
+   * chain written for another phase alone.
    */
-  setItemPriorityRule(
-    itemName: string,
-    chain: string,
-    note?: string,
-  ): Promise<{ ok: true; rule?: ItemPriorityRule } | { ok: false; error: string }>;
+  setItemPriorityRule(input: {
+    itemName: string;
+    /** The sheet the chain is written against. */
+    phase: number;
+    chain: string;
+    note?: string;
+  }): Promise<{ ok: true; rule?: ItemPriorityRule } | { ok: false; error: string }>;
+  /**
+   * File an existing chain against a different phase's sheet, unchanged.
+   *
+   * One call rather than a write plus a clear, because the halves failing apart
+   * would either duplicate the ruling across two phases or lose it entirely.
+   * Refuses when the target phase already has a chain for the item: that is a
+   * second ruling somebody made, and overwriting it silently is how a council
+   * decision disappears.
+   */
+  moveItemPriorityRule(input: {
+    itemName: string;
+    fromPhase: number;
+    toPhase: number;
+  }): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Replace a phase's priority sheet with pasted markdown. The text is stored
    * verbatim and parsed on read, so the stored sheet stays something an officer
@@ -684,8 +716,13 @@ export interface WriteRepo extends Repo {
   deleteCharacterComment(id: string): Promise<boolean>;
   /** File one bug report. The id and timestamp are assigned here, not by the caller. */
   addFeedback(draft: FeedbackDraft): Promise<AddFeedbackResult>;
-  /** Open or close one report. Returns false when the id didn't exist. */
-  setFeedbackStatus(id: string, status: FeedbackStatus): Promise<boolean>;
+  /**
+   * Open or close one report. Returns false when the id didn't exist.
+   *
+   * `by` signs the closure and is stored with it; reopening clears both, so a
+   * resolved report always says who resolved it and an open one never does.
+   */
+  setFeedbackStatus(id: string, status: FeedbackStatus, by?: string): Promise<boolean>;
   /**
    * Triage one report — status, priority, the officer's note, in any
    * combination. Returns false when the id didn't exist.
@@ -742,6 +779,15 @@ export interface WriteRepo extends Repo {
     itemId: number,
     curation: { phase: Phase | null; source: { zone: string; boss?: string } | null },
   ): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * "This item's name or icon is wrong" — drop the confirmed stamp so the
+   * resolver asks Wowhead again on the next backfill.
+   *
+   * A verified row is never re-asked about, which is what makes the cache cheap
+   * and also what made eight wrong icons permanent until somebody fixed each by
+   * hand. This is the way back in, and it costs one press rather than a report.
+   */
+  unverifyItem(itemId: number): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Record enchant ids resolved to names. Ids already named are left alone;
    * returns how many rows were written.

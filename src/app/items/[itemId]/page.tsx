@@ -196,7 +196,15 @@ export default async function ItemPage({ params }: { params: Promise<Params> }) 
       <Card>
         <CardHeader className="space-y-2">
           <CardTitle>Who should get it</CardTitle>
-          <ItemPriorityEditor itemName={itemName} rule={contention.priorityRule} />
+          {/* The item's own phase when the cache knows it, else the phase the
+              guild is raiding. An edit made here is a ruling about this drop,
+              so it belongs on the sheet for the tier the drop comes from — not
+              on whichever sheet the guild happens to be reading. */}
+          <ItemPriorityEditor
+            itemName={itemName}
+            rule={contention.priorityRule}
+            phase={item?.phase ?? guild.activePhase}
+          />
           {contention.manualTiers.length > 0 && (
             <p className="rounded-md bg-warn-soft px-2 py-1.5 text-xs text-warn-ink">
               The sheet puts{" "}

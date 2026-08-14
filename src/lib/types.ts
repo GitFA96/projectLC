@@ -270,6 +270,11 @@ export interface ItemPriorityRule {
   origin: "sheet" | "officer";
   /** Sheet section the rule came from (the boss), when seeded. */
   source?: string;
+  /**
+   * The phase whose sheet an officer's edit was written against. Absent on a
+   * seeded rule, which is already reached through a phase's sheet.
+   */
+  phase?: number;
 }
 
 /** One component of a priority score, with the evidence behind it. */

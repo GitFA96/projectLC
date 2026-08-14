@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { copyFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -721,7 +721,7 @@ describe("sqlite repo", () => {
 
     it("keeps per-item officer edits on top of a replaced sheet", async () => {
       const repo = getSqliteRepo();
-      await repo.setItemPriorityRule("Amani Punisher", "Enhancement > MS");
+      await repo.setItemPriorityRule({ itemName: "Amani Punisher", phase: 4, chain: "Enhancement > MS" });
       const markdown = [
         "### Zul'Aman Trash",
         "| Item | Priority | Slot | Notes |",
@@ -739,23 +739,30 @@ describe("sqlite repo", () => {
 
     it("lets an officer override a chain and hand it back again", async () => {
       const repo = getSqliteRepo();
-      const saved = await repo.setItemPriorityRule(
-        "Madness of the Betrayer",
-        "Rogue > Hunter > MS > OS",
-      );
+      const saved = await repo.setItemPriorityRule({
+        itemName: "Madness of the Betrayer",
+        phase: 3,
+        chain: "Rogue > Hunter > MS > OS",
+      });
       expect(saved.ok).toBe(true);
 
       const edited = await repo.getItemPriorityRule(0, "Madness of the Betrayer");
       expect(edited).toMatchObject({ origin: "officer", chain: "Rogue > Hunter > MS > OS" });
 
       // An empty chain is how the sheet takes the item back.
-      expect((await repo.setItemPriorityRule("Madness of the Betrayer", "")).ok).toBe(true);
+      expect(
+        (await repo.setItemPriorityRule({ itemName: "Madness of the Betrayer", phase: 3, chain: "" })).ok,
+      ).toBe(true);
       expect((await repo.getItemPriorityRule(0, "Madness of the Betrayer"))!.origin).toBe("sheet");
     });
 
     it("matches an override by name however it's punctuated", async () => {
       const repo = getSqliteRepo();
-      await repo.setItemPriorityRule("kazrogals hardened heart", "Prot Warrior > MS > OS");
+      await repo.setItemPriorityRule({
+        itemName: "kazrogals hardened heart",
+        phase: 3,
+        chain: "Prot Warrior > MS > OS",
+      });
       // The sheet spells it "Kaz'rogal's Hardened Heart" — same item.
       const rule = await repo.getItemPriorityRule(0, "Kaz'rogal's Hardened Heart");
       expect(rule).toMatchObject({ origin: "officer" });
@@ -763,8 +770,186 @@ describe("sqlite repo", () => {
 
     it("rejects an override with nothing to match on", async () => {
       const repo = getSqliteRepo();
-      expect(await repo.setItemPriorityRule("   ", "Rogue > MS")).toMatchObject({ ok: false });
-      expect(await repo.setItemPriorityRule("???", "Rogue > MS")).toMatchObject({ ok: false });
+      expect(await repo.setItemPriorityRule({ itemName: "   ", phase: 3, chain: "Rogue > MS" })).toMatchObject({ ok: false });
+      expect(await repo.setItemPriorityRule({ itemName: "???", phase: 3, chain: "Rogue > MS" })).toMatchObject({ ok: false });
+    });
+
+    it("keeps one phase's officer chain off another phase's sheet", async () => {
+      // The reported bug: a chain written for a phase 3 drop was listed on the
+      // phase 2 page as an unlisted officer edit, because chains were guild-wide.
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule({
+        itemName: "Warglaive of Azzinoth (Main Hand)",
+        phase: 3,
+        chain: "Set completion > DPS Warrior > Rogue",
+      });
+
+      // Phase 3's sheet names this item, so the chain lands ON its row — the
+      // officer's edit shown over what the sheet says.
+      const p3 = await repo.getPrioritySheet(3);
+      const p3Row = p3.sections
+        .flatMap((s) => s.rows)
+        .find((r) => r.itemName === "Warglaive of Azzinoth (Main Hand)");
+      expect(p3Row).toMatchObject({ origin: "officer", chain: "Set completion > DPS Warrior > Rogue" });
+
+      // Phase 2 must not show it at all — not as a sheet row, and not in the
+      // "not on this sheet" list, which is where it used to appear.
+      const p2 = await repo.getPrioritySheet(2);
+      const p2Names = [...p2.sections.flatMap((s) => s.rows), ...p2.unlisted].map((r) => r.itemName);
+      expect(p2Names).not.toContain("Warglaive of Azzinoth (Main Hand)");
+    });
+
+    it("still applies another phase's chain to the drop itself", async () => {
+      // The other half of the same decision: the phase decides which sheet PAGE
+      // lists a chain, never whether it is in force. A P3 ruling still governs
+      // a P3 drop while the guild farms P2 — scoping the lookup would silently
+      // strip every older item of its priority.
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule({
+        itemName: "Madness of the Betrayer",
+        phase: 5,
+        chain: "Rogue > Hunter > MS > OS",
+      });
+
+      const rule = await repo.getItemPriorityRule(0, "Madness of the Betrayer");
+      expect(rule).toMatchObject({ origin: "officer", phase: 5, chain: "Rogue > Hunter > MS > OS" });
+    });
+
+    it("clears one phase's chain without touching another's", async () => {
+      const repo = getSqliteRepo();
+      const itemName = "Amani Punisher";
+      await repo.setItemPriorityRule({ itemName, phase: 2, chain: "Rogue > MS" });
+      await repo.setItemPriorityRule({ itemName, phase: 3, chain: "Enhancement > MS" });
+
+      // An empty chain hands the item back to ONE phase's sheet.
+      expect((await repo.setItemPriorityRule({ itemName, phase: 2, chain: "" })).ok).toBe(true);
+
+      expect((await repo.getPrioritySheet(2)).unlisted.map((r) => r.itemName)).not.toContain(itemName);
+      const p3 = (await repo.getPrioritySheet(3)).unlisted.find((r) => r.itemName === itemName);
+      expect(p3?.chain).toBe("Enhancement > MS");
+    });
+
+    it("re-files a misfiled chain under the phase its item drops in", async () => {
+      // Gorehowl is a seeded phase 1 item. A chain filed against phase 2 — which
+      // is what the item page does when the cache can't place a drop yet — is
+      // the state the sheet row flags, and this is the button behind it.
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule({ itemName: "Gorehowl", phase: 2, chain: "DPS Warrior > MS" });
+
+      expect(
+        await repo.moveItemPriorityRule({ itemName: "Gorehowl", fromPhase: 2, toPhase: 1 }),
+      ).toEqual({ ok: true });
+
+      expect((await repo.getPrioritySheet(2)).unlisted.map((r) => r.itemName)).not.toContain("Gorehowl");
+      const moved = (await repo.getPrioritySheet(1)).unlisted.find((r) => r.itemName === "Gorehowl");
+      // Moved, not rewritten: the chain and its phase both say so.
+      expect(moved?.chain).toBe("DPS Warrior > MS");
+      expect(await repo.getItemPriorityRule(0, "Gorehowl")).toMatchObject({ phase: 1 });
+    });
+
+    it("refuses to move a chain onto one that already exists", async () => {
+      // Both halves are somebody's ruling. Overwriting silently is how a council
+      // decision disappears, so the officer is told to clear the other one first.
+      const repo = getSqliteRepo();
+      const itemName = "Gorehowl";
+      await repo.setItemPriorityRule({ itemName, phase: 2, chain: "DPS Warrior > MS" });
+      await repo.setItemPriorityRule({ itemName, phase: 1, chain: "Rogue > MS" });
+
+      expect(await repo.moveItemPriorityRule({ itemName, fromPhase: 2, toPhase: 1 })).toMatchObject({
+        ok: false,
+      });
+      // Neither ruling moved or vanished.
+      expect((await repo.getPrioritySheet(2)).unlisted.find((r) => r.itemName === itemName)?.chain).toBe(
+        "DPS Warrior > MS",
+      );
+      expect((await repo.getPrioritySheet(1)).unlisted.find((r) => r.itemName === itemName)?.chain).toBe(
+        "Rogue > MS",
+      );
+    });
+
+    it("refuses to move a chain that isn't filed where the caller thinks", async () => {
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule({ itemName: "Gorehowl", phase: 1, chain: "Rogue > MS" });
+      expect(
+        await repo.moveItemPriorityRule({ itemName: "Gorehowl", fromPhase: 4, toPhase: 5 }),
+      ).toMatchObject({ ok: false });
+      expect(
+        await repo.moveItemPriorityRule({ itemName: "Gorehowl", fromPhase: 1, toPhase: 9 }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("carries the item's own phase onto sheet rows, so a misfile is visible", async () => {
+      // What the row renders its warning from: the sheet's phase and the item's
+      // phase are separate values, and the read model has to supply the second.
+      const repo = getSqliteRepo();
+      await repo.setItemPriorityRule({ itemName: "Gorehowl", phase: 2, chain: "DPS Warrior > MS" });
+      const row = (await repo.getPrioritySheet(2)).unlisted.find((r) => r.itemName === "Gorehowl");
+      expect(row?.itemPhase).toBe(1);
+    });
+
+    it("refuses a chain for a phase the guild doesn't raid", async () => {
+      const repo = getSqliteRepo();
+      expect(
+        await repo.setItemPriorityRule({ itemName: "Amani Punisher", phase: 9, chain: "Rogue > MS" }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("places chains from a table that predates the phase key", async () => {
+      // §2's silent failure with a primary key change on top: `addColumn` can't
+      // do this one, so the table is rebuilt. The backfill has to place each
+      // existing chain on a real sheet, and the honest source is the item it
+      // names — not the phase the guild happens to be in.
+      //
+      // Built from a REAL seeded database rather than a hand-made table, because
+      // migrate() runs before seedIfEmpty() and the backfill reads `items` and
+      // `guild`. A hand-made legacy table would migrate against an empty cache —
+      // a state no actual database can be in, since a chain can't exist before
+      // the guild that wrote it.
+      const seeded = getSqliteRepo();
+      await seeded.getGuild();
+
+      const legacy = new DatabaseSync(process.env.PROJECTLC_DB!);
+      legacy.exec(`
+        DROP TABLE item_priority_rules;
+        CREATE TABLE item_priority_rules (
+          item_key TEXT PRIMARY KEY, item_name TEXT NOT NULL, chain TEXT NOT NULL,
+          note TEXT, updated_at TEXT NOT NULL
+        );
+      `);
+      const insert = legacy.prepare(
+        `INSERT INTO item_priority_rules (item_key, item_name, chain, note, updated_at)
+         VALUES (?, ?, ?, NULL, '2026-08-01T00:00:00.000Z')`,
+      );
+      // Gorehowl is a seeded phase 1 item; the second names nothing the cache
+      // has ever heard of, so it can only fall back to the active phase (2).
+      insert.run("gorehowl", "Gorehowl", "DPS Warrior > MS > OS");
+      insert.run("apocryphalgreatsword", "Apocryphal Greatsword", "Prot Warrior > MS");
+      // Fold the WAL back into the file before copying it: without this the copy
+      // is the pre-write snapshot and the legacy table appears never to have
+      // been written at all.
+      legacy.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      legacy.close();
+
+      // A fresh path, so the repo opens (and migrates) rather than handing back
+      // the cached handle for the old one.
+      const migratedFile = path.join(mkdtempSync(path.join(tmpdir(), "projectlc-migrated-")), "old.db");
+      copyFileSync(process.env.PROJECTLC_DB!, migratedFile);
+      process.env.PROJECTLC_DB = migratedFile;
+      const repo = getSqliteRepo();
+
+      // Placed by the item it names, so it lands on phase 1's sheet…
+      expect((await repo.getPrioritySheet(1)).unlisted.map((r) => r.itemName)).toContain("Gorehowl");
+      expect((await repo.getPrioritySheet(2)).unlisted.map((r) => r.itemName)).not.toContain("Gorehowl");
+      // …and the unplaceable one keeps applying, on the phase the guild is in.
+      expect((await repo.getPrioritySheet(2)).unlisted.map((r) => r.itemName)).toContain(
+        "Apocryphal Greatsword",
+      );
+      // Either way the chain itself survives the rebuild, which is the point.
+      expect(await repo.getItemPriorityRule(0, "Gorehowl")).toMatchObject({
+        origin: "officer",
+        chain: "DPS Warrior > MS > OS",
+        phase: 1,
+      });
     });
 
     it("stores the council's weighting and defaults the rest", async () => {
@@ -1426,6 +1611,36 @@ describe("sqlite repo", () => {
     expect(await repo.addItemsIfMissing([{ id: 99951, name: "Wrong again" }])).toBe(0);
   });
 
+  it("puts a wrong icon back in the resolver's queue without losing the curation", async () => {
+    // Eight of the council's bug reports were "wrong icon", each fixed by hand,
+    // because a confirmed row is never asked about again. This is the way back.
+    const repo = getSqliteRepo();
+    await repo.saveResolvedItems([
+      { id: 99953, name: "Bloodlust Brooch", quality: "epic", icon: "inv_wrong_icon" },
+    ]);
+    expect(await repo.listUnresolvedItemIds()).not.toContain(99953);
+
+    // The guild's own answer about where it drops — nobody else's to give.
+    expect((await repo.setItemCuration(99953, { phase: 2, source: { zone: "Karazhan" } })).ok).toBe(true);
+
+    expect(await repo.unverifyItem(99953)).toEqual({ ok: true });
+    expect(await repo.listUnresolvedItemIds()).toContain(99953);
+
+    const item = (await repo.getItem(99953))!;
+    // Still renders meanwhile — a placeholder would make every list worse until
+    // the next press — and the curation is untouched.
+    expect(item.name).toBe("Bloodlust Brooch");
+    expect(item.icon).toBe("inv_wrong_icon");
+    expect(item.phase).toBe(2);
+    expect(item.source?.zone).toBe("Karazhan");
+  });
+
+  it("refuses to queue an item the cache has never seen", async () => {
+    const repo = getSqliteRepo();
+    expect(await repo.unverifyItem(99999999)).toMatchObject({ ok: false });
+    expect(await repo.unverifyItem(0)).toMatchObject({ ok: false });
+  });
+
   it("lists items that would render as a bare id, and stops listing them once resolved", async () => {
     const repo = getSqliteRepo();
     const session = await repo.createRaidSessionWithAwards(
@@ -2007,6 +2222,97 @@ describe("sqlite repo", () => {
       // Seed report + this one, newest (June 10) first.
       const reports = await repo.listWclReports();
       expect(reports.map((r) => r.report.code)).toEqual(["TESTreport000001", "SEEDsscProgress1"]);
+    });
+
+    it("keeps the unrecognized-aura dump with the report", async () => {
+      // It used to live only in the import result: close the tab and the app's
+      // record of what it failed to understand was gone.
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(
+        {
+          ...reportDraft,
+          unclassifiedAuras: [
+            { name: "Supreme Power", abilityId: 17628, count: 11 },
+            { name: "Chromatic Resistance", abilityId: 17629, count: 1 },
+          ],
+        },
+        [fightDraft({ fightId: 1, actorName: "Pyrelia" })],
+      );
+
+      const stored = (await repo.listWclReports()).find((r) => r.report.code === reportDraft.code);
+      expect(stored!.report.unclassifiedAuras).toEqual([
+        { name: "Supreme Power", abilityId: 17628, count: 11 },
+        { name: "Chromatic Resistance", abilityId: 17629, count: 1 },
+      ]);
+    });
+
+    it("keeps the dump when an officer renames the report", async () => {
+      // §2's trap, on the one path that could hit it: retitling a report must not
+      // empty a column it never mentions. It survives because
+      // updateWclReportMeta writes targeted UPDATEs rather than reusing the
+      // OR REPLACE insert — which is exactly the kind of thing that breaks the
+      // day somebody "simplifies" it into insertWclReport.
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(
+        { ...reportDraft, unclassifiedAuras: [{ name: "Supreme Power", abilityId: 17628, count: 11 }] },
+        [fightDraft({ fightId: 1, actorName: "Pyrelia" })],
+      );
+
+      expect((await repo.updateWclReportMeta(reportDraft.code, { title: "Renamed night" })).ok).toBe(true);
+
+      const stored = (await repo.listWclReports()).find((r) => r.report.code === reportDraft.code);
+      expect(stored!.report.title).toBe("Renamed night");
+      expect(stored!.report.unclassifiedAuras).toEqual([
+        { name: "Supreme Power", abilityId: 17628, count: 11 },
+      ]);
+    });
+
+    it("stores an empty dump for a save that says nothing about it", async () => {
+      // "Not recorded" rather than "none existed" — the distinction the column's
+      // default exists to preserve.
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+      const stored = (await repo.listWclReports()).find((r) => r.report.code === reportDraft.code);
+      expect(stored!.report.unclassifiedAuras).toEqual([]);
+    });
+
+    it("round-trips a death with its killing blow", async () => {
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [
+        fightDraft({
+          fightId: 1,
+          actorName: "Pyrelia",
+          deaths: 1,
+          deathTimes: [{ atMs: 40_000, killer: "Fathom-Guard Sharkkis", ability: "Melee" }],
+        }),
+      ]);
+      const perf = (await repo.getCharacterPerformance("pyrelia"))!;
+      expect(perf.reports[0].rows[0].deathTimes).toEqual([
+        { atMs: 40_000, killer: "Fathom-Guard Sharkkis", ability: "Melee" },
+      ]);
+    });
+
+    it("reads a row stored before the killing blow as time-only", async () => {
+      // Rows written by the old code hold bare numbers in `death_times_json`.
+      // They parse to a record with the time and nothing else, which is exactly
+      // what such a row knows — no rebuild, and no invented cause.
+      const repo = getSqliteRepo();
+      await repo.saveWclReport(reportDraft, [fightDraft({ fightId: 1, actorName: "Pyrelia", deaths: 1 })]);
+
+      const raw = new DatabaseSync(process.env.PROJECTLC_DB!);
+      raw.prepare("UPDATE wcl_player_fights SET death_times_json = ? WHERE actor_name = ?").run(
+        "[40000,90000]",
+        "Pyrelia",
+      );
+      raw.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      raw.close();
+
+      const migratedFile = path.join(mkdtempSync(path.join(tmpdir(), "projectlc-deaths-")), "old.db");
+      copyFileSync(process.env.PROJECTLC_DB!, migratedFile);
+      process.env.PROJECTLC_DB = migratedFile;
+
+      const perf = (await getSqliteRepo().getCharacterPerformance("pyrelia"))!;
+      expect(perf.reports[0].rows[0].deathTimes).toEqual([{ atMs: 40_000 }, { atMs: 90_000 }]);
     });
 
     it("replaces a report wholesale on refetch", async () => {
@@ -2778,6 +3084,67 @@ describe("sqlite repo", () => {
       const added = await repo.addFeedback({ body: "", route: "/", url: "http://localhost:3000/" });
       expect(added.ok).toBe(false);
       expect(await repo.listFeedback()).toHaveLength(0);
+    });
+
+    it("signs a closure, and unsigns it on reopen", async () => {
+      // `status` used to flip in place: 33 resolved reports with no record of who
+      // closed them or when, in a tool built on decisions you can defend later.
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({
+        body: "Icon is wrong",
+        route: "/loot",
+        url: "http://localhost:3000/loot",
+      });
+      if (!added.ok) throw new Error("unreachable");
+      const id = added.report.id;
+
+      expect(await repo.setFeedbackStatus(id, "resolved", "Fredrik")).toBe(true);
+      const closed = (await repo.listFeedback()).find((r) => r.id === id)!;
+      expect(closed.resolvedBy).toBe("Fredrik");
+      expect(closed.resolvedAt).toBeDefined();
+
+      // Reopening withdraws the signature: it claimed a call that no longer
+      // stands, and leaving it would attribute a decision to somebody who
+      // reversed it.
+      expect(await repo.setFeedbackStatus(id, "open")).toBe(true);
+      const reopened = (await repo.listFeedback()).find((r) => r.id === id)!;
+      expect(reopened.resolvedBy).toBeUndefined();
+      expect(reopened.resolvedAt).toBeUndefined();
+    });
+
+    it("signs a closure made through triage too", async () => {
+      // Triage is the other door to closing a report; a report closed through it
+      // must not come out unsigned. The note's author is who is doing the triage.
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({
+        body: "Pagination resets",
+        route: "/loot",
+        url: "http://localhost:3000/loot",
+      });
+      if (!added.ok) throw new Error("unreachable");
+
+      expect(
+        await repo.setFeedbackTriage(added.report.id, {
+          status: "resolved",
+          adminNote: "Fixed in the table component.",
+          adminNoteAuthor: "Fredrik",
+        }),
+      ).toBe(true);
+      const closed = (await repo.listFeedback()).find((r) => r.id === added.report.id)!;
+      expect(closed.resolvedBy).toBe("Fredrik");
+      expect(closed.resolvedAt).toBeDefined();
+    });
+
+    it("closes without a name rather than refusing to close", async () => {
+      const repo = getSqliteRepo();
+      const added = await repo.addFeedback({ body: "x", route: "/", url: "http://x/" });
+      if (!added.ok) throw new Error("unreachable");
+      expect(await repo.setFeedbackStatus(added.report.id, "resolved")).toBe(true);
+      const closed = (await repo.listFeedback()).find((r) => r.id === added.report.id)!;
+      expect(closed.status).toBe("resolved");
+      expect(closed.resolvedBy).toBeUndefined();
+      // The time is still recorded — that part needs nobody's cooperation.
+      expect(closed.resolvedAt).toBeDefined();
     });
 
     it("keeps bug and feedback apart, and defaults to bug when unsaid", async () => {

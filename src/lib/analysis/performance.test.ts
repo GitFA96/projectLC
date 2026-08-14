@@ -57,6 +57,25 @@ describe("attendanceFacts", () => {
     expect(rendered).not.toContain(String(base.recentAttended) + " of");
   });
 
+  it("names the unit, so the reset figure can't read as a contradiction", () => {
+    // An officer comparing "10 of 12 raids" here with "9/10 counted weeks" on
+    // the reset card asked why they disagree. They measure different things and
+    // nothing said so.
+    expect(attendanceFacts(base)[0].note).toContain("per raid, not per reset week");
+  });
+
+  it("states the rule that makes the weekly figure higher", () => {
+    // One night and three nights score a week identically. That is the biggest
+    // single reason the two figures differ, and it was written down nowhere.
+    const withWeeks = attendanceFacts({
+      ...base,
+      weeks: [{ start: "2026-05-27", attended: true, reports: 2, excused: false }],
+    });
+    expect(withWeeks.find((f) => f.label === "Dots")?.note).toContain(
+      "any one raid counts the whole week",
+    );
+  });
+
   it("only mentions excused weeks when there are some", () => {
     expect(attendanceFacts(base).some((f) => f.label === "Excused")).toBe(false);
     const excused = attendanceFacts({ ...base, weeksExcused: 2 });
@@ -79,7 +98,9 @@ describe("attendanceFacts", () => {
 
   it("still explains the denominator when there is no first-raid date", () => {
     const [first] = attendanceFacts({ ...base, firstSeenAt: undefined });
-    expect(first.note).toBe("every raid logged since their first");
+    // Still says what the denominator is, just without a date to hang it on.
+    expect(first.note).toContain("every raid logged since their first");
+    expect(first.note).not.toMatch(/\d{4}/);
   });
 
   it("keeps the hover text and the panel saying the same thing", () => {

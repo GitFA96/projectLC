@@ -10,6 +10,7 @@ import {
   SAPPER_CAST_NAMES,
   TRACKED_CAST_IDS,
 } from "@/lib/wcl/consumables";
+import { defaultPriceFor } from "@/lib/wcl/consumable-prices";
 
 /**
  * Fixture shaped like the v2 API responses: report overview (with dps/hps
@@ -178,7 +179,9 @@ const combatantInfo = [
 ];
 
 const deaths = [
-  { timestamp: 700000, type: "death", targetID: 2 },
+  // Killed by a named add with a named ability — both are in the payload and
+  // both used to be dropped on the floor.
+  { timestamp: 700000, type: "death", targetID: 2, killerID: 60, killingAbility: { name: "Vanish", guid: 29448 } },
   // A pet death — no player row, silently ignored.
   { timestamp: 710000, type: "death", targetID: 9 },
 ];
@@ -328,6 +331,14 @@ describe("normalizeWclReport", () => {
 
     const healer = row(7, "Lunara");
     expect(healer.food).toBe(false);
+  });
+
+  it("keeps the killing blow the log named", () => {
+    // Both fields were in every death event all along and neither was read, so
+    // the deaths section could only say when somebody died. Moroes is actor 60.
+    expect(row(9, "Pyrelia").deathTimes).toEqual([
+      { atMs: 100_000, killer: "Moroes", ability: "Vanish" },
+    ]);
   });
 
   it("buckets deaths and consumable casts into the right pulls", () => {
@@ -760,6 +771,28 @@ describe("consumable classification", () => {
     expect(classifyAura("Power Word: Fortitude")).toBeUndefined();
   });
 
+  it("recognizes the vanilla flasks by the bare buff name the log sends", () => {
+    // From this guild's own import dump: `17628 Supreme Power ×11` and
+    // `17629 Chromatic Resistance ×1`, both unrecognized. The generic
+    // "…flask of…" pattern never fired because the log doesn't say "flask".
+    expect(classifyAura("Supreme Power", 17628)).toEqual({
+      category: "flask",
+      label: "Flask of Supreme Power",
+    });
+    expect(classifyAura("Chromatic Resistance", 17629)).toEqual({
+      category: "flask",
+      label: "Flask of Chromatic Resistance",
+    });
+    // By name alone too, since an id can be missing or aliased.
+    expect(classifyAura("Supreme Power")?.label).toBe("Flask of Supreme Power");
+  });
+
+  it("prices those flasks as flasks rather than as free", () => {
+    // The label has to contain "flask": defaultPriceFor gives anything it can't
+    // place a gold value of 0, so the bare buff name would have been free.
+    expect(defaultPriceFor(classifyAura("Supreme Power", 17628)!.label).gold).toBeGreaterThan(0);
+  });
+
   it("recognizes buff-style elixir names and normalizes them to item names", () => {
     // The Elixir of Major Agility buff is literally named "Major Agility".
     expect(classifyAura("Major Agility")).toEqual({
@@ -840,6 +873,9 @@ describe("consumable classification", () => {
     expect(isNonConsumableAura("Dire Bear Form")).toBe(true);
     expect(isNonConsumableAura("Berserker Stance")).toBe(true);
     expect(isNonConsumableAura("Vanguard", 71)).toBe(true);
+    // The mage self-buff the import's own auto-filer caught, once its pull
+    // snapshot showed a Mage applying it to themself 14 times.
+    expect(isNonConsumableAura("Greater Intellect", 11396)).toBe(true);
     // Paladin Hand of Salvation (and the Hand-of family) are class buffs.
     expect(isNonConsumableAura("Hand of Salvation", 1038)).toBe(true);
     expect(isNonConsumableAura("Hand of Protection")).toBe(true);
@@ -957,5 +993,244 @@ describe("flasks the pull snapshot cannot see", () => {
       "Flask of Relentless Assault",
       "Flask of Relentless Assault",
     ]);
+  });
+});
+
+/**
+ * One mob, two actor ids: Warcraft Logs puts a different `targetID` on a
+ * debuff's `applydebuff` than on its stacks and its removal.
+ *
+ * Probed on a real Lady Vashj pull — Sunder Armor on Enchanted Elemental
+ * instance 24 applied against id 161, then stacked, refreshed and removed
+ * against 163. Keying accumulators on the raw id split the debuff in two and
+ * left the half holding the apply with no removal to close it, so it ran to the
+ * end of the fight: a 71% Sunder Armor headline off ONE application on an add
+ * that lived twelve seconds, because the headline is the best single target.
+ */
+describe("a debuff whose apply and removal name different ids for the same mob", () => {
+  const report = {
+    title: "Split ids",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 500_000,
+    masterData: {
+      actors: [
+        { id: 1, name: "Byrd", type: "Player", subType: "Warrior" },
+        { id: 50, name: "Lady Vashj", type: "NPC", subType: "Boss" },
+        // The same add under two ids, exactly as the report serves it.
+        { id: 161, name: "Enchanted Elemental", type: "NPC", subType: "NPC" },
+        { id: 163, name: "Enchanted Elemental", type: "NPC", subType: "NPC" },
+      ],
+    },
+    fights: [
+      { id: 1, encounterID: 623, name: "Lady Vashj", kill: true, startTime: 0, endTime: 400_000 },
+    ],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: { dps: { characters: [{ name: "Byrd", class: "Warrior", spec: "Arms" }] } },
+        },
+      ],
+    },
+  };
+
+  const result = normalizeWclReport(report, {
+    combatantInfo: [{ timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+    deaths: [],
+    casts: [],
+    debuffs: [
+      // The apply lands on 161…
+      { timestamp: 124_000, type: "applydebuff", sourceID: 1, targetID: 161, targetInstance: 24, ability: { name: "Sunder Armor", guid: 25225 } },
+      // …and everything after it on 163. Same mob, same instance.
+      { timestamp: 125_600, type: "applydebuffstack", sourceID: 1, targetID: 163, targetInstance: 24, stack: 2, ability: { name: "Sunder Armor", guid: 25225 } },
+      { timestamp: 130_200, type: "applydebuffstack", sourceID: 1, targetID: 163, targetInstance: 24, stack: 5, ability: { name: "Sunder Armor", guid: 25225 } },
+      { timestamp: 134_800, type: "removedebuff", sourceID: 1, targetID: 163, targetInstance: 24, ability: { name: "Sunder Armor", guid: 25225 } },
+    ],
+    buffs: [],
+  });
+
+  const sunder = result.rows[0].upkeep.find((u) => u.name === "Sunder Armor");
+
+  it("joins the halves into one window instead of one that never closes", () => {
+    // 124.0s → 134.8s is 10.8s of a 400s pull: 3%. The phantom read 69%.
+    expect(sunder?.targets).toHaveLength(1);
+    expect(sunder?.targets?.[0]).toMatchObject({ target: "Enchanted Elemental", instance: 24 });
+    expect(sunder?.targets?.[0].segments).toEqual([[124_000, 134_800]]);
+    expect(sunder?.pct).toBe(3);
+  });
+
+  it("counts each landed cast once, however many events it emitted", () => {
+    expect(sunder?.targets?.[0].applications).toBe(3);
+  });
+});
+
+/**
+ * A stacking debuff's two halves: the casts that built it and the casts that
+ * held it. Probed — only `applydebuffstack` carries a stack number, and one
+ * landed Sunder emits both a stack event and a refresh at the same millisecond.
+ */
+describe("stacking debuffs record how the stack moved", () => {
+  const report = {
+    title: "Stacks",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 500_000,
+    masterData: {
+      actors: [
+        { id: 1, name: "Byrd", type: "Player", subType: "Warrior" },
+        { id: 50, name: "Gruul the Dragonkiller", type: "NPC", subType: "Boss" },
+      ],
+    },
+    fights: [
+      { id: 1, encounterID: 650, name: "Gruul the Dragonkiller", kill: true, startTime: 0, endTime: 100_000 },
+    ],
+    dps: {
+      data: [{ fightID: 1, roles: { dps: { characters: [{ name: "Byrd", class: "Warrior", spec: "Arms" }] } } }],
+    },
+  };
+
+  const sunder = (type: string, at: number, stack?: number) => ({
+    timestamp: at,
+    type,
+    sourceID: 1,
+    targetID: 50,
+    ...(stack === undefined ? {} : { stack }),
+    ability: { name: "Sunder Armor", guid: 25225 },
+  });
+
+  const result = normalizeWclReport(report, {
+    combatantInfo: [{ timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+    deaths: [],
+    casts: [],
+    debuffs: [
+      sunder("applydebuff", 1_000),
+      // Four stack-ups to 5, each emitting a refresh at the same ms.
+      sunder("applydebuffstack", 2_000, 2),
+      sunder("refreshdebuff", 2_000),
+      sunder("applydebuffstack", 3_000, 3),
+      sunder("refreshdebuff", 3_000),
+      sunder("applydebuffstack", 4_000, 4),
+      sunder("refreshdebuff", 4_000),
+      sunder("applydebuffstack", 5_000, 5),
+      sunder("refreshdebuff", 5_000),
+      // Then two casts that only renewed it.
+      sunder("refreshdebuff", 20_000),
+      sunder("refreshdebuff", 40_000),
+    ],
+    buffs: [],
+  });
+
+  const target = result.rows[0].upkeep.find((u) => u.name === "Sunder Armor")?.targets?.[0];
+
+  it("splits landed casts into stack-ups and refreshes", () => {
+    // 7 landed casts at distinct timestamps: the apply, 4 stack-ups, 2 renewals.
+    expect(target?.applications).toBe(7);
+    expect(target?.stackUps).toBe(4);
+    expect(target?.refreshes).toBe(3);
+    // The two halves always account for exactly the landed casts.
+    expect((target?.stackUps ?? 0) + (target?.refreshes ?? 0)).toBe(target?.applications);
+  });
+
+  it("keeps the stack the log reported, not a count of its own", () => {
+    expect(target?.stackPoints).toEqual([
+      [2_000, 2],
+      [3_000, 3],
+      [4_000, 4],
+      [5_000, 5],
+    ]);
+  });
+});
+
+/**
+ * D4: the run-up to a death. The killing blow alone says "Melee", which for a
+ * raider already at 3% health is the least interesting fact about it.
+ */
+describe("death recaps", () => {
+  const report = {
+    title: "Recaps",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 500_000,
+    masterData: {
+      actors: [
+        { id: 1, name: "Byrd", type: "Player", subType: "Warrior" },
+        { id: 2, name: "Elshyn", type: "Player", subType: "Priest" },
+        { id: 50, name: "Lady Vashj", type: "NPC", subType: "Boss" },
+      ],
+    },
+    fights: [{ id: 1, encounterID: 623, name: "Lady Vashj", kill: false, startTime: 0, endTime: 100_000 }],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: {
+            dps: { characters: [{ name: "Byrd", class: "Warrior", spec: "Arms" }] },
+            healers: { characters: [{ name: "Elshyn", class: "Priest", spec: "Holy" }] },
+          },
+        },
+      ],
+    },
+  };
+
+  const hit = (at: number, targetID: number, name: string | undefined, amount: number, extra = {}) => ({
+    timestamp: at,
+    type: "damage",
+    sourceID: 50,
+    targetID,
+    amount,
+    ...(name === undefined ? {} : { ability: { name, guid: 38280 } }),
+    ...extra,
+  });
+
+  const result = normalizeWclReport(report, {
+    combatantInfo: [
+      { timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+      { timestamp: 20, type: "combatantinfo", sourceID: 2, auras: [], gear: [] },
+    ],
+    deaths: [{ timestamp: 40_000, type: "death", targetID: 1, killerID: 50, killingAbility: { name: "Melee" } }],
+    casts: [],
+    debuffs: [],
+    buffs: [],
+    damageTaken: [
+      // Well before the window — must not appear.
+      hit(10_000, 1, "Static Charge", 1_400),
+      // Inside the last 10s.
+      hit(32_000, 1, "Static Charge", 1_500),
+      hit(36_000, 1, "Shock Blast", 8_200, { absorbed: 300 }),
+      hit(39_500, 1, "Melee", 2_100),
+      // Somebody else's damage in the same window — not this death's recap.
+      hit(38_000, 2, "Static Charge", 1_600),
+      // No named ability: a recap padded with "Unknown" is worse than a short one.
+      hit(39_800, 1, undefined, 500),
+    ],
+  });
+
+  const death = result.rows.find((r) => r.actorName === "Byrd")!.deathTimes[0];
+
+  it("keeps only the hits on that player in the seconds before", () => {
+    expect(death.recap?.map((h) => [h.atMs, h.ability, h.amount])).toEqual([
+      // Newest first: the last thing to land reads first.
+      [39_500, "Melee", 2_100],
+      [36_000, "Shock Blast", 8_200],
+      [32_000, "Static Charge", 1_500],
+    ]);
+  });
+
+  it("carries the absorb and the source when the log gave them", () => {
+    const shock = death.recap?.find((h) => h.ability === "Shock Blast");
+    expect(shock).toMatchObject({ absorbed: 300, source: "Lady Vashj" });
+  });
+
+  it("still records the killing blow itself", () => {
+    expect(death).toMatchObject({ atMs: 40_000, killer: "Lady Vashj", ability: "Melee" });
+  });
+
+  it("says nothing when the fetch brought no damage", () => {
+    const without = normalizeWclReport(report, {
+      combatantInfo: [{ timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+      deaths: [{ timestamp: 40_000, type: "death", targetID: 1 }],
+      casts: [],
+      debuffs: [],
+      buffs: [],
+    });
+    expect(without.rows.find((r) => r.actorName === "Byrd")!.deathTimes[0].recap).toBeUndefined();
   });
 });

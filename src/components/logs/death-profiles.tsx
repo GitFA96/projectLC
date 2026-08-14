@@ -1,7 +1,7 @@
 import { CharacterLink } from "@/components/class-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { BossDeathProfile } from "@/lib/analysis/deaths";
+import type { BossDeathProfile, BossPullDeaths, DeathEvent } from "@/lib/analysis/deaths";
 import type { WowClass } from "@/lib/constants/wow";
 import { cn } from "@/lib/utils";
 
@@ -13,10 +13,15 @@ import { cn } from "@/lib/utils";
  * opposite fixes. The median first death does, and the shape of the pull says
  * whether deaths cluster at one moment or bleed across the whole fight.
  *
- * **It names no cause.** The app doesn't know what killed anybody — that would
- * need ability-level events it never fetches, and reading "died to Flame
- * Wreath" off a clock would be an invention. When, who, how consistently; the
- * officer who was there supplies the rest.
+ * **The cause comes from the log, never from us.** Warcraft Logs names the
+ * killing blow on every death event it serves, so a death can say "Melee from
+ * Fathom-Guard Sharkkis" because the log said so. What is still not inferred is
+ * anything the log doesn't state: no reading "died to Flame Wreath" off a clock,
+ * and a killer the report doesn't name stays unnamed.
+ *
+ * The aggregate answers "why do we struggle here"; the per-pull list under it
+ * answers "what happened on that attempt", kills and wipes kept apart because a
+ * clean kill and a 40% wipe are not the same evidence.
  */
 export function DeathProfiles({
   profiles,
@@ -93,9 +98,147 @@ export function DeathProfiles({
                 );
               })}
             </div>
+
+            <PullBreakdown pulls={profile.pulls} wowClassOf={wowClassOf} />
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The hits that led to one death, newest first — the "last 10 seconds".
+ *
+ * Behind a toggle because it is the detail you want on the one death you are
+ * arguing about, not on all 28 of them at once. The killing blow is already on
+ * the line above; this is the run-up, which is what distinguishes being ground
+ * down from standing in something from one enormous hit.
+ *
+ * A `<details>` rather than React state: one per death on a page that can carry
+ * hundreds, and the browser's own disclosure costs nothing per row.
+ */
+function Recap({ hits }: { hits: NonNullable<DeathEvent["recap"]> }) {
+  const total = hits.reduce((sum, h) => sum + h.amount, 0);
+  return (
+    <details className="ml-1 inline-block align-middle">
+      <summary className="cursor-pointer list-none text-[11px] text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline">
+        last {hits.length} hit{hits.length === 1 ? "" : "s"}
+        {total > 0 && ` · ${total.toLocaleString("en-US")}`}
+      </summary>
+      <ul className="mt-0.5 space-y-0.5 border-l pl-2">
+        {hits.map((hit, i) => (
+          <li key={`${hit.atMs}-${hit.ability}-${i}`} className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
+            <span className="w-10 shrink-0 tabular-nums text-muted-foreground">{formatMs(hit.atMs)}</span>
+            <span className="tabular-nums font-medium">{hit.amount.toLocaleString("en-US")}</span>
+            <span className="text-muted-foreground">{hit.ability}</span>
+            {hit.source && <span className="text-muted-foreground/70">from {hit.source}</span>}
+            {hit.absorbed !== undefined && (
+              <span className="text-muted-foreground/70" title="Eaten by a shield">
+                ({hit.absorbed.toLocaleString("en-US")} absorbed)
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * Every attempt at this boss, in the order they happened.
+ *
+ * The aggregate above stacks all the pulls together, which is right for "when do
+ * we lose people" and wrong for "what went wrong on the attempt we remember".
+ * Each pull keeps its own result, its own length — the kill timer included — and
+ * its own deaths in order.
+ *
+ * Pulls with nobody down are listed too. "Which attempt went clean" is part of
+ * the same question, and a gap in a numbered list invites the wrong guess.
+ */
+function PullBreakdown({
+  pulls,
+  wowClassOf,
+}: {
+  pulls: BossPullDeaths[];
+  wowClassOf: (actorName: string) => WowClass | undefined;
+}) {
+  if (pulls.length === 0) return null;
+
+  return (
+    <div className="rounded-md border">
+      <p className="border-b px-2.5 py-1.5 text-xs font-medium">
+        Pull by pull
+        <span className="ml-1.5 font-normal text-muted-foreground">
+          {pulls.length} attempt{pulls.length === 1 ? "" : "s"}, in order
+        </span>
+      </p>
+      <ul className="divide-y">
+        {pulls.map((pull, i) => (
+          <li key={pull.fightId} className="px-2.5 py-1.5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+              <span className="text-muted-foreground">#{i + 1}</span>
+              {pull.kill ? (
+                <Badge variant="success" className="font-normal">
+                  Kill {formatMs(pull.durationMs)}
+                </Badge>
+              ) : (
+                <Badge variant="warning" className="font-normal">
+                  Wipe{pull.fightPercentage !== undefined && ` at ${pull.fightPercentage.toFixed(1)}%`}
+                </Badge>
+              )}
+              <span className="tabular-nums text-muted-foreground">
+                {!pull.kill && `${formatMs(pull.durationMs)} · `}
+                {pull.deaths.length === 0
+                  ? "nobody down"
+                  : `${pull.deaths.length} death${pull.deaths.length === 1 ? "" : "s"}`}
+              </span>
+            </div>
+
+            {pull.deaths.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {[...pull.deaths]
+                  .sort((a, b) => a.atMs - b.atMs)
+                  .map((death, j) => {
+                    const wowClass = wowClassOf(death.actorName);
+                    return (
+                      <li
+                        key={`${death.actorName}-${death.atMs}-${j}`}
+                        className="flex flex-wrap items-baseline gap-x-1.5 text-xs"
+                      >
+                        <span className="w-10 shrink-0 tabular-nums text-muted-foreground">
+                          {formatMs(death.atMs)}
+                        </span>
+                        {wowClass ? (
+                          <CharacterLink name={death.actorName} wowClass={wowClass} className="text-xs" />
+                        ) : (
+                          <span className="font-medium">{death.actorName}</span>
+                        )}
+                        {/* Only what the log stated. No killing blow recorded is
+                            a real answer for a report imported before it was
+                            kept, and saying nothing beats filling the gap in. */}
+                        {death.ability || death.killer ? (
+                          <span className="text-muted-foreground">
+                            {death.ability ?? "killed"}
+                            {death.killer && ` from ${death.killer}`}
+                          </span>
+                        ) : (
+                          <span
+                            className="text-muted-foreground/60"
+                            title="This report predates the killing blow being kept — re-import to fill it in"
+                          >
+                            cause not recorded
+                          </span>
+                        )}
+                        {death.recap && death.recap.length > 0 && <Recap hits={death.recap} />}
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

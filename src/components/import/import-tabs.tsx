@@ -753,6 +753,13 @@ export interface ImportedReport {
   encounterCount: number;
   killCount: number;
   sessionLabel?: string;
+  /**
+   * Set when this report saw an aura the tables have since learned to place:
+   * re-importing it would change a real number. Absent means nothing to gain —
+   * including for a report imported before the dump was kept, which records no
+   * dump at all and so cannot be asked.
+   */
+  stale?: { pulls: number; learned: string[] };
 }
 
 /** One report in a bulk import, as the queue works through it. */
@@ -972,6 +979,19 @@ function ImportedReportRow({
           <>
             <span className="text-sm font-medium">{r.title}</span>
             {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
+            {/* This night's own record of what the app couldn't place, asked
+                against today's tables. Only appears when re-importing would
+                move a real number — an aura since ruled a class buff is not a
+                reason to spend an officer's evening. */}
+            {r.stale && (
+              <Badge
+                variant="warning"
+                className="ml-2 align-middle font-normal"
+                title={`Now understood: ${r.stale.learned.join(", ")}. Refetch to count them.`}
+              >
+                {r.stale.pulls} pull{r.stale.pulls === 1 ? "" : "s"} to recount
+              </Badge>
+            )}
             {/* The code doubles as the way out to the source report — this is
                 the page where an officer is already checking what got imported,
                 so "go look at the log itself" is one click, not a copy-paste. */}
@@ -1405,6 +1425,11 @@ function WclTab({
                     what&apos;s left is genuinely unknown. If a consumable is missing from
                     someone&apos;s tracking, it&apos;s in this list: copy the block and paste it
                     into development to tune the tables.
+                  </p>
+                  <p className="mt-1.5 text-muted-foreground">
+                    This list is <strong className="font-medium">kept with the report</strong>, so it
+                    survives closing this page — and anything appearing at several pulls files itself
+                    under Feedback rather than waiting to be noticed.
                   </p>
                   <pre className="mt-1.5 max-h-56 select-all overflow-y-auto whitespace-pre-wrap rounded bg-muted/60 p-2 font-mono text-[11px] leading-4">
                     {result.auraDump

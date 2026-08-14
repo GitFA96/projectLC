@@ -151,11 +151,38 @@ const rawCastEventSchema = z.looseObject({
   ability: rawAbilitySchema.nullish(),
 });
 
+/**
+ * A friendly death. `killerID` and `killingAbility` were always in the payload
+ * and were always dropped — probed on a real report, all 97 death events carried
+ * both, and because the events fetch already asks with `useAbilityIDs: false`
+ * the ability arrives fully named ("Arcing Smash", or "Melee" for a swing).
+ *
+ * The event's own `ability` is "Unknown Ability" with guid 0 on every death and
+ * means nothing; the killing blow is the one on `killingAbility`.
+ */
 const rawDeathEventSchema = z.looseObject({
   timestamp: z.number(),
   type: z.string().optional(),
   fight: z.number().optional(),
   targetID: z.number().optional(),
+  killerID: z.number().optional(),
+  killingAbility: rawAbilitySchema.nullish(),
+});
+
+/**
+ * One hit a friendly took. Probed: the ability arrives named (the events fetch
+ * asks with `useAbilityIDs: false`), `amount` is what landed after mitigation,
+ * and `absorbed` is what a shield ate.
+ */
+const rawDamageEventSchema = z.looseObject({
+  timestamp: z.number(),
+  type: z.string().optional(),
+  fight: z.number().optional(),
+  sourceID: z.number().optional(),
+  targetID: z.number().optional(),
+  amount: z.number().optional(),
+  absorbed: z.number().optional(),
+  ability: rawAbilitySchema.nullish(),
 });
 
 /** Buff/debuff apply/refresh/remove events feeding the upkeep computation. */
@@ -167,6 +194,8 @@ const rawAuraEventSchema = z.looseObject({
   targetID: z.number().optional(),
   /** Which copy of the NPC, when several share one actor id (adds). */
   targetInstance: z.number().optional(),
+  /** Stack count AFTER the event. Only applydebuffstack/applybuffstack carry it. */
+  stack: z.number().optional(),
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
@@ -197,7 +226,13 @@ export interface NormalizedPlayerFight {
   /** Boss-only dps behind `bossParsePercent`. */
   bossAmount?: number;
   deaths: number;
-  deathTimes: number[];
+  /** Each death and what landed it — see `wclPlayerFightSchema.deathTimes`. */
+  deathTimes: {
+    atMs: number;
+    killer?: string;
+    ability?: string;
+    recap?: { atMs: number; ability: string; source?: string; amount: number; absorbed?: number }[];
+  }[];
   flask?: string;
   elixirs: string[];
   scrolls: string[];
@@ -271,6 +306,14 @@ export interface NormalizedUpkeepTarget {
   segments: [number, number][];
   /** ≈ times the aura was applied/refreshed (stacking spam like Sunder Armor counts each landed cast). */
   applications: number;
+  /**
+   * The two halves of `applications` for a stacking debuff, and the stack values
+   * the log reported. Absent for auras that never carried a stack — see
+   * `wclPlayerFightSchema.upkeep` for what each one answers.
+   */
+  stackUps?: number;
+  refreshes?: number;
+  stackPoints?: [number, number][];
 }
 
 /** One socketed gem: the log gives its id and icon, never its name. */
@@ -369,6 +412,8 @@ export interface RawEventInputs {
   debuffs?: unknown[];
   /** Tracked buffs on friendlies (shouts, Earth Shield). Absent on older fetches. */
   buffs?: unknown[];
+  /** Damage taken near each death, for the recap. Absent on older fetches. */
+  damageTaken?: unknown[];
 }
 
 function clampPct(v: number | null | undefined): number | undefined {
@@ -526,6 +571,16 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
      * an applydebuffstack AND a refreshdebuff at the same ms (Sunder spam). */
     applications: number;
     lastApplicationTs?: number;
+    /**
+     * The same landed casts split by what they did: raised the stack, or only
+     * renewed the duration. Counted per distinct timestamp like `applications`,
+     * and a timestamp that emitted both counts as a stack-up — the stack moving
+     * is the more specific fact about that cast.
+     */
+    stackUps: number;
+    lastStackUpTs?: number;
+    /** [msFromPullStart, stack] each time this source moved the stack. */
+    stackPoints: [number, number][];
   }
   const uptimeAccs = new Map<string, UptimeAcc>();
   const uptimeAcc = (
@@ -535,10 +590,40 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     targetId: number,
     targetInstance?: number,
   ): UptimeAcc => {
-    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${targetId}|${targetInstance ?? 0}`;
+    /*
+     * Keyed by the target's NAME and instance, not its actor id.
+     *
+     * Warcraft Logs does not use one id per mob here: probed on a real Vashj
+     * pull, a Sunder Armor `applydebuff` on Enchanted Elemental instance 24
+     * carried targetID 161, while every applydebuffstack, refreshdebuff and
+     * removedebuff for that same mob carried 163. Keying on the raw id split one
+     * debuff across two accumulators, and the half holding the `applydebuff`
+     * never saw its `removedebuff` — so it stayed open and was credited to the
+     * end of the fight.
+     *
+     * That is not a rounding error. It gave one warrior a 71% Sunder Armor
+     * headline off a single application on an add that lived twelve seconds,
+     * because `bestPct` takes the best single target and a phantom window beats
+     * every real one. Name + instance is the mob's real identity — instance is
+     * exactly what separates two mobs sharing a name — so the halves rejoin.
+     */
+    const target = anyActorById.get(targetId);
+    const identity = `${(target?.name ?? `#${targetId}`).toLowerCase()}|${targetInstance ?? 0}`;
+    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${identity}`;
     let acc = uptimeAccs.get(key);
     if (!acc) {
-      acc = { fight, actorName, track, targetId, targetInstance, totalMs: 0, segments: [], applications: 0 };
+      acc = {
+        fight,
+        actorName,
+        track,
+        targetId,
+        targetInstance,
+        totalMs: 0,
+        segments: [],
+        applications: 0,
+        stackUps: 0,
+            stackPoints: [],
+      };
       uptimeAccs.set(key, acc);
     }
     return acc;
@@ -667,6 +752,31 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     );
   }
 
+  /*
+   * 3a. Damage taken, indexed per victim so each death can take the hits that
+   * led to it. Built before the deaths are walked, keyed by actor id, sorted so
+   * a recap can be sliced without re-sorting per death.
+   */
+  const damageByTarget = new Map<number, { at: number; ability: string; source?: string; amount: number; absorbed?: number }[]>();
+  for (const rawEvent of events.damageTaken ?? []) {
+    const parsed = rawDamageEventSchema.safeParse(rawEvent);
+    if (!parsed.success || parsed.data.targetID === undefined) continue;
+    const name = parsed.data.ability?.name;
+    // A hit with no named ability tells the reader nothing they can act on, and
+    // "Unknown Ability" in a recap is worse than a shorter recap.
+    if (!name) continue;
+    const list = damageByTarget.get(parsed.data.targetID) ?? [];
+    list.push({
+      at: parsed.data.timestamp,
+      ability: name,
+      source: parsed.data.sourceID === undefined ? undefined : anyActorById.get(parsed.data.sourceID)?.name,
+      amount: parsed.data.amount ?? 0,
+      ...(parsed.data.absorbed ? { absorbed: parsed.data.absorbed } : {}),
+    });
+    damageByTarget.set(parsed.data.targetID, list);
+  }
+  for (const list of damageByTarget.values()) list.sort((a, b) => a.at - b.at);
+
   /* 3. Friendly deaths, bucketed into pulls. */
   for (const rawEvent of events.deaths) {
     const parsed = rawDeathEventSchema.safeParse(rawEvent);
@@ -677,11 +787,42 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     const row = rows.get(keyOf(fight.id, actor.name));
     if (!row) continue;
     row.deaths++;
-    // When, not just how many. Clamped into the pull the same way cast times
-    // are, so a death on the boundary can't land outside the fight it belongs to.
-    row.deathTimes.push(
-      Math.max(0, Math.min(parsed.data.timestamp, fight.endTime) - fight.startTime),
-    );
+    // When and to what, not just how many. Clamped into the pull the same way
+    // cast times are, so a death on the boundary can't land outside the fight it
+    // belongs to.
+    //
+    // The killer is resolved against every actor, not just players: what killed
+    // a raider is almost always a boss or an add. A name we can't resolve is
+    // left off rather than guessed at — "died to something" is the truth then.
+    const killer = parsed.data.killerID === undefined ? undefined : anyActorById.get(parsed.data.killerID);
+    /*
+     * The hits that led to it: what this player took in the seconds before,
+     * newest first, so the last thing to land reads first.
+     *
+     * `DEATH_RECAP_MS` is duplicated as a plain number here rather than imported
+     * from `fetch-report` — normalize is pure and must not depend on the fetch
+     * layer. The fetch asks for a slightly wider window than this slices, so a
+     * change to one is safe without the other.
+     */
+    const RECAP_MS = 10_000;
+    const died = parsed.data.timestamp;
+    const recap = (damageByTarget.get(parsed.data.targetID) ?? [])
+      .filter((hit) => hit.at <= died && hit.at >= died - RECAP_MS)
+      .map((hit) => ({
+        atMs: Math.max(0, hit.at - fight.startTime),
+        ability: hit.ability,
+        ...(hit.source ? { source: hit.source } : {}),
+        amount: hit.amount,
+        ...(hit.absorbed ? { absorbed: hit.absorbed } : {}),
+      }))
+      .reverse();
+
+    row.deathTimes.push({
+      atMs: Math.max(0, Math.min(parsed.data.timestamp, fight.endTime) - fight.startTime),
+      ...(killer?.name ? { killer: killer.name } : {}),
+      ...(parsed.data.killingAbility?.name ? { ability: parsed.data.killingAbility.name } : {}),
+      ...(recap.length > 0 ? { recap } : {}),
+    });
   }
 
   /* 4. Consumable casts (server-filtered to the tracked spell ids). */
@@ -833,6 +974,21 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           acc.applications++;
           acc.lastApplicationTs = ts;
         }
+        /*
+         * Stack-ups are counted; refreshes are DERIVED as the rest at
+         * serialization. Only `applydebuffstack` carries a stack number —
+         * probed: `refreshdebuff` sends none, and one landed Sunder emits both
+         * at the same millisecond. Counting refreshes here instead would depend
+         * on which of the two the log happens to send first, and the two counts
+         * could then add up to more than the landed casts they split.
+         */
+        if (event.stack !== undefined && event.type.endsWith("stack")) {
+          if (acc.lastStackUpTs !== ts) {
+            acc.stackUps++;
+            acc.lastStackUpTs = ts;
+            acc.stackPoints.push([ts - fight.startTime, event.stack]);
+          }
+        }
       }
     }
   };
@@ -935,6 +1091,15 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           pct: pctOf(acc.totalMs),
           segments: acc.segments,
           applications: acc.applications,
+          // Derived, never counted: whatever landed and did not move the stack
+          // renewed the duration. Guarantees the two halves sum to the casts.
+          ...(acc.stackPoints.length > 0
+            ? {
+                stackUps: acc.stackUps,
+                refreshes: Math.max(0, acc.applications - acc.stackUps),
+                stackPoints: acc.stackPoints,
+              }
+            : {}),
         };
       })
       .filter((t) => t.segments.length > 0)
@@ -950,7 +1115,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   for (const row of rows.values()) {
     row.upkeep.sort((a, b) => b.pct - a.pct || compareText(a.name, b.name));
     row.castTimes.sort((a, b) => a.atMs - b.atMs || compareText(a.name, b.name));
-    row.deathTimes.sort((a, b) => a - b);
+    row.deathTimes.sort((a, b) => a.atMs - b.atMs);
   }
 
   // Stable order: pull order, then name.

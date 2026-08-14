@@ -43,15 +43,24 @@ export function AttendanceWeeks({
       <CardHeader>
         <CardTitle className="flex flex-wrap items-baseline gap-2">
           Attendance by reset
+          {/* The window belongs next to the fraction. This figure covers the
+              last N resets, while the per-raid figure above covers every raid
+              since the character's first — two different denominators answering
+              what looks like one question. */}
           <span className="text-xs font-normal text-muted-foreground">
             raided {attendance.weeksAttended}/{attendance.weeksTracked} counted week
             {attendance.weeksTracked === 1 ? "" : "s"}
+            {attendance.weeks.length > 0 &&
+              ` of the last ${attendance.weeks.length} the guild logged`}
             {attendance.weeksExcused > 0 && ` · ${attendance.weeksExcused} excused`}
           </span>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          One row per reset week (EU, Wednesday) the guild logged. Excuse a week an officer cleared
-          in advance — it stops counting against the markup but stays visible.
+          One row per reset week (EU, Wednesday) the guild logged.{" "}
+          <strong className="font-medium">A week counts as raided if they made any raid in it</strong>{" "}
+          — one night scores the same as three, so this figure sits above the per-raid one rather
+          than matching it. Excuse a week an officer cleared in advance — it stops counting against
+          the markup but stays visible.
         </p>
       </CardHeader>
       <CardContent>

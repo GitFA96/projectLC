@@ -97,6 +97,13 @@ export interface PrioritySheetViewRow {
   quality?: Quality;
   icon?: string;
   /**
+   * The phase the item cache says this drop belongs to, when it knows one.
+   * Filled by the read model beside `quality`, and worth carrying separately
+   * from the sheet's own phase: the two disagreeing is how a chain ends up
+   * filed against a tier its item doesn't drop in.
+   */
+  itemPhase?: number;
+  /**
    * An earlier row already claimed this name, so matching never reaches this
    * one. Shown rather than dropped: a pasted sheet that lists an item twice
    * should say so, not quietly hide a row an officer went looking for.

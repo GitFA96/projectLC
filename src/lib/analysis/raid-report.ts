@@ -326,6 +326,9 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     })
     .sort((a, b) => b.consumablesTotal - a.consumablesTotal || compareText(a.name, b.name));
 
+  /** Pull length per fight — both the merged debuff view and the buff view need it. */
+  const durationOf = new Map(fights.map((f) => [f.fightId, f.durationMs]));
+
   /* ---- Maintained debuff/buff uptime ---- */
   // Per track → per provider: average their pct across the pulls they were in.
   // Alongside, keep the raw per-pull numbers for the boss-by-boss breakdown.
@@ -399,7 +402,6 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     if (r.className) classByActor.set(r.actorName, r.className);
     pullsByActor.set(r.actorName, (pullsByActor.get(r.actorName) ?? 0) + 1);
   }
-  const durationOf = new Map(fights.map((f) => [f.fightId, f.durationMs]));
   interface BuffTrackAcc {
     className?: string;
     /** fightId → recipient → provider → their coverage of that recipient. */

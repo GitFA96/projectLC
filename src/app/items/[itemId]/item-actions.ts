@@ -47,3 +47,32 @@ export async function setItemCurationAction(
     return { ok: false, message: e instanceof Error ? e.message : "Could not save the item." };
   }
 }
+
+/**
+ * "This name or icon is wrong."
+ *
+ * Withdraws Wowhead's confirmed stamp so the resolver asks again on the next
+ * backfill; the row keeps what it has until a better answer arrives. This exists
+ * because eight of the council's bug reports were exactly this, and each was
+ * fixed by hand — a verified row is never asked about twice, which is what makes
+ * the cache cheap and what made a wrong answer permanent.
+ *
+ * Gated on `items.curate`, like the curation editor beside it: both are "correct
+ * what the app believes about an item".
+ */
+export async function reportWrongItemDataAction(itemId: number): Promise<ItemActionResult> {
+  try {
+    requireCapability(await resolveViewer(), "items.curate");
+    const repo = await getWriteRepo();
+    const result = await repo.unverifyItem(itemId);
+    if (!result.ok) return { ok: false, message: result.error };
+    // "layout": every list that renders this item's icon reads the same row.
+    refreshAfterWrite("/", "layout");
+    return {
+      ok: true,
+      message: "Queued for another Wowhead lookup — press Backfill item data on the import page.",
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not queue the item." };
+  }
+}

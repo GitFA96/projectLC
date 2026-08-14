@@ -131,8 +131,15 @@ export function formatReportForAgent(report: FeedbackReport): string {
   lines.push(`## ${KIND_HEADING[report.kind]}: ${title}`);
   lines.push("");
   lines.push(`- **Filed** ${report.createdAt}${report.reporter ? ` by ${report.reporter}` : ""}`);
+  // Who closed it belongs on the same line as the status: an agent handed a
+  // resolved report needs to know whether the fix landed or somebody just
+  // stopped caring, and the signature is the only clue either way.
+  const closure =
+    report.status === "resolved" && (report.resolvedBy || report.resolvedAt)
+      ? ` (closed${report.resolvedBy ? ` by ${report.resolvedBy}` : ""}${report.resolvedAt ? ` ${report.resolvedAt}` : ""})`
+      : "";
   lines.push(
-    `- **Status** ${report.status}${report.priority === "unset" ? "" : ` · **${report.priority}**`}`,
+    `- **Status** ${report.status}${closure}${report.priority === "unset" ? "" : ` · **${report.priority}**`}`,
   );
   lines.push(`- **Route** \`${report.route}\` — likely \`${likelyRouteFile(report.route)}\``);
   lines.push(`- **URL** ${report.url}`);

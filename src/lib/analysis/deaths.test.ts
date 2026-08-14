@@ -42,11 +42,11 @@ function row(
 describe("buildBossDeathProfile", () => {
   it("finds the median first death — an opener reads differently from attrition", () => {
     const profile = buildBossDeathProfile([
-      row({ fightId: 1, actorName: "A", deathTimes: [20000] }),
-      row({ fightId: 1, actorName: "B", deathTimes: [90000] }),
-      row({ fightId: 2, actorName: "A", deathTimes: [30000] }),
+      row({ fightId: 1, actorName: "A", deathTimes: [{ atMs: 20000 }] }),
+      row({ fightId: 1, actorName: "B", deathTimes: [{ atMs: 90000 }] }),
+      row({ fightId: 2, actorName: "A", deathTimes: [{ atMs: 30000 }] }),
       row({ fightId: 2, actorName: "B", deathTimes: [] }),
-      row({ fightId: 3, actorName: "A", deathTimes: [40000] }),
+      row({ fightId: 3, actorName: "A", deathTimes: [{ atMs: 40000 }] }),
       row({ fightId: 3, actorName: "B", deathTimes: [] }),
     ])!;
     // First deaths: 20s, 30s, 40s.
@@ -61,9 +61,9 @@ describe("buildBossDeathProfile", () => {
     // the pull ended.
     const profile = buildBossDeathProfile([
       // Died at the very end of a 60s wipe...
-      row({ fightId: 1, actorName: "A", durationMs: 60000, deathTimes: [57000] }),
+      row({ fightId: 1, actorName: "A", durationMs: 60000, deathTimes: [{ atMs: 57000 }] }),
       // ...and at the very end of a 600s kill.
-      row({ fightId: 2, actorName: "A", durationMs: 600000, kill: true, deathTimes: [570000] }),
+      row({ fightId: 2, actorName: "A", durationMs: 600000, kill: true, deathTimes: [{ atMs: 570000 }] }),
     ])!;
     expect(profile.byTenth[9]).toBe(2);
     expect(profile.byTenth[0]).toBe(0);
@@ -71,9 +71,9 @@ describe("buildBossDeathProfile", () => {
 
   it("names who dies here and who dies first", () => {
     const profile = buildBossDeathProfile([
-      row({ fightId: 1, actorName: "Early", className: "Rogue", deathTimes: [10000] }),
-      row({ fightId: 1, actorName: "Late", deathTimes: [200000] }),
-      row({ fightId: 2, actorName: "Early", className: "Rogue", deathTimes: [12000] }),
+      row({ fightId: 1, actorName: "Early", className: "Rogue", deathTimes: [{ atMs: 10000 }] }),
+      row({ fightId: 1, actorName: "Late", deathTimes: [{ atMs: 200000 }] }),
+      row({ fightId: 2, actorName: "Early", className: "Rogue", deathTimes: [{ atMs: 12000 }] }),
       row({ fightId: 2, actorName: "Late", deathTimes: [] }),
     ])!;
     const early = profile.offenders.find((o) => o.actorName === "Early")!;
@@ -86,7 +86,7 @@ describe("buildBossDeathProfile", () => {
 
   it("leaves out raiders who survived, rather than listing them with a zero", () => {
     const profile = buildBossDeathProfile([
-      row({ fightId: 1, actorName: "Died", deathTimes: [1000] }),
+      row({ fightId: 1, actorName: "Died", deathTimes: [{ atMs: 1000 }] }),
       row({ fightId: 1, actorName: "Fine", deathTimes: [] }),
     ])!;
     expect(profile.offenders.map((o) => o.actorName)).toEqual(["Died"]);
@@ -109,8 +109,8 @@ describe("buildBossDeathProfile", () => {
 
   it("orders each pull's deaths by when they happened", () => {
     const profile = buildBossDeathProfile([
-      row({ fightId: 1, actorName: "Second", deathTimes: [50000] }),
-      row({ fightId: 1, actorName: "First", deathTimes: [10000] }),
+      row({ fightId: 1, actorName: "Second", deathTimes: [{ atMs: 50000 }] }),
+      row({ fightId: 1, actorName: "First", deathTimes: [{ atMs: 10000 }] }),
     ])!;
     expect(profile.pulls[0].deaths.map((d) => d.actorName)).toEqual(["First", "Second"]);
     expect(profile.pulls[0].firstAtMs).toBe(10000);
@@ -119,7 +119,7 @@ describe("buildBossDeathProfile", () => {
   it("counts two deaths by the same raider on one pull", () => {
     // A battle rez, or a wipe that ran long. Both are real.
     const profile = buildBossDeathProfile([
-      row({ fightId: 1, actorName: "A", deathTimes: [10000, 90000] }),
+      row({ fightId: 1, actorName: "A", deathTimes: [{ atMs: 10000 }, { atMs: 90000 }] }),
     ])!;
     expect(profile.deathsTotal).toBe(2);
     expect(profile.pulls[0].deaths).toHaveLength(2);
@@ -130,8 +130,8 @@ describe("buildDeathProfiles", () => {
   it("puts the boss that wiped the raid most first", () => {
     const profiles = buildDeathProfiles([
       row({ fightId: 1, actorName: "A", encounterId: 1, encounterName: "Easy", kill: true }),
-      row({ fightId: 2, actorName: "A", encounterId: 2, encounterName: "Hard", deathTimes: [1000] }),
-      row({ fightId: 3, actorName: "A", encounterId: 2, encounterName: "Hard", deathTimes: [2000] }),
+      row({ fightId: 2, actorName: "A", encounterId: 2, encounterName: "Hard", deathTimes: [{ atMs: 1000 }] }),
+      row({ fightId: 3, actorName: "A", encounterId: 2, encounterName: "Hard", deathTimes: [{ atMs: 2000 }] }),
     ]);
     expect(profiles.map((p) => p.encounterName)).toEqual(["Hard", "Easy"]);
     expect(profiles[0].wipes).toBe(2);
@@ -139,5 +139,60 @@ describe("buildDeathProfiles", () => {
 
   it("is empty with nothing logged", () => {
     expect(buildDeathProfiles([])).toEqual([]);
+  });
+});
+
+describe("the killing blow", () => {
+  it("carries what the log named, per pull and in order", () => {
+    const profile = buildBossDeathProfile([
+      row({
+        fightId: 1,
+        actorName: "Byrd",
+        kill: false,
+        fightPercentage: 96.6,
+        deathTimes: [{ atMs: 40000, killer: "Fathom-Guard Sharkkis", ability: "Melee" }],
+      }),
+      row({
+        fightId: 1,
+        actorName: "Elshyn",
+        kill: false,
+        fightPercentage: 96.6,
+        deathTimes: [{ atMs: 12000, ability: "Arcing Smash" }],
+      }),
+    ]);
+
+    const [pull] = profile!.pulls;
+    expect(pull.kill).toBe(false);
+    expect(pull.fightPercentage).toBeCloseTo(96.6);
+    // In order, each with only what the report actually stated.
+    expect(pull.deaths.map((d) => [d.actorName, d.atMs, d.ability, d.killer])).toEqual([
+      ["Elshyn", 12000, "Arcing Smash", undefined],
+      ["Byrd", 40000, "Melee", "Fathom-Guard Sharkkis"],
+    ]);
+  });
+
+  it("leaves a pre-killing-blow row unexplained rather than guessing", () => {
+    // A row imported before the field was kept parses to time-only, and the UI
+    // says "cause not recorded" off exactly this.
+    const profile = buildBossDeathProfile([
+      row({ fightId: 1, actorName: "Byrd", deathTimes: [{ atMs: 40000 }] }),
+    ]);
+    expect(profile!.pulls[0].deaths[0]).toMatchObject({ actorName: "Byrd", atMs: 40000 });
+    expect(profile!.pulls[0].deaths[0].killer).toBeUndefined();
+    expect(profile!.pulls[0].deaths[0].ability).toBeUndefined();
+  });
+
+  it("keeps kills and wipes as separate pulls", () => {
+    // "dont double stack" — the aggregate merges them, the pull list must not.
+    const profile = buildBossDeathProfile([
+      row({ fightId: 1, actorName: "A", kill: false, fightPercentage: 40, durationMs: 60000, deathTimes: [{ atMs: 30000 }] }),
+      row({ fightId: 2, actorName: "A", kill: true, durationMs: 272000, deathTimes: [{ atMs: 100000 }] }),
+    ]);
+    expect(profile!.pulls.map((p) => [p.kill, p.durationMs])).toEqual([
+      [false, 60000],
+      [true, 272000],
+    ]);
+    expect(profile!.wipes).toBe(1);
+    expect(profile!.kills).toBe(1);
   });
 });

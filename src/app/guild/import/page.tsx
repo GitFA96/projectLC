@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { format, parseISO } from "date-fns";
 import { getRepo } from "@/lib/data/repo";
+import { findStaleReports } from "@/lib/analysis/stale-reports";
+import { classifyAura } from "@/lib/wcl/consumables";
 import { hasWclCredentials } from "@/lib/wcl/client";
 import { PageHeader } from "@/components/page-header";
 import { ImportTabs, type ImportPrefill } from "@/components/import/import-tabs";
@@ -58,6 +60,22 @@ export default async function ImportPage({
       repo.listUnmatchedSheetNames(),
     ]);
 
+  /*
+   * Reports a curation has overtaken. Each stores the auras its pulls carried
+   * that the tables couldn't place; anything now recognised as a consumable
+   * means re-importing would move a real number. An aura since ruled a class
+   * buff is deliberately not a reason — see findStaleReports.
+   */
+  const staleByCode = new Map(
+    findStaleReports(
+      wclReports.map((r) => r.report),
+      classifyAura,
+    ).map((s) => [
+      s.code,
+      { pulls: s.pulls, learned: s.learned.map((a) => `${a.label} (${a.count} pulls)`) },
+    ]),
+  );
+
   const nameById = new Map(characters.map((c) => [c.character.id, c.character.name]));
   const existingSets = gearSets
     .map((set) => ({
@@ -98,6 +116,11 @@ export default async function ImportPage({
           sessionLabel: r.session
             ? `${format(parseISO(r.session.date), "d MMM yyyy")} — ${r.session.zones.join(" + ")}`
             : undefined,
+          // "Re-importing this would change what it says" — the report's own
+          // record of what the app couldn't place, asked against today's tables.
+          // Beside the refetch button rather than in a panel of its own: the
+          // answer is only useful next to the thing it is asking for.
+          stale: staleByCode.get(r.report.code),
         }))}
         existingSets={existingSets}
         prefill={prefill}

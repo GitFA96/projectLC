@@ -10,6 +10,7 @@ import {
   getEnchantNames,
   getReportConsumableAdjustments,
   setReportConsumableAdjustments,
+  getItemPriorityRuleAt,
   getItemPriorityRules,
   getSheetItemIds,
   setSheetItemId,
@@ -52,7 +53,9 @@ import {
   loadStore,
   mergeItems,
   mergeTokenRedemptions,
+  moveItemPriorityRule,
   setItemPriorityRule,
+  unverifyItem,
   setGuildRoster,
   updateGuildRoster,
   deleteGuildRoster,
@@ -409,6 +412,34 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true as const };
   },
 
+  async moveItemPriorityRule(input: { itemName: string; fromPhase: number; toPhase: number }) {
+    const { itemName, fromPhase, toPhase } = input;
+    const key = normalizeItemName(itemName.trim());
+    if (!key) return { ok: false as const, error: "That item name has nothing to match on." };
+    if (!PHASE_IDS.includes(toPhase as Phase)) {
+      return { ok: false as const, error: `Phase ${toPhase} isn't a phase this guild raids.` };
+    }
+    if (fromPhase === toPhase) return { ok: true as const };
+
+    const db = getDb();
+    if (!getItemPriorityRuleAt(db, key, fromPhase)) {
+      return { ok: false as const, error: `No chain filed under phase ${fromPhase} for that item.` };
+    }
+    // Refuse rather than overwrite: a chain already filed against the target is
+    // a separate ruling, and this button must never be how one disappears.
+    if (getItemPriorityRuleAt(db, key, toPhase)) {
+      return {
+        ok: false as const,
+        error: `The phase ${toPhase} sheet already has a chain for that item — clear it there first.`,
+      };
+    }
+    withTx(db, () => {
+      moveItemPriorityRule(db, key, fromPhase, toPhase);
+      bumpDataVersion(db);
+    });
+    return { ok: true as const };
+  },
+
   async setGuildPolicy(overrides: PolicyOverrides) {
     // A weighting that is zero everywhere would divide by zero and rank nobody.
     // Every other field is clamped on write, so this is the only cross-field
@@ -429,18 +460,23 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true as const };
   },
 
-  async setItemPriorityRule(itemName: string, chain: string, note?: string) {
+  async setItemPriorityRule(input: { itemName: string; phase: number; chain: string; note?: string }) {
+    const { itemName, phase, chain, note } = input;
     const name = itemName.trim();
     if (!name) return { ok: false as const, error: "An item name is required." };
     const key = normalizeItemName(name);
     if (!key) return { ok: false as const, error: "That item name has nothing to match on." };
+    if (!PHASE_IDS.includes(phase as Phase)) {
+      return { ok: false as const, error: `Phase ${phase} isn't a phase this guild raids.` };
+    }
 
     const db = getDb();
     const trimmed = chain.trim();
-    // An empty chain is how an officer says "use the guild's sheet again".
+    // An empty chain is how an officer says "use the guild's sheet again" — for
+    // this phase. Another phase's chain for the same item is a separate ruling.
     if (!trimmed) {
       withTx(db, () => {
-        if (deleteItemPriorityRule(db, key)) bumpDataVersion(db);
+        if (deleteItemPriorityRule(db, key, phase)) bumpDataVersion(db);
       });
       return { ok: true as const };
     }
@@ -450,7 +486,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       return { ok: false as const, error: "Write the chain as “Hunter > DPS Warrior > MS > OS”." };
     }
     withTx(db, () => {
-      setItemPriorityRule(db, key, { itemName: name, chain: trimmed, note: note?.trim() || undefined });
+      setItemPriorityRule(db, key, phase, { itemName: name, chain: trimmed, note: note?.trim() || undefined });
       bumpDataVersion(db);
     });
     return {
@@ -461,6 +497,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
         tiers: parsed.tiers,
         note: note?.trim() || undefined,
         origin: "officer" as const,
+        phase,
       },
     };
   },
@@ -1135,12 +1172,24 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true, report: parsed.data };
   },
 
-  async setFeedbackStatus(id: string, status: FeedbackStatus): Promise<boolean> {
+  async setFeedbackStatus(id: string, status: FeedbackStatus, by?: string): Promise<boolean> {
     const db = getDb();
     let changed = false;
     withTx(db, () => {
+      // Closing signs the decision; reopening unsigns it. Both in one statement
+      // so a report can never be resolved with no record of who resolved it.
+      const resolving = status === "resolved";
       changed =
-        Number(db.prepare("UPDATE feedback SET status = ? WHERE id = ?").run(status, id).changes) > 0;
+        Number(
+          db
+            .prepare("UPDATE feedback SET status = ?, resolved_by = ?, resolved_at = ? WHERE id = ?")
+            .run(
+              status,
+              resolving ? by?.trim() || null : null,
+              resolving ? new Date().toISOString() : null,
+              id,
+            ).changes,
+        ) > 0;
       if (changed) bumpDataVersion(db);
     });
     return changed;
@@ -1169,6 +1218,15 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     if (triage.status !== undefined) {
       sets.push("status = ?");
       values.push(triage.status);
+      // Same signing rule as setFeedbackStatus — triage is the other door to
+      // closing a report, and a report closed through this one must not come out
+      // unsigned. The author falls back to whoever signed the note in the same
+      // call, since that is the person doing the triage.
+      const resolving = triage.status === "resolved";
+      sets.push("resolved_by = ?");
+      values.push(resolving ? triage.resolvedBy?.trim() || triage.adminNoteAuthor?.trim() || null : null);
+      sets.push("resolved_at = ?");
+      values.push(resolving ? new Date().toISOString() : null);
     }
     if (triage.priority !== undefined) {
       sets.push("priority = ?");
@@ -1293,6 +1351,23 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       bumpDataVersion(db);
     });
     return { ok: true as const };
+  },
+
+  async unverifyItem(itemId: number) {
+    if (!Number.isInteger(itemId) || itemId <= 0) {
+      return { ok: false as const, error: "That isn't an item id." };
+    }
+    const db = getDb();
+    let changed = false;
+    withTx(db, () => {
+      changed = unverifyItem(db, itemId);
+      // The resolver queue is derived, so the read model has to rebuild before
+      // the next backfill press can see this row waiting in it.
+      if (changed) bumpDataVersion(db);
+    });
+    return changed
+      ? { ok: true as const }
+      : { ok: false as const, error: "The cache has no row for that item." };
   },
 
   async applyCuratedItemSources(): Promise<number> {

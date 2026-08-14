@@ -112,7 +112,7 @@ export default async function PrioritySheetPage({
       )}
 
       {(sheet.ruleCount > 0 || sheet.unlisted.length > 0) && (
-        <PrioritySheetView sections={sheet.sections} unlisted={sheet.unlisted} />
+        <PrioritySheetView sections={sheet.sections} unlisted={sheet.unlisted} phase={phase} />
       )}
     </div>
   );

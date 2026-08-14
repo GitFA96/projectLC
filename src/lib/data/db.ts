@@ -36,6 +36,7 @@ import {
 } from "@/lib/analysis/raid-planner";
 import type { StrandedSimSetting } from "@/lib/types";
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import { validateStore, type EntityStore } from "@/lib/data/store";
 import type {
@@ -226,12 +227,19 @@ CREATE TABLE IF NOT EXISTS enchant_names (
 -- Officer edits to the council's spec priority sheet. Keyed by NORMALIZED item
 -- name, not id: a sheet covers everything a boss can drop, most of which the
 -- item cache has never heard of. Absent = the seeded sheet stands.
+--
+-- Keyed by phase as well, for the same reason wishlist_alternatives is: a chain
+-- is written against a tier's raid, and the same item can be ranked differently
+-- once the roster and the competition have moved on. Guild-wide chains put P5
+-- items on the P2 sheet, which is what the council saw and reported.
 CREATE TABLE IF NOT EXISTS item_priority_rules (
-  item_key   TEXT PRIMARY KEY,
+  item_key   TEXT NOT NULL,
+  phase      INTEGER NOT NULL,
   item_name  TEXT NOT NULL,
   chain      TEXT NOT NULL,
   note       TEXT,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (item_key, phase)
 );
 -- The council's priority sheet per phase, as the markdown an officer pasted.
 -- A document rather than a setting, which is why it earns a table: it is the
@@ -324,6 +332,11 @@ CREATE TABLE IF NOT EXISTS wcl_reports (
   fetched_at         TEXT NOT NULL,
   -- Aura names requested at fetch time; see TRACKED_AURA_NAMES.
   upkeep_tracks_json TEXT NOT NULL DEFAULT '[]',
+  -- Auras seen at boss pulls that the consumable tables couldn't place, as
+  -- {name, abilityId, count}. Kept rather than shown once and lost: it is the
+  -- only record of what this app failed to understand about a night, and it is
+  -- what lets a later curation say WHICH reports need re-importing.
+  unclassified_auras_json TEXT NOT NULL DEFAULT '[]',
   raid_session_id    TEXT
 );
 CREATE TABLE IF NOT EXISTS wcl_player_fights (
@@ -432,6 +445,10 @@ CREATE TABLE IF NOT EXISTS feedback (
   admin_note     TEXT,
   admin_note_author TEXT,
   admin_note_at  TEXT,
+  /* Who closed it and when. Cleared on reopen: a signature left behind on a
+     report somebody has reopened claims a decision that no longer stands. */
+  resolved_by    TEXT,
+  resolved_at    TEXT,
   created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feedback_by_status ON feedback(status, created_at DESC);
@@ -618,6 +635,15 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
   addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
+  // Reports imported before this get an empty list, which is honest: the dump
+  // was computed and shown at the time, and nothing kept it. It is not the same
+  // as "this night had no unknown auras", so readers say "not recorded" rather
+  // than "none" — the same distinction upkeep_tracks_json exists to make.
+  addColumn(
+    "wcl_reports",
+    "unclassified_auras_json",
+    "unclassified_auras_json TEXT NOT NULL DEFAULT '[]'",
+  );
   // The feedback table shipped with only bug reports. Existing rows were filed
   // as bugs and the DEFAULT says so, so the backfill is the default itself.
   addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
@@ -629,6 +655,11 @@ function migrate(db: DatabaseSync): void {
   // nothing recorded who wrote them and nothing can now.
   addColumn("feedback", "admin_note_author", "admin_note_author TEXT");
   addColumn("feedback", "admin_note_at", "admin_note_at TEXT");
+  // Reports closed before this stay unsigned, and no backfill can fix that:
+  // nothing recorded who closed them or when. NULL says exactly that, which is
+  // the honest answer for a tool whose point is decisions you can defend later.
+  addColumn("feedback", "resolved_by", "resolved_by TEXT");
+  addColumn("feedback", "resolved_at", "resolved_at TEXT");
   // Awards made before this shipped have no snapshot, and cannot gain one: the
   // policy that produced them is gone. NULL says exactly that.
   addColumn("loot_awards", "decision_json", "decision_json TEXT");
@@ -654,6 +685,10 @@ function migrate(db: DatabaseSync): void {
   // once, and are never asked again whether or not a phase came back.
   addColumn("items", "phase_checked", "phase_checked INTEGER NOT NULL DEFAULT 0");
   addColumn("items", "redeems_from", "redeems_from INTEGER");
+  // AFTER relaxItemColumns too, and for a second reason: the backfill reads
+  // `items.phase` to place each existing chain, so it has to run against the
+  // rebuilt table rather than the one about to be dropped.
+  scopePriorityRulesByPhase(db);
   // Last, and it has to be: this reads `armor_token` and `redeems_from`, and
   // both are created directly above — after the rebuild that would otherwise
   // drop them.
@@ -771,6 +806,99 @@ function addAbilityKind(db: DatabaseSync): void {
   const old = db.prepare("PRAGMA table_info(spells)").all() as { name: string }[];
   if (old.length === 0) return;
   db.exec("DROP TABLE spells;");
+}
+
+/**
+ * Officer chains used to be one row per item, applying to every phase at once.
+ *
+ * That put both Warglaives — chains an officer wrote against the tier they drop
+ * in — on the phase 2 sheet, as "unlisted" officer edits, because a chain the
+ * phase's sheet didn't name is shown on every phase's page. The key gains
+ * `phase`, which SQLite can't do with ALTER TABLE.
+ *
+ * **The backfill resolves each chain's phase from the item, not from the guild's
+ * current one.** The alternative — stamping every existing chain with the active
+ * phase — would move each one onto the sheet the officer was *not* looking at
+ * when they wrote it, and there is a better answer available: the same name → id
+ * resolution the sheet view uses (an officer's `sheet_item_ids` pin first,
+ * because they pinned it precisely because the name is ambiguous, then an exact
+ * name match), and then that item's own phase. A chain whose item the cache
+ * can't place keeps applying to the guild's current phase, and the sheet row
+ * shows which phase it belongs to so an officer can move it.
+ */
+function scopePriorityRulesByPhase(db: DatabaseSync): void {
+  const cols = db.prepare("PRAGMA table_info(item_priority_rules)").all() as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "phase")) return;
+
+  const rules = db.prepare("SELECT item_key, item_name, chain, note, updated_at FROM item_priority_rules").all() as {
+    item_key: string;
+    item_name: string;
+    chain: string;
+    note: string | null;
+    updated_at: string;
+  }[];
+
+  const activePhase =
+    (db.prepare("SELECT active_phase FROM guild LIMIT 1").get() as { active_phase?: number } | undefined)
+      ?.active_phase ?? 1;
+
+  // The officer's pins, keyed the same way the read model keys them.
+  const pinRow = db.prepare("SELECT value FROM meta WHERE key = 'sheet_item_ids'").get() as
+    | { value?: string }
+    | undefined;
+  let pins: Record<string, number> = {};
+  if (pinRow?.value) {
+    try {
+      pins = JSON.parse(pinRow.value) as Record<string, number>;
+    } catch {
+      // A corrupt pin blob must not cost the guild their chains — fall through
+      // to name matching, which is what an unpinned row gets anyway.
+    }
+  }
+
+  const phaseById = new Map<number, number>();
+  for (const row of db.prepare("SELECT id, phase FROM items WHERE phase IS NOT NULL").all() as {
+    id: number;
+    phase: number;
+  }[]) {
+    phaseById.set(row.id, row.phase);
+  }
+  const idByName = new Map<string, number>();
+  for (const row of db.prepare("SELECT id, name FROM items WHERE name IS NOT NULL").all() as {
+    id: number;
+    name: string;
+  }[]) {
+    idByName.set(normalizeItemName(row.name), row.id);
+  }
+
+  const phaseOf = (itemKey: string): number => {
+    const itemId = pins[itemKey] ?? idByName.get(itemKey);
+    return (itemId === undefined ? undefined : phaseById.get(itemId)) ?? activePhase;
+  };
+
+  db.exec(`
+    CREATE TABLE item_priority_rules_phased (
+      item_key   TEXT NOT NULL,
+      phase      INTEGER NOT NULL,
+      item_name  TEXT NOT NULL,
+      chain      TEXT NOT NULL,
+      note       TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (item_key, phase)
+    );
+  `);
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO item_priority_rules_phased
+       (item_key, phase, item_name, chain, note, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  for (const rule of rules) {
+    insert.run(rule.item_key, phaseOf(rule.item_key), rule.item_name, rule.chain, rule.note, rule.updated_at);
+  }
+  db.exec(`
+    DROP TABLE item_priority_rules;
+    ALTER TABLE item_priority_rules_phased RENAME TO item_priority_rules;
+  `);
 }
 
 /**
@@ -1659,17 +1787,28 @@ export interface StoredPriorityRule {
   note?: string;
 }
 
-/** Every officer-edited chain, keyed by normalized item name. */
-export function getItemPriorityRules(db: DatabaseSync): Record<string, StoredPriorityRule> {
-  const rows = db.prepare("SELECT item_key, item_name, chain, note FROM item_priority_rules").all() as {
+/**
+ * Every officer-edited chain, by phase and then normalized item name.
+ *
+ * Nested rather than flat-keyed on `"phase|name"`: the sheet page wants one
+ * phase's chains whole, and a single-drop lookup walks the phases in order,
+ * so both callers want a phase's worth at a time.
+ */
+export function getItemPriorityRules(db: DatabaseSync): Record<number, Record<string, StoredPriorityRule>> {
+  const rows = db.prepare("SELECT item_key, phase, item_name, chain, note FROM item_priority_rules").all() as {
     item_key: string;
+    phase: number;
     item_name: string;
     chain: string;
     note: string | null;
   }[];
-  const out: Record<string, StoredPriorityRule> = {};
+  const out: Record<number, Record<string, StoredPriorityRule>> = {};
   for (const r of rows) {
-    out[r.item_key] = { itemName: r.item_name, chain: r.chain, note: r.note ?? undefined };
+    (out[r.phase] ??= {})[r.item_key] = {
+      itemName: r.item_name,
+      chain: r.chain,
+      note: r.note ?? undefined,
+    };
   }
   return out;
 }
@@ -1677,20 +1816,56 @@ export function getItemPriorityRules(db: DatabaseSync): Record<string, StoredPri
 export function setItemPriorityRule(
   db: DatabaseSync,
   itemKey: string,
+  phase: number,
   rule: StoredPriorityRule,
 ): void {
   db.prepare(
-    `INSERT INTO item_priority_rules (item_key, item_name, chain, note, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(item_key) DO UPDATE SET
+    `INSERT INTO item_priority_rules (item_key, phase, item_name, chain, note, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(item_key, phase) DO UPDATE SET
        item_name = excluded.item_name, chain = excluded.chain,
        note = excluded.note, updated_at = excluded.updated_at`,
-  ).run(itemKey, rule.itemName, rule.chain, rule.note ?? null, new Date().toISOString());
+  ).run(itemKey, phase, rule.itemName, rule.chain, rule.note ?? null, new Date().toISOString());
 }
 
-/** Drop an override so the seeded sheet takes the item back. */
-export function deleteItemPriorityRule(db: DatabaseSync, itemKey: string): boolean {
-  return Number(db.prepare("DELETE FROM item_priority_rules WHERE item_key = ?").run(itemKey).changes) > 0;
+/** One phase's chain for an item, or undefined when that phase has none. */
+export function getItemPriorityRuleAt(
+  db: DatabaseSync,
+  itemKey: string,
+  phase: number,
+): StoredPriorityRule | undefined {
+  const row = db
+    .prepare("SELECT item_name, chain, note FROM item_priority_rules WHERE item_key = ? AND phase = ?")
+    .get(itemKey, phase) as { item_name: string; chain: string; note: string | null } | undefined;
+  return row ? { itemName: row.item_name, chain: row.chain, note: row.note ?? undefined } : undefined;
+}
+
+/** Re-file a chain under another phase, keeping the text and the note as written. */
+export function moveItemPriorityRule(
+  db: DatabaseSync,
+  itemKey: string,
+  fromPhase: number,
+  toPhase: number,
+): void {
+  db.prepare("UPDATE item_priority_rules SET phase = ? WHERE item_key = ? AND phase = ?").run(
+    toPhase,
+    itemKey,
+    fromPhase,
+  );
+}
+
+/**
+ * Drop one phase's override so that phase's sheet takes the item back.
+ *
+ * Phase-scoped on purpose: clearing a chain on the P2 page must not silently
+ * throw away the different chain an officer wrote for the same item in P3.
+ */
+export function deleteItemPriorityRule(db: DatabaseSync, itemKey: string, phase: number): boolean {
+  return (
+    Number(
+      db.prepare("DELETE FROM item_priority_rules WHERE item_key = ? AND phase = ?").run(itemKey, phase).changes,
+    ) > 0
+  );
 }
 
 export interface StoredWishlistAlternative {
@@ -2019,12 +2194,13 @@ export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
   db.prepare(
     `INSERT OR REPLACE INTO feedback
        (id, kind, reporter, body, route, url, context_json, status, priority, admin_note,
-        admin_note_author, admin_note_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        admin_note_author, admin_note_at, resolved_by, resolved_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.kind, f.reporter ?? null, f.body, f.route, f.url,
     f.context ? JSON.stringify(f.context) : null, f.status, f.priority,
-    f.adminNote ?? null, f.adminNoteAuthor ?? null, f.adminNoteAt ?? null, f.createdAt,
+    f.adminNote ?? null, f.adminNoteAuthor ?? null, f.adminNoteAt ?? null,
+    f.resolvedBy ?? null, f.resolvedAt ?? null, f.createdAt,
   );
 }
 
@@ -2743,6 +2919,25 @@ const MISIDENTIFIED = `items.verified = 0
   AND excluded.name IS NOT NULL
   AND items.name <> excluded.name`;
 
+/**
+ * Withdraw the "Wowhead confirmed this" stamp from one row.
+ *
+ * The eight wrong-icon reports the council filed were all fixed by hand, one
+ * lookup at a time, because a verified row is never asked about again — that is
+ * the whole point of the stamp, and it is also how a wrong answer becomes
+ * permanent. Clearing it puts the row back in the resolver's queue, where the
+ * next backfill overwrites name, icon and quality with Wowhead's answer.
+ *
+ * Only the stamp. The row keeps its name and icon meanwhile (a placeholder would
+ * make every list worse until the next press), and it keeps the guild's own
+ * curation — zone, boss and phase are nobody else's to answer.
+ */
+export function unverifyItem(db: DatabaseSync, itemId: number): boolean {
+  return (
+    Number(db.prepare("UPDATE items SET verified = 0 WHERE id = ?").run(itemId).changes) > 0
+  );
+}
+
 export function mergeItems(
   db: DatabaseSync,
   items: Item[],
@@ -2880,9 +3075,12 @@ export function insertLootAward(db: DatabaseSync, a: LootAward): void {
 
 export function insertWclReport(db: DatabaseSync, r: WclReport): void {
   db.prepare(
+    // OR REPLACE, so every column belongs in this list — one left out is set
+    // back to its default on each update rather than on insert. See §2.
     `INSERT OR REPLACE INTO wcl_reports
-       (code, title, zone, start_time, end_time, fetched_at, upkeep_tracks_json, raid_session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (code, title, zone, start_time, end_time, fetched_at, upkeep_tracks_json,
+        unclassified_auras_json, raid_session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     r.code,
     r.title,
@@ -2891,6 +3089,7 @@ export function insertWclReport(db: DatabaseSync, r: WclReport): void {
     r.endTime,
     r.fetchedAt,
     JSON.stringify(r.upkeepTracks ?? []),
+    JSON.stringify(r.unclassifiedAuras ?? []),
     r.raidSessionId,
   );
 }
@@ -3045,6 +3244,7 @@ function rowToFeedback(r: Row): unknown {
     context: r.context_json ? JSON.parse(r.context_json as string) : undefined,
     status: r.status, priority: r.priority, adminNote: opt(r.admin_note),
     adminNoteAuthor: opt(r.admin_note_author), adminNoteAt: opt(r.admin_note_at),
+    resolvedBy: opt(r.resolved_by), resolvedAt: opt(r.resolved_at),
     createdAt: r.created_at,
   };
 }
@@ -3115,6 +3315,7 @@ function rowToWclReport(r: Row): unknown {
     code: r.code, title: r.title, zone: opt(r.zone), startTime: r.start_time,
     endTime: r.end_time, fetchedAt: r.fetched_at,
     upkeepTracks: JSON.parse((r.upkeep_tracks_json as string | null) ?? "[]"),
+    unclassifiedAuras: JSON.parse((r.unclassified_auras_json as string | null) ?? "[]"),
     raidSessionId: (r.raid_session_id as string | null) ?? null,
   };
 }
