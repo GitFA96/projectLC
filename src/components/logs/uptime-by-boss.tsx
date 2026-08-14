@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { clockTime, PctLane, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
+import type { StepBand } from "@/components/logs/timeline-bits";
 
-import { coveredMs, msAtStack } from "@/lib/analysis/debuff-merge";
+import { msAtStack, stackSpans, unionIntervals } from "@/lib/analysis/debuff-merge";
 
 import { compareText } from "@/lib/sort";
 
@@ -31,6 +32,8 @@ function SegmentLane({
   pct,
   segments,
   applications,
+  stackUps,
+  refreshes,
   durationMs,
   ticks,
 }: {
@@ -40,6 +43,9 @@ function SegmentLane({
   pct: number;
   segments: [number, number][];
   applications?: number;
+  /** The two halves of those casts, when the report recorded the stack. */
+  stackUps?: number;
+  refreshes?: number;
   durationMs: number;
   ticks: number[];
 }) {
@@ -48,12 +54,17 @@ function SegmentLane({
       label={
         <>
           <Raider name={provider.name} slug={provider.slug} className={provider.className} />
-          {applications !== undefined && applications > 1 && (
+          {applications !== undefined && applications > 0 && (
             <span
               className="ml-1 text-xs tabular-nums text-muted-foreground"
-              title="≈ casts landed (applies + refreshes)"
+              title={
+                stackUps === undefined
+                  ? "≈ casts landed (applies + refreshes)"
+                  : `${applications} landed cast${applications === 1 ? "" : "s"}: ${stackUps} raised the stack, ${refreshes ?? 0} renewed it`
+              }
             >
               ×{applications}
+              {stackUps !== undefined && stackUps > 0 && <span className="ml-0.5">{stackUps}↑</span>}
             </span>
           )}
           {showTrack && (
@@ -78,71 +89,178 @@ interface Lane {
 }
 
 /**
- * What the raid had up on this target, from anybody — per track.
+ * The stack a raid this size can reach. Every Sunder point in this guild's logs
+ * tops out at five, so five is the full-height bar; a track that ever goes
+ * higher raises the ceiling rather than being clipped by it.
+ */
+const STACK_CEILING = 5;
+
+/**
+ * What the raid had up on this target, from anybody — one lane per track, drawn
+ * above the per-provider lanes it merges.
  *
- * The lanes below it are per provider, which is the right way to read "did this
+ * The lanes below are per provider, which is the right way to read "did this
  * raider do their job" and cannot answer "was Sunder up on the boss". Two
  * warriors covering different halves of a pull show as 40% and 40% and the
  * council wants the 80%. **Union, never sum**: overlapping cover is the same
- * seconds twice, so `coveredMs` folds it before dividing.
+ * seconds twice, so the intervals are merged before dividing.
  *
- * Stacks come with it when the report recorded them. For Sunder the stack is the
- * point of the debuff — one stack and five are not the same armour — and a raid
- * that held 5 for 90% of a pull did a different job from one that reached 5 once.
+ * On a stacking debuff the lane carries both facts at once — **bar height is the
+ * stack, bar colour is whoever was holding it at that moment**. That is what the
+ * numbers beside it could not convey: a raid that walked Sunder to five and held
+ * it reads as a full block, a raid that reached five and let it fall off reads as
+ * a stub, and a handover between two warriors reads as a colour change mid-lane.
+ * The percentages were the same shape for all three.
+ *
  * Reports imported before the stack was kept say nothing rather than "0".
  */
-function RaidCover({ lanes, durationMs }: { lanes: Lane[]; durationMs: number }) {
+function RaidLane({
+  trackName,
+  showTrack,
+  lanes,
+  durationMs,
+  ticks,
+}: {
+  trackName: string;
+  showTrack: boolean;
+  lanes: Lane[];
+  durationMs: number;
+  ticks: number[];
+}) {
+  const intervals = unionIntervals(lanes.flatMap((l) => l.target.segments as [number, number][]));
+  const ms = intervals.reduce((sum, [from, to]) => sum + (to - from), 0);
+  const pctOf = (part: number) => (durationMs > 0 ? Math.round(Math.min(100, (part / durationMs) * 100)) : 0);
+  const pct = pctOf(ms);
+
+  const points = lanes.flatMap((l) => l.target.stackPoints ?? []) as [number, number][];
+  const stacks = msAtStack(points, intervals);
+  const stackUps = lanes.reduce((sum, l) => sum + (l.target.stackUps ?? 0), 0);
+  const refreshes = lanes.reduce((sum, l) => sum + (l.target.refreshes ?? 0), 0);
+  const casts = lanes.reduce((sum, l) => sum + (l.target.applications ?? 0), 0);
+
+  const ceiling = Math.max(STACK_CEILING, stacks?.maxStack ?? 0);
+  /*
+   * Every step is one stack level held by one player: the stack spans cut
+   * against each provider's own windows.
+   *
+   * Cutting on the stack alone is not enough. A raid that walks Sunder to five
+   * in the first ten seconds and holds it for another eighty has ONE span there,
+   * and colouring it by whoever happens to sit at its midpoint hides every
+   * hand-over inside it — on a real Lurker pull that erased three warriors.
+   * Providers never overlap on one target (Warcraft Logs hands the debuff from
+   * one source to the next, and the import now hands it to the real caster), so
+   * the intersection is exact and covers the union once.
+   */
+  const steps: StepBand[] | undefined =
+    points.length > 0
+      ? stackSpans(points, intervals)
+          .flatMap((span) =>
+            lanes.flatMap((lane) =>
+              (lane.target.segments as [number, number][]).flatMap(([held, until]) => {
+                const from = Math.max(span.from, held);
+                const to = Math.min(span.to, until);
+                if (to <= from) return [];
+                return [
+                  {
+                    from,
+                    to,
+                    level: span.stack / ceiling,
+                    color: classColor(lane.provider.className) ?? "var(--primary)",
+                    label: `${lane.provider.name} · ${span.stack} stack${span.stack === 1 ? "" : "s"}`,
+                  },
+                ];
+              }),
+            ),
+          )
+          .sort((a, b) => a.from - b.from)
+      : undefined;
+
+  const sources = new Set(lanes.map((l) => l.provider.name));
+  const title =
+    `${trackName} was on this target ${pct}% of the pull counting every source at once` +
+    (sources.size > 1 ? ` (${sources.size} of them, handed over in turn)` : "") +
+    (stacks
+      ? `. Peaked at ${stacks.maxStack} stacks and held there ${pctOf(stacks.msAtMax)}% of the pull — bar height is the stack, colour is who was holding it.`
+      : ". Stacks not recorded on this report — re-import to fill them in.") +
+    (casts > 0 ? ` ${casts} landed casts: ${stackUps} raised the stack, ${refreshes} renewed it.` : "") +
+    (sources.size > 1
+      ? ` — ${lanes
+          .filter((l) => (l.target.applications ?? 0) > 0)
+          .sort((a, b) => (b.target.applications ?? 0) - (a.target.applications ?? 0))
+          .map(
+            (l) =>
+              `${l.provider.name} ${l.target.applications}` +
+              (l.target.stackUps !== undefined ? ` (${l.target.stackUps}↑ ${l.target.refreshes ?? 0}↻)` : ""),
+          )
+          .join(", ")}`
+      : "");
+
+  return (
+    <TimelineLane
+      label={
+        <span title={title}>
+          <span className="text-muted-foreground">raid</span>
+          {showTrack && <span className="ml-1">{trackName}</span>}
+          {stacks && (
+            <span className="ml-1 text-xs tabular-nums text-muted-foreground">
+              peak {stacks.maxStack}× · {pctOf(stacks.msAtMax)}%
+            </span>
+          )}
+          {sources.size > 1 && (
+            <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              {sources.size} sources
+            </span>
+          )}
+        </span>
+      }
+      bands={
+        steps
+          ? []
+          : lanes.map((l) => ({
+              segments: l.target.segments as [number, number][],
+              color: classColor(l.provider.className) ?? "var(--primary)",
+              label: l.provider.name,
+            }))
+      }
+      steps={steps}
+      pct={pct}
+      durationMs={durationMs}
+      ticks={ticks}
+    />
+  );
+}
+
+/** The raid lanes for one target, one per track that has something to merge. */
+function RaidLanes({
+  lanes,
+  showTrack,
+  durationMs,
+  ticks,
+}: {
+  lanes: Lane[];
+  showTrack: boolean;
+  durationMs: number;
+  ticks: number[];
+}) {
   const perTrack = new Map<string, Lane[]>();
   for (const lane of lanes) {
     perTrack.set(lane.trackName, [...(perTrack.get(lane.trackName) ?? []), lane]);
   }
-
   return (
     <>
       {[...perTrack].map(([trackName, trackLanes]) => {
-        // A single provider needs no merging — its own lane already says this.
+        // A single provider on a non-stacking track needs no merging — its own
+        // lane already says this, and a duplicate reads as a second raider.
         if (trackLanes.length < 2 && trackLanes[0]?.target.stackPoints === undefined) return null;
-        const ms = coveredMs(trackLanes.flatMap((l) => l.target.segments as [number, number][]));
-        const pct = durationMs > 0 ? Math.round(Math.min(100, (ms / durationMs) * 100)) : 0;
-        const points = trackLanes.flatMap((l) => l.target.stackPoints ?? []) as [number, number][];
-        const stacks = msAtStack(points, durationMs);
-        const casts = trackLanes.reduce(
-          (sum, l) => sum + (l.target.stackUps ?? 0) + (l.target.refreshes ?? 0),
-          0,
-        );
         return (
-          <Badge
+          <RaidLane
             key={trackName}
-            variant="outline"
-            className="gap-1 font-normal"
-            title={
-              `${trackName}: up ${pct}% of the pull counting every source at once` +
-              (trackLanes.length > 1 ? ` (${trackLanes.length} providers)` : "") +
-              (stacks
-                ? `. Peaked at ${stacks.maxStack} stacks, held there ${Math.round(
-                    (stacks.msAtMax / Math.max(1, durationMs)) * 100,
-                  )}% of the pull.`
-                : ". Stacks not recorded on this report — re-import to fill them in.")
-            }
-          >
-            <span className="text-muted-foreground">raid</span>
-            {pct}%
-            {stacks && (
-              <span className="text-muted-foreground">
-                · {stacks.maxStack}× {Math.round((stacks.msAtMax / Math.max(1, durationMs)) * 100)}%
-              </span>
-            )}
-            {casts > 0 && (
-              <span
-                className="text-muted-foreground"
-                title="Landed casts that raised the stack, then those that only renewed it"
-              >
-                ·{" "}
-                {trackLanes.reduce((s, l) => s + (l.target.stackUps ?? 0), 0)}↑
-                {trackLanes.reduce((s, l) => s + (l.target.refreshes ?? 0), 0)}↻
-              </span>
-            )}
-          </Badge>
+            trackName={trackName}
+            showTrack={showTrack}
+            lanes={trackLanes}
+            durationMs={durationMs}
+            ticks={ticks}
+          />
         );
       })}
     </>
@@ -255,7 +373,7 @@ export function UptimeByBoss({
   return (
     <CollapsibleCard
       title="Uptime by boss"
-      description="When each picked debuff/buff was up across the pull — colored bands are time it was active, gaps are time it was down (rebuff lag, target died, or nobody reapplied). ×N is roughly how many casts landed. Add a second track to compare, e.g. Sunder Armor vs Expose Armor."
+      description="When each picked debuff/buff was up across the pull — colored bands are time it was active, gaps are time it was down (rebuff lag, target died, or nobody reapplied). ×N is roughly how many casts landed. The taller “raid” lane is the target's own view: bar height is the stack it carried (full height is 5 Sunders), bar colour is whoever held it there. Add a second track to compare, e.g. Sunder Armor vs Expose Armor."
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -353,9 +471,14 @@ export function UptimeByBoss({
                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                             {group.boss ? "boss" : "add"}
                           </span>
-                          <RaidCover lanes={group.lanes} durationMs={fight.durationMs} />
                         </p>
                         <div className="space-y-1">
+                          <RaidLanes
+                            lanes={group.lanes}
+                            showTrack={showTrack}
+                            durationMs={fight.durationMs}
+                            ticks={ticks}
+                          />
                           {group.lanes.map(({ provider, target, trackName }) => (
                             <SegmentLane
                               key={`${trackName}|${provider.name}|${group.key}`}
@@ -365,6 +488,8 @@ export function UptimeByBoss({
                               pct={target.pct}
                               segments={target.segments}
                               applications={target.applications}
+                              stackUps={target.stackUps}
+                              refreshes={target.refreshes}
                               durationMs={fight.durationMs}
                               ticks={ticks}
                             />

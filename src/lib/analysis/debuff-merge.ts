@@ -74,39 +74,67 @@ export function coveredMs(intervals: Interval[]): number {
   return unionIntervals(intervals).reduce((sum, [from, to]) => sum + (to - from), 0);
 }
 
+/** One stretch of the pull the target carried a given stack. */
+export interface StackSpan {
+  from: number;
+  to: number;
+  /** Stacks it held from the first ms of this span to the last. */
+  stack: number;
+}
+
 /**
- * The stack timeline a target actually saw, from every source's stack points.
+ * The stack a target actually carried, moment by moment, from every source's
+ * stack points — **clipped to the windows the debuff was up**.
  *
- * Each point is "this source pushed it to N at time T". Sorted together they
- * describe the shared debuff: the value holds until the next point, or until the
- * debuff drops. `upTo` closes the last one — a stack that was still on when the
- * pull ended counts to the end of the pull, not for ever.
+ * The clipping is the whole point. A stack point says "somebody pushed it to N
+ * at time T" and nothing more; the log announces the drop with a `removedebuff`,
+ * which is a segment boundary, not a stack point. Reading the points alone
+ * therefore carries the last value to the end of the pull — which is how a real
+ * Hydross pull reported Sunder up 10% of the fight and *at five stacks for 90%
+ * of it* at the same time. Probed: Scomb applied at 0:03, refreshed last at
+ * 0:11, and the log removed the debuff at 0:12 of a 1:35 pull. Five stacks for
+ * 2.7 seconds, not 86.
+ *
+ * Inside a window the stack opens at 1 — the application that opened it, since
+ * the log only numbers stacks from 2 up — then holds each point's value until
+ * something changes it or the window closes. A point repeating the current
+ * value is not a change: a second warrior re-applying the same max must not end
+ * the span between them.
+ */
+export function stackSpans(points: [number, number][], intervals: Interval[]): StackSpan[] {
+  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out: StackSpan[] = [];
+  for (const [from, to] of unionIntervals(intervals)) {
+    let at = from;
+    let stack = 1;
+    for (const [pointAt, pointStack] of sorted) {
+      if (pointAt < from || pointAt >= to || pointStack === stack) continue;
+      if (pointAt > at) out.push({ from: at, to: pointAt, stack });
+      at = pointAt;
+      stack = pointStack;
+    }
+    if (to > at) out.push({ from: at, to, stack });
+  }
+  return out;
+}
+
+/**
+ * The peak stack the target held, and how long it held it — read off the spans,
+ * so time the debuff was not up cannot count towards it.
  */
 export function msAtStack(
   points: [number, number][],
-  upTo: number,
+  intervals: Interval[],
 ): { maxStack: number; msAtMax: number } | undefined {
+  // No points is "this report never recorded stacks", which is not the same
+  // claim as "it never stacked" — callers must keep saying nothing.
   if (points.length === 0) return undefined;
-  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const maxStack = sorted.reduce((m, [, stack]) => Math.max(m, stack), 0);
-
-  let msAtMax = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const [at, stack] = sorted[i];
-    if (stack !== maxStack) continue;
-    // The stack holds until the next point that CHANGES it — a second source
-    // re-applying the same max is not a change, so scan past equal values.
-    let end = upTo;
-    for (let j = i + 1; j < sorted.length; j++) {
-      if (sorted[j][1] !== maxStack) {
-        end = sorted[j][0];
-        break;
-      }
-    }
-    msAtMax += Math.max(0, Math.min(end, upTo) - at);
-    // Skip the run of equal values we just accounted for.
-    while (i + 1 < sorted.length && sorted[i + 1][1] === maxStack) i++;
-  }
+  const spans = stackSpans(points, intervals);
+  if (spans.length === 0) return undefined;
+  const maxStack = spans.reduce((m, s) => Math.max(m, s.stack), 0);
+  const msAtMax = spans
+    .filter((s) => s.stack === maxStack)
+    .reduce((sum, s) => sum + (s.to - s.from), 0);
   return { maxStack, msAtMax };
 }
 
@@ -177,7 +205,7 @@ export function mergeTargets(
     .map((group): MergedDebuff => {
       const intervals = unionIntervals(group.intervals);
       const ms = intervals.reduce((sum, [from, to]) => sum + (to - from), 0);
-      const stacks = group.sawStacks ? msAtStack(group.stackPoints, pullMs) : undefined;
+      const stacks = group.sawStacks ? msAtStack(group.stackPoints, intervals) : undefined;
       return {
         target: group.target,
         instance: group.instance,

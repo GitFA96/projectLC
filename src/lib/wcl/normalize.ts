@@ -13,6 +13,7 @@ import type { Quality } from "@/lib/types";
 import {
   COOLDOWN_BY_ID,
   TOTEM_CAST_BY_NAME,
+  TRACK_BY_APPLY_CAST,
   UPTIME_TRACK_BY_NAME,
   trackLabel,
   type UptimeTrack,
@@ -147,6 +148,8 @@ const rawCastEventSchema = z.looseObject({
   sourceID: z.number().optional(),
   /** Friendly target of a targeted cooldown (Innervate, Misdirection). */
   targetID: z.number().optional(),
+  /** Which copy of the NPC — the same identity the aura events carry. */
+  targetInstance: z.number().optional(),
   abilityGameID: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
@@ -573,15 +576,25 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     lastApplicationTs?: number;
     /**
      * The same landed casts split by what they did: raised the stack, or only
-     * renewed the duration. Counted per distinct timestamp like `applications`,
-     * and a timestamp that emitted both counts as a stack-up — the stack moving
-     * is the more specific fact about that cast.
+     * renewed the duration. Deduped per timestamp *and stack value*, and a
+     * timestamp that emitted both counts as a stack-up — the stack moving is the
+     * more specific fact about that cast.
      */
     stackUps: number;
     lastStackUpTs?: number;
+    lastStackUpValue?: number;
     /** [msFromPullStart, stack] each time this source moved the stack. */
     stackPoints: [number, number][];
   }
+  /**
+   * A mob's real identity: its NAME and instance, never its raw actor id. See
+   * the note in `uptimeAcc` — Warcraft Logs puts different ids on one debuff's
+   * apply and its stacks, and the cast that caused an aura event can carry a
+   * third. Name + instance is what all three agree on.
+   */
+  const targetIdentity = (targetId: number, targetInstance?: number) =>
+    `${(anyActorById.get(targetId)?.name ?? `#${targetId}`).toLowerCase()}|${targetInstance ?? 0}`;
+
   const uptimeAccs = new Map<string, UptimeAcc>();
   const uptimeAcc = (
     fight: (typeof fights)[number],
@@ -607,9 +620,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
      * every real one. Name + instance is the mob's real identity — instance is
      * exactly what separates two mobs sharing a name — so the halves rejoin.
      */
-    const target = anyActorById.get(targetId);
-    const identity = `${(target?.name ?? `#${targetId}`).toLowerCase()}|${targetInstance ?? 0}`;
-    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${identity}`;
+    const key = `${fight.id}|${actorName.toLowerCase()}|${track.name.toLowerCase()}|${targetIdentity(targetId, targetInstance)}`;
     let acc = uptimeAccs.get(key);
     if (!acc) {
       acc = {
@@ -934,7 +945,82 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     else if (hit.category === "sapper") row.sappers++;
   }
 
-  /* 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events. */
+  /*
+   * 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events.
+   *
+   * 5a first: who actually cast the ones the log misfiles.
+   *
+   * A shared debuff has ONE aura on the target, and Warcraft Logs credits every
+   * event of it to the player holding the window — not to the player whose cast
+   * caused it. Probed on the 09 Aug Hydross kill: Byrd cast Devastate 78 times,
+   * Turdlord cast Sunder Armor twice, and all 80 aura events came back under
+   * Turdlord. Read straight, that is a fury warrior with 98% Sunder uptime and
+   * a protection warrior who never sundered.
+   *
+   * The repair is the cast stream. Across three reports every one of 1900 aura
+   * events sits within 3ms of a Sunder Armor or Devastate cast on that same
+   * target, so the nearest cast names the real source. Tracks that do not
+   * declare `appliedBy` are left exactly as the log filed them — this only
+   * exists for auras several people drive at once.
+   */
+  const applyCastKey = (fightId: number, track: UptimeTrack, identity: string) =>
+    `${fightId}|${track.name.toLowerCase()}|${identity}`;
+  const applyCasts = new Map<string, { ts: number; caster: string }[]>();
+  for (const rawEvent of events.casts) {
+    const parsed = rawCastEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    if (event.type !== "cast" || event.sourceID === undefined || event.targetID === undefined) continue;
+    const track = TRACK_BY_APPLY_CAST.get((event.ability?.name ?? "").toLowerCase());
+    const fight = bossFightOf(event);
+    const caster = sourcePlayerOf(event.sourceID);
+    if (!track || !fight || !caster) continue;
+    const key = applyCastKey(fight.id, track, targetIdentity(event.targetID, event.targetInstance));
+    const list = applyCasts.get(key) ?? [];
+    list.push({ ts: event.timestamp, caster: caster.name });
+    applyCasts.set(key, list);
+  }
+
+  /**
+   * How far an aura event may sit from the cast that caused it. Probed: 96% of
+   * matches land within 1ms and every one within 3ms, so this is loose by two
+   * orders of magnitude on purpose — the next cast on the same target is a
+   * global cooldown away, which is a thousand times further off.
+   */
+  const CAST_MATCH_MS = 250;
+  const casterOf = (
+    fightId: number,
+    track: UptimeTrack,
+    identity: string,
+    ts: number,
+  ): string | undefined => {
+    const list = applyCasts.get(applyCastKey(fightId, track, identity));
+    if (!list) return undefined;
+    let best: string | undefined;
+    let bestDelta = Infinity;
+    for (const cast of list) {
+      const delta = Math.abs(cast.ts - ts);
+      // Two warriors casting in the same millisecond is a coin flip either way;
+      // break it by name so the same report always imports the same.
+      if (delta < bestDelta || (delta === bestDelta && best !== undefined && compareText(cast.caster, best) < 0)) {
+        bestDelta = delta;
+        best = cast.caster;
+      }
+    }
+    return bestDelta <= CAST_MATCH_MS ? best : undefined;
+  };
+
+  /**
+   * Who is holding each shared debuff right now, per fight/track/target. A cast
+   * by somebody else hands the window over: their interval closes at that ms and
+   * the new caster's opens, which is exactly the shape Warcraft Logs produces
+   * for the owner it picked — 56 multi-source targets in this guild's reports,
+   * not one overlapping millisecond between them.
+   */
+  const holders = new Map<string, string>();
+  /** Shared-track targets we have already seen an event for, per fight. */
+  const seenSharedTargets = new Set<string>();
+
   const ingestUptime = (rawEvents: unknown[]) => {
     for (const rawEvent of rawEvents) {
       const parsed = rawAuraEventSchema.safeParse(rawEvent);
@@ -947,11 +1033,59 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (!track) continue;
       if (track.kind === "selfbuff" && event.targetID !== event.sourceID) continue;
       const fight = bossFightOf(event);
-      const source = sourcePlayerOf(event.sourceID);
-      if (!fight || !source) continue;
+      const logSource = sourcePlayerOf(event.sourceID);
+      if (!fight || !logSource) continue;
 
       const ts = Math.min(Math.max(event.timestamp, fight.startTime), fight.endTime);
-      const acc = uptimeAcc(fight, source.name, track, event.targetID, event.targetInstance);
+      const identity = targetIdentity(event.targetID, event.targetInstance);
+      const holderKey = applyCastKey(fight.id, track, identity);
+      /*
+       * Exactly the two event types that move a window, and nothing else — a
+       * `removedebuffstack` is one stack ticking off a debuff that is still up,
+       * so it must not hand the window anywhere. Letting it clear the holder
+       * left that player's interval open with nobody tracking it, the next
+       * caster opened a second one beside it, and four warriors on one Lurker
+       * pull added up to 124% of the fight.
+       */
+      const removal = event.type === "removedebuff" || event.type === "removebuff";
+      const application = event.type.startsWith("apply") || event.type.startsWith("refresh");
+      /** Nothing on this target has been seen yet this fight — so it may predate the pull. */
+      const firstSighting = !seenSharedTargets.has(holderKey);
+      /*
+       * On a shared track the cast decides the source; a removal has no cast of
+       * its own, so it closes whoever was holding it. Either can fall back to
+       * the log's own attribution — for a report fetched before the casts were,
+       * that is all there is, and today's answer beats no answer.
+       */
+      const sourceName =
+        !track.appliedBy || !application
+          ? (track.appliedBy ? (holders.get(holderKey) ?? logSource.name) : logSource.name)
+          : (casterOf(fight.id, track, identity, event.timestamp) ??
+            holders.get(holderKey) ??
+            logSource.name);
+      /*
+       * A removal with nobody holding the debuff, on a target we have already
+       * watched, is a duplicate the log files under some earlier owner — the
+       * physical drop already closed the window that mattered. Letting it
+       * through hit the "first sighting is a removal, so it was up since the
+       * pull" rule below and handed three warriors a window from 0:00 on a
+       * Lurker pull that Byrd held: four of them summed to 124% of the fight.
+       * The rule itself stays — a debuff genuinely pre-cast before the pull is
+       * still the first thing we see on that target.
+       */
+      if (track.appliedBy && removal && !holders.has(holderKey) && !firstSighting) {
+        continue;
+      }
+      if (track.appliedBy && (removal || application)) {
+        seenSharedTargets.add(holderKey);
+        const holder = holders.get(holderKey);
+        if (holder !== undefined && holder !== sourceName) {
+          closeInterval(uptimeAcc(fight, holder, track, event.targetID, event.targetInstance), ts);
+        }
+        if (removal) holders.delete(holderKey);
+        else holders.set(holderKey, sourceName);
+      }
+      const acc = uptimeAcc(fight, sourceName, track, event.targetID, event.targetInstance);
       if (event.type === "removedebuff" || event.type === "removebuff") {
         if (acc.openAt !== undefined) {
           closeInterval(acc, ts);
@@ -963,16 +1097,23 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       } else if (event.type.startsWith("apply") || event.type.startsWith("refresh")) {
         // Stack events imply the aura is active; they never close an interval.
         if (acc.openAt === undefined) {
-          // A refresh can only land on an aura that is already up — a refresh
-          // as the FIRST sighting means it was pre-cast before the pull
-          // (Hunter's Mark applied pre-fight), so credit from the pull start.
+          /*
+           * A refresh can only land on an aura that is already up — a refresh
+           * as the FIRST sighting means it was pre-cast before the pull
+           * (Hunter's Mark applied pre-fight), so credit from the pull start.
+           *
+           * "First sighting" has to mean the first sighting on the TARGET, not
+           * on this player's own accumulator, or a shared debuff backdates every
+           * hand-over: on a Lurker pull Turdlord's single refresh at 1:05 was
+           * the first thing his accumulator saw, and it opened his window at
+           * 0:00 — 39% of a fight Byrd had held the whole way.
+           */
           const preCast =
-            event.type.startsWith("refresh") && acc.totalMs === 0 && acc.segments.length === 0;
+            event.type.startsWith("refresh") &&
+            acc.totalMs === 0 &&
+            acc.segments.length === 0 &&
+            (!track.appliedBy || firstSighting);
           acc.openAt = preCast ? fight.startTime : ts;
-        }
-        if (acc.lastApplicationTs !== ts) {
-          acc.applications++;
-          acc.lastApplicationTs = ts;
         }
         /*
          * Stack-ups are counted; refreshes are DERIVED as the rest at
@@ -981,13 +1122,26 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
          * at the same millisecond. Counting refreshes here instead would depend
          * on which of the two the log happens to send first, and the two counts
          * could then add up to more than the landed casts they split.
+         *
+         * A repeated timestamp is therefore the *same* cast — unless it carries
+         * a stack value the last one did not, which only a second cast can do.
+         * Probed on Tidalvess: Byrd pushed the stack to 2 and to 3 both at
+         * 4628ms, and deduping on the timestamp alone swallowed one of them,
+         * reporting three stack-ups on a debuff the log walked to five.
          */
-        if (event.stack !== undefined && event.type.endsWith("stack")) {
-          if (acc.lastStackUpTs !== ts) {
-            acc.stackUps++;
-            acc.lastStackUpTs = ts;
-            acc.stackPoints.push([ts - fight.startTime, event.stack]);
-          }
+        const stackUp =
+          event.stack !== undefined &&
+          event.type.endsWith("stack") &&
+          (acc.lastStackUpTs !== ts || acc.lastStackUpValue !== event.stack);
+        if (acc.lastApplicationTs !== ts || stackUp) {
+          acc.applications++;
+          acc.lastApplicationTs = ts;
+        }
+        if (stackUp) {
+          acc.stackUps++;
+          acc.lastStackUpTs = ts;
+          acc.lastStackUpValue = event.stack;
+          acc.stackPoints.push([ts - fight.startTime, event.stack as number]);
         }
       }
     }
@@ -1067,6 +1221,21 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   // touched (boss, adds, buffed friendlies) goes into the per-victim
   // breakdown with its up-intervals.
   const trackGroups = new Map<string, { row: NormalizedPlayerFight; track: UptimeTrack; accs: UptimeAcc[] }>();
+  /*
+   * Which (fight, track) pairs this import recorded stacks for at all.
+   *
+   * The per-player gate cannot be "did THIS player push a stack" — a warrior who
+   * only ever refreshed somebody else's Sunder pushed none, and saying nothing
+   * about their split reads as "not recorded" when the truthful answer is "0
+   * raised, 4 renewed". Asking the whole pull keeps the older distinction that
+   * matters: a report imported before stacks were kept still says nothing.
+   */
+  const fightRecordedStacks = new Set<string>();
+  for (const acc of uptimeAccs.values()) {
+    if (acc.stackPoints.length > 0) {
+      fightRecordedStacks.add(`${acc.fight.id}|${acc.track.name.toLowerCase()}`);
+    }
+  }
   for (const acc of uptimeAccs.values()) {
     closeInterval(acc, acc.fight.endTime);
     const row = rows.get(keyOf(acc.fight.id, acc.actorName));
@@ -1079,7 +1248,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   for (const { row, track, accs } of trackGroups.values()) {
     const pctOf = (ms: number) => Math.round(Math.min(100, (ms / Math.max(1, row.durationMs)) * 100));
     const bestPct = pctOf(Math.max(...accs.map((a) => a.totalMs)));
-    if (bestPct < 1) continue;
+    /*
+     * Under a percent of uptime is noise on a track one player maintains. On a
+     * shared one it is a real answer to a real question — the warrior who threw
+     * two sunders into a pull somebody else carried contributed two sunders, and
+     * dropping the row is how the council ends up believing one person did it
+     * all. Landed casts keep the row; the percentage is free to read 0%.
+     */
+    if (bestPct < 1 && !(track.appliedBy && accs.some((a) => a.applications > 0))) continue;
     const targets: NormalizedUpkeepTarget[] = accs
       .map((acc) => {
         const target = anyActorById.get(acc.targetId);
@@ -1093,7 +1269,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           applications: acc.applications,
           // Derived, never counted: whatever landed and did not move the stack
           // renewed the duration. Guarantees the two halves sum to the casts.
-          ...(acc.stackPoints.length > 0
+          ...(fightRecordedStacks.has(`${acc.fight.id}|${acc.track.name.toLowerCase()}`)
             ? {
                 stackUps: acc.stackUps,
                 refreshes: Math.max(0, acc.applications - acc.stackUps),
@@ -1102,7 +1278,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
             : {}),
         };
       })
-      .filter((t) => t.segments.length > 0)
+      .filter((t) => t.segments.length > 0 || (track.appliedBy !== undefined && t.applications > 0))
       .sort(
         (a, b) =>
           Number(b.boss) - Number(a.boss) ||

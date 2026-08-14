@@ -6,6 +6,7 @@ import {
   TRACKED_CAST_IDS,
 } from "@/lib/wcl/consumables";
 import {
+  APPLY_CAST_NAMES,
   BUFF_TRACK_NAMES,
   COOLDOWN_CAST_IDS,
   DEBUFF_TRACK_NAMES,
@@ -138,7 +139,9 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       // Sappers and totems are matched by name — one entry covers every rank.
       // Scrolls ride along so a hunter buffing their PET is visible; a raider
       // scrolling themselves is already read off the auras at the pull.
-      `ability.id IN (${[...TRACKED_CAST_IDS, ...SCROLL_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS])})`,
+      // APPLY_CAST_NAMES rides along too: for a shared debuff the cast stream
+      // is the only record of who actually cast it (UptimeTrack.appliedBy).
+      `ability.id IN (${[...TRACKED_CAST_IDS, ...SCROLL_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS, ...APPLY_CAST_NAMES])})`,
     ),
     soft(
       "Debuff-uptime tracking (curses, Thunder Clap…)",

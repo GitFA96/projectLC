@@ -90,6 +90,22 @@ export interface Band {
   label?: string;
 }
 
+/**
+ * One stretch of a lane drawn at a fraction of its height — how deep a stacking
+ * debuff sat through that stretch. Height is the magnitude (stacks), color is
+ * the identity (who was holding it), so one lane answers both without a second
+ * row.
+ */
+export interface StepBand {
+  from: number;
+  to: number;
+  /** 0–1 of the lane's height. */
+  level: number;
+  color: string;
+  /** Tooltip prefix, e.g. "Scomb · 5 stacks". */
+  label?: string;
+}
+
 /** A single moment in the pull — a button press, drawn as a pip on the lane. */
 export interface Marker {
   atMs: number;
@@ -123,6 +139,7 @@ function MarkerPips({ markers, durationMs }: { markers: Marker[]; durationMs: nu
 export function TimelineLane({
   label,
   bands,
+  steps,
   markers = [],
   pct,
   durationMs,
@@ -131,6 +148,11 @@ export function TimelineLane({
 }: {
   label: React.ReactNode;
   bands: Band[];
+  /**
+   * Stack depth over the pull, bottom-anchored. A lane that has these is drawn
+   * taller — a one-stack step on a 10px lane is two pixels and reads as nothing.
+   */
+  steps?: StepBand[];
   /** Cast moments drawn on top of the bands (when the button was pressed). */
   markers?: Marker[];
   pct: number;
@@ -143,8 +165,25 @@ export function TimelineLane({
   return (
     <div className={LANE_GRID}>
       <span className="truncate text-sm">{label}</span>
-      <div className="relative h-2.5 rounded-sm bg-muted">
+      <div className={cn("relative rounded-sm bg-muted", steps ? "h-5" : "h-2.5")}>
         <TickGrid durationMs={dur} ticks={ticks} />
+        {steps?.map((step, i) => (
+          <div
+            key={`step-${i}`}
+            className="absolute bottom-0 rounded-[1px]"
+            title={`${step.label ? `${step.label} · ` : ""}${mmss(step.from)}–${mmss(step.to)}`}
+            style={
+              {
+                left: `${Math.max(0, (step.from / dur) * 100)}%`,
+                // A 2px surface gap keeps two neighbouring depths from reading as
+                // one block; max() so a one-second span does not go negative.
+                width: `max(1px, calc(${Math.max(0.4, ((step.to - step.from) / dur) * 100)}% - 2px))`,
+                height: `${Math.max(10, Math.min(1, step.level) * 100)}%`,
+                backgroundColor: step.color,
+              } satisfies CSSProperties
+            }
+          />
+        ))}
         {bands.map((band, b) =>
           band.segments.map(([from, to], i) => (
             <div

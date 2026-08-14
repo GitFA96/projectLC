@@ -8,8 +8,9 @@
  *  - Upkeep: debuffs/buffs a spec is expected to maintain (warlock curses,
  *    Thunder Clap, shouts, Earth Shield…). These are matched BY NAME so one
  *    entry covers all spell ranks; uptime is computed from apply/remove
- *    events, attributed to the SOURCE player, on their best enemy target
- *    (≈ the boss — adds with brief uptime never win).
+ *    events, on their best enemy target (≈ the boss — adds with brief uptime
+ *    never win). Attribution follows the log's source, except on a track that
+ *    names its `appliedBy` casts — see that field.
  */
 
 export interface ClassCooldown {
@@ -90,6 +91,23 @@ export interface UptimeTrack {
   label?: string;
   kind: UptimeKind;
   wowClass: string;
+  /**
+   * The casts that apply or refresh this aura — set only when the log's own
+   * attribution cannot be trusted.
+   *
+   * Warcraft Logs credits every event of a *shared* debuff to the player who
+   * owns the current window, not to the player whose cast caused it. Probed on
+   * the 09 Aug Hydross kill: Byrd cast Devastate 78 times and Turdlord cast
+   * Sunder Armor twice, and the log filed all 80 aura events under Turdlord —
+   * a fury warrior — because his opening Sunder owned the debuff. Every aura
+   * event in three reports (1900 of them) sits within 3ms of one of these
+   * casts, so the cast stream is what says who was really sundering.
+   *
+   * Naming the casts here is also what puts them in the events fetch, so a
+   * report imported before the list changed carries the log's attribution and
+   * needs a re-import. See docs/change-chains.md §1.
+   */
+  appliedBy?: string[];
 }
 
 /**
@@ -114,7 +132,14 @@ export const ANY_CLASS = "Any";
 
 export const UPTIME_TRACKS: UptimeTrack[] = [
   /* Warrior — fury keeps Rampage rolling; tanks stack Sunder and hold TC/Demo. */
-  { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior" },
+  /*
+   * Devastate is how a TBC protection warrior stacks Sunder — it applies the
+   * same aura under its own cast name, and it is the cast the tank actually
+   * spams. Leaving it out did not just lose a count: it left the aura credited
+   * to whoever opened the window, which on a real kill was a fury warrior with
+   * two casts to the tank's seventy-eight.
+   */
+  { name: "Sunder Armor", kind: "debuff", wowClass: "Warrior", appliedBy: ["Sunder Armor", "Devastate"] },
   /**
    * Arms talent debuff (spell 29859) — +4% physical damage taken, applied by
    * the warrior's own Rend and Deep Wounds ticks. Raid-wide value, so whether
@@ -265,6 +290,19 @@ export const UPTIME_TRACK_BY_LABEL = new Map<string, UptimeTrack>(
 
 /** Names for the server-side debuff-events filter (uptime on enemies). */
 export const DEBUFF_TRACK_NAMES = UPTIME_TRACKS.filter((t) => t.kind === "debuff").map((t) => t.name);
+
+/**
+ * Cast names that feed an `appliedBy` track — added to the server-side casts
+ * filter, because a cast that was never fetched cannot re-attribute anything.
+ */
+export const APPLY_CAST_NAMES: string[] = [
+  ...new Set(UPTIME_TRACKS.flatMap((t) => t.appliedBy ?? [])),
+];
+
+/** Cast name (lowercased) → the track it applies. */
+export const TRACK_BY_APPLY_CAST = new Map<string, UptimeTrack>(
+  UPTIME_TRACKS.flatMap((t) => (t.appliedBy ?? []).map((n) => [n.toLowerCase(), t] as const)),
+);
 /** Names for the server-side buff-events filter (uptime on friendlies). */
 export const BUFF_TRACK_NAMES = UPTIME_TRACKS.filter((t) => t.kind !== "debuff").map((t) => t.name);
 

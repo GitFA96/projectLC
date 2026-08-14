@@ -1065,6 +1065,142 @@ describe("a debuff whose apply and removal name different ids for the same mob",
 });
 
 /**
+ * Who actually sundered.
+ *
+ * Warcraft Logs credits every event of a shared debuff to the player holding
+ * the window, not to the one whose cast caused it. Probed on the 09 Aug Hydross
+ * kill: Byrd cast Devastate 78 times, Turdlord cast Sunder Armor twice, and all
+ * 80 aura events came back under Turdlord — reading straight, a fury warrior
+ * with 98% Sunder uptime and a protection warrior who never sundered. The cast
+ * stream is the repair.
+ */
+describe("a shared debuff is credited to the caster, not the window's owner", () => {
+  const report = {
+    title: "Attribution",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 500_000,
+    masterData: {
+      actors: [
+        { id: 1, name: "Turdlord", type: "Player", subType: "Warrior" },
+        { id: 2, name: "Byrd", type: "Player", subType: "Warrior" },
+        { id: 50, name: "Gruul the Dragonkiller", type: "NPC", subType: "Boss" },
+      ],
+    },
+    fights: [
+      { id: 1, encounterID: 650, name: "Gruul the Dragonkiller", kill: true, startTime: 0, endTime: 100_000 },
+    ],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: {
+            dps: {
+              characters: [
+                { name: "Turdlord", class: "Warrior", spec: "Fury" },
+                { name: "Byrd", class: "Warrior", spec: "Protection" },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  /** Every aura event carries Turdlord — that is the misattribution itself. */
+  const aura = (type: string, at: number, stack?: number) => ({
+    timestamp: at,
+    type,
+    sourceID: 1,
+    targetID: 50,
+    ...(stack === undefined ? {} : { stack }),
+    ability: { name: "Sunder Armor", guid: 25225 },
+  });
+  const cast = (sourceID: number, name: string, at: number) => ({
+    timestamp: at,
+    type: "cast",
+    sourceID,
+    targetID: 50,
+    ability: { name, guid: name === "Devastate" ? 30022 : 25225 },
+  });
+
+  const result = normalizeWclReport(report, {
+    combatantInfo: [
+      { timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] },
+      { timestamp: 10, type: "combatantinfo", sourceID: 2, auras: [], gear: [] },
+    ],
+    deaths: [],
+    casts: [
+      // Turdlord opens it, then Byrd's Devastates carry the rest of the pull.
+      cast(1, "Sunder Armor", 1_000),
+      cast(2, "Devastate", 10_000),
+      cast(2, "Devastate", 20_000),
+      cast(2, "Devastate", 30_000),
+    ],
+    debuffs: [
+      aura("applydebuff", 1_000),
+      aura("applydebuffstack", 10_000, 2),
+      aura("refreshdebuff", 10_000),
+      aura("applydebuffstack", 20_000, 3),
+      aura("refreshdebuff", 20_000),
+      aura("refreshdebuff", 30_000),
+      aura("removedebuff", 60_000),
+    ],
+    buffs: [],
+  });
+
+  const targetFor = (who: string) =>
+    result.rows
+      .find((r) => r.actorName === who)
+      ?.upkeep.find((u) => u.name === "Sunder Armor")?.targets?.[0];
+
+  it("hands the window to whoever cast, at the moment they cast", () => {
+    // Turdlord opened it and held it until Byrd's first Devastate; Byrd held it
+    // from there to the removal. Never both at once.
+    expect(targetFor("Turdlord")?.segments).toEqual([[1_000, 10_000]]);
+    expect(targetFor("Byrd")?.segments).toEqual([[10_000, 60_000]]);
+  });
+
+  it("counts each player's own landed casts", () => {
+    expect(targetFor("Turdlord")?.applications).toBe(1);
+    expect(targetFor("Byrd")?.applications).toBe(3);
+  });
+
+  it("splits stack-ups from refreshes per player", () => {
+    // Byrd walked it to 3 with two casts and renewed it with the third;
+    // Turdlord's single cast opened the debuff and raised no stack.
+    expect(targetFor("Byrd")?.stackUps).toBe(2);
+    expect(targetFor("Byrd")?.refreshes).toBe(1);
+    expect(targetFor("Turdlord")?.stackUps).toBe(0);
+    expect(targetFor("Turdlord")?.refreshes).toBe(1);
+  });
+
+  it("keeps the raid-level uptime the log reported", () => {
+    // Re-attribution moves the credit, never the debuff: one window, 1s to 60s.
+    const covered = ["Turdlord", "Byrd"]
+      .flatMap((who) => targetFor(who)?.segments ?? [])
+      .reduce((sum, [from, to]) => sum + (to - from), 0);
+    expect(covered).toBe(59_000);
+  });
+
+  it("falls back to the log when no cast explains the aura", () => {
+    // A report fetched before Devastate was asked for has no casts to match, so
+    // the log's own attribution is all there is — today's answer, not none.
+    const noCasts = normalizeWclReport(report, {
+      combatantInfo: [{ timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+      deaths: [],
+      casts: [],
+      debuffs: [aura("applydebuff", 1_000), aura("refreshdebuff", 30_000), aura("removedebuff", 60_000)],
+      buffs: [],
+    });
+    const turd = noCasts.rows
+      .find((r) => r.actorName === "Turdlord")
+      ?.upkeep.find((u) => u.name === "Sunder Armor")?.targets?.[0];
+    expect(turd?.segments).toEqual([[1_000, 60_000]]);
+    expect(noCasts.rows.find((r) => r.actorName === "Byrd")?.upkeep).toEqual([]);
+  });
+});
+
+/**
  * A stacking debuff's two halves: the casts that built it and the casts that
  * held it. Probed — only `applydebuffstack` carries a stack number, and one
  * landed Sunder emits both a stack event and a refresh at the same millisecond.
@@ -1137,6 +1273,38 @@ describe("stacking debuffs record how the stack moved", () => {
       [4_000, 4],
       [5_000, 5],
     ]);
+  });
+
+  /*
+   * Probed on a real Karathress pull: Byrd pushed Fathom-Guard Tidalvess to 2
+   * and to 3 at the same 4628ms. Deduping on the timestamp alone read that as
+   * one cast, reporting three stack-ups on a debuff the log walked to five —
+   * and losing the 3 from the stack timeline with it.
+   */
+  it("counts two casts that landed in the same millisecond", () => {
+    const same = normalizeWclReport(report, {
+      combatantInfo: [{ timestamp: 10, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+      deaths: [],
+      casts: [],
+      debuffs: [
+        sunder("applydebuff", 1_000),
+        sunder("applydebuffstack", 2_000, 2),
+        sunder("refreshdebuff", 2_000),
+        sunder("applydebuffstack", 2_000, 3),
+        sunder("refreshdebuff", 2_000),
+      ],
+      buffs: [],
+    });
+    const stacked = same.rows[0].upkeep.find((u) => u.name === "Sunder Armor")?.targets?.[0];
+    expect(stacked?.stackUps).toBe(2);
+    expect(stacked?.stackPoints).toEqual([
+      [2_000, 2],
+      [2_000, 3],
+    ]);
+    // Three landed casts: the apply and the two stack-ups. The halves still
+    // account for exactly the casts.
+    expect(stacked?.applications).toBe(3);
+    expect((stacked?.stackUps ?? 0) + (stacked?.refreshes ?? 0)).toBe(stacked?.applications);
   });
 });
 

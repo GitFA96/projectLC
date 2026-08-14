@@ -39,6 +39,32 @@ report zero uses forever.
   snapshot and match **by name first**, so those degrade more gracefully — but
   they still only appear in reports fetched after the name was known.
 
+**Warcraft Logs credits a shared debuff to its owner, not to its caster.** There
+is one Sunder aura on a target, and every event of it is filed under whoever
+holds the window — so the player who opened it collects everyone else's work.
+Probed on the 09 Aug Hydross kill: Byrd cast Devastate 78 times, Turdlord cast
+Sunder Armor twice, and all 80 aura events came back under Turdlord. Read
+straight, that is a fury warrior with 98% uptime and a protection warrior who
+never sundered.
+
+The repair is the cast stream, and it has three parts that must move together:
+a track names its `appliedBy` casts (`class-tracks.ts`), `fetch-report.ts` puts
+those names in the **casts** filter, and `normalize.ts` matches each aura event
+to the nearest such cast on that target — every one of 1900 events across three
+reports sits within 3ms of one. Miss the fetch step and the matcher silently
+finds nothing and falls back to the log's own attribution, which is the bug it
+exists to fix. **Devastate is the one nobody expects**: it is how a protection
+warrior stacks Sunder, it applies the aura under its own cast name, and it is
+the cast the tank actually spams.
+
+Two consequences. A matched aura event hands the window over — the previous
+holder's interval closes at that millisecond and the caster's opens — so
+per-player intervals stay non-overlapping, the same shape the log produces for
+the owner it picked. And "first sighting" rules have to ask about the **target**,
+not the accumulator: a hand-over is the first thing the new holder's accumulator
+ever sees, and treating that as a pre-pull application backdates their window to
+0:00 (four warriors summing to 124% of a Lurker pull).
+
 **A shared debuff needs two numbers, and they answer different questions.**
 Uptime accumulates per source, which answers "did this raider do their job" and
 cannot answer "was Sunder up on the boss" — the one the council asks. `mergeTargets`
@@ -47,11 +73,26 @@ never sum**, since two warriors covering the same thirty seconds kept it up for
 thirty. It reads `segments` that are already stored, so it answers for nights
 imported months ago. Stacks are the other half: `applications` splits into
 `stackUps` and `refreshes`, and `stackPoints` records the value the log reported
-so `msAtStack` can reconstruct the target's real stack timeline from every
+so `stackSpans` can reconstruct the target's real stack timeline from every
 source's contributions. **Refreshes are derived, never counted** — one landed
 Sunder emits a stack event and a refresh at the same millisecond, so counting
 both would depend on which the log sends first and could exceed the casts they
-split. Stacks need a re-import; the merge does not.
+split. The same-millisecond rule has an exception in the other direction: two
+`applydebuffstack` events at one timestamp carrying *different* stack values are
+two casts, not one, so the dedupe keys on timestamp **and** value. Whether the
+split is *reported* is asked per pull, not per player — a warrior who only ever
+refreshed raised no stacks, and hiding their split reads as "not recorded" when
+the answer is "0 raised, 4 renewed". Stacks and attribution need a re-import;
+the merge does not.
+
+**A stack point is not an interval, and reading it as one invents uptime.** The
+log says "somebody pushed it to N at T" and announces the drop somewhere else
+entirely — in the `removedebuff` that closes a *segment*. So the stack timeline
+has to be clipped to the segments (`stackSpans` takes both), or the last value
+runs to the end of the pull: a real Hydross pull read Sunder up 10% of the fight
+and at five stacks for 90% of it, from the same row. Inside a window the stack
+opens at 1, because the log only numbers stacks from 2 up — so a re-application
+after a drop starts over and must not inherit the previous window's five.
 
 **Death recaps are fetched per pull, not per death or per night.** Per death is
 ~97 queries on a quiet night against an import that otherwise costs about seven;

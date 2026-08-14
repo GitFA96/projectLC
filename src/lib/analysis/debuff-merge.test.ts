@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coveredMs, mergeTargets, msAtStack, unionIntervals } from "@/lib/analysis/debuff-merge";
+import { coveredMs, mergeTargets, msAtStack, stackSpans, unionIntervals } from "@/lib/analysis/debuff-merge";
 import type { UpkeepFightProvider, WclUpkeepTarget } from "@/lib/types";
 
 const PULL_MS = 100_000;
@@ -51,19 +51,63 @@ describe("coveredMs", () => {
   });
 });
 
+describe("stackSpans", () => {
+  it("opens a window at one stack and steps up from there", () => {
+    // The application that opened the window is stack 1; the log only numbers
+    // stacks from 2 up, so the opening step is never a point of its own.
+    expect(stackSpans([[10_000, 2]], [[0, 30_000]])).toEqual([
+      { from: 0, to: 10_000, stack: 1 },
+      { from: 10_000, to: 30_000, stack: 2 },
+    ]);
+  });
+
+  it("ends the stack when the debuff drops, not when the pull does", () => {
+    // The real Hydross shape: walked to 5, then removed at 12s of a 100s pull.
+    expect(stackSpans([[9_000, 5]], [[3_000, 12_000]])).toEqual([
+      { from: 3_000, to: 9_000, stack: 1 },
+      { from: 9_000, to: 12_000, stack: 5 },
+    ]);
+  });
+
+  it("restarts at one after a re-application", () => {
+    // Two windows: the second opens fresh, and the first window's 5 must not
+    // bleed across the gap into it.
+    expect(stackSpans([[5_000, 5], [60_000, 2]], [[0, 20_000], [50_000, 80_000]])).toEqual([
+      { from: 0, to: 5_000, stack: 1 },
+      { from: 5_000, to: 20_000, stack: 5 },
+      { from: 50_000, to: 60_000, stack: 1 },
+      { from: 60_000, to: 80_000, stack: 2 },
+    ]);
+  });
+
+  it("treats a second source re-applying the same stack as no change", () => {
+    // Two warriors both pushing to 5 is one span, not two.
+    expect(stackSpans([[10_000, 5], [15_000, 5]], [[0, 40_000]])).toEqual([
+      { from: 0, to: 10_000, stack: 1 },
+      { from: 10_000, to: 40_000, stack: 5 },
+    ]);
+  });
+});
+
 describe("msAtStack", () => {
   it("holds a stack until something changes it", () => {
     // Up to 5 at 10s, still 5 when the pull ends at 100s.
-    expect(msAtStack([[2_000, 2], [10_000, 5]], PULL_MS)).toEqual({ maxStack: 5, msAtMax: 90_000 });
+    expect(msAtStack([[2_000, 2], [10_000, 5]], [[0, PULL_MS]])).toEqual({ maxStack: 5, msAtMax: 90_000 });
+  });
+
+  it("stops counting when the debuff falls off", () => {
+    // The bug this exists to prevent: reading the points alone said 5 stacks
+    // for 90s of the pull while the debuff was up for 12s of it.
+    expect(msAtStack([[9_000, 5]], [[3_000, 12_000]])).toEqual({ maxStack: 5, msAtMax: 3_000 });
   });
 
   it("stops counting when the stack drops", () => {
-    expect(msAtStack([[10_000, 5], [40_000, 1]], PULL_MS)).toEqual({ maxStack: 5, msAtMax: 30_000 });
+    expect(msAtStack([[10_000, 5], [40_000, 1]], [[0, PULL_MS]])).toEqual({ maxStack: 5, msAtMax: 30_000 });
   });
 
   it("counts a max reached twice", () => {
     // 10s→20s plus 30s→40s.
-    expect(msAtStack([[10_000, 5], [20_000, 2], [30_000, 5], [40_000, 1]], PULL_MS)).toEqual({
+    expect(msAtStack([[10_000, 5], [20_000, 2], [30_000, 5], [40_000, 1]], [[0, PULL_MS]])).toEqual({
       maxStack: 5,
       msAtMax: 20_000,
     });
@@ -71,14 +115,14 @@ describe("msAtStack", () => {
 
   it("treats a second source re-applying the max as no change", () => {
     // Two warriors both pushing to 5 must not end the window between them.
-    expect(msAtStack([[10_000, 5], [15_000, 5], [40_000, 1]], PULL_MS)).toEqual({
+    expect(msAtStack([[10_000, 5], [15_000, 5], [40_000, 1]], [[0, PULL_MS]])).toEqual({
       maxStack: 5,
       msAtMax: 30_000,
     });
   });
 
   it("says nothing when no stacks were recorded", () => {
-    expect(msAtStack([], PULL_MS)).toBeUndefined();
+    expect(msAtStack([], [[0, PULL_MS]])).toBeUndefined();
   });
 });
 
@@ -130,9 +174,10 @@ describe("mergeTargets", () => {
       PULL_MS,
     );
     expect(merged[0].maxStack).toBe(5);
-    // Reached 5 at 10s and nothing lowered it: 90s of a 100s pull.
-    expect(merged[0].msAtMaxStack).toBe(90_000);
-    expect(merged[0].pctAtMaxStack).toBe(90);
+    // Reached 5 at 10s and nothing lowered it — but the debuff itself fell off
+    // at 90s, and the last ten seconds of the pull cannot count towards it.
+    expect(merged[0].msAtMaxStack).toBe(80_000);
+    expect(merged[0].pctAtMaxStack).toBe(80);
     // The two halves of the landed casts, summed across both warriors.
     expect(merged[0].stackUps).toBe(4);
     expect(merged[0].refreshes).toBe(6);
