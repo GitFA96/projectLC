@@ -1476,7 +1476,7 @@ function sanitizeAdjustments(raw: unknown): ConsumableAdjustment[] {
   const out: ConsumableAdjustment[] = [];
   for (const value of raw) {
     if (value === null || typeof value !== "object") continue;
-    const { actorName, name, delta, note, at } = value as Record<string, unknown>;
+    const { actorName, name, delta, note, by, at } = value as Record<string, unknown>;
     if (typeof actorName !== "string" || actorName.trim() === "") continue;
     if (typeof name !== "string" || name.trim() === "") continue;
     if (typeof delta !== "number" || !Number.isInteger(delta) || delta === 0) continue;
@@ -1485,6 +1485,7 @@ function sanitizeAdjustments(raw: unknown): ConsumableAdjustment[] {
       name: name.trim(),
       delta,
       note: typeof note === "string" && note.trim() !== "" ? note.trim() : undefined,
+      by: typeof by === "string" && by.trim() !== "" ? by.trim() : undefined,
       at: typeof at === "string" && at !== "" ? at : new Date(0).toISOString(),
     });
   }

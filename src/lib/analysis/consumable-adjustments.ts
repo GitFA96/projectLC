@@ -121,10 +121,16 @@ export function adjustmentGold(
  * entry a press lands on is the part worth testing, and it has a sharp edge.
  *
  * **A press merges into that raider's existing unnoted correction** — five
- * presses read as "+5", not as five entries in the audit list. An entry carrying
- * a NOTE is never touched; a new one is appended beside it instead, because
- * somebody wrote a sentence explaining that number and a ± button must not
- * quietly change what the sentence refers to.
+ * presses read as "+5", not as five entries in the audit list. **A note rides
+ * along** — the entry keeps whatever reason was written against it.
+ *
+ * That last part used to be the opposite: a noted entry was never touched and a
+ * new one was appended beside it, because the ± lived in the ranking row while
+ * the reason was written in a separate card, and a button must not quietly
+ * change the number a sentence elsewhere refers to. Both now sit on the same
+ * line of the same panel, so a press is no longer silent, and one correction per
+ * raider per consumable is what the panel shows. Old data with a split pair
+ * still totals correctly — `applyAdjustments` sums every entry either way.
  *
  * A merge that lands on zero drops the row: "+0" in the audit list would claim
  * a correction nobody is making.
@@ -143,11 +149,129 @@ export function bumpAdjustment(input: {
   const sameName = (a: ConsumableAdjustment) =>
     normalizeConsumableName(a.name) === normalizeConsumableName(name);
 
-  const mergeable = adjustments.findIndex((a) => sameActor(a) && sameName(a) && !a.note);
+  const mergeable = adjustments.findIndex((a) => sameActor(a) && sameName(a));
   const next =
     mergeable === -1
       ? [...adjustments, { actorName: actorName.trim(), name: name.trim(), delta: direction, at }]
       : adjustments.map((a, i) => (i === mergeable ? { ...a, delta: a.delta + direction, at } : a));
 
+  return next.filter((a) => a.delta !== 0);
+}
+
+/**
+ * Stamp the author on the corrections a save actually changed.
+ *
+ * The whole list is replaced on every write, so a save carries entries nobody
+ * touched alongside the one that was. Restamping all of them would credit this
+ * officer with corrections another one made months ago, and trusting whatever
+ * the client sent would let it claim the reverse. So an entry that matches a
+ * stored one exactly keeps the author and timestamp it already had, and only a
+ * new or altered entry gets this officer's name.
+ *
+ * Matching is on (raider, consumable, note, delta): change any of them and it
+ * is a different statement, made by whoever made it. Two entries for the same
+ * raider and consumable — one noted, one not — stay distinguishable, which is
+ * what `bumpAdjustment` relies on.
+ */
+export function attributeAdjustments(input: {
+  stored: ConsumableAdjustment[];
+  incoming: ConsumableAdjustment[];
+  actor: string;
+  at: string;
+}): ConsumableAdjustment[] {
+  const { stored, incoming, actor, at } = input;
+  const key = (a: ConsumableAdjustment) =>
+    [
+      a.actorName.trim().toLowerCase(),
+      a.name.trim().toLowerCase(),
+      a.note?.trim() ?? "",
+      a.delta,
+    ].join("\u0000");
+
+  const unchanged = new Map<string, ConsumableAdjustment>();
+  for (const entry of stored) unchanged.set(key(entry), entry);
+
+  return incoming.map((entry) => {
+    const before = unchanged.get(key(entry));
+    if (before) return { ...entry, by: before.by, at: before.at };
+    return { ...entry, by: actor, at };
+  });
+}
+
+/**
+ * Write, change or clear the reason on a raider's correction to one consumable.
+ *
+ * Only ever edits a correction that already exists: a reason with no number
+ * behind it corrects nothing, and would show up in the audit list as a sentence
+ * about a change nobody made. Clearing it back to empty drops the field rather
+ * than storing `""`, so the entry matches how it would have been saved without
+ * one — which is what keeps `attributeAdjustments` from reading a cleared note
+ * as a fresh edit forever.
+ */
+export function setAdjustmentNote(input: {
+  adjustments: ConsumableAdjustment[];
+  actorName: string;
+  name: string;
+  note: string;
+}): ConsumableAdjustment[] {
+  const { adjustments, actorName, name, note } = input;
+  const trimmed = note.trim();
+  return adjustments.map((a) => {
+    const match =
+      a.actorName.trim().toLowerCase() === actorName.trim().toLowerCase() &&
+      normalizeConsumableName(a.name) === normalizeConsumableName(name);
+    if (!match) return a;
+    if (trimmed === "") {
+      const rest = { ...a };
+      delete rest.note;
+      return rest;
+    }
+    return { ...a, note: trimmed };
+  });
+}
+
+/**
+ * Record a consumable the log never saw at all.
+ *
+ * The one correction that cannot start from a ± on an existing line, because
+ * there is no line: Warcraft Logs records nothing for a flask drunk before the
+ * pull timer. Folds into an existing correction for the same consumable rather
+ * than opening a second, for the same reason a repeat press does.
+ */
+export function addAdjustment(input: {
+  adjustments: ConsumableAdjustment[];
+  actorName: string;
+  name: string;
+  count: number;
+  note?: string;
+  at: string;
+}): ConsumableAdjustment[] {
+  const { adjustments, actorName, name, count, note, at } = input;
+  const trimmedName = name.trim();
+  const trimmedNote = note?.trim();
+  if (trimmedName === "" || !Number.isInteger(count) || count === 0) return adjustments;
+
+  const existing = adjustments.findIndex(
+    (a) =>
+      a.actorName.trim().toLowerCase() === actorName.trim().toLowerCase() &&
+      normalizeConsumableName(a.name) === normalizeConsumableName(trimmedName),
+  );
+  const next =
+    existing === -1
+      ? [
+          ...adjustments,
+          {
+            actorName: actorName.trim(),
+            name: trimmedName,
+            delta: count,
+            ...(trimmedNote ? { note: trimmedNote } : {}),
+            at,
+          },
+        ]
+      : adjustments.map((a, i) =>
+          i === existing
+            ? { ...a, delta: a.delta + count, ...(trimmedNote ? { note: trimmedNote } : {}), at }
+            : a,
+        );
   return next.filter((a) => a.delta !== 0);
 }

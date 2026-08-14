@@ -244,19 +244,80 @@ The character page keeps the excused rows and marks them
 on a farm boss is still worth reading. Only the summary is over the counted
 ones.
 
-**`consumable_adjustments:<code>` is saved as a whole list, and two surfaces now
-write it** — the panel's form and the ± on each gold-breakdown badge. Both send
-the entire list, so each carries the snapshot it rendered with: two officers
-editing the same raid at once means the later save wins outright rather than
-merging. That has always been true of the panel; the ± only adds a second door to
-it. If it ever matters, the fix is a targeted upsert per (raider, consumable),
-not more client state.
+**`consumable_adjustments:<code>` is saved as a whole list**, from one surface:
+the panel a row of the gold table expands into. The save sends the entire list,
+so it carries the snapshot it rendered with — two officers editing the same raid
+at once means the later save wins outright rather than merging. If it ever
+matters, the fix is a targeted upsert per (raider, consumable), not more client
+state.
 
 Which entry a ± press lands on is `bumpAdjustment` in
 `analysis/consumable-adjustments.ts`, pure and tested there rather than in the
-component: it merges into the raider's existing **unnoted** correction and
-appends beside a noted one, because a ± button must not silently change the
-number somebody wrote a reason against.
+component: **one correction per raider per consumable**, with any reason written
+against it carried through the press. It used to leave a noted entry alone and
+append beside it, because the ± sat in the ranking row while the reason was
+written in a separate card — a button must not silently change the number a
+sentence elsewhere refers to. That card is gone and both now sit on one line of
+one panel, so the premise lapsed. Old data with a split pair still totals
+correctly: `applyAdjustments` sums every entry either way.
+
+**Attribution is stamped server-side, never sent by the client.**
+`attributeAdjustments` compares the incoming list against the stored one and
+gives this officer's name only to entries that are new or changed — matching on
+(raider, consumable, note, delta). Restamping everything would credit whoever
+saved last with corrections another officer made months ago; trusting the
+client's `by` would let it claim the reverse. The name comes from
+`actingOfficer()`, the same helper every governance write uses.
+
+**The corrections log groups by `at`, so a save must stamp one timestamp.**
+`attributeAdjustments` takes a single `at` and puts it on every entry the write
+touched, which is the only thing making a batch recoverable — there is no batch
+id. Move that `new Date()` inside the per-entry loop and each correction gets its
+own millisecond, the grouping silently degrades to one chunk per line, and
+nothing fails: no type error, no red test beyond the ones in
+`corrections-log.test.ts` that exist to catch exactly this.
+
+**A correction is read back in two places, and the second spans raids.**
+`getReportConsumableAdjustments` serves one night; `listConsumableAdjustments`
+serves the corrections log on `/guild/audit?tab=corrections`, which exists to
+answer "has anyone been adjusting this raider" and cannot be asked one report at
+a time. A correction whose report was later deleted still appears there under its
+bare code — reports get re-imported, and a record that vanishes with its report
+is not a record.
+
+**A ± press is not a write.** The presses buffer in `GoldTable` and go out as
+one list when the officer saves, because each write busts the whole route cache
+and re-ranks the table — one write per click meant the rows moved between
+clicks. Two consequences for anything added to that table:
+
+- **The row order and the badge order within a row are computed against the
+  *saved* adjustments, never the pending ones**, so nothing re-sorts under a
+  cursor mid-batch. Every number still moves on the press; only the sort waits.
+  A new column that sorts or filters on adjusted values has to make the same
+  split or it will reintroduce the jumping.
+- **The buffer re-seeds from the server prop only while it is clean.** A save
+  refreshes the route and streams the written list back down; taking that over
+  unsaved presses would swallow whatever was clicked while it was in flight.
+- **An open batch blocks navigation** through `useUnsavedGuard`, which listens
+  for link clicks on the document in the capture phase — `beforeunload` alone
+  covers a reload and nothing else, and the links that lose the work belong to
+  components that have no idea it is open. It cannot cancel browser back or
+  forward, so each panel keeps an unsaved marker visible rather than relying on
+  the dialog.
+
+**A panel using `useUnsavedGuard` must leave through the `leave` it returns, not
+`router.push`.** The gold table and the price panel can both be dirty at once,
+and a raw push out of the first dialog would drop the other's edits without ever
+mentioning them. `leave` asks each remaining dirty panel in turn and navigates
+once nobody objects; only the first-armed panel answers a click, so the turns
+never overlap and two dialogs never stack. A third panel gets this for free —
+what it owes is a *stable* `onIntercept` (a `useState` setter or a
+`useCallback`), or the listener re-registers every render.
+
+Deriving `dirty` by comparison rather than a flag is what keeps these honest: an
+edit typed back to its saved value is not a change, and the price panel has to
+compare through the same rounding `save` applies or a charges box left at 0
+reads as dirty forever against the 1 that was written.
 
 **`raid_board:<code>` is the one per-report setting that is not a correction to
 something derived.** Warcraft Logs records no group assignments at all, so a
@@ -769,7 +830,7 @@ That is not a display bug; it overwrites one raid night's record with another's.
 
 The fix is a `key` carrying the report code, and it has to be at the render
 site because that is the only place that knows the subject changed. `RaidBoard`,
-`FightFilter`, `ConsumablePricePanel` and `ConsumableAdjustmentsPanel` all carry
+`FightFilter`, `GoldTable` and `ConsumablePricePanel` all carry
 one. **A new per-report panel needs one too**, and nothing will fail if you
 forget: it type-checks, it renders, and it is wrong only after the second click.
 

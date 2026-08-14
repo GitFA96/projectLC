@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { Coins, ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
+import { ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import {
   emptyBoard,
@@ -37,8 +37,7 @@ import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
 import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
-import { ConsumableAdjustmentsPanel } from "@/components/logs/consumable-adjustments-panel";
-import { BreakdownAdjuster } from "@/components/logs/breakdown-adjuster";
+import { GoldTable } from "@/components/logs/gold-table";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
@@ -718,147 +717,40 @@ function GoldPanel({
   const usingDefault = Object.keys(overrides).length === 0;
   const priceRows = [...names].sort().map((name) => ({ name, price: effectivePrice(name, overrides) }));
 
-  const goldOfName = (n: string, count: number) => (costPerUse[n] ?? 0) * count;
+  // Rank against the SAVED adjustments and hand the rows over in that order.
+  // GoldTable re-prices them as the officer presses ±, but does not re-sort:
+  // a batch of corrections would otherwise reshuffle the table mid-edit. The
+  // ranking is therefore only ever as fresh as the last save, which is the
+  // point — see the note there.
   const ranked = usage
     .map((u) => {
       const inFight = goldOfBreakdown(u.itemBreakdown, costPerUse);
       const prep = goldOfBreakdown(u.prepBreakdown, costPerUse);
-      // Merge both breakdowns for the "includes" column, then let the officer's
-      // corrections move the counts. The logged in-fight/prep columns stay as
-      // the log reported them, so the adjustment column shows exactly what a
-      // person changed rather than hiding it inside a bigger number.
+      // Merge both breakdowns for the "includes" column. The logged in-fight
+      // and prep columns stay as the log reported them, so the adjustment
+      // column shows exactly what a person changed rather than hiding it
+      // inside a bigger number.
       const logged = [...u.itemBreakdown, ...u.prepBreakdown];
       const mine = adjustmentsFor(adjustments, u.name);
-      const adjusted = applyAdjustments(logged, mine);
-      const delta = adjustmentGold(logged, adjusted, costPerUse);
-      const lines = adjusted
-        .filter((it) => goldOfName(it.name, it.count) > 0 || it.delta !== undefined)
-        .sort((a, b) => goldOfName(b.name, b.count) - goldOfName(a.name, a.count));
-      return { u, inFight, prep, delta, total: inFight + prep + delta, lines, adjusted: mine.length };
+      const delta = adjustmentGold(logged, applyAdjustments(logged, mine), costPerUse);
+      return {
+        row: { name: u.name, slug: u.slug, className: u.className, inFight, prep, logged },
+        total: inFight + prep + delta,
+        adjusted: mine.length,
+      };
     })
     .filter((x) => x.total > 0 || x.adjusted > 0)
-    .sort((a, b) => b.total - a.total || compareText(a.u.name, b.u.name));
-
-  const raidTotal = ranked.reduce((s, x) => s + x.total, 0);
-  const adjustmentTotal = ranked.reduce((s, x) => s + x.delta, 0);
-  const anyAdjusted = ranked.some((x) => x.adjusted > 0);
+    .sort((a, b) => b.total - a.total || compareText(a.row.name, b.row.name));
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2">
-            <Coins className="h-4 w-4 text-warn" />
-            Total gold spent
-            <span className="text-sm font-normal text-muted-foreground">
-              ≈ {Math.round(raidTotal).toLocaleString("en-US")}g across the raid
-            </span>
-            {anyAdjusted && adjustmentTotal !== 0 && (
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  adjustmentTotal > 0 ? "bg-warn-fill text-warn-ink" : "bg-success-fill text-success-ink",
-                )}
-                title="Net change from this raid's manual adjustments — listed in full below"
-              >
-                {adjustmentTotal > 0 ? "+" : "−"}
-                {Math.abs(Math.round(adjustmentTotal)).toLocaleString("en-US")}g adjusted
-              </span>
-            )}
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Estimated gold per raider across everything — in-fight potions/sappers plus prep buffs
-            (flask, elixirs, food, weapon stone, scrolls, Flame Cap). Prep buffs scale with raid
-            length and deaths: a buff held from an early to a late pull on a night longer than it
-            lasts is re-bought (a flask ≈ ×2 past 2 hours), and consumed buffs add one per death.
-            {usingDefault && (
-              <span className="ml-1 inline-flex items-center gap-1 text-warn-ink">
-                <TriangleAlert className="h-3 w-3" /> using default prices — set this raid&apos;s
-                below.
-              </span>
-            )}
-          </p>
-        </CardHeader>
-        <CardContent>
-          {ranked.length === 0 ? (
-            <p className="py-1 text-sm text-muted-foreground">No priced consumables this raid.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Raider</TableHead>
-                  <TableHead className="w-20 text-right">In-fight</TableHead>
-                  <TableHead className="w-16 text-right">Prep</TableHead>
-                  {anyAdjusted && (
-                    <TableHead className="w-20 text-right" title="Net gold from manual adjustments">
-                      Adjusted
-                    </TableHead>
-                  )}
-                  <TableHead className="w-20 text-right">Total</TableHead>
-                  <TableHead>Includes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ranked.map(({ u, inFight, prep, delta, total, lines }, i) => (
-                  <TableRow key={u.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
-                    <TableCell>
-                      <RankBadge rank={i + 1} />
-                    </TableCell>
-                    <TableCell>
-                      <Raider name={u.name} slug={u.slug} className={u.className} />
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                      {Math.round(inFight).toLocaleString("en-US")}g
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                      {Math.round(prep).toLocaleString("en-US")}g
-                    </TableCell>
-                    {anyAdjusted && (
-                      <TableCell
-                        className={cn(
-                          "text-right text-sm tabular-nums",
-                          delta === 0
-                            ? "text-muted-foreground/40"
-                            : delta > 0
-                              ? "text-warn-ink"
-                              : "text-success-ink",
-                        )}
-                      >
-                        {delta === 0
-                          ? "—"
-                          : `${delta > 0 ? "+" : "−"}${Math.abs(Math.round(delta)).toLocaleString("en-US")}g`}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right text-sm font-semibold tabular-nums">
-                      {Math.round(total).toLocaleString("en-US")}g
-                    </TableCell>
-                    <TableCell>
-                      {/* Correctable in place — the panel below stays the audit
-                          trail and the only way to add a line the log never
-                          produced. See BreakdownAdjuster. */}
-                      <BreakdownAdjuster
-                        code={raid.report.code}
-                        actorName={u.name}
-                        items={lines}
-                        adjustments={adjustments}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <ConsumableAdjustmentsPanel
-        key={`adj-${raid.report.code}`}
+      <GoldTable
+        key={`gold-${raid.report.code}`}
         code={raid.report.code}
+        rows={ranked.map((x) => x.row)}
+        costPerUse={costPerUse}
         adjustments={adjustments}
-        raiders={usage.map((u) => u.name).sort((a, b) => compareText(a, b))}
-        consumables={[...names].sort((a, b) => compareText(a, b))}
-        goldDelta={adjustmentTotal}
+        usingDefault={usingDefault}
       />
 
       <ConsumablePricePanel

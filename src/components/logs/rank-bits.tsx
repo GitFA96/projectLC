@@ -59,7 +59,13 @@ export function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-/** "What they used" — every item as a badge, wrapping down (no truncation). */
+/**
+ * "What they used" — every item as a badge, wrapping down (no truncation).
+ *
+ * Green and red mark the direction of a hand correction — uses added or taken
+ * away — the same way the adjuster's buttons do. One "edited" colour couldn't
+ * say which way, and these badges are read beside that editor.
+ */
 export function BreakdownBadges({
   items,
 }: {
@@ -72,7 +78,7 @@ export function BreakdownBadges({
       {items.map((it) => (
         <Badge
           key={it.name}
-          variant={it.delta === undefined ? "secondary" : "warning"}
+          variant={it.delta === undefined ? "secondary" : it.delta > 0 ? "success" : "destructive"}
           className="font-normal"
           title={
             it.delta === undefined

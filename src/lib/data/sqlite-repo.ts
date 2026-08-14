@@ -1611,6 +1611,7 @@ export function getSqliteRepo(): WriteRepo {
     listEncounterNames: () => readModel().repo.listEncounterNames(),
     listUnmatchedSheetNames: () => readModel().repo.listUnmatchedSheetNames(),
     getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),
+    listConsumableAdjustments: async () => getAllConsumableAdjustments(getDb()),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
     listTokenBackfill: () => readModel().repo.listTokenBackfill(),
     getEnchantReference: () => readModel().repo.getEnchantReference(),

@@ -5,9 +5,11 @@ import { ChevronRight, Coins, Download, TriangleAlert, Upload } from "lucide-rea
 import type { ConsumablePrice } from "@/lib/types";
 import { costPerUse } from "@/lib/wcl/consumable-prices";
 import { saveReportConsumablePrices } from "@/app/logs/actions";
+import { useUnsavedGuard } from "@/components/use-unsaved-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import {
   Table,
   TableBody,
@@ -26,6 +28,11 @@ export interface PriceRow {
 /** g/1000 → "1,234g", fractional cost-per-use → "0.30g". */
 function gold(n: number): string {
   return n >= 10 ? `${Math.round(n).toLocaleString("en-US")}g` : `${n.toFixed(2)}g`;
+}
+
+/** What `save` writes, so an edit can be compared against what's stored. */
+function normalize(p: ConsumablePrice): ConsumablePrice {
+  return { gold: p.gold, charges: Math.max(1, Math.round(p.charges)) };
 }
 
 /**
@@ -48,7 +55,29 @@ export function ConsumablePricePanel({
   );
   const [pending, startTransition] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
+  const [leavingTo, setLeavingTo] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // Derived rather than a flag, because an edit typed back to its saved value
+  // isn't a change — and an import that matched everything isn't one either.
+  // Compared through `normalize`, or a charges box left at 0 would read as
+  // dirty forever against the 1 that was actually written.
+  const changed = rows.filter(({ name, price }) => {
+    const edit = edits[name];
+    if (!edit) return false;
+    const mine = normalize(edit);
+    return mine.gold !== price.gold || mine.charges !== price.charges;
+  });
+  const dirty = changed.length > 0;
+
+  // Unsaved prices are as losable as unsaved corrections, and this panel starts
+  // collapsed — so an intercepted click has to open it before it explains
+  // itself, or the dialog names edits the officer can't see.
+  const onIntercept = React.useCallback((href: string) => {
+    setOpen(true);
+    setLeavingTo(href);
+  }, []);
+  const { leave } = useUnsavedGuard({ when: dirty, onIntercept });
 
   const setField = (name: string, field: keyof ConsumablePrice, raw: string) => {
     const n = Number(raw);
@@ -100,16 +129,24 @@ export function ConsumablePricePanel({
     }
   };
 
-  const save = () => {
+  const save = (then?: () => void) => {
     // charges must be a positive integer; gold is any non-negative number.
     const prices: Record<string, ConsumablePrice> = {};
-    for (const [name, p] of Object.entries(edits)) {
-      prices[name] = { gold: p.gold, charges: Math.max(1, Math.round(p.charges)) };
-    }
+    for (const [name, p] of Object.entries(edits)) prices[name] = normalize(p);
     startTransition(async () => {
       const res = await saveReportConsumablePrices({ code, prices });
       setMsg(res.message);
+      if (!res.ok) return;
+      // Hold exactly what was written, so `dirty` settles the moment the
+      // refreshed prices arrive instead of catching on a rounded charge.
+      setEdits(prices);
+      then?.();
     });
+  };
+
+  const discard = () => {
+    setEdits(Object.fromEntries(rows.map((r) => [r.name, r.price])));
+    setMsg(null);
   };
 
   if (rows.length === 0) return null;
@@ -124,6 +161,13 @@ export function ConsumablePricePanel({
           {usingDefault && (
             <span className="inline-flex items-center gap-1 rounded-full bg-warn-fill px-2 py-0.5 text-[11px] font-medium text-warn-ink">
               <TriangleAlert className="h-3 w-3" /> using defaults
+            </span>
+          )}
+          {/* Collapsed, this badge is the only sign the edits are still open —
+              and it's what has to cover browser back, which no guard catches. */}
+          {dirty && (
+            <span className="rounded-full bg-warn-fill px-2 py-0.5 text-[11px] font-medium text-warn-ink">
+              {changed.length} unsaved price{changed.length === 1 ? "" : "s"}
             </span>
           )}
         </CardTitle>
@@ -187,9 +231,14 @@ export function ConsumablePricePanel({
             </TableBody>
           </Table>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={save} disabled={pending}>
+            <Button size="sm" onClick={() => save()} disabled={pending}>
               {pending ? "Saving…" : "Save this raid's prices"}
             </Button>
+            {dirty && (
+              <Button size="sm" variant="ghost" onClick={discard} disabled={pending}>
+                Discard
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={exportPrices}>
               <Download className="h-3.5 w-3.5" /> Export
             </Button>
@@ -207,6 +256,48 @@ export function ConsumablePricePanel({
           </div>
         </CardContent>
       )}
+
+      <Modal
+        open={leavingTo !== null}
+        onClose={() => setLeavingTo(null)}
+        title={`${changed.length} unsaved price${changed.length === 1 ? "" : "s"}`}
+        description="Leaving this page now throws them away — nothing has been written yet."
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          {changed.map((r) => r.name).join(", ")}
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setLeavingTo(null)} disabled={pending}>
+            Stay here
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              const to = leavingTo;
+              discard();
+              setLeavingTo(null);
+              if (to) leave(to);
+            }}
+            disabled={pending}
+          >
+            Discard and leave
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const to = leavingTo;
+              save(() => {
+                setLeavingTo(null);
+                if (to) leave(to);
+              });
+            }}
+            disabled={pending}
+          >
+            {pending ? "Saving…" : "Save and leave"}
+          </Button>
+        </div>
+      </Modal>
     </Card>
   );
 }

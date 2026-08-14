@@ -503,3 +503,129 @@ export const ENCHANTABLE_GEAR_SLOTS: { index: number; label: string }[] = [
 
 /** Gear indexes carrying temporary weapon buffs (oils, stones, poisons, imbues). */
 export const WEAPON_GEAR_SLOTS = [15, 16];
+
+/**
+ * The family a consumable belongs to, for grouping the gold breakdown.
+ *
+ * Read back out of the same curated lists that assigned it — `AURA_DEFS` for
+ * anything that lands as a buff, `TRACKED_CASTS` for anything thrown or drunk
+ * mid-fight — for the reason `elixirCategoryOf` does the same: one source of
+ * truth, and nothing asserted from memory. Curating a new consumable groups it
+ * automatically; there is no second list here to forget to update.
+ *
+ * Battle and guardian elixirs share one group even though the curation splits
+ * them. The split exists to grade slot coverage, and an elixir the list doesn't
+ * name has no known slot — `elixirCategoryOf` refuses to guess, so grouping by
+ * slot would drop uncurated elixirs somewhere arbitrary. Family is enough here.
+ */
+export type ConsumableGroup =
+  | "flask"
+  | "elixir"
+  | "potion"
+  | "scroll"
+  | "sapper"
+  | "rune"
+  | "drums"
+  | "food"
+  | "weapon"
+  | "pet"
+  | "conjured"
+  | "other";
+
+const CAST_BY_NAME = new Map(TRACKED_CASTS.map((c) => [c.name.trim().toLowerCase(), c]));
+
+/** Fixed display order, so the same family sits in the same place on every raider. */
+export const CONSUMABLE_GROUP_ORDER: readonly ConsumableGroup[] = [
+  "flask",
+  "elixir",
+  "potion",
+  "scroll",
+  "sapper",
+  "rune",
+  "drums",
+  "food",
+  "weapon",
+  "pet",
+  "conjured",
+  "other",
+];
+
+export const CONSUMABLE_GROUP_LABELS: Record<ConsumableGroup, string> = {
+  flask: "Flasks",
+  elixir: "Elixirs",
+  potion: "Potions",
+  scroll: "Scrolls",
+  sapper: "Sappers",
+  rune: "Runes",
+  drums: "Drums",
+  food: "Food",
+  weapon: "Weapon buffs",
+  pet: "Pet",
+  conjured: "Conjured",
+  other: "Other",
+};
+
+/**
+ * Which family a consumable label belongs to.
+ *
+ * `Food` and `Weapon oil/stone` are matched by name because they are names this
+ * codebase writes rather than reads — `raid-report.ts` synthesises both for prep
+ * buffs that carry no item name of their own.
+ */
+export function consumableGroupOf(label: string): ConsumableGroup {
+  const lower = label.trim().toLowerCase();
+
+  const aura = AURA_BY_NAME.get(lower);
+  if (aura) {
+    switch (aura.category) {
+      case "flask":
+        return "flask";
+      case "battleElixir":
+      case "guardianElixir":
+        return "elixir";
+      case "food":
+        return "food";
+      case "potion":
+        return "potion";
+      case "scroll":
+        return "scroll";
+      case "misc":
+        return "other";
+    }
+  }
+
+  const cast = CAST_BY_NAME.get(lower);
+  if (cast) {
+    switch (cast.category) {
+      case "potion":
+        return "potion";
+      case "drums":
+        return "drums";
+      case "rune":
+        return "rune";
+      case "sapper":
+        return "sapper";
+      case "pet":
+        return "pet";
+      case "healthstone":
+      case "gem":
+        return "conjured";
+      case "other":
+        return "other";
+    }
+  }
+
+  // Names this codebase synthesises for prep buffs with no item name.
+  if (lower === "food") return "food";
+  if (lower === "weapon oil/stone") return "weapon";
+
+  // The same family patterns `defaultPriceFor` falls back on, so a consumable
+  // priced as a flask is also grouped as one.
+  if (lower.includes("flask")) return "flask";
+  if (SCROLL_PATTERN.test(lower)) return "scroll";
+  if (lower.startsWith("elixir of") || lower.endsWith("elixir")) return "elixir";
+  if (lower.endsWith("potion")) return "potion";
+  if (lower.includes("sapper charge")) return "sapper";
+  if (lower.startsWith("drums of")) return "drums";
+  return "other";
+}

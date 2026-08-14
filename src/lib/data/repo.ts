@@ -193,6 +193,13 @@ export interface Repo {
    */
   getReportConsumableAdjustments(code: string): Promise<ConsumableAdjustment[]>;
   /**
+   * The same corrections for every raid at once, keyed by report code. The
+   * corrections log reads across nights — "has anyone adjusted this raider
+   * before" is the question it exists to answer, and that cannot be asked one
+   * report at a time.
+   */
+  listConsumableAdjustments(): Promise<Record<string, ConsumableAdjustment[]>>;
+  /**
    * Items the UI has to render as a bare id: referenced by loot, a wishlist or
    * the cache itself, but still missing a name or an icon. The (bounded) work
    * list for the Wowhead resolver, most-referenced first.

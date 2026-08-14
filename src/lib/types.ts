@@ -842,6 +842,13 @@ export interface ConsumableAdjustment {
   delta: number;
   /** Why the officer changed it. */
   note?: string;
+  /**
+   * Who recorded it, as `actingOfficer` names them. Stamped server-side on the
+   * entries a save actually changed — never sent by the client, and never
+   * rewritten on entries somebody else already owns. Absent on corrections made
+   * before attribution existed, which is why it stays optional.
+   */
+  by?: string;
   /** ISO timestamp it was recorded. */
   at: string;
 }

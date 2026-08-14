@@ -1501,6 +1501,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return config.consumableAdjustmentsByCode?.[code] ?? [];
     },
 
+    async listConsumableAdjustments(): Promise<Record<string, ConsumableAdjustment[]>> {
+      return config.consumableAdjustmentsByCode ?? {};
+    },
+
     // Resolved abilities are persisted config like prices; the seed model has none.
     async listAbilities() {
       return [];

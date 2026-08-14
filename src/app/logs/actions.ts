@@ -5,6 +5,8 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
+import { attributeAdjustments } from "@/lib/analysis/consumable-adjustments";
+import { actingOfficer } from "@/app/acting-officer";
 
 const priceSchema = z.object({
   gold: z.number().min(0).max(1_000_000),
@@ -67,6 +69,9 @@ const adjustmentSchema = z.object({
   // Zero would be a no-op pretending to be a correction.
   delta: z.number().int().refine((d) => d !== 0, "An adjustment has to add or remove something."),
   note: z.string().max(200).optional(),
+  // Accepted so an untouched entry can carry its existing author back, but
+  // never trusted for a changed one — `attributeAdjustments` restamps those.
+  by: z.string().max(80).optional(),
   at: z.string().min(1),
 });
 
@@ -95,7 +100,18 @@ export async function saveReportConsumableAdjustments(
   try {
     requireCapability(await resolveViewer(), "logs.edit");
     const repo = await getWriteRepo();
-    await repo.setReportConsumableAdjustments(parsed.data.code, parsed.data.adjustments);
+    // Attribution is derived here, never taken from the client: the save
+    // replaces the whole list, so only the entries it actually changed may
+    // carry this officer's name. See `attributeAdjustments`.
+    const { actor } = await actingOfficer();
+    const stored = await repo.getReportConsumableAdjustments(parsed.data.code);
+    const attributed = attributeAdjustments({
+      stored,
+      incoming: parsed.data.adjustments,
+      actor,
+      at: new Date().toISOString(),
+    });
+    await repo.setReportConsumableAdjustments(parsed.data.code, attributed);
     refreshAfterWrite("/", "layout");
     const n = parsed.data.adjustments.length;
     return {
