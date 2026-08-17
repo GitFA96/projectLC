@@ -10,7 +10,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Pager } from "@/components/ui/pager";
 import { cn } from "@/lib/utils";
 
 /**
@@ -107,8 +108,6 @@ function DataTableImpl<TData>({
   // Deleting the last row on the last page would otherwise strand the reader on
   // a page that no longer exists, with no rows and both arrows disabled.
   if (paginated && pageCount > 0 && pageIndex > pageCount - 1) setPageIndex(pageCount - 1);
-  const firstOnPage = pageIndex * pageSize + 1;
-  const lastOnPage = Math.min((pageIndex + 1) * pageSize, total);
 
   return (
     <div>
@@ -171,36 +170,14 @@ function DataTableImpl<TData>({
 
       {/* Only when there is somewhere to go — a one-page table looks unchanged. */}
       {paginated && pageCount > 1 && (
-        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            {firstOnPage}–{lastOnPage} of {total}
-          </span>
-          <span className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-              aria-label="Previous page"
-              className="inline-flex h-7 items-center gap-1 rounded-md border px-2 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronLeft className="h-3 w-3" aria-hidden />
-              Prev
-            </button>
-            <span className="px-1 tabular-nums">
-              {pageIndex + 1} / {pageCount}
-            </span>
-            <button
-              type="button"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-              aria-label="Next page"
-              className="inline-flex h-7 items-center gap-1 rounded-md border px-2 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-              <ChevronRight className="h-3 w-3" aria-hidden />
-            </button>
-          </span>
-        </div>
+        <Pager
+          pageIndex={pageIndex}
+          pageCount={pageCount}
+          total={total}
+          pageSize={pageSize}
+          onPrev={() => table.previousPage()}
+          onNext={() => table.nextPage()}
+        />
       )}
     </div>
   );

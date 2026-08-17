@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { CharacterLink } from "@/components/class-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -155,6 +156,15 @@ function Recap({ hits }: { hits: NonNullable<DeathEvent["recap"]> }) {
  *
  * Pulls with nobody down are listed too. "Which attempt went clean" is part of
  * the same question, and a gap in a numbered list invites the wrong guess.
+ *
+ * Folded away by default: a night of progression puts one of these under every
+ * boss, and it is the list you open for the attempt being argued about rather
+ * than something to scroll past on the way to the next boss. The summary keeps
+ * the kill count, so folding it costs nothing — "did we kill it" has to stay
+ * answerable without opening anything.
+ *
+ * A `<details>` for the same reason `Recap` above is one: several per page, and
+ * the browser's own disclosure needs no state and no client component.
  */
 function PullBreakdown({
   pulls,
@@ -165,15 +175,19 @@ function PullBreakdown({
 }) {
   if (pulls.length === 0) return null;
 
+  const kills = pulls.filter((p) => p.kill).length;
+
   return (
-    <div className="rounded-md border">
-      <p className="border-b px-2.5 py-1.5 text-xs font-medium">
+    <details className="rounded-md border [&[open]>summary_.chevron]:rotate-90">
+      <summary className="flex cursor-pointer list-none items-center gap-1 px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+        <ChevronRight className="chevron h-3 w-3 shrink-0 text-muted-foreground transition-transform" aria-hidden />
         Pull by pull
-        <span className="ml-1.5 font-normal text-muted-foreground">
-          {pulls.length} attempt{pulls.length === 1 ? "" : "s"}, in order
+        <span className="font-normal text-muted-foreground">
+          {pulls.length} attempt{pulls.length === 1 ? "" : "s"}, in order ·{" "}
+          {kills === 0 ? "no kill" : `${kills} kill${kills === 1 ? "" : "s"}`}
         </span>
-      </p>
-      <ul className="divide-y">
+      </summary>
+      <ul className="divide-y border-t">
         {pulls.map((pull, i) => (
           <li key={pull.fightId} className="px-2.5 py-1.5">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
@@ -239,7 +253,7 @@ function PullBreakdown({
           </li>
         ))}
       </ul>
-    </div>
+    </details>
   );
 }
 

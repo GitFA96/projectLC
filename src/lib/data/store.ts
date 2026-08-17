@@ -32,7 +32,7 @@ import { resolvePolicy, type PolicyOverrides } from "@/lib/analysis/policy";
 import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
 import type { ClassGuide } from "@/lib/guides";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
-import { PHASE_IDS, phaseForZones } from "@/lib/constants/wow";
+import { PHASE_IDS, phaseForZones, raidOfBoss } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
 import { fingerprintRows, specFingerprints, specOfPull } from "@/lib/sim/profile";
 import type {
@@ -666,6 +666,33 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
   const reportStartByCode = new Map(wclReports.map((r) => [r.code, r.startTime]));
 
+  /**
+   * Which tier each report was, read off the bosses actually pulled in it.
+   *
+   * **Not** off `report.zone`. That column looks like a zone and isn't: it
+   * carries whatever the raid leader typed — "SSC+TK Wednesday", "ssc/tk",
+   * "SSC/TK - gruul" — so matching it against zone names finds nothing at all,
+   * silently, and every week reads as an unknown tier. The encounter names come
+   * from the log itself and `raidOfBoss` already maps them, which makes this the
+   * one source that cannot drift from what was raided.
+   *
+   * A night that touched two tiers takes the higher, the same rule awards and
+   * sessions use via `phaseForZones`.
+   */
+  const zonesByReport = new Map<string, Set<string>>();
+  for (const row of wclPlayerFights) {
+    const raid = raidOfBoss(row.encounterName);
+    if (!raid) continue;
+    const zones = zonesByReport.get(row.reportCode) ?? new Set<string>();
+    zones.add(raid.name);
+    zonesByReport.set(row.reportCode, zones);
+  }
+  const phaseByReport = new Map<string, Phase>();
+  for (const [code, zones] of zonesByReport) {
+    const phase = phaseForZones([...zones]);
+    if (phase !== undefined) phaseByReport.set(code, phase);
+  }
+
   /** Kills only: a wipe has no comparable number, and the sim never wipes. */
   function simKills(): WclPlayerFight[] {
     return wclPlayerFights.filter((r) => r.kill && r.className);
@@ -764,18 +791,34 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     // Per-reset check: bucket raids since first-seen into reset weeks (only
     // weeks where the guild logged at all exist — a guild break is nobody's
     // absence). Excused weeks are shown but excluded from the markup.
-    const weekBuckets = new Map<string, { reports: number; attended: boolean }>();
+    const weekBuckets = new Map<
+      string,
+      { reports: number; attended: boolean; phases: Set<Phase> }
+    >();
     for (const report of since) {
       const start = resetWeekStart(report.startTime);
-      const bucket = weekBuckets.get(start) ?? { reports: 0, attended: false };
+      const bucket = weekBuckets.get(start) ?? { reports: 0, attended: false, phases: new Set() };
       bucket.reports++;
       if (attended.has(report.code)) bucket.attended = true;
+      // The tier this week was raided in, from the bosses the logs recorded.
+      const phase = phaseByReport.get(report.code);
+      if (phase !== undefined) bucket.phases.add(phase);
       weekBuckets.set(start, bucket);
     }
-    const weeks = [...weekBuckets]
+    // The whole record, then the recent window as a slice of it. Both are kept:
+    // the profile shows every week, while the loot table's dot strip has to
+    // stay a fixed width no matter how long somebody has raided here.
+    const allWeeks = [...weekBuckets]
       .sort((a, b) => compareText(a[0], b[0]))
-      .map(([start, b]) => ({ start, attended: b.attended, reports: b.reports, excused: exemptWeeks.has(start) }))
-      .slice(-policy.attendance.weeks);
+      .map(([start, b]) => ({
+        start,
+        attended: b.attended,
+        reports: b.reports,
+        excused: exemptWeeks.has(start),
+        phase: b.phases.size === 0 ? undefined : (Math.max(...b.phases) as Phase),
+      }));
+    const countedAllWeeks = allWeeks.filter((w) => !w.excused);
+    const weeks = allWeeks.slice(-policy.attendance.weeks);
     const countedWeeks = weeks.filter((w) => !w.excused);
 
     const reportPulls = pullsByReport();
@@ -796,6 +839,24 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       weeksAttended: countedWeeks.filter((w) => w.attended).length,
       weeksTracked: countedWeeks.length,
       weeksExcused: weeks.length - countedWeeks.length,
+      allWeeks,
+      allWeeksAttended: countedAllWeeks.filter((w) => w.attended).length,
+      allWeeksTracked: countedAllWeeks.length,
+      // Resolved here, once, so no page has to pick a denominator for itself.
+      // The scorers read `policy.attendance.basis` directly rather than this,
+      // because the policy preview has to be able to score a policy the guild
+      // has not adopted yet — same rule, applied to a different policy object.
+      ...(() => {
+        const week = policy.attendance.basis === "week";
+        const attendedCount = week ? countedAllWeeks.filter((w) => w.attended).length : attendedTracked;
+        const trackedCount = week ? countedAllWeeks.length : tracked.length;
+        return {
+          scoreBasis: policy.attendance.basis,
+          scorePct: trackedCount === 0 ? undefined : pct(attendedCount, trackedCount),
+          scoreAttended: attendedCount,
+          scoreTracked: trackedCount,
+        };
+      })(),
     };
   }
 

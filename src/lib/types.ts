@@ -166,17 +166,47 @@ export interface AttendanceSummary {
   pullsTotal: number;
   pullPct: number;
   /**
-   * Per-reset check ("did they raid that week with this character?"): the most
-   * recent raid weeks (EU reset, Wednesday) in which the guild has at least one
-   * imported log, since the character's first appearance — newest last, max 8.
+   * Per-reset check ("did they raid that week with this character?"), **the
+   * recent window only** — the last `policy.attendance.weeks` raid weeks (EU
+   * reset, Wednesday) the guild logged, newest last.
+   *
+   * A fixed-width strip, which is what the loot table's dots need: one dot per
+   * week on a row that must not grow with a raider's history. The whole record
+   * is `allWeeks`.
    */
   weeks: AttendanceWeek[];
-  /** Attended, non-excused weeks. */
+  /** Attended, non-excused weeks **of the recent window**. */
   weeksAttended: number;
-  /** Non-excused weeks — the per-reset denominator. */
+  /** Non-excused weeks of the recent window — that window's denominator. */
   weeksTracked: number;
-  /** Weeks marked as an excused absence (shown, but not counted either way). */
+  /** Weeks of the recent window marked excused (shown, counted neither way). */
   weeksExcused: number;
+  /**
+   * Every reset week the guild logged since this character first appeared —
+   * the whole record, oldest first, untruncated.
+   *
+   * Separate from `weeks` rather than replacing it because the two have
+   * different jobs: the profile answers "what is their record", the loot table
+   * answers "how have they been lately" in a row of fixed width.
+   */
+  allWeeks: AttendanceWeek[];
+  /** Attended, non-excused weeks across the whole record. */
+  allWeeksAttended: number;
+  /** Non-excused weeks across the whole record — the all-time denominator. */
+  allWeeksTracked: number;
+  /**
+   * The figure this guild judges attendance on, resolved once from
+   * `policy.attendance.basis` so every surface shows the same number.
+   *
+   * Without it each page picked its own denominator and a raider could read
+   * 92% on their profile, 100% on the loot sheet and a third figure on the
+   * board — all correct, all describing the same weeks. `undefined` when there
+   * is nothing to count yet, which is not the same as zero.
+   */
+  scoreBasis: "raid" | "week";
+  scorePct?: number;
+  scoreAttended: number;
+  scoreTracked: number;
 }
 
 export interface AttendanceWeek {
@@ -187,6 +217,13 @@ export interface AttendanceWeek {
   reports: number;
   /** Officer-marked excused absence — neither attended nor missed for the markup. */
   excused: boolean;
+  /**
+   * Which tier the guild was raiding that week, by zone rather than by date —
+   * the same rule awards and sessions use, so a week is read one way across the
+   * app. A week that touched two tiers takes the higher one; `undefined` when
+   * no log that week named a zone the phase map knows.
+   */
+  phase?: Phase;
 }
 
 export interface CharacterSummary {

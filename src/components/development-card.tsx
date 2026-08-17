@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import type { DevelopmentSeries } from "@/lib/analysis/development";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,43 +34,58 @@ export function DevelopmentCard({
 }) {
   if (series.nights.length === 0) return null;
 
+  /*
+   * Folded by default, with the trends left showing.
+   *
+   * The card is read for its verdict — "is this getting better" — and that
+   * verdict is the two trend lines. The night-by-night rows under them are what
+   * you open once you have decided the verdict is worth interrogating, and on a
+   * raider with a full tier logged they push the rest of the page below the
+   * fold. Collapsing the rows costs the reader nothing, because the answer was
+   * never in them.
+   */
+  const trends = (
+    <div className="flex flex-wrap gap-x-6 gap-y-1">
+      {series.trends.map((t) => (
+        <p key={t.key} className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{t.label}</span>{" "}
+          {t.delta === undefined ? (
+            <span title="Nothing earlier to compare against — too soon to say, which isn't the same as flat">
+              not enough history yet
+            </span>
+          ) : (
+            <>
+              <span
+                className={cn(
+                  "font-medium tabular-nums",
+                  t.delta > 0 && "text-success-ink",
+                  t.delta < 0 && "text-destructive",
+                )}
+              >
+                {t.delta > 0 ? `+${t.delta}` : t.delta}
+              </span>{" "}
+              over the last {t.nightsRecent} night{t.nightsRecent === 1 ? "" : "s"} ({t.recent})
+              against the {t.nightsEarlier} before ({t.earlier})
+            </>
+          )}
+        </p>
+      ))}
+    </div>
+  );
+
   return (
-    <Card>
-      <CardHeader className="space-y-2">
-        <CardTitle className="flex flex-wrap items-baseline gap-2">
+    <CollapsibleCard
+      title={
+        <span className="flex flex-wrap items-baseline gap-2">
           Development
           <span className="text-xs font-normal text-muted-foreground">
             {series.nights.length} logged night{series.nights.length === 1 ? "" : "s"}
           </span>
-        </CardTitle>
-        <div className="flex flex-wrap gap-x-6 gap-y-1">
-          {series.trends.map((t) => (
-            <p key={t.key} className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{t.label}</span>{" "}
-              {t.delta === undefined ? (
-                <span title="Nothing earlier to compare against — too soon to say, which isn't the same as flat">
-                  not enough history yet
-                </span>
-              ) : (
-                <>
-                  <span
-                    className={cn(
-                      "font-medium tabular-nums",
-                      t.delta > 0 && "text-success-ink",
-                      t.delta < 0 && "text-destructive",
-                    )}
-                  >
-                    {t.delta > 0 ? `+${t.delta}` : t.delta}
-                  </span>{" "}
-                  over the last {t.nightsRecent} night{t.nightsRecent === 1 ? "" : "s"} ({t.recent})
-                  against the {t.nightsEarlier} before ({t.earlier})
-                </>
-              )}
-            </p>
-          ))}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-1">
+        </span>
+      }
+      description={trends}
+    >
+      <div className="space-y-1">
         {series.nights.map((night) => {
           const active = night.reportCode === activeCode;
           const className = cn(
@@ -123,8 +138,8 @@ export function DevelopmentCard({
             </div>
           );
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 

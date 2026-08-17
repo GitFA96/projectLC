@@ -83,6 +83,16 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Greater Arcane Elixir": { gold: 4, charges: 1 },
   "Spellpower Elixir": { gold: 12, charges: 1 },
   "Mageblood Elixir": { gold: 3, charges: 1 },
+  /*
+   * The mana-regen guardian elixir, labelled by its buff because the log names
+   * the spell and never the item (see consumables.ts on spell 28509).
+   *
+   * It needs an entry rather than a fallback: the name-pattern fallback only
+   * catches labels starting with "elixir of" or ending in "elixir", so this one
+   * resolved to 0 gold — free, silently. Priced with Mageblood above, being the
+   * same effect in the same slot.
+   */
+  "Greater Mana Regeneration": { gold: 3, charges: 1 },
   "Elixir of Major Defense": { gold: 4.5, charges: 1 },
   "Elixir of Major Fortitude": { gold: 1, charges: 1 },
   "Elixir of Draenic Wisdom": { gold: 5, charges: 1 },

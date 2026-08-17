@@ -359,8 +359,9 @@ export default async function CharacterPage({
                 {" · "}
                 <AttendanceDetail attendance={summary.attendance} className="align-middle">
                   <span>
-                    raided {summary.attendance.raidsAttended}/{summary.attendance.raidsTracked} logged
-                    raids ({summary.attendance.raidPct}%)
+                    raided {summary.attendance.scoreAttended}/{summary.attendance.scoreTracked}{" "}
+                    {summary.attendance.scoreBasis === "week" ? "reset weeks" : "logged raids"}
+                    {summary.attendance.scorePct !== undefined && ` (${summary.attendance.scorePct}%)`}
                     <WeekDots weeks={summary.attendance.weeks} className="mx-1 align-middle" />
                   </span>
                 </AttendanceDetail>

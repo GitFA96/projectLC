@@ -567,9 +567,7 @@ export function ContenderTable({
                 </TableCell>
                 <TableCell className="text-right">
                   <Metric
-                    value={
-                      c.attendance && c.attendance.raidsTracked > 0 ? c.attendance.raidPct : undefined
-                    }
+                    value={c.attendance?.scorePct}
                     suffix="%"
                     title={
                       c.attendance

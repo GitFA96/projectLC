@@ -78,7 +78,7 @@ describe("buildDevelopmentSeries", () => {
   });
 
   it("measures the recent window against everything before it", () => {
-    const policy = { ...DEFAULT_POLICY, attendance: { recentRaids: 2, weeks: 8 } };
+    const policy = { ...DEFAULT_POLICY, attendance: { ...DEFAULT_POLICY.attendance, recentRaids: 2 } };
     const series = buildDevelopmentSeries(
       [
         row("A", 1, { parsePercent: 30 }),
@@ -99,7 +99,7 @@ describe("buildDevelopmentSeries", () => {
   });
 
   it("reports a decline as plainly as a climb, and calls neither one a verdict", () => {
-    const policy = { ...DEFAULT_POLICY, attendance: { recentRaids: 2, weeks: 8 } };
+    const policy = { ...DEFAULT_POLICY, attendance: { ...DEFAULT_POLICY.attendance, recentRaids: 2 } };
     const series = buildDevelopmentSeries(
       [
         row("A", 1, { parsePercent: 90 }),
@@ -141,7 +141,7 @@ describe("buildDevelopmentSeries", () => {
   });
 
   it("uses the council's window once there is history enough for it", () => {
-    const policy = { ...DEFAULT_POLICY, attendance: { recentRaids: 2, weeks: 8 } };
+    const policy = { ...DEFAULT_POLICY, attendance: { ...DEFAULT_POLICY.attendance, recentRaids: 2 } };
     const series = buildDevelopmentSeries(
       [
         row("A", 1, { parsePercent: 10 }),
@@ -159,7 +159,7 @@ describe("buildDevelopmentSeries", () => {
   it("skips unranked nights in the parse trend without losing the night itself", () => {
     // A night with no percentile still happened — it keeps its preparation and
     // its deaths, and only drops out of the metric it has no figure for.
-    const policy = { ...DEFAULT_POLICY, attendance: { recentRaids: 1, weeks: 8 } };
+    const policy = { ...DEFAULT_POLICY, attendance: { ...DEFAULT_POLICY.attendance, recentRaids: 1 } };
     const series = buildDevelopmentSeries(
       [row("A", 1, { parsePercent: 50 }), row("B", 1)],
       reports,
@@ -175,7 +175,7 @@ describe("buildDevelopmentSeries", () => {
   });
 
   it("tracks preparation night by night, not just as a career average", () => {
-    const policy = { ...DEFAULT_POLICY, attendance: { recentRaids: 1, weeks: 8 } };
+    const policy = { ...DEFAULT_POLICY, attendance: { ...DEFAULT_POLICY.attendance, recentRaids: 1 } };
     const series = buildDevelopmentSeries(
       [
         row("A", 1, { flask: undefined, food: false }),

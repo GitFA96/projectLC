@@ -36,6 +36,8 @@ describe("attendanceFacts", () => {
     recentAttended: 8, recentTotal: 10, recentPct: 80,
     pullsAttended: 97, pullsTotal: 100, pullPct: 97,
     weeks: [], weeksAttended: 9, weeksTracked: 10, weeksExcused: 0,
+    allWeeks: [], allWeeksAttended: 31, allWeeksTracked: 40,
+    scoreBasis: "raid", scorePct: 83, scoreAttended: 10, scoreTracked: 12,
   };
 
   it("states one fraction, and the percentage is that same fraction", () => {
@@ -44,6 +46,23 @@ describe("attendanceFacts", () => {
     expect(facts[0].value).toBe("10 of 12 · 83%");
     expect(facts[0].note).toContain("27 May 2026");
     expect(facts[1].value).toBe("97% when present");
+  });
+
+  it("leads with reset weeks when that is what the guild counts", () => {
+    // Same raider, same weeks — the card follows policy.attendance.basis so the
+    // figure here and the figure the loot sheet scores on are one number.
+    const facts = attendanceFacts({
+      ...base,
+      scoreBasis: "week",
+      scorePct: 78,
+      scoreAttended: 31,
+      scoreTracked: 40,
+    });
+    expect(facts.map((f) => f.label)).toEqual(["Reset weeks", "Boss pulls"]);
+    expect(facts[0].value).toBe("31 of 40 · 78%");
+    expect(facts[0].note).toContain("any one raid counts the week");
+    // Still one fraction: the per-raid figure does not ride along beside it.
+    expect(facts.some((f) => f.value.includes("10 of 12"))).toBe(false);
   });
 
   it("never shows a rolling window beside the lifetime total", () => {

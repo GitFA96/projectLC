@@ -43,16 +43,31 @@ export function attendanceFacts(a: AttendanceSummary): AttendanceFact[] {
     // windows the score uses (last N raids, last N weeks) are deliberately not
     // here: three different "7 of 10"s on one card, each over a different
     // denominator, is what made this unreadable.
-    {
-      label: "Raids",
-      // The unit is named because the reset card answers the same question in
-      // weeks, and an officer comparing the two figures has no way to tell that
-      // they disagree by design rather than by mistake.
-      value: `${a.raidsAttended} of ${a.raidsTracked} · ${a.raidPct}%`,
-      note: a.firstSeenAt
-        ? `every raid logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")} — per raid, not per reset week`
-        : "every raid logged since their first — per raid, not per reset week",
-    },
+    // The guild's own figure leads, whichever it is. An officer reading this
+    // should see the number the loot sheet scores on first, not have to work
+    // out which of two denominators the page happens to have shown them.
+    a.scoreBasis === "week"
+      ? {
+          label: "Reset weeks",
+          value: `${a.scoreAttended} of ${a.scoreTracked}${a.scorePct === undefined ? "" : ` · ${a.scorePct}%`}`,
+          note: a.firstSeenAt
+            ? `every reset week the guild logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")} — any one raid counts the week`
+            : "every reset week the guild logged since their first — any one raid counts the week",
+        }
+      : {
+          label: "Raids",
+          // The unit is named because the reset card answers the same question
+          // in weeks, and an officer comparing the two figures has no way to
+          // tell that they disagree by design rather than by mistake.
+          value: `${a.raidsAttended} of ${a.raidsTracked} · ${a.raidPct}%`,
+          note: a.firstSeenAt
+            ? `every raid logged since their first, ${format(parseISO(a.firstSeenAt), "d MMM yyyy")} — per raid, not per reset week`
+            : "every raid logged since their first — per raid, not per reset week",
+        },
+    // Deliberately *only* the guild's figure. The other denominator is a real
+    // number and it stays out of here: three "7 of 10"s over three
+    // denominators is what made this card unreadable before, and the per-reset
+    // card below already shows the weeks in full.
     { label: "Boss pulls", value: `${a.pullPct}% when present` },
   ];
   if (a.weeksExcused > 0) {

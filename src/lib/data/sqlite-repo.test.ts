@@ -975,7 +975,7 @@ describe("sqlite repo", () => {
       const repo = getSqliteRepo();
       const policy = await repo.getGuildPolicy();
       expect(policy.standing).toEqual({ main: 1, trial: 1, alt: 0.7, inactive: 0.4, pug: 0.25 });
-      expect(policy.attendance).toEqual({ recentRaids: 10, weeks: 8 });
+      expect(policy.attendance).toEqual({ recentRaids: 10, weeks: 8, basis: "raid" });
       expect(policy.preparation.coverage).toBe("any");
       expect(policy.performance.parseMetric).toBe("all");
     });
@@ -1022,6 +1022,19 @@ describe("sqlite repo", () => {
     it("saves one policy group without disturbing another", async () => {
       const repo = getSqliteRepo();
       await repo.setGuildPolicy({ standing: { alt: 0.9 } });
+      // `basis` is an enum riding in a group of numbers. sanitizePolicy is an
+      // allowlist, so a field it doesn't name is dropped on read — the editor
+      // would save, the page reload, and the value be quietly back to default
+      // with no error anywhere.
+      expect((await repo.setGuildPolicy({ attendance: { basis: "week" } })).ok).toBe(true);
+      expect((await repo.getGuildPolicy()).attendance.basis).toBe("week");
+      // Junk never reaches a ranking. A rejected value leaves the stored blob
+      // without the field rather than with the junk in it — a write replaces
+      // the policy rather than merging into it, so this lands back on the
+      // default, which is the safe direction.
+      await repo.setGuildPolicy({ attendance: { basis: "sideways" } as never });
+      expect((await repo.getGuildPolicy()).attendance.basis).toBe("raid");
+
       await repo.setGuildPolicy({ standing: { alt: 0.9 }, attendance: { recentRaids: 6 } });
 
       const policy = await repo.getGuildPolicy();
@@ -2099,6 +2112,83 @@ describe("sqlite repo", () => {
       endTime: "2026-06-10T22:30:00.000Z",
     };
 
+    /*
+     * The whole record versus the recent window.
+     *
+     * These two used to be one list capped at `policy.attendance.weeks`, which
+     * silently threw away everything older before the profile ever saw it — a
+     * raider with a year here read as "10 of the last 10" with no way to tell
+     * that was a window rather than their record. `allWeeks` is the record;
+     * `weeks` stays capped because the loot table draws one dot per entry on a
+     * row that must not grow with somebody's history.
+     */
+    it("keeps every reset week, and tags each with the tier raided", async () => {
+      const repo = getSqliteRepo();
+      await repo.createCharacter({
+        name: "Weeklyguy",
+        class: "Warrior",
+        spec: "Fury",
+        role: "Melee DPS",
+        status: "main",
+      });
+      // Twelve consecutive reset weeks, more than the window of 8. Deliberately
+      // later than every seeded report: the denominator is "weeks the GUILD
+      // logged since this character first appeared", so a seeded raid night
+      // after their first would be a week they missed and belongs in the count.
+      const weeks = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(Date.UTC(2026, 6, 1) + i * 7 * 86400000);
+        return d.toISOString().slice(0, 10);
+      });
+      for (const [i, day] of weeks.entries()) {
+        await repo.saveWclReport(
+          {
+            ...reportDraft,
+            code: `WEEKLY${String(i).padStart(9, "0")}`,
+            // Free text, exactly as a raid leader types it — and deliberately
+            // NOT a zone name. The tier must come from the boss below, because
+            // this field cannot be trusted to be one.
+            zone: i < 6 ? "ssc/tk wednesday" : "BT night",
+            startTime: `${day}T19:00:00.000Z`,
+            endTime: `${day}T22:00:00.000Z`,
+          },
+          // Tier changes partway, so the phase tag has something to catch.
+          [
+            fightDraft({
+              fightId: 1,
+              actorName: "Weeklyguy",
+              encounterName: i < 6 ? "Lady Vashj" : "Illidan Stormrage",
+            }),
+          ],
+        );
+      }
+
+      const summary = (await repo.listCharacters()).find((c) => c.character.name === "Weeklyguy");
+      const a = summary?.attendance;
+      expect(a).toBeDefined();
+
+      // The record is whole; the window is still a window.
+      expect(a!.allWeeks).toHaveLength(12);
+      expect(a!.weeks.length).toBeLessThanOrEqual(12);
+      expect(a!.weeks.length).toBe(await policyWeeks(repo));
+      expect(a!.allWeeksTracked).toBe(12);
+      expect(a!.allWeeksAttended).toBe(12);
+
+      // Oldest first, and the window is the tail of the record.
+      expect(a!.allWeeks[0].start < a!.allWeeks[11].start).toBe(true);
+      expect(a!.weeks.at(-1)!.start).toBe(a!.allWeeks.at(-1)!.start);
+
+      // Tier from the bosses the log recorded, not from the typed zone and not
+      // from the date. Lady Vashj is Serpentshrine (phase 2), Illidan is Black
+      // Temple (phase 3) — and neither `zone` string above says so.
+      expect(a!.allWeeks[0].phase).toBe(2);
+      expect(a!.allWeeks.at(-1)!.phase).toBe(3);
+    });
+
+    /** The window width is the guild's, so read it rather than hard-coding 8. */
+    async function policyWeeks(repo: Awaited<ReturnType<typeof getSqliteRepo>>) {
+      return (await repo.getGuildPolicy()).attendance.weeks;
+    }
+
     it("rolls up the seeded report per character", async () => {
       const repo = getSqliteRepo();
       const perf = (await repo.getCharacterPerformance("kazrak"))!;
@@ -2607,11 +2697,18 @@ describe("sqlite repo", () => {
         recentAttended: 1, recentTotal: 2, pullPct: 100,
       });
       // Per-reset check: seed raid (Thu 4 Jun → week of Wed 3 Jun) attended,
-      // the new raid week (Wed 10 Jun) missed.
+      // the new raid week (Wed 10 Jun) missed. Each week carries the tier it
+      // was raided in, taken from the zones logged that week rather than the
+      // date — SSC is phase 2, Karazhan phase 1.
       expect(kazrak.weeks).toEqual([
-        { start: "2026-06-03", attended: true, reports: 1, excused: false },
-        { start: "2026-06-10", attended: false, reports: 1, excused: false },
+        { start: "2026-06-03", attended: true, reports: 1, excused: false, phase: 2 },
+        { start: "2026-06-10", attended: false, reports: 1, excused: false, phase: 1 },
       ]);
+      // Two weeks in, so the record and the window agree — they diverge only
+      // once there is more history than the window is wide.
+      expect(kazrak.allWeeks).toEqual(kazrak.weeks);
+      expect(kazrak.allWeeksAttended).toBe(1);
+      expect(kazrak.allWeeksTracked).toBe(2);
       expect(kazrak.weeksAttended).toBe(1);
       expect(kazrak.weeksTracked).toBe(2);
       expect(kazrak.weeksExcused).toBe(0);
@@ -2626,7 +2723,10 @@ describe("sqlite repo", () => {
       });
       expect(pyrelia.firstSeenAt).toBe("2026-06-10T19:00:00.000Z");
       // Weeks from before she joined don't appear in her per-reset row either.
-      expect(pyrelia.weeks).toEqual([{ start: "2026-06-10", attended: true, reports: 1, excused: false }]);
+      expect(pyrelia.weeks).toEqual([
+        { start: "2026-06-10", attended: true, reports: 1, excused: false, phase: 1 },
+      ]);
+      expect(pyrelia.allWeeks).toEqual(pyrelia.weeks);
       // Aldric never appears in any log: no percentage, just the context count.
       const aldric = summaries.find((s) => s.character.name === "Aldric")!.attendance!;
       expect(aldric).toMatchObject({ raidsTotal: 2, raidsAttended: 0, raidsTracked: 0 });

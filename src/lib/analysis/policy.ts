@@ -53,12 +53,25 @@ export interface GuildPolicy {
    * still go to somebody.
    */
   slotServed: { drop: number; floor: number; fillerDrop: number; offListDrop: number };
-  /** What "recent" means when reading attendance. */
+  /** What "recent" means when reading attendance, and what attendance counts. */
   attendance: {
     /** How many of the most recent logged raids the recent figure covers. */
     recentRaids: number;
     /** How many reset weeks the weekly dots show. */
     weeks: number;
+    /**
+     * What the attendance score counts: every raid, or every reset week.
+     *
+     * The two disagree whenever the guild raids more than one night a week. A
+     * raider who makes one night of every three-night week scores 33% on
+     * `"raid"` and 100% on `"week"` — the first asks "how much of what we ran
+     * did they turn up for", the second "did they show up that week at all".
+     *
+     * Which one loot rides on is the council's call, not a default worth
+     * defending: `"raid"` only because it is what this app scored before the
+     * choice existed.
+     */
+    basis: "raid" | "week";
   };
   performance: {
     /**
@@ -160,7 +173,7 @@ export const DEFAULT_POLICY: GuildPolicy = {
   weights: { attendance: 35, lootDebt: 30, performance: 20, preparation: 15 },
   standing: { main: 1, trial: 1, alt: 0.7, inactive: 0.4, pug: 0.25 },
   slotServed: { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0 },
-  attendance: { recentRaids: 10, weeks: 8 },
+  attendance: { recentRaids: 10, weeks: 8, basis: "raid" },
   performance: { parseMetric: "all" },
   loot: { altsContend: false },
   preparation: { coverage: "any", excusedEncounters: [] },

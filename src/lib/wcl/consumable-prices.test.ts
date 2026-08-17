@@ -28,6 +28,9 @@ describe("consumable pricing", () => {
     // Explicit catalog entries.
     expect(defaultPriceFor("Flask of Relentless Assault").gold).toBe(82);
     expect(defaultPriceFor("Elixir of Major Shadow Power").gold).toBe(6);
+    // Labelled by its buff, so no name-pattern fallback reaches it — without an
+    // explicit entry this elixir is free, which is the quiet kind of wrong.
+    expect(defaultPriceFor("Greater Mana Regeneration")).toEqual({ gold: 3, charges: 1 });
     expect(defaultPriceFor("Scroll of Agility V").gold).toBe(8);
     expect(defaultPriceFor("Flame Cap").gold).toBe(3);
     expect(defaultPriceFor("Food").gold).toBe(0.5);

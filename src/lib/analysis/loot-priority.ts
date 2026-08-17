@@ -138,8 +138,34 @@ export function slotServedAdjustment(
   };
 }
 
-function attendanceFactor(metrics: RaiderMetrics | undefined, w: LootPriorityWeights): LootPriorityFactor {
+/**
+ * Attendance, counted the way the guild has decided to count it.
+ *
+ * `"week"` reads the whole record rather than the recent window: a raider's
+ * record is the thing being scored, and a window that quietly forgives an old
+ * absence makes a different claim than the number appears to make. The window
+ * is still shown on the profile, as the secondary "and lately?" read.
+ */
+function attendanceFactor(
+  metrics: RaiderMetrics | undefined,
+  w: LootPriorityWeights,
+  basis: GuildPolicy["attendance"]["basis"],
+): LootPriorityFactor {
   const attendance = metrics?.attendance;
+  if (basis === "week") {
+    const counted = attendance && attendance.allWeeksTracked > 0;
+    return {
+      key: "attendance",
+      label: "Attendance",
+      weight: w.attendance,
+      score: counted
+        ? Math.round((attendance.allWeeksAttended / attendance.allWeeksTracked) * 100)
+        : undefined,
+      detail: counted
+        ? `${attendance.allWeeksAttended} of ${attendance.allWeeksTracked} reset weeks`
+        : "no logged raid weeks yet",
+    };
+  }
   const counted = attendance && attendance.raidsTracked > 0;
   return {
     key: "attendance",
@@ -214,7 +240,7 @@ export function computeLootPriority(
 ): LootPriority {
   const w = policy.weights;
   const factors = [
-    attendanceFactor(metrics, w),
+    attendanceFactor(metrics, w, policy.attendance.basis),
     lootDebtFactor(onSpecAwardsActivePhase, peakAwardsActivePhase, w),
     performanceFactor(metrics, w, policy.performance.parseMetric),
     preparationFactor(metrics, w),

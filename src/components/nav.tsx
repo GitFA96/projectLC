@@ -35,7 +35,7 @@ interface Section {
   owns?: string[];
 }
 
-const SECTIONS: Section[] = [
+export const SECTIONS: Section[] = [
   {
     href: "/",
     label: "Guild",
@@ -125,18 +125,58 @@ const SECTIONS: Section[] = [
 const OUTSIDE_THE_GUILD = ["/signin", "/join", "/claim"];
 
 /**
+ * Does this path sit at or beneath that one?
+ *
+ * `"/"` is **exact only**. As a prefix it is beneath every path in the app, so
+ * the Guild section — whose own href is `"/"` — would own all of them.
+ * Substring matching is wrong for the same reason in the small: plain
+ * `startsWith` puts `/logsomething` inside `/logs`.
+ */
+export function under(pathname: string, base: string): boolean {
+  if (base === "/") return pathname === "/";
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+/**
  * Which section a path belongs to. Some pages don't live under their section's
  * own href (/compare is Roster's, /items is Loot's), so a section owns a path
- * when the path starts with the section href OR with any of its pages'.
+ * when the path is at or beneath the section href, any of its `owns`, or any of
+ * its pages'.
+ *
+ * The Guild section is matched by the same rule as the rest. It used to be
+ * special-cased to the exact path `"/"` and then filtered *out* of the search,
+ * which left every `/guild/*` page belonging to no section at all: no sub-nav
+ * row rendered, and the `owns: ["/guild"]` above was dead code that read as
+ * though it worked. `under()` is what makes one rule safe for all of them.
  */
-function sectionFor(pathname: string): Section | undefined {
-  if (pathname === "/") return SECTIONS[0];
-  return SECTIONS.filter((s) => s.href !== "/").find(
+export function sectionFor(pathname: string): Section | undefined {
+  return SECTIONS.find(
     (s) =>
-      pathname.startsWith(s.href) ||
-      (s.owns ?? []).some((o) => pathname.startsWith(o)) ||
-      (s.pages ?? []).some((p) => pathname === p.href || pathname.startsWith(`${p.href}/`)),
+      under(pathname, s.href) ||
+      (s.owns ?? []).some((o) => under(pathname, o)) ||
+      (s.pages ?? []).some((p) => under(pathname, p.href)),
   );
+}
+
+/**
+ * Which page in the section's row is the one you are on.
+ *
+ * Longest match wins, so a section index (/roster) doesn't stay lit while you
+ * are on a page beneath it (/roster/standing) — one rule, one lit tab. The
+ * Guild row is why this cannot be plain prefix matching: its first page is
+ * `"/"`, which prefixes every other page in the row, and `under()` is what
+ * keeps it exact.
+ */
+export function activePageFor(
+  pathname: string,
+  pages: { href: string }[] | undefined,
+): string | undefined {
+  return pages
+    ?.filter((p) => under(pathname, p.href))
+    .reduce<string | undefined>(
+      (best, p) => (best === undefined || p.href.length > best.length ? p.href : best),
+      undefined,
+    );
 }
 
 export function Nav({
@@ -185,14 +225,7 @@ export function Nav({
 
   const current = sectionFor(pathname);
   const pages = current?.pages?.filter((p) => visible(p.href));
-  // Longest match wins, so a section index (/admin) doesn't stay lit while you
-  // are on a page beneath it (/admin/import). Plain `startsWith` lights both.
-  const activePage = pages
-    ?.filter((p) => pathname === p.href || pathname.startsWith(`${p.href}/`))
-    .reduce<string | undefined>(
-      (best, p) => (best === undefined || p.href.length > best.length ? p.href : best),
-      undefined,
-    );
+  const activePage = activePageFor(pathname, pages);
   return (
     <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">

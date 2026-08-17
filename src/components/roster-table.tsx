@@ -191,9 +191,11 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
         id: "attendance",
         // Never-seen sorts below 0% so it can't hide between real percentages.
         accessorFn: (row) =>
-          row.attendance === undefined || row.attendance.raidsAttended === 0
+          row.attendance === undefined ||
+          row.attendance.raidsAttended === 0 ||
+          row.attendance.scorePct === undefined
             ? -1
-            : row.attendance.raidPct,
+            : row.attendance.scorePct,
         header: "Attendance",
         cell: ({ row }) => {
           const a = row.original.attendance;
@@ -213,9 +215,10 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
               <span className="flex flex-col gap-0.5">
                 <WeekDots weeks={a.weeks} />
                 <span
-                  className={`text-xs tabular-nums ${a.raidPct < 50 ? "text-warn-ink" : "text-muted-foreground"}`}
+                  className={`text-xs tabular-nums ${a.scorePct !== undefined && a.scorePct < 50 ? "text-warn-ink" : "text-muted-foreground"}`}
                 >
-                  {a.raidsAttended}/{a.raidsTracked} raids · {a.raidPct}%
+                  {a.scoreAttended}/{a.scoreTracked} {a.scoreBasis === "week" ? "weeks" : "raids"}
+                  {a.scorePct !== undefined && ` · ${a.scorePct}%`}
                 </span>
               </span>
             </AttendanceDetail>

@@ -122,6 +122,32 @@ const AURA_DEFS: AuraDef[] = [
   // once sat beside another battle elixir, and sat beside a guardian (Draenic
   // Wisdom, Major Fortitude) on 415 of them. A raider holds one of each.
   { label: "Spellpower Elixir", category: "battleElixir" },
+  /*
+   * Three ids Warcraft Logs serves under **retail** names.
+   *
+   * WCL resolved these TBC spell ids against a modern spell database, so the
+   * log says "Greater Versatility" and "Flask of Mighty Versatility" —
+   * versatility being a stat that does not exist in TBC. Wowhead's TBC data is
+   * the authority for this game version:
+   *
+   *   28509  "Greater Mana Regeneration"    (WCL: "Greater Versatility")
+   *   28514  "Empowerment", -30 resistances for 1h
+   *   28519  "Flask of Mighty Restoration"  (WCL: "Flask of Mighty Versatility")
+   *
+   * Curated by **id**, keeping the retail name as a `buffNames` alias so reports
+   * already imported under it still match. The lesson generalises: an ability id
+   * from a log is a fact, an ability *name* from a log is not.
+   *
+   * 28509 sits in the guardian slot on this guild's own evidence, not from
+   * memory: across 541 pulls carrying it there was always exactly one battle
+   * elixir beside it (Major Agility 503, Healing Power 25, Spellpower 9), never
+   * a second guardian, and never a flask. Its label is the buff name because the
+   * log names the spell and never the item — a wrong item name would be worse
+   * than an accurate buff name.
+   */
+  { label: "Greater Mana Regeneration", category: "guardianElixir", ids: [28509], buffNames: ["Greater Mana Regeneration", "Greater Versatility"] },
+  { label: "Empowerment", category: "guardianElixir", ids: [28514], buffNames: ["Empowerment"] },
+  { label: "Flask of Mighty Restoration", category: "flask", ids: [28519], buffNames: ["Flask of Mighty Restoration", "Flask of Mighty Versatility"] },
   /* Guardian elixirs */
   { label: "Elixir of Major Defense", category: "guardianElixir", ids: [28502], buffNames: ["Major Defense", "Major Armor"] },
   { label: "Elixir of Major Fortitude", category: "guardianElixir", ids: [39625], buffNames: ["Major Fortitude"] },
@@ -401,9 +427,18 @@ const TRACKED_CASTS: TrackedCast[] = [
   { id: 28511, name: "Major Fire Protection Potion", category: "potion" },
   { id: 28512, name: "Major Frost Protection Potion", category: "potion" },
   { id: 28513, name: "Major Nature Protection Potion", category: "potion" },
-  { id: 28509, name: "Major Arcane Protection Potion", category: "potion" },
-  { id: 28514, name: "Major Shadow Protection Potion", category: "potion" },
-  { id: 28510, name: "Major Holy Protection Potion", category: "potion" },
+  /*
+   * Arcane, shadow and holy protection potions are deliberately absent.
+   *
+   * They were listed as 28509 / 28514 / 28510, which are not those potions:
+   * Wowhead's TBC data makes 28509 a mana-regeneration buff and 28514
+   * Empowerment, and 28510 is not a spell WCL knows at all. They read as
+   * pattern-filled from the three real ids above — exactly what invariant 4
+   * forbids — and the cost was concrete: for 541 pulls every raider running the
+   * 28509 elixir was recorded as having pre-potted, under the log's retail name.
+   *
+   * Adding them back needs a probed id, not a plausible one.
+   */
   { id: 35476, name: "Drums of Battle", category: "drums" },
   { id: 35475, name: "Drums of War", category: "drums" },
   { id: 35478, name: "Drums of Restoration", category: "drums" },

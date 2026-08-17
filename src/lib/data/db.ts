@@ -1649,9 +1649,15 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
     (v) => num(v, 0, 1));
   if (slotServed) out.slotServed = slotServed;
 
-  const attendance = group(r.attendance, ["recentRaids", "weeks"] as const,
-    (v) => num(v, 1, 100, "int"));
-  if (attendance) out.attendance = attendance;
+  // Two shapes in one group: the windows are numbers, `basis` is an enum, so
+  // it cannot ride through `num` — a field this allowlist doesn't name is
+  // dropped on read, and the editor would save it with no error anywhere.
+  const attendance: Record<string, unknown> = {
+    ...group(r.attendance, ["recentRaids", "weeks"] as const, (v) => num(v, 1, 100, "int")),
+    ...group(r.attendance, ["basis"] as const,
+      (v) => (v === "raid" || v === "week" ? v : undefined)),
+  };
+  if (Object.keys(attendance).length > 0) out.attendance = attendance;
 
   const perf = group(r.performance, ["parseMetric"] as const,
     (v) => (v === "all" || v === "bracket" ? v : undefined));

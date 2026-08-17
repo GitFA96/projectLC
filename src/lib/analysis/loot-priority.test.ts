@@ -5,6 +5,7 @@ import {
   rankLootContenders,
   slotServedAdjustment,
 } from "@/lib/analysis/loot-priority";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   AttendanceSummary,
   Character,
@@ -44,6 +45,13 @@ function attendance(pct: number, tracked = 10): AttendanceSummary {
     weeksAttended: 0,
     weeksTracked: 0,
     weeksExcused: 0,
+    allWeeks: [],
+    allWeeksAttended: 0,
+    allWeeksTracked: 0,
+    scoreBasis: "raid",
+    scorePct: pct,
+    scoreAttended: Math.round((pct / 100) * tracked),
+    scoreTracked: tracked,
   };
 }
 
@@ -362,5 +370,57 @@ describe("slotServedAdjustment — a drop they never asked for", () => {
     const policy = { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0.2 };
     expect(slotServedAdjustment({ bis: 0, filler: 0, offList: 1, unknown: 0 }, 1, policy)!.multiplier)
       .toBe(0.8);
+  });
+});
+
+describe("attendance basis", () => {
+  /*
+   * Per-raid and per-week are different claims about the same raider, and they
+   * diverge most exactly where it matters: somebody who makes one night of
+   * every multi-night week. 4 of 12 raids is 33%; those same nights are 4 of 4
+   * reset weeks, or 100%. Attendance carries the largest weight on the sheet,
+   * so which one is read decides who wins contested items.
+   */
+  const partial: AttendanceSummary = {
+    ...attendance(33, 12),
+    raidsAttended: 4,
+    raidsTracked: 12,
+    raidPct: 33,
+    allWeeks: [],
+    allWeeksAttended: 4,
+    allWeeksTracked: 4,
+  };
+
+  const factorFor = (policy: GuildPolicy, a: AttendanceSummary = partial) =>
+    computeLootPriority(
+      character("Weekly"),
+      { attendance: a } as RaiderMetrics,
+      0,
+      0,
+      undefined,
+      policy,
+    ).factors.find((f) => f.key === "attendance")!;
+
+  const weekly: GuildPolicy = {
+    ...DEFAULT_POLICY,
+    attendance: { ...DEFAULT_POLICY.attendance, basis: "week" },
+  };
+
+  it("counts raids by default, so adopting the field re-ranks nobody", () => {
+    const f = factorFor(DEFAULT_POLICY);
+    expect(f.score).toBe(33);
+    expect(f.detail).toBe("4 of 12 logged raids");
+  });
+
+  it("counts reset weeks when the guild says so", () => {
+    const f = factorFor(weekly);
+    expect(f.score).toBe(100);
+    expect(f.detail).toBe("4 of 4 reset weeks");
+  });
+
+  it("says there is nothing to count rather than scoring a zero", () => {
+    const f = factorFor(weekly, { ...partial, allWeeksAttended: 0, allWeeksTracked: 0 });
+    expect(f.score).toBeUndefined();
+    expect(f.detail).toBe("no logged raid weeks yet");
   });
 });

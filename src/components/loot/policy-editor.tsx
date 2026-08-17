@@ -361,6 +361,48 @@ export function PolicyEditor({
 
       <section className="space-y-2">
         <div>
+          <h3 className="text-sm font-semibold">What attendance counts</h3>
+          <p className="text-xs text-muted-foreground">
+            These disagree whenever the guild raids more than one night a week, and attendance
+            carries the most weight on the priority sheet — so this moves who wins contested items.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          {(
+            [
+              [
+                "raid",
+                "Every raid",
+                "Raids attended ÷ raids logged. One night of a three-night week scores 33%.",
+              ],
+              [
+                "week",
+                "Every reset week",
+                "Weeks raided ÷ weeks logged. Turning up at all in a week scores 100% for it.",
+              ],
+            ] as const
+          ).map(([value, label, help]) => (
+            <label key={value} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="attendanceBasis"
+                checked={draft.attendance.basis === value}
+                onChange={() =>
+                  setDraft((d) => ({ ...d, attendance: { ...d.attendance, basis: value } }))
+                }
+                className="mt-0.5"
+              />
+              <span>
+                {label}
+                <span className="block text-xs text-muted-foreground">{help}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <div>
           <h3 className="text-sm font-semibold">Which parse the score rides on</h3>
           <p className="text-xs text-muted-foreground">
             They answer different questions, and for a raider in strong gear they differ a lot.

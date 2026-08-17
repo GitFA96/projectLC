@@ -24,6 +24,13 @@ function attendance(pct: number, tracked = 20): AttendanceSummary {
     weeksAttended: 0,
     weeksTracked: 0,
     weeksExcused: 0,
+    allWeeks: [],
+    allWeeksAttended: 0,
+    allWeeksTracked: 0,
+    scoreBasis: "raid",
+    scorePct: pct,
+    scoreAttended: Math.round((pct / 100) * tracked),
+    scoreTracked: tracked,
   };
 }
 

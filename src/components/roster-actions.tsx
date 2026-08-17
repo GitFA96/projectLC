@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { CharacterLink, ClassBadge } from "@/components/class-badge";
 import { Badge } from "@/components/ui/badge";
+import { Pager } from "@/components/ui/pager";
 import {
   deleteCharacters,
   purgeDemoData,
@@ -211,11 +212,30 @@ export interface PuggerRow {
   lastAwardAt?: string;
 }
 
+/** Puggers shown per page. Long enough to scan, short enough not to bury the card. */
+const PUGGERS_PAGE_SIZE = 10;
+
 export function PuggersCard({ rows }: { rows: PuggerRow[] }) {
   const { selected, toggle, setAll, clear } = useSelection();
   const { pending, result, run } = useRosterAction(clear);
   const ids = [...selected];
-  const allIds = rows.map((r) => r.id);
+
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PUGGERS_PAGE_SIZE));
+  // Deleting the last pug on the last page takes that page with it.
+  const page = Math.min(pageIndex, pageCount - 1);
+  const visible = rows.slice(page * PUGGERS_PAGE_SIZE, (page + 1) * PUGGERS_PAGE_SIZE);
+  const visibleIds = visible.map((r) => r.id);
+  /*
+   * The header box selects **this page**, not every pug there is.
+   *
+   * Selecting all of them was honest while they all fit on screen. Behind a
+   * pager it arms a delete button with rows the officer cannot see, and
+   * "select all" reads as "the ones in front of me". Selections still survive
+   * paging — the bar keeps counting them — so picking two here and three
+   * overleaf works; it just stops happening by accident.
+   */
+  const allOnPageSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
 
   if (rows.length === 0) {
     return (
@@ -233,9 +253,11 @@ export function PuggersCard({ rows }: { rows: PuggerRow[] }) {
           <TableRow>
             <TableHead className="w-8">
               <Checkbox
-                checked={selected.size === rows.length && rows.length > 0}
-                onChange={(e) => setAll(allIds, e.target.checked)}
-                aria-label="Select all puggers"
+                checked={allOnPageSelected}
+                onChange={(e) => setAll(visibleIds, e.target.checked)}
+                aria-label={
+                  pageCount > 1 ? "Select every pugger on this page" : "Select all puggers"
+                }
               />
             </TableHead>
             <TableHead>Player</TableHead>
@@ -245,7 +267,7 @@ export function PuggersCard({ rows }: { rows: PuggerRow[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {visible.map((r) => (
             <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
               <TableCell>
                 <Checkbox
@@ -271,6 +293,14 @@ export function PuggersCard({ rows }: { rows: PuggerRow[] }) {
           ))}
         </TableBody>
       </Table>
+      <Pager
+        pageIndex={page}
+        pageCount={pageCount}
+        total={rows.length}
+        pageSize={PUGGERS_PAGE_SIZE}
+        onPrev={() => setPageIndex(page - 1)}
+        onNext={() => setPageIndex(page + 1)}
+      />
       {selected.size > 0 && (
         <SelectionBar count={selected.size} pending={pending}>
           <Button

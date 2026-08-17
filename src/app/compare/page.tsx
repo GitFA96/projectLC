@@ -188,9 +188,9 @@ function ComparisonMatrix({
         <AttendanceRow cols={cols} chars={chars} />
         <MetricRow
           cols={cols}
-          label="Raids %"
-          title="Attended share of logged raids since first appearance"
-          values={chars.map((c) => c.attendance?.raidPct)}
+          label={chars[0]?.attendance?.scoreBasis === "week" ? "Weeks %" : "Raids %"}
+          title="Attendance as this guild counts it, since first appearance"
+          values={chars.map((c) => c.attendance?.scorePct)}
           dir="high"
           format={(v) => `${v}%`}
         />

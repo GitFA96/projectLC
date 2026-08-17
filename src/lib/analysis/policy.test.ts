@@ -31,7 +31,7 @@ describe("resolvePolicy", () => {
       // because trials rank like mains — see the field's own comment.
       standing: { main: 1, trial: 1, alt: 0.7, inactive: 0.4, pug: 0.25 },
       slotServed: { drop: 0.4, floor: 0.35, fillerDrop: 0.4, offListDrop: 0 },
-      attendance: { recentRaids: 10, weeks: 8 },
+      attendance: { recentRaids: 10, weeks: 8, basis: "raid" },
       performance: { parseMetric: "all" },
       loot: { altsContend: false },
       // No content is excused until the council names some — see policy.ts.

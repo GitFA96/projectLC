@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { Check, Minus } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { pageView } from "@/lib/auth/view";
 import { permits, ROUTE_NEEDS } from "@/lib/auth/view";
 import { memberViewer } from "@/lib/auth/viewer";
-import { CAPABILITIES, CAPABILITY_GROUPS, type Capability } from "@/lib/auth/capabilities";
+import { CAPABILITIES, type Capability } from "@/lib/auth/capabilities";
 import { VISIBILITY_LADDER, VISIBILITY_META } from "@/lib/analysis/public-profile";
+import {
+  MemberAccessPanel,
+  type MemberAccess,
+  type RouteNeed,
+} from "@/components/guild/member-access";
 import { NoAccess } from "@/components/no-access";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -55,25 +59,37 @@ export default async function PermissionsPreviewPage() {
   ]);
 
   /*
-   * A viewer per member, built from their stored grants.
+   * A viewer per member, built from their stored grants, then asked every
+   * question up front.
    *
    * This is the whole trick: `permits()` is the same function the pages and the
-   * nav call, so what this table shows is what will actually happen — not a
-   * second implementation of the rule that can drift away from the first.
+   * nav call, so what this page shows is what will actually happen — not a
+   * second implementation of the rule that can drift away from the first. It
+   * stays true with the picker in front of it **because the answers are
+   * computed here**: the client is handed booleans and chooses which to show,
+   * never a capability list to reason about itself.
    */
-  const viewers = view.members.map((m) => ({
-    member: m,
-    viewer: memberViewer({
+  const routeNeeds = Object.entries(ROUTE_NEEDS);
+  const routes: RouteNeed[] = routeNeeds.map(([href, need]) => ({ href, need }));
+  const capabilityIds = Object.keys(CAPABILITIES) as Capability[];
+
+  const members: MemberAccess[] = view.members.map((m) => {
+    const viewer = memberViewer({
       accountId: `preview_${m.membershipId}`,
       guildId: "preview",
       membershipId: m.membershipId,
       isGuildMaster: m.isGuildMaster,
       capabilities: m.capabilities,
-    }),
-  }));
-
-  const yes = <Check className="h-3.5 w-3.5 text-success" aria-label="yes" />;
-  const no = <Minus className="h-3.5 w-3.5 text-muted-foreground" aria-label="no" />;
+    });
+    return {
+      membershipId: m.membershipId,
+      displayName: m.displayName,
+      isGuildMaster: m.isGuildMaster,
+      roleNames: m.roles.map((r) => r.name),
+      capabilities: Object.fromEntries(capabilityIds.map((id) => [id, permits(viewer, id)])),
+      pages: Object.fromEntries(routeNeeds.map(([href, need]) => [href, permits(viewer, need)])),
+    };
+  });
 
   return (
     <>
@@ -83,91 +99,7 @@ export default async function PermissionsPreviewPage() {
       />
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Who can do what</CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            {CAPABILITY_GROUPS.map((group) => {
-              const caps = (Object.keys(CAPABILITIES) as Capability[]).filter(
-                (id) => CAPABILITIES[id].group === group.id,
-              );
-              return (
-                <div key={group.id} className="mb-4">
-                  <p className="mb-1 text-sm font-medium">{group.label}</p>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-48">Capability</TableHead>
-                        {viewers.map(({ member }) => (
-                          <TableHead key={member.membershipId} className="whitespace-nowrap">
-                            {member.displayName}
-                            {member.isGuildMaster && " 👑"}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {caps.map((id) => (
-                        <TableRow key={id}>
-                          <TableCell>
-                            <span className="text-sm">{CAPABILITIES[id].label}</span>
-                            <code className="ml-2 font-mono text-[10px] text-muted-foreground">{id}</code>
-                          </TableCell>
-                          {viewers.map(({ member, viewer }) => (
-                            <TableCell key={member.membershipId}>{permits(viewer, id) ? yes : no}</TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              );
-            })}
-            <p className="text-xs text-muted-foreground">
-              An owner holds everything implicitly and cannot be stripped of any of it — that is
-              what makes it impossible to lock this guild out of itself.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Which pages they can open</CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Page</TableHead>
-                  <TableHead>Needs</TableHead>
-                  {viewers.map(({ member }) => (
-                    <TableHead key={member.membershipId} className="whitespace-nowrap">
-                      {member.displayName}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {Object.entries(ROUTE_NEEDS).map(([href, need]) => (
-                  <TableRow key={href}>
-                    <TableCell className="font-mono text-xs">{href}</TableCell>
-                    <TableCell>
-                      <Badge variant="muted">{need}</Badge>
-                    </TableCell>
-                    {viewers.map(({ member, viewer }) => (
-                      <TableCell key={member.membershipId}>{permits(viewer, need) ? yes : no}</TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <p className="mt-2 text-xs text-muted-foreground">
-              A signed-out visitor reaches only the pages marked <code>public</code>. `/service` is
-              the operator console and belongs to whoever runs this deployment, not to this guild.
-            </p>
-          </CardContent>
-        </Card>
+        <MemberAccessPanel members={members} routes={routes} />
 
         <Card>
           <CardHeader>

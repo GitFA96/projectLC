@@ -206,8 +206,17 @@ export default async function PerformancePage({
               <>
                 <AttendanceDetail attendance={attendance}>
                   <span className="flex items-center gap-1.5">
-                    <Badge variant={attendance.raidPct < 50 ? "warning" : "secondary"}>
-                      raided {attendance.raidsAttended}/{attendance.raidsTracked} logged raids
+                    {/* The guild's own figure, so the headline and the loot
+                        sheet can never show different attendance. */}
+                    <Badge
+                      variant={
+                        attendance.scorePct !== undefined && attendance.scorePct < 50
+                          ? "warning"
+                          : "secondary"
+                      }
+                    >
+                      raided {attendance.scoreAttended}/{attendance.scoreTracked}{" "}
+                      {attendance.scoreBasis === "week" ? "reset weeks" : "logged raids"}
                     </Badge>
                     <WeekDots weeks={attendance.weeks} />
                   </span>

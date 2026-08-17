@@ -38,7 +38,12 @@ export function CollapsibleCard({
           />
           {title}
         </CardTitle>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+        {/* A div, not a p: `description` is typed ReactNode and callers pass
+            real markup into it — the Development card puts its trend lines here
+            so they stay readable while the card is folded. A <p> silently makes
+            that invalid HTML (no <p> or <div> may nest inside one) and the only
+            symptom is a hydration error pointing at the caller, not at here. */}
+        {description && <div className="text-xs text-muted-foreground">{description}</div>}
       </CardHeader>
       {open && <CardContent>{children}</CardContent>}
     </Card>

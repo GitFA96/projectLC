@@ -177,20 +177,46 @@ function percentileOf(value: number, sorted: number[]): number {
   return Math.round(((below + equal / 2) / sorted.length) * 100);
 }
 
-/** The three figures the board reads, straight off the metrics they already have. */
-function kpiValues(metrics: RaiderMetrics | undefined): Record<StandingKpiKey, number | undefined> {
+/**
+ * The three figures the board reads, straight off the metrics they already have.
+ *
+ * Attendance is counted the way the guild counts it — the board and the loot
+ * sheet must not disagree about what a raider's attendance is, so both read
+ * `policy.attendance.basis` rather than each picking a denominator.
+ */
+function kpiValues(
+  metrics: RaiderMetrics | undefined,
+  basis: GuildPolicy["attendance"]["basis"],
+): Record<StandingKpiKey, number | undefined> {
+  const a = metrics?.attendance;
   return {
-    attendance: metrics?.attendance?.raidsTracked ? metrics.attendance.raidPct : undefined,
+    attendance:
+      basis === "week"
+        ? a?.allWeeksTracked
+          ? Math.round((a.allWeeksAttended / a.allWeeksTracked) * 100)
+          : undefined
+        : a?.raidsTracked
+          ? a.raidPct
+          : undefined,
     performance: metrics?.career?.medianParse,
     preparation: metrics?.career?.fights ? metrics.career.preparedPct : undefined,
   };
 }
 
-function detailFor(key: StandingKpiKey, metrics: RaiderMetrics | undefined): string {
+function detailFor(
+  key: StandingKpiKey,
+  metrics: RaiderMetrics | undefined,
+  basis: GuildPolicy["attendance"]["basis"],
+): string {
   const attendance = metrics?.attendance;
   const career = metrics?.career;
   switch (key) {
     case "attendance":
+      if (basis === "week") {
+        return attendance?.allWeeksTracked
+          ? `${attendance.allWeeksAttended} of ${attendance.allWeeksTracked} reset weeks`
+          : "no logged raid weeks yet";
+      }
       return attendance?.raidsTracked
         ? `${attendance.raidsAttended} of ${attendance.raidsTracked} logged raids`
         : "no logged raids yet";
@@ -230,7 +256,7 @@ export function buildStandingBoard(
   for (const key of STANDING_KPIS) valuesByKpi.set(key, []);
   const perRaider = new Map<string, Record<StandingKpiKey, number | undefined>>();
   for (const raider of raiders) {
-    const values = kpiValues(raider.metrics);
+    const values = kpiValues(raider.metrics, policy.attendance.basis);
     perRaider.set(raider.characterId, values);
     if (!placeable(raider)) continue;
     for (const key of STANDING_KPIS) {
@@ -258,7 +284,7 @@ export function buildStandingBoard(
         value,
         percentile:
           value === undefined || tooNew ? undefined : percentileOf(value, sortedByKpi.get(key)!),
-        detail: detailFor(key, raider.metrics),
+        detail: detailFor(key, raider.metrics, policy.attendance.basis),
       };
     });
 

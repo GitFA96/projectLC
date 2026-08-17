@@ -1402,3 +1402,51 @@ describe("death recaps", () => {
     expect(without.rows.find((r) => r.actorName === "Byrd")!.deathTimes[0].recap).toBeUndefined();
   });
 });
+
+describe("ids Warcraft Logs serves under retail names", () => {
+  /*
+   * WCL resolved some TBC spell ids against a modern spell database, so these
+   * arrive named after a stat TBC does not have. The id is the fact; the name is
+   * not. Regression-worthy because the old curation filed 28509 as "Major
+   * Arcane Protection Potion" and 541 pulls of a guardian elixir were recorded
+   * as pre-pots because of it.
+   */
+  it("classifies 28509 as a guardian elixir under either name", () => {
+    // Wowhead TBC: 28509 is Greater Mana Regeneration.
+    expect(classifyAura("Greater Mana Regeneration", 28509)).toEqual({
+      category: "guardianElixir",
+      label: "Greater Mana Regeneration",
+    });
+    // What the log actually says — matched by id, and by the alias when the id
+    // is missing, so already-imported reports still resolve.
+    expect(classifyAura("Greater Versatility", 28509)?.category).toBe("guardianElixir");
+    expect(classifyAura("Greater Versatility")?.category).toBe("guardianElixir");
+  });
+
+  it("no longer calls it a pre-pot", () => {
+    // The bug: 28509 was in the curated potion list, and a potion aura at the
+    // pull is what marks a pre-pot. A guardian elixir is not a pre-pot.
+    expect(classifyAura("Greater Versatility", 28509)?.category).not.toBe("potion");
+  });
+
+  it("classifies Empowerment as a guardian elixir", () => {
+    expect(classifyAura("Empowerment", 28514)).toEqual({
+      category: "guardianElixir",
+      label: "Empowerment",
+    });
+  });
+
+  it("gives the mana flask its TBC name, not the retail one", () => {
+    // Wowhead TBC: 28519 is Flask of Mighty Restoration.
+    expect(classifyAura("Flask of Mighty Versatility", 28519)).toEqual({
+      category: "flask",
+      label: "Flask of Mighty Restoration",
+    });
+  });
+
+  it("still classifies the protection potions whose ids were verified", () => {
+    expect(classifyAura("Fire Protection", 28511)?.category).toBe("potion");
+    expect(classifyAura("Frost Protection", 28512)?.category).toBe("potion");
+    expect(classifyAura("Nature Protection", 28513)?.category).toBe("potion");
+  });
+});
