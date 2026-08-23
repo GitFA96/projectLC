@@ -668,6 +668,52 @@ export const itemCommentSchema = z.object({
   createdAt: z.string().min(1),
 });
 
+/**
+ * One drop on the foundational table: this boss, in this zone, drops this item.
+ *
+ * A fact about the game rather than a guild's judgement, which is why it has no
+ * guild and no priority. `itemId` is optional because a drop table is written
+ * in names and the id arrives later from the resolver.
+ */
+export const bossDropSchema = z.object({
+  zone: z.string().min(1),
+  bossKey: z.string().min(1),
+  boss: z.string().min(1),
+  /** Normalized item name — the key, matching the priority sheet's rule. */
+  itemKey: z.string().min(1),
+  itemName: z.string().min(1),
+  itemId: z.number().int().positive().optional(),
+  /** The drop table's finer wording: "Plate - Waist". */
+  slotLabel: z.string().optional(),
+  note: z.string().optional(),
+  author: z.string().optional(),
+  updatedAt: z.string().min(1),
+});
+
+/** One guild's addition to, or removal from, a foundational drop. */
+export const guildBossDropSchema = bossDropSchema.extend({
+  guildId: z.string().min(1),
+  action: z.enum(["add", "hide"]),
+});
+
+/**
+ * A council note on one boss, read under him on the loot plan.
+ *
+ * `bossKey` is the identity and `boss` is the label — see the table comment in
+ * db.ts for why both are stored. `zone` is part of the key because trash is a
+ * drop source in every raid.
+ */
+export const bossCommentSchema = z.object({
+  id: z.string().min(1),
+  zone: z.string().min(1),
+  bossKey: z.string().min(1),
+  boss: z.string().min(1),
+  body: z.string().min(1),
+  /** Who wrote it (free text — there's no auth). Optional. */
+  author: z.string().optional(),
+  createdAt: z.string().min(1),
+});
+
 export const seedCharacterCommentsSchema = z.array(characterCommentSchema);
 
 /**

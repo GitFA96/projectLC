@@ -54,6 +54,7 @@ export type Capability =
   | "roster.edit"
   | "loot.view"
   | "loot.award"
+  | "loot.amend"
   | "priority.view"
   | "priority.edit"
   | "logs.view"
@@ -114,6 +115,22 @@ export const CAPABILITIES: Record<Capability, CapabilityMeta> = {
     group: "loot",
     implies: ["loot.view", "roster.view"],
   },
+  "loot.amend": {
+    label: "Amend loot history",
+    gates:
+      "Changing the date on an award already in the ledger — moving a win to a different night, after the fact.",
+    kind: "write",
+    group: "loot",
+    /*
+     * Separate from "loot.award" on purpose. Recording a win is the council's
+     * ordinary work; re-dating one that is already recorded rewrites what the
+     * guild was told happened, and every fairness and recency number reads
+     * that date. Same reason invariant 6 lets history be unlinked but never
+     * destroyed — the people who may correct the past are a smaller set than
+     * the people who may add to it.
+     */
+    implies: ["loot.view"],
+  },
   "priority.view": {
     label: "See the priority sheet",
     gates: "The council's spec priority sheet and per-item chains.",
@@ -163,7 +180,7 @@ export const CAPABILITIES: Record<Capability, CapabilityMeta> = {
   },
   "items.curate": {
     label: "Curate items",
-    gates: "Which boss and phase an item belongs to, and pinning a sheet name to an id.",
+    gates: "Which boss and phase an item belongs to, pinning a sheet name to an id, and what this guild counts as dropping from a boss.",
     kind: "write",
     group: "loot",
   },
@@ -175,8 +192,8 @@ export const CAPABILITIES: Record<Capability, CapabilityMeta> = {
     implies: ["roster.view"],
   },
   "guides.edit": {
-    label: "Write class guides",
-    gates: "The guild's own class and spec guides — a class lead's job, not the roster's.",
+    label: "Write guides",
+    gates: "The guild's own class, spec and boss guides — a class lead's job, not the roster's.",
     kind: "write",
     group: "guild",
   },

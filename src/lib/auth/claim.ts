@@ -100,7 +100,7 @@ const STARTER_ROLES = [
     name: "Officer",
     baseline: false,
     capabilities: [
-      "roster.edit", "loot.award", "priority.edit", "logs.edit",
+      "roster.edit", "loot.award", "loot.amend", "priority.edit", "logs.edit",
       "raid.plan", "import.run", "comments.write", "items.curate",
       // Administrative, and the reason succession's 30-day tier is not empty:
       // if every owner goes quiet, officers are who the guild expects to sort

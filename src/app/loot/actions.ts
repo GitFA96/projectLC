@@ -5,6 +5,7 @@ import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
 import { getRepo, getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
+import { actingOfficer } from "@/app/acting-officer";
 import type { Quality } from "@/lib/types";
 
 /**
@@ -80,7 +81,15 @@ const awardFieldsSchema = z.object({
 });
 
 const addAwardSchema = awardFieldsSchema.extend({ raidSessionId: z.string().min(1) });
-const updateAwardSchema = awardFieldsSchema.extend({ awardId: z.string().min(1) });
+const updateAwardSchema = awardFieldsSchema.extend({
+  awardId: z.string().min(1),
+  /**
+   * The day it was won, as the editor offers it. Absent means "leave it" —
+   * which is what every caller that isn't re-dating an award sends, so an
+   * ordinary edit can never re-stamp a Gargul timestamp by accident.
+   */
+  awardedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.").optional(),
+});
 
 export type AddAwardInput = z.infer<typeof addAwardSchema>;
 export type UpdateAwardInput = z.infer<typeof updateAwardSchema>;
@@ -135,15 +144,48 @@ export async function addAwardAction(input: AddAwardInput): Promise<LootActionRe
   }
 }
 
+/**
+ * Edit one recorded award.
+ *
+ * Two capabilities, because two different things can happen here. Correcting
+ * the item, the winner, the off-spec flag or the note is ordinary council work
+ * (`loot.award`). Moving the award to another **date** rewrites when the guild
+ * was told loot was won — recency, fairness windows and the ledger's own order
+ * all read that field — so it needs `loot.amend` on top, and the guild decides
+ * who holds it. The check is per-field rather than on the whole action: an
+ * officer without `loot.amend` can still fix a typo in a winner's name.
+ *
+ * Every change that lands is written to the guild audit log with the officer's
+ * name, in the same transaction as the edit.
+ */
 export async function updateAwardAction(input: UpdateAwardInput): Promise<LootActionResult> {
   const parsed = updateAwardSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid award." };
   try {
     requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
+    const existing = (await repo.listLootAwards()).find((a) => a.award.id === parsed.data.awardId);
+    if (!existing) return { ok: false, message: "That award no longer exists." };
+
+    // Keep the time of day: a Gargul import knows when the item dropped, and
+    // re-dating the night is no reason to throw that away.
+    const awardedAt = parsed.data.awardedAt
+      ? `${parsed.data.awardedAt}${existing.award.awardedAt.slice(10) || "T12:00:00"}`
+      : undefined;
+    if (awardedAt && awardedAt.slice(0, 10) !== existing.award.awardedAt.slice(0, 10)) {
+      // Resolved again rather than reused: `enforcement.test.ts` reads the
+      // call shape to prove a capability is enforced somewhere, and a check
+      // it cannot see is a checkbox in the grant editor that protects nothing.
+      requireCapability(await resolveViewer(), "loot.amend");
+    }
+
     const built = await buildAwardInput(repo, parsed.data);
     if ("error" in built) return { ok: false, message: built.error };
-    const result = await repo.updateLootAward(parsed.data.awardId, built);
+    const result = await repo.updateLootAward(
+      parsed.data.awardId,
+      { ...built, awardedAt },
+      await actingOfficer(),
+    );
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
     return { ok: true, message: "Award updated — wishlist matching re-derived." };
@@ -161,9 +203,10 @@ export async function deleteAwardsAction(input: DeleteAwardsInput): Promise<Loot
   try {
     requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
+    const officer = await actingOfficer();
     let deleted = 0;
     for (const id of parsed.data.awardIds) {
-      if (await repo.deleteLootAward(id)) deleted++;
+      if (await repo.deleteLootAward(id, officer)) deleted++;
     }
     if (deleted > 0) refreshAfterWrite("/", "layout");
     return { ok: true, message: `Deleted ${deleted} award${deleted === 1 ? "" : "s"}.` };
@@ -181,7 +224,7 @@ export async function deleteSessionAction(input: DeleteSessionInput): Promise<Lo
   try {
     requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
-    const result = await repo.deleteRaidSession(parsed.data.sessionId);
+    const result = await repo.deleteRaidSession(parsed.data.sessionId, await actingOfficer());
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
     const reportNote =

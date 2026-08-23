@@ -36,6 +36,7 @@ import { AwardItemButton, type AwardContext } from "@/components/award-item-cont
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { OffSpecConflict } from "@/components/loot/offspec-conflict";
+import { AwardEditButton } from "@/components/loot/award-edit-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -49,7 +50,7 @@ import { Button } from "@/components/ui/button";
 
 import { pageView } from "@/lib/auth/view";
 import { NoAccess } from "@/components/no-access";
-import { canSeeCharacter } from "@/lib/auth/can";
+import { can, canSeeCharacter } from "@/lib/auth/can";
 type Params = { name: string };
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
@@ -98,12 +99,13 @@ export default async function CharacterPage({
 
   const [{ name }, sp] = await Promise.all([params, searchParams]);
   const repo = await getRepo();
-  const [guild, bundle, sessions, performance, items] = await Promise.all([
+  const [guild, bundle, sessions, performance, items, roster] = await Promise.all([
     repo.getGuild(),
     repo.getCharacterBundle(decodeURIComponent(name)),
     repo.listRaidSessions(),
     repo.getCharacterPerformance(decodeURIComponent(name)),
     repo.listItems(),
+    repo.listCharacters(),
   ]);
   if (!bundle) notFound();
   if (!canSeeCharacter(access.viewer, bundle.character.id)) {
@@ -113,6 +115,18 @@ export default async function CharacterPage({
     bundle;
 
   const award: AwardContext = buildAwardContext(character, guild, sessions);
+
+  /*
+   * Correcting a recorded award is the ledger's write, offered here because
+   * this is where a wrong row gets noticed. Only the picker is shipped to the
+   * client — the winner list, not the roster summaries behind it.
+   */
+  const canEditAwards = can(access.viewer, "loot.award");
+  /* Re-dating an award is a separate grant — see `loot.amend`. */
+  const canAmendAwards = can(access.viewer, "loot.amend");
+  const awardRoster = canEditAwards
+    ? roster.map((c) => ({ id: c.character.id, name: c.character.name, wowClass: c.character.class }))
+    : [];
 
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
   const pinnedSlotIds = new Set(bundle.currentOverrides.map((o) => o.item.slot));
@@ -541,6 +555,7 @@ export default async function CharacterPage({
                   <TableHead className="w-24">Type</TableHead>
                   <TableHead className="w-28">Wishlist</TableHead>
                   <TableHead>Note</TableHead>
+                  {canEditAwards && <TableHead className="w-16" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -596,6 +611,31 @@ export default async function CharacterPage({
                     <TableCell className="text-xs text-muted-foreground">
                       {a.award.note ?? ""}
                     </TableCell>
+                    {canEditAwards && (
+                      <TableCell className="text-right">
+                        <AwardEditButton
+                          roster={awardRoster}
+                          canAmend={canAmendAwards}
+                          target={{
+                            mode: "edit",
+                            raidSessionId: a.session.id,
+                            sessionLabel: a.session.zones.join(" + "),
+                            sessionDate: a.session.date,
+                            award: {
+                              awardedAt: a.award.awardedAt,
+                              id: a.award.id,
+                              itemId: a.award.itemId,
+                              itemName: a.item?.name ?? a.award.itemName,
+                              winnerName: a.character?.name ?? a.award.rawWinnerName,
+                              winnerCharacterId: a.award.characterId ?? undefined,
+                              external: a.award.external,
+                              offspec: a.award.offspec,
+                              note: a.award.note,
+                            },
+                          }}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

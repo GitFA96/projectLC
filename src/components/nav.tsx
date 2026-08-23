@@ -81,7 +81,14 @@ export const SECTIONS: Section[] = [
       { href: "/sim", label: "Sim" },
     ],
   },
-  { href: "/guides", label: "Guides" },
+  {
+    href: "/guides",
+    label: "Guides",
+    pages: [
+      { href: "/guides", label: "Overview" },
+      { href: "/guides/raids", label: "Raids" },
+    ],
+  },
   /*
    * Running the service, not running a guild.
    *
@@ -97,6 +104,7 @@ export const SECTIONS: Section[] = [
     label: "Service",
     pages: [
       { href: "/service", label: "Overview" },
+      { href: "/service/drops", label: "Drop table" },
       { href: "/service/tenancy", label: "Tenancy" },
       { href: "/service/feedback", label: "Feedback" },
     ],

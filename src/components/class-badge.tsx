@@ -39,7 +39,16 @@ export function ClassBadge({
   );
 }
 
-/** Character name link in (legible) class color. */
+/**
+ * Character name link in (legible) class color.
+ *
+ * Underlined at rest, not only on hover. Class color already makes these names
+ * *stand out*, which is not the same as looking clickable — on a page like the
+ * loot plan, where every other coloured word is an item, a council reading down
+ * a boss had no way to tell the contenders were reachable without hovering
+ * each one. The underline is dotted and offset so a row of four names still
+ * reads as a row of names, and goes solid on hover to confirm the target.
+ */
 export function CharacterLink({
   name,
   wowClass,
@@ -52,7 +61,11 @@ export function CharacterLink({
   return (
     <Link
       href={`/characters/${encodeURIComponent(name.toLowerCase())}`}
-      className={cn("font-semibold hover:underline", className)}
+      className={cn(
+        "font-semibold underline decoration-dotted decoration-from-font underline-offset-2",
+        "opacity-100 transition-[text-decoration-color] hover:decoration-solid",
+        className,
+      )}
       style={{ color: CLASS_TEXT_COLORS[wowClass] }}
     >
       {name}

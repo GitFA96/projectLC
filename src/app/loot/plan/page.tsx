@@ -6,6 +6,7 @@ import { PHASES } from "@/lib/constants/wow";
 import { LootPlanView } from "@/components/loot/loot-plan-view";
 
 import { pageView } from "@/lib/auth/view";
+import { can } from "@/lib/auth/can";
 import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Loot plan" };
 
@@ -34,6 +35,13 @@ export default async function LootPlanPage({
   const zone = zones.find((z) => z === requested) ?? activeZones[0] ?? zones[0];
 
   const plan = await repo.getLootPlan(zone);
+  // Read for everyone who can see the plan; written only by whoever holds the
+  // same capability that gates a note on a character or an item.
+  const comments = await repo.listBossComments(zone);
+  const canComment = can(access.viewer, "comments.write");
+  // Same capability that gates "which boss does this item drop from" on the
+  // item's own page — the identical judgement, noticed here instead.
+  const canCurate = can(access.viewer, "items.curate");
 
   return (
     <div>
@@ -65,7 +73,12 @@ export default async function LootPlanPage({
         ))}
       </div>
 
-      <LootPlanView plan={plan} />
+      <LootPlanView
+        plan={plan}
+        comments={comments}
+        canComment={canComment}
+        canCurate={canCurate}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { LootView, type LootRow, type SessionOption } from "@/components/loot-view";
 
 import { pageView } from "@/lib/auth/view";
+import { can } from "@/lib/auth/can";
 import { NoAccess } from "@/components/no-access";
 export const metadata: Metadata = { title: "Loot ledger" };
 
@@ -27,6 +28,7 @@ export default async function LootPage() {
     awardedAt: a.award.awardedAt,
     sessionId: a.session.id,
     sessionLabel: a.session.zones.join(" + "),
+    sessionDate: a.session.date,
     phase: a.sessionPhase,
     item: {
       itemId: a.award.itemId,
@@ -76,6 +78,7 @@ export default async function LootPage() {
             name: c.character.name,
             wowClass: c.character.class,
           }))}
+          canAmend={can(access.viewer, "loot.amend")}
         />
       </Suspense>
     </div>

@@ -510,6 +510,34 @@ NULL means the award never came from the ranking (a Gargul import, a hand-added
 drop, an off-roster destination). It does **not** mean the winner scored zero,
 and no view may present it as if it did.
 
+## 4a2. Amend an award after it is recorded
+
+**Chain:** `updateLootAward` / `deleteLootAward` (the write **and** its audit
+line, one transaction) → `loot.amend` where a date moves → the `loot.*` kinds
+the audit page's **Ledger** tab reads.
+
+Three things here are easy to get half-right:
+
+- **The date and the raid session are different facts.** `awardedAt` is when the
+  item was won; the session is the import it arrived in. A re-date changes the
+  first and leaves the second, so the two can legitimately disagree and the
+  editor says so on screen. Re-filing the award under another night to keep them
+  aligned would rewrite a second raid's record to fix one row.
+- **An absent `awardedAt` means "leave it", never "today".** Every edit that
+  isn't a re-date omits it, which is what keeps a Gargul timestamp — including
+  its time of day, which survives a re-date too — from being quietly rounded to
+  noon by an unrelated fix.
+- **The audit line commits with the change.** Written inside the same
+  transaction from the repo, not logged beside it in the action: an award that
+  moved with nothing saying who moved it is the state this exists to prevent.
+  No actor, no line — the repo is also driven by imports and tests, and "an
+  officer" against a Gargul paste would be a lie in the record.
+
+`loot.award` records new loot; `loot.amend` rewrites recorded loot, and
+`can.test.ts` pins that neither implies the other. Everything derived from
+"when" — recency, fairness windows, ledger order — reads the date, which is why
+it is the one field with its own grant.
+
 ## 4b. Add a policy field
 
 **Chain:** `analysis/policy.ts` (type + default) → `db.ts` `sanitizePolicy` →
@@ -778,6 +806,39 @@ with something plausible, and a plausible id here puts the wrong item's tooltip
 under an officer's cursor mid-raid. Those rows land **unverified**, so the
 ordinary resolver still confirms them afterwards.
 
+**The priority sheet is also a drop table, and reading it as one is a third way
+`items.source` gets filled.** A sheet is written boss by boss, so every `###`
+heading states where the rows under it drop — a fact the loot plan needs and the
+cache often lacks, because ids learned from wishlists arrive with a name and
+nothing else. `sheetSectionSource` turns a heading into a zone and boss,
+`listSheetDropSources` matches it to cached rows with **no source at all**, and
+`applySheetItemSources` gap-fills them on the same press as the shipped table.
+Three rules keep it honest:
+
+- It writes `source` and nothing else. A section heading has no standing to
+  supply a name, an icon or a phase.
+- It only fills blanks, and it runs *after* `applyCuratedItemSources` — a
+  priority document read for provenance is weaker evidence than a drop table.
+  Measured against this guild's live cache the two sources disagree once in 189
+  rows, and that once is a leading article.
+- A heading it cannot place yields **nothing**. Same reasoning as the zone rule
+  above: a confident wrong zone is worse than a blank an officer fills in.
+
+**Boss names are compared with `bossKey`, and grouping by the raw string is a
+bug.** Wowhead files Black Temple's council under "Illidari Council"; the raid
+table and Warcraft Logs say "The Illidari Council". `bossKey` strips a leading
+article — from the *raw* name, where a following space proves it is a word, so
+that a future "Thekal" does not become "kal" — and carries a small alias table
+for names that differ outright ("Opera Event" against "Opera Hall"). Both
+failures were silent and both were live: the loot plan sorted the council's
+drops past Illidan, then, once the sheet had placed the rest of them, rendered
+him as two cards holding one and eight items. Nothing errored either time.
+
+**Trash is a drop source that is not an encounter.** `TBC_RAIDS` lists bosses,
+and a log has no "Trash" fight, so anything ordering a *zone's drops* rather
+than its kills has to place `TRASH_BOSS` itself — first, where the raid meets
+it. Left to the raid table it sorts with the unknowns, after the last boss.
+
 What no lookup can settle is a name two items share exactly — both Warglaives of
 Azzinoth are called "Warglaive of Azzinoth", and the sheet's "(Main Hand)" is the
 council's annotation rather than anyone's item name. That is what `sheet_item_ids`
@@ -795,6 +856,201 @@ Because they can be dropped, they have to be reachable: `setItemCuration` is
 the officer's way back, on the item's own page. **`items.source.zone` is the
 only thing that puts a drop on a raid's loot plan** (`getLootPlan` filters on
 it), so an item with no zone is invisible there however well known it is.
+
+## 4h2. The drop table has two layers, and only one of them is yours
+
+**Chain:** `boss_drops` (operator) + `guild_boss_drops` (one guild) →
+`mergeDropTable` → what that guild reads.
+
+What a boss drops is a **fact about the game** and belongs to whoever runs the
+service; what a guild does about it is a **judgement** and belongs to them.
+Welding the two together is what made a one-letter item-name typo — "Hammer of
+Judgment" against the real "Hammer of Judgement" — a code change and a deploy.
+
+Three rules, all of which fail quietly if broken:
+
+- **An overlay never mutates the foundation.** `mergeDropTable` copies; it does
+  not splice. An operator correcting a name must not silently revert a guild's
+  ruling, and a guild must never edit what another guild reads.
+- **There is no `move` action**, only `add` and `hide`. A move is a hide plus an
+  add, which is clumsier to write and impossible to half-apply — a single
+  `move` row would need a target that could name a boss the overlay does not
+  otherwise mention. An item that two bosses both drop is keyed per *pair*, so
+  hiding it under one leaves the other alone.
+- **The writer normalizes, exactly once.** `bossKey` and `normalizeItemName` are
+  applied on the way in, and every reader compares stored keys directly.
+  `rowKey` deliberately does NOT normalize again: a second, quieter normalizer
+  is how a writer and a reader come to disagree, and a fixture that reimplements
+  one is how that passes its tests. See the note on `rowKey`.
+
+**`sheetItemIdFor` is the single rule for "which item does this sheet row mean",
+and it consults the officer's pin first.** Three readers need it — the sheet
+page, the drop-source pass and the loot plan — and it used to be inline in one
+of them. The two newer readers matched on name alone, so a pinned drop rendered
+on the loot plan as unlinkable text *beside the very item it was pinned to*.
+Any fourth reader goes through the same function.
+
+## 4k. A guide has two owners and neither wins
+
+**Chain:** `guides(kind, subject, section, owner)` → `findGuides` → `GuidePanel`.
+
+`class_guides` became `guides` so that a **boss** could have one too, and so
+that both could be written twice over: the operator's shared baseline and the
+guild's own, side by side. That is a **key change**, so it needed a table
+rebuild rather than an `addColumn` — see `migrateClassGuidesToGuides` and its
+test in `identity.test.ts`. Existing rows are filed under the guild that wrote
+them; nothing becomes an operator baseline by accident.
+
+- **They are never merged.** `findGuides` returns both, and the page labels
+  them. Collapsing them would have to pick a winner and there is no winner:
+  the baseline says how a fight works, the guild's own says what they do about
+  it. A guild reading its own ruling and believing it shipped with the app is
+  the failure to avoid.
+- **The owner is resolved server-side and never taken from the client.** A form
+  that could name its own owner would let anyone holding `guides.edit` write the
+  shared baseline by changing one field. `asOperator` is a request; `isAppAdmin`
+  is the answer.
+- **`OPERATOR_OWNER` is a reserved string.** Guild ids are generated, so nothing
+  can claim it by accident — but a future id scheme must keep that true.
+- **Raid sections match on `bossKey`, class sections match exactly.** A guide
+  written while a source spelled him "Illidari Council" has to be found under
+  "The Illidari Council"; a class's specs are a closed set where a near miss is
+  a typo, not a spelling.
+
+**`requireCapability` must be written inline as
+`requireCapability(await resolveViewer(), "…")`.** `enforcement.test.ts` scans
+for exactly that shape, and a capability it cannot see is one it cannot prove is
+checked — which is §11's whole point. Hoisting the viewer into a variable to
+reuse it silently drops the capability off the enforced list.
+
+## 4h5. The drop table records how a drop was WRITTEN, not what it is CALLED
+
+**Chain:** `boss_drops.item_name` → `resolveDropNames` → the plan, the sheet,
+the boss page.
+
+A drop table is written by hand, in names, off a loot list. Eleven of this
+guild's 488 rows carried a spelling Wowhead disagrees with — eight are hyphen
+casing (`Blood-Stained` against `Blood-stained`), which `normalizeItemName`
+already reconciles; the rest are a real typo, a possessive, and the council's own
+annotation. So the stored name is **half the key and a record of what somebody
+typed** — never an authority on what the item is called. `getDropTable` reads
+the display name back off the item cache, which is what stops the table becoming
+a second copy that rots: a Wowhead correction reaches every reader at once.
+
+Two exceptions, both learned the hard way:
+
+- **A name two drops share is not corrected.** Both Warglaives of Azzinoth are
+  called "Warglaive of Azzinoth"; the sheet's "(Main Hand)" is the only thing
+  separating the two rows under Illidan and the two chains attached to them.
+  `resolveDropNames` counts resolved names per boss and leaves a colliding pair
+  as written, recording `resolvedName` so the row is still traceable.
+- **The loot plan has to be told.** It names a row from the item cache, so the
+  table's annotation never reached it and Illidan dropped the same thing twice.
+  `LootPlanEntry.displayName` carries it.
+
+**Dedupe on the ITEM, not the name.** The seed gathers from sheets and then from
+the item cache; keyed on the written name, the sheet's "Hammer of Judgment" and
+the cache's "Hammer of Judgement" are two rows for one drop, and since the
+table's key IS that name, no upsert will ever collapse them. Three of this
+guild's rows were duplicated exactly so. `listDuplicateDrops` finds them and
+`seedFoundationalDrops` clears them; the survivor is the spelling a priority
+sheet uses, because the sheet references the table and its wording may carry a
+distinction the item name cannot.
+
+## 4h4. A hidden drop still needs somewhere to live
+
+**Chain:** `guild_boss_drops` (action `hide`) → `getLootPlan` → `LootPlanBoss.hidden`.
+
+A hidden drop is, by definition, not on the plan — so there is no row to un-hide
+it from. `buildLootPlan` therefore carries hides separately and **keeps a card
+for a boss whose only trace is a hidden drop**, or the action is one-way and an
+officer who hid the wrong thing needs a developer.
+
+Two consequences that are easy to miss:
+
+- **`unmapped` is not "no items".** A boss with nothing showing but something
+  hidden was mapped and then emptied, which is a different state and a different
+  sentence on the card. `unmapped` has to consult the hides.
+- **The spine fires when there are hides, even with no drops at all.** The zone
+  is otherwise "nothing here yet", and the empty state would swallow the only
+  route back.
+
+`items.curate` gates this, the same capability as "which boss does this item
+drop from" on the item's own page — the identical judgement, reached from the
+page where an officer actually notices it. Keep its `gates` text in step; it is
+shown to whoever assigns roles.
+
+## 4h3. The loot plan reads the drop table, and the switchover must be invisible
+
+**Chain:** `getDropTable` → `getLootPlan` → `buildLootPlan`.
+
+The plan assembles, in order: cached items the zone drops, drops the table knows
+an id for that the cache has not attributed, drops the table names with no id at
+all, and finally the council's sheet for anything still unaccounted for. **The
+fourth source is what keeps a zone nobody has seeded from going blank** — remove
+it and switching the read path empties every plan until an operator presses a
+button.
+
+Two rules that fail silently:
+
+- **A guild's `hide` has to be applied to sources that do not come from the
+  table.** `getDropTable` applies the overlay to its own rows; a drop reaching
+  the plan from `items.source` or from a sheet heading arrives by another door
+  and would otherwise survive being hidden.
+- **That check keys on the PAIR, through `dropKey`.** Keyed on the item alone it
+  also hides the copy the guild just re-added under a different boss — which is
+  exactly how a move between bosses is written, so the common correction
+  silently half-applied. `sqlite-repo.test.ts` covers the move for this reason.
+
+`seedFoundationalDrops` **reads a guild's priority sheets**, which is worth
+knowing because `/service` otherwise never touches guild business. It takes the
+factual half only — boss heading, item name, slot wording — and leaves the chain
+and the notes column behind. Those are the council's judgement. If you extend
+the seed, keep that line: an operator console that quietly ingested a guild's
+rulings would break the promise the `/service` page makes in its own comment.
+
+## 4i. The loot plan has three inputs, and two of them are silent
+
+**Chain:** `store.getLootPlan` → `buildLootPlan(zone, entries, sheetDrops)` →
+`bossSpineFor`.
+
+The plan used to be one input — cached items filtered by `source.zone` — and a
+thin plan was indistinguishable from a thin cache. It now assembles three, and
+dropping any of them still renders a page that looks finished:
+
+1. **Cached drops.** As before. `items.source.zone` is still the only thing that
+   puts one on a plan.
+2. **The boss spine.** Every boss `TBC_RAIDS` names appears, `unmapped` when
+   nothing reached him. Omit it and four cards for a nine-boss raid read as a
+   complete plan. The spine is suppressed entirely when the zone has *nothing*,
+   so the view's empty state (which keys on `bosses.length === 0`) still fires —
+   nine empty cards would bury the only useful thing on that page.
+3. **Sheet-only drops.** Items the council's sheet names that no id exists for
+   anywhere. `getLootPlan` passes them; **a caller that forgets silently loses
+   every drop nobody has wishlisted or won**, which is most of a tier. They are
+   deduped against the whole item cache by name, not against the zone, because
+   a name with an id belongs to whichever plan its own attribution says.
+
+`LootPlanItem.itemId` is optional for (3) — there is no item page to link to and
+no icon to show. That one is *not* silent: it is a type error at every call site
+that assumed an id, which is why it was made optional rather than faked.
+
+## 4j. A council note is filed against a key, not a name
+
+**Chain:** `bossCommentKey` → `boss_comments(zone, boss_key)` → the plan's
+`LootPlanBoss.key`.
+
+Both halves matter and both fail quietly. **Zone** is part of the key because
+trash is a drop source in every raid, so "Trash" alone pools Hyjal's notes with
+Black Temple's. **`bossKey`** is the other half, so a note written while a source
+spelled him "Illidari Council" is still found once the plan heads the card "The
+Illidari Council" — the writer and the reader going through different
+normalizations means the note is stored, returns success, and never appears.
+
+The label is stored beside the key deliberately: the key is what a reader looks
+*up* by, the label is what they *recognise*, and neither substitutes for the
+other. Notes are appended and never edited — a decision that changed is a second
+note, and the first one is why it changed.
 
 ## 4g. Tier tokens and the pieces they buy
 

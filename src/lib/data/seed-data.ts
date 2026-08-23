@@ -60,6 +60,9 @@ export function loadSeedStore(): EntityStore {
     // Notes on an item are the council arguing with itself — there is nothing
     // to demo, and a fabricated one would read like a real decision.
     itemComments: [],
+    bossComments: [],
+    bossDrops: [],
+    guildBossDrops: [],
     // Bug reports are filed by whoever is running the app; the demo has none.
     feedback: [],
     // The seed demo has no accounts, so it has no memberships, roles or

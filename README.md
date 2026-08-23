@@ -149,7 +149,11 @@ who reached in from outside. **Every member can read it**, not just officers:
 the entries it exists hardest to surface are the ones the people being
 administered most need.
 
-Not loot decisions. Those are on the ledger, where they are defensible.
+Not loot decisions — those are on the ledger, where they are defensible. What
+the **Ledger** tab records is the ledger being *changed* afterwards: an award
+re-dated, edited or removed, and by whom. Re-dating one is its own permission
+(**Amend loot history**), because every recency and fairness number reads that
+date.
 
 ## Public preview `/guild/preview`
 

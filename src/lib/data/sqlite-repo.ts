@@ -15,12 +15,13 @@ import {
   getSheetItemIds,
   setSheetItemId,
   getPrioritySheets,
-  getClassGuides,
+  getGuides,
+  type StoredGuide,
   getWishlistAlternatives,
   setWishlistAlternative,
   deleteWishlistAlternative,
-  setClassGuide,
-  deleteClassGuide,
+  setGuide,
+  deleteGuide,
   setPrioritySheet,
   deletePrioritySheet,
   getGuildPolicy,
@@ -42,9 +43,16 @@ import {
   insertCharacterComment,
   insertItemComment,
   deleteItemComment,
+  insertBossComment,
+  deleteBossComment,
+  upsertBossDrops,
+  deleteBossDrop,
+  upsertGuildBossDrop,
+  deleteGuildBossDrop,
   insertFeedback,
   insertCurrentGearOverride,
   insertGearSet,
+  insertGuildAuditEntry,
   insertLootAward,
   insertRaidSession,
   insertWclPlayerFight,
@@ -69,9 +77,11 @@ import {
 } from "@/lib/data/db";
 import type { TokenRedemptionEdge } from "@/lib/items/tier-tokens";
 import { createRepoFromStore } from "@/lib/data/store";
+import type { Guide, GuideKind } from "@/lib/guides";
+import type { BossDropDraft } from "@/lib/loot/drop-table";
 import { normalizeItemName, parsePrioritySheet } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
-import { CLASS_SPECS, PHASE_IDS, WOW_CLASSES } from "@/lib/constants/wow";
+import { CLASS_SPECS, PHASE_IDS, WOW_CLASSES, bossKey } from "@/lib/constants/wow";
 import type { PolicyOverrides } from "@/lib/analysis/policy";
 import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
 import { renumber, type WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
@@ -81,6 +91,9 @@ import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
 import {
   characterCommentSchema,
   itemCommentSchema,
+  bossCommentSchema,
+  bossDropSchema,
+  guildBossDropSchema,
   characterSchema,
   feedbackReportSchema,
   currentGearOverrideSchema,
@@ -93,6 +106,7 @@ import {
 } from "@/lib/import/schemas";
 import type {
   AddCommentResult,
+  AwardAuditActor,
   AwardDraft,
   AwardEditInput,
   AwardResolution,
@@ -126,6 +140,9 @@ import type {
   Character,
   CharacterComment,
   ItemComment,
+  BossComment,
+  BossDrop,
+  GuildBossDrop,
   FeedbackReport,
   FeedbackStatus,
   CurrentGearOverride,
@@ -160,6 +177,19 @@ interface CachedModel {
 
 const globalCache = globalThis as unknown as { __projectlcModel?: CachedModel };
 
+/**
+ * Widen stored guides into the app's type.
+ *
+ * The column is TEXT, so a row written by a future version — or edited by hand
+ * — can carry a kind this build has never heard of. Those are dropped rather
+ * than cast: a guide filed under an unknown kind has no page to appear on, and
+ * pretending otherwise puts it somewhere it does not belong.
+ */
+function asGuides(rows: StoredGuide[]): Guide[] {
+  const kinds = new Set<string>(["class", "raid"]);
+  return rows.flatMap((r) => (kinds.has(r.kind) ? [{ ...r, kind: r.kind as GuideKind }] : []));
+}
+
 function readModel(): CachedModel {
   const db = getDb();
   const version = getDataVersion(db);
@@ -176,7 +206,7 @@ function readModel(): CachedModel {
       itemPriorityRules: getItemPriorityRules(db),
       prioritySheetsByPhase: getPrioritySheets(db),
       sheetItemIds: getSheetItemIds(db),
-      classGuides: getClassGuides(db),
+      guides: asGuides(getGuides(db)),
       wishlistAlternatives: getWishlistAlternatives(db) as WishlistAlternative[],
       enchantNames: getEnchantNames(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
@@ -221,6 +251,64 @@ function checkAwardInput(input: AwardEditInput): { ok: true } | { ok: false; err
     }
   }
   return { ok: true };
+}
+
+/** The day part of a stored award timestamp — what an officer means by "the date". */
+function awardDay(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+/**
+ * What the guild is told about an amendment, in the words a member would use.
+ *
+ * Only what moved. The log is read months later by somebody reconstructing a
+ * decision — "Thrainn, off-spec → main spec" answers that; a dump of every
+ * field, most of them unchanged, does not.
+ */
+function describeAwardEdit(before: LootAward, after: LootAward): string[] {
+  const changes: string[] = [];
+  if (before.itemId !== after.itemId) {
+    changes.push(`item ${before.itemName} → ${after.itemName}`);
+  }
+  if (awardDay(before.awardedAt) !== awardDay(after.awardedAt)) {
+    changes.push(`won ${awardDay(before.awardedAt)} → ${awardDay(after.awardedAt)}`);
+  }
+  if (before.rawWinnerName !== after.rawWinnerName || before.characterId !== after.characterId) {
+    changes.push(`winner ${before.rawWinnerName} → ${after.rawWinnerName}`);
+  }
+  if (before.offspec !== after.offspec) {
+    changes.push(after.offspec ? "main spec → off-spec" : "off-spec → main spec");
+  }
+  if ((before.note ?? "") !== (after.note ?? "")) changes.push("note changed");
+  return changes;
+}
+
+/**
+ * Write what an officer did to the ledger, in the transaction that did it.
+ *
+ * Same table the guild reads its governance from, under `loot.*` kinds so the
+ * audit page can keep the two streams apart — an award being re-dated is not
+ * the same kind of fact as somebody being given a role, and merging them would
+ * blur a line that page draws on purpose.
+ *
+ * Silent without an actor: the repo is also driven by tests and imports, and a
+ * line reading "an officer" for a Gargul paste would be a lie in the record.
+ */
+function auditAward(
+  db: ReturnType<typeof getDb>,
+  audit: AwardAuditActor | undefined,
+  kind: string,
+  detail: string,
+): void {
+  if (!audit) return;
+  insertGuildAuditEntry(db, {
+    id: `aud_${randomUUID().slice(0, 12)}`,
+    guildId: audit.guildId,
+    kind,
+    actor: audit.actor,
+    detail: detail.slice(0, 1000),
+    at: new Date().toISOString(),
+  });
 }
 
 /**
@@ -584,19 +672,34 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true as const };
   },
 
-  async setClassGuide(input: {
-    wowClass: string;
-    spec: string;
+  async setGuide(input: {
+    kind: GuideKind;
+    subject: string;
+    section: string;
+    owner: string;
     body: string;
     sources: string[];
     author?: string;
   }) {
-    if (!WOW_CLASSES.includes(input.wowClass as (typeof WOW_CLASSES)[number])) {
-      return { ok: false as const, error: `${input.wowClass} isn't a class this app knows.` };
+    const section = input.section.trim();
+    // A class guide's subject and section are a closed set, so a typo is a
+    // refusal rather than a row nobody will ever find. A raid guide's are not:
+    // the boss list gains rows, and an operator writing about something the
+    // table has not heard of yet is the same judgement call as a note on a
+    // drop source nobody has named. See `addBossComment`.
+    if (input.kind === "class") {
+      if (!WOW_CLASSES.includes(input.subject as (typeof WOW_CLASSES)[number])) {
+        return { ok: false as const, error: `${input.subject} isn't a class this app knows.` };
+      }
+      if (section && !CLASS_SPECS[input.subject as (typeof WOW_CLASSES)[number]].includes(section)) {
+        return { ok: false as const, error: `${input.subject} has no spec called "${section}".` };
+      }
     }
-    const spec = input.spec.trim();
-    if (spec && !CLASS_SPECS[input.wowClass as (typeof WOW_CLASSES)[number]].includes(spec)) {
-      return { ok: false as const, error: `${input.wowClass} has no spec called "${spec}".` };
+    if (!input.subject.trim()) {
+      return { ok: false as const, error: "A guide needs a subject." };
+    }
+    if (!input.owner.trim()) {
+      return { ok: false as const, error: "A guide needs an owner." };
     }
     const db = getDb();
     const body = input.body.trim();
@@ -606,22 +709,24 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     if (!body) {
       let deleted = false;
       withTx(db, () => {
-        deleted = deleteClassGuide(db, input.wowClass, spec);
+        deleted = deleteGuide(db, input.kind, input.subject, section, input.owner);
         if (deleted) bumpDataVersion(db);
       });
       return { ok: true as const, deleted };
     }
     withTx(db, () => {
-      setClassGuide(db, {
-        wowClass: input.wowClass,
-        spec,
+      setGuide(db, {
+        kind: input.kind,
+        subject: input.subject,
+        section,
+        owner: input.owner,
         body,
         sources: input.sources.map((x) => x.trim()).filter(Boolean),
         author: input.author?.trim() || undefined,
       });
       bumpDataVersion(db);
     });
-    return { ok: true as const };
+    return { ok: true as const, deleted: false };
   },
 
   async deletePrioritySheet(phase: number) {
@@ -853,7 +958,11 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return { ok: true, award: parsed.data };
   },
 
-  async updateLootAward(awardId: string, input: AwardEditInput): Promise<AwardWriteResult> {
+  async updateLootAward(
+    awardId: string,
+    input: AwardEditInput,
+    audit?: AwardAuditActor,
+  ): Promise<AwardWriteResult> {
     const existing = readModel().store.lootAwards.find((a) => a.id === awardId);
     if (!existing) return { ok: false, error: "Award not found — it may have been removed." };
     const check = checkAwardInput(input);
@@ -868,37 +977,61 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
       itemName: input.itemName.trim(),
       offspec: input.offspec,
       note: input.note?.trim() || undefined,
+      // Absent leaves the stored timestamp alone — an edit that doesn't touch
+      // the date must not quietly re-stamp it (a Gargul import's time of day is
+      // real information, and noon-on-the-day would throw it away).
+      awardedAt: input.awardedAt ?? existing.awardedAt,
     } satisfies LootAward);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid award." };
     const award = parsed.data;
+    const changes = describeAwardEdit(existing, award);
 
     const db = getDb();
     withTx(db, () => {
       db.prepare(
         `UPDATE loot_awards
-            SET character_id = ?, external = ?, raw_winner_name = ?, item_id = ?, item_name = ?, offspec = ?, note = ?
+            SET character_id = ?, external = ?, raw_winner_name = ?, item_id = ?, item_name = ?, offspec = ?, note = ?, awarded_at = ?
           WHERE id = ?`,
       ).run(
         award.characterId, award.external ? 1 : 0, award.rawWinnerName, award.itemId,
-        award.itemName, award.offspec ? 1 : 0, award.note ?? null, awardId,
+        award.itemName, award.offspec ? 1 : 0, award.note ?? null, award.awardedAt, awardId,
       );
+      // Nothing moved, nothing to tell the guild — an officer opening the
+      // editor and saving unchanged is not an event.
+      if (changes.length > 0) {
+        auditAward(db, audit, "loot.amended", `${award.itemName} — ${changes.join("; ")}.`);
+      }
       bumpDataVersion(db);
     });
     return { ok: true, award };
   },
 
-  async deleteLootAward(awardId: string): Promise<boolean> {
+  async deleteLootAward(awardId: string, audit?: AwardAuditActor): Promise<boolean> {
+    const existing = readModel().store.lootAwards.find((a) => a.id === awardId);
     const db = getDb();
     let deleted = false;
     withTx(db, () => {
       deleted = Number(db.prepare("DELETE FROM loot_awards WHERE id = ?").run(awardId).changes) > 0;
-      if (deleted) bumpDataVersion(db);
+      if (deleted) {
+        // The row is gone; the record of it going is the only thing left that
+        // can explain why a raider's history is one item shorter.
+        if (existing) {
+          auditAward(
+            db,
+            audit,
+            "loot.removed",
+            `${existing.itemName} — ${existing.rawWinnerName}, won ${awardDay(existing.awardedAt)} — removed from the ledger.`,
+          );
+        }
+        bumpDataVersion(db);
+      }
     });
     return deleted;
   },
 
-  async deleteRaidSession(raidSessionId: string): Promise<DeleteSessionResult> {
-    if (!readModel().store.raidSessions.some((s) => s.id === raidSessionId)) {
+  async deleteRaidSession(raidSessionId: string, audit?: AwardAuditActor): Promise<DeleteSessionResult> {
+    const session = readModel().store.raidSessions.find((s) => s.id === raidSessionId);
+    if (!session) {
       return { ok: false, error: "Raid session not found — maybe already removed." };
     }
     const db = getDb();
@@ -913,6 +1046,17 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
         db.prepare("UPDATE wcl_reports SET raid_session_id = NULL WHERE raid_session_id = ?").run(raidSessionId).changes,
       );
       db.prepare("DELETE FROM raid_sessions WHERE id = ?").run(raidSessionId);
+      // Deleting the import is the other way awards leave the ledger, and it
+      // takes several at once. Recording only the single-award path would
+      // leave the bigger act as the unwatched one.
+      if (deletedAwards > 0) {
+        auditAward(
+          db,
+          audit,
+          "loot.removed",
+          `${session.date} ${session.zones.join(" + ")} — import deleted, ${deletedAwards} award${deletedAwards === 1 ? "" : "s"} removed.`,
+        );
+      }
       bumpDataVersion(db);
     });
     return { ok: true, deletedAwards, unlinkedReports };
@@ -1148,6 +1292,157 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return deleted;
   },
 
+  async upsertBossDrops(drafts: BossDropDraft[]): Promise<number> {
+    if (drafts.length === 0) return 0;
+    const now = new Date().toISOString();
+    // Normalization happens once, here, on the way in. Every reader then
+    // compares stored keys directly — see the note on `rowKey` in drop-table.ts
+    // for why a second normalizer is the thing to avoid.
+    const rows = drafts.flatMap((d) => {
+      const parsed = bossDropSchema.safeParse({
+        zone: d.zone.trim(),
+        bossKey: bossKey(d.boss),
+        boss: d.boss.trim(),
+        itemKey: normalizeItemName(d.itemName),
+        itemName: d.itemName.trim(),
+        itemId: d.itemId,
+        slotLabel: d.slotLabel?.trim() || undefined,
+        note: d.note?.trim() || undefined,
+        author: d.author?.trim() || undefined,
+        updatedAt: now,
+      } satisfies BossDrop);
+      return parsed.success ? [parsed.data] : [];
+    });
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = upsertBossDrops(db, rows);
+      // The drop table feeds the loot plan, so a write nobody rebuilds for is a
+      // write that stays invisible until restart.
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
+  async deleteBossDrop(zone: string, boss: string, itemName: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = deleteBossDrop(db, zone, bossKey(boss), normalizeItemName(itemName));
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
+  async seedFoundationalDrops(): Promise<{
+    fromSheets: number;
+    fromCache: number;
+    deduped: number;
+  }> {
+    // The read model does the gathering and the parsing; this only writes.
+    const { drafts, fromSheets, fromCache } = await readModel().repo.listKnownDropSources();
+    await this.upsertBossDrops(drafts);
+
+    // Then clear any row listing one item twice under one boss. An earlier
+    // version of the gather keyed only on the written name, so the sheet's
+    // spelling and the item's own spelling each produced a row; the table's key
+    // is that name, so an upsert can never collapse them afterwards.
+    const doomed = await readModel().repo.listDuplicateDrops();
+    let deduped = 0;
+    for (const row of doomed) {
+      if (await this.deleteBossDrop(row.zone, row.boss, row.itemName)) deduped += 1;
+    }
+    return { fromSheets, fromCache, deduped };
+  },
+
+  async setGuildDropOverride(input: {
+    zone: string;
+    boss: string;
+    itemName: string;
+    itemId?: number;
+    action: "add" | "hide";
+    note?: string;
+    author?: string;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const parsed = guildBossDropSchema.safeParse({
+      guildId: readModel().store.guild.id,
+      zone: input.zone.trim(),
+      bossKey: bossKey(input.boss),
+      boss: input.boss.trim(),
+      itemKey: normalizeItemName(input.itemName),
+      itemName: input.itemName.trim(),
+      itemId: input.itemId,
+      action: input.action,
+      note: input.note?.trim() || undefined,
+      author: input.author?.trim() || undefined,
+      updatedAt: new Date().toISOString(),
+    } satisfies GuildBossDrop);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid override." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      upsertGuildBossDrop(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true };
+  },
+
+  async clearGuildDropOverride(zone: string, boss: string, itemName: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = deleteGuildBossDrop(
+        db, readModel().store.guild.id, zone, bossKey(boss), normalizeItemName(itemName),
+      );
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
+  async addBossComment(input: {
+    zone: string;
+    boss: string;
+    body: string;
+    author?: string;
+  }): Promise<{ ok: true; comment: BossComment } | { ok: false; error: string }> {
+    // The boss is deliberately NOT checked against the raid table. Officers
+    // write notes about drop sources the table has never named — a rare spawn,
+    // a trash pack worth stopping for — and the same reasoning applies as to an
+    // item comment on a drop the cache has not seen: a note is how that gets
+    // recorded, not something to refuse until the table catches up.
+    const parsed = bossCommentSchema.safeParse({
+      zone: input.zone.trim(),
+      // Stored both ways on purpose: the key is what a reader looks up by, the
+      // label is what they recognise. See the table comment in db.ts.
+      bossKey: bossKey(input.boss),
+      boss: input.boss.trim(),
+      body: input.body.trim(),
+      author: input.author?.trim() || undefined,
+      id: `bc_${randomUUID()}`,
+      createdAt: new Date().toISOString(),
+    } satisfies BossComment);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid note." };
+    }
+    const db = getDb();
+    withTx(db, () => {
+      insertBossComment(db, parsed.data);
+      bumpDataVersion(db);
+    });
+    return { ok: true, comment: parsed.data };
+  },
+
+  async deleteBossComment(id: string): Promise<boolean> {
+    const db = getDb();
+    let deleted = false;
+    withTx(db, () => {
+      deleted = deleteBossComment(db, id);
+      if (deleted) bumpDataVersion(db);
+    });
+    return deleted;
+  },
+
   async addFeedback(draft: FeedbackDraft): Promise<AddFeedbackResult> {
     const parsed = feedbackReportSchema.safeParse({
       ...draft,
@@ -1375,6 +1670,17 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     // have none, so this can be pressed repeatedly and can never overwrite an
     // officer's answer with the shipped one.
     return this.addItemsIfMissing(loadSeedStore().items);
+  },
+
+  async applySheetItemSources(): Promise<number> {
+    // The read model has already done the judgement — matched sheet names to
+    // cached rows and turned each section heading into a zone and boss — so
+    // this is the same gap-filling merge as its neighbour, with a different
+    // source of answers. `id` and `source` only: naming any other field here
+    // would let a section heading fill in a name or an icon, which it has no
+    // standing to do.
+    const proposals = await readModel().repo.listSheetDropSources();
+    return this.addItemsIfMissing(proposals.map(({ id, source }) => ({ id, source })));
   },
 
   async harvestItemCache(): Promise<number> {
@@ -1610,6 +1916,15 @@ export function getSqliteRepo(): WriteRepo {
     listAbilities: async () => getAbilities(getDb()),
     listEncounterNames: () => readModel().repo.listEncounterNames(),
     listUnmatchedSheetNames: () => readModel().repo.listUnmatchedSheetNames(),
+    listBossComments: (zone: string) => readModel().repo.listBossComments(zone),
+    listGuides: () => readModel().repo.listGuides(),
+    getDropTable: (zone: string) => readModel().repo.getDropTable(zone),
+    listFoundationalDrops: (zone?: string) => readModel().repo.listFoundationalDrops(zone),
+    getFoundationalDropTable: (zone: string) => readModel().repo.getFoundationalDropTable(zone),
+    listGuildDropOverrides: (zone?: string) => readModel().repo.listGuildDropOverrides(zone),
+    listDuplicateDrops: () => readModel().repo.listDuplicateDrops(),
+    listKnownDropSources: () => readModel().repo.listKnownDropSources(),
+    listSheetDropSources: () => readModel().repo.listSheetDropSources(),
     getReportConsumableAdjustments: async (code) => getReportConsumableAdjustments(getDb(), code),
     listConsumableAdjustments: async () => getAllConsumableAdjustments(getDb()),
     listUnresolvedItemIds: () => readModel().repo.listUnresolvedItemIds(),
@@ -1624,7 +1939,6 @@ export function getSqliteRepo(): WriteRepo {
     getRosterStanding: () => readModel().repo.getRosterStanding(),
     getDevelopment: (characterId: string) => readModel().repo.getDevelopment(characterId),
     listGearSets: () => readModel().repo.listGearSets(),
-    listClassGuides: () => readModel().repo.listClassGuides(),
     listItemComments: (itemId: number) => readModel().repo.listItemComments(itemId),
     countItemComments: () => readModel().repo.countItemComments(),
     listWishlistAlternatives: () => readModel().repo.listWishlistAlternatives(),
@@ -1654,7 +1968,7 @@ export function getSqliteRepo(): WriteRepo {
         itemPriorityRules: getItemPriorityRules(db),
         prioritySheetsByPhase: getPrioritySheets(db),
         sheetItemIds: getSheetItemIds(db),
-        classGuides: getClassGuides(db),
+        guides: asGuides(getGuides(db)),
         enchantNames: getEnchantNames(db),
         consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
       });

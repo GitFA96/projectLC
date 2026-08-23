@@ -12,7 +12,15 @@ import { computeItemContention } from "@/lib/analysis/contention";
 import { tokenRedemptions } from "@/lib/items/tier-tokens";
 import { buildRosterStanding } from "@/lib/analysis/standing";
 import { buildDevelopmentSeries, parseTrend } from "@/lib/analysis/development";
-import { buildLootPlan } from "@/lib/analysis/loot-plan";
+import { buildLootPlan, type LootPlanEntry, type LootPlanSheetDrop } from "@/lib/analysis/loot-plan";
+import { bossCommentKey } from "@/lib/loot/boss-notes";
+import {
+  dropKey,
+  mergeDropTable,
+  resolveDropNames,
+  type BossDropDraft,
+  type MergedDrop,
+} from "@/lib/loot/drop-table";
 import { applyCurrentGearOverrides, offSpecGearSet } from "@/lib/analysis/current-gear";
 import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enchants";
 import { computeFairness } from "@/lib/analysis/fairness";
@@ -27,12 +35,13 @@ import {
   parsePrioritySheet,
   type PrioritySheetRule,
 } from "@/lib/loot/priority-sheet";
+import { sheetSectionSource } from "@/lib/loot/sheet-sources";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { resolvePolicy, type PolicyOverrides } from "@/lib/analysis/policy";
 import { buildPolicyPreview } from "@/lib/analysis/policy-preview";
-import type { ClassGuide } from "@/lib/guides";
+import type { Guide } from "@/lib/guides";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
-import { PHASE_IDS, phaseForZones, raidOfBoss } from "@/lib/constants/wow";
+import { PHASE_IDS, bossKey, phaseForZones, raidOfBoss } from "@/lib/constants/wow";
 import { itemDisplayName } from "@/lib/items/item-data";
 import { fingerprintRows, specFingerprints, specOfPull } from "@/lib/sim/profile";
 import type {
@@ -43,6 +52,9 @@ import type {
   CharacterBundle,
   CharacterComment,
   ItemComment,
+  BossComment,
+  BossDrop,
+  GuildBossDrop,
   CharacterComparisonView,
   FeedbackReport,
   GuildAuditEntry,
@@ -103,6 +115,9 @@ export interface EntityStore {
   characterComments: CharacterComment[];
   /** Notes on an item — raider's or officer's. Never scored; see repo.listItemComments. */
   itemComments: ItemComment[];
+  bossComments: BossComment[];
+  bossDrops: BossDrop[];
+  guildBossDrops: GuildBossDrop[];
   /**
    * Bug reports filed from the app. Not guild data and not derived from
    * anything — it rides along here so both backends answer `listFeedback`
@@ -284,7 +299,7 @@ export interface StoreConfig {
     { markdown: string; author?: string; note?: string; updatedAt: string }
   >;
   /** The guild's own class/spec guides, as written by its officers. */
-  classGuides?: ClassGuide[];
+  guides?: Guide[];
   /** Per-slot fallbacks a raider will take when their BiS doesn't drop. */
   wishlistAlternatives?: WishlistAlternative[];
   /** Enchant ids resolved from the enchantment table, for the gear panel. */
@@ -339,7 +354,7 @@ function memoizeViews(repo: Repo): Repo {
 }
 
 export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}): Repo {
-  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, itemComments, feedback } = store;
+  const { guild, roster, items, gearSets, currentGearOverrides, raidSessions, lootAwards, wclReports, wclPlayerFights, wclPlayerOffPull, attendanceExemptions, characterComments, itemComments, bossComments, bossDrops, guildBossDrops, feedback } = store;
 
   /*
    * Sheets parsed per READ MODEL, never per process.
@@ -368,6 +383,33 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       indexedSheets.set(phase, index);
     }
     return index;
+  }
+
+  /**
+   * Which item id a name on the council's sheet refers to.
+   *
+   * Three readers need this and they must not disagree: the sheet page (so a
+   * row renders with an icon), the drop-source pass (so the item learns which
+   * boss drops it) and the loot plan (so a drop is not listed twice, once as a
+   * real item and once as bare text).
+   *
+   * **The officer's pin wins over the name match**, because they set it exactly
+   * when the name could not be matched or matched the wrong thing. The sheet
+   * says "Hammer of Judgment" and the item is "Hammer of Judgement"; the exact-
+   * name rule that keeps a misspelling from resolving to a plausible wrong item
+   * is also what leaves this one unmatched, and the pin is the way back.
+   *
+   * This lived inline in `getPrioritySheet` and nowhere else, which is how two
+   * newer readers came to match on name alone — and why a pinned drop appeared
+   * on the loot plan as unlinkable text beside the very item it was pinned to.
+   */
+  const itemIdByName = new Map<string, number>();
+  for (const item of items) {
+    if (item.name) itemIdByName.set(normalizeItemName(item.name), item.id);
+  }
+  function sheetItemIdFor(itemName: string): number | undefined {
+    const key = normalizeItemName(itemName);
+    return config.sheetItemIds?.[key] ?? itemIdByName.get(key);
   }
 
   /** The policy in force, resolved once — every score below reads it. */
@@ -403,6 +445,14 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
   // Item notes, newest first, keyed by item. Both kinds live together: a note
   // about one raider's claim and a note about the item itself belong on the
   // same page, and the council reads them as one thread.
+  // Keyed `zone|bossKey`: trash is a drop source in every raid, so a boss key
+  // alone would pool Hyjal's trash notes with Black Temple's.
+  const bossCommentsByBoss = new Map<string, BossComment[]>();
+  for (const c of [...bossComments].sort((a, b) => compareText(b.createdAt, a.createdAt))) {
+    const key = bossCommentKey(c.zone, c.bossKey);
+    bossCommentsByBoss.set(key, [...(bossCommentsByBoss.get(key) ?? []), c]);
+  }
+
   const itemCommentsByItem = new Map<number, ItemComment[]>();
   for (const c of [...itemComments].sort((a, b) => compareText(b.createdAt, a.createdAt))) {
     const list = itemCommentsByItem.get(c.itemId) ?? [];
@@ -575,7 +625,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
    * every drop a boss has, most of which the item cache has never seen — so any
    * name the app knows for the item is worth trying.
    */
-  function priorityRuleFor(itemId: number, ...names: (string | undefined)[]): ItemPriorityRule | undefined {
+  function priorityRuleFor(...names: (string | undefined)[]): ItemPriorityRule | undefined {
     const keys = names
       .filter((n): n is string => n !== undefined && n.trim() !== "")
       .map(normalizeItemName);
@@ -613,7 +663,6 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         };
       }
     }
-    void itemId;
     return undefined;
   }
 
@@ -630,7 +679,6 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       alternatives: config.wishlistAlternatives,
       redemptions,
       priorityRule: priorityRuleFor(
-        itemId,
         item?.name,
         lootAwards.find((a) => a.itemId === itemId)?.itemName,
         gearSets.flatMap((s) => s.slots).find((s) => s.itemId === itemId)?.itemName,
@@ -1209,6 +1257,47 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return [...missing.values()].sort((a, b) => compareText(a, b));
     },
 
+    /**
+     * Drops the council's sheet can place and the cache cannot.
+     *
+     * The sheet is written boss by boss, so its headings already say where 64
+     * of this guild's own Phase 3 items come from — three whole Black Temple
+     * bosses' worth. The cache learned those ids from wishlists, which carry a
+     * name and nothing else, so they have no zone; and `items.source.zone` is
+     * the only thing that puts a drop on a raid's loot plan. They were invisible
+     * there while sitting in plain sight on the priority page.
+     *
+     * Only rows with **no source at all** are offered. A row that already has
+     * one is either Wowhead's answer or an officer's, and both outrank a section
+     * heading — the gap-filling writer would refuse it anyway, so proposing it
+     * would only inflate the count the officer is shown.
+     */
+    async listSheetDropSources(): Promise<{ id: number; source: { zone: string; boss: string } }[]> {
+      const out: { id: number; source: { zone: string; boss: string } }[] = [];
+      const seen = new Set<number>();
+      // Driven from the sheet's rows, not from the cache's names, so an
+      // officer's pin is honoured: the sheet's "Hammer of Judgment" and the
+      // cache's "Hammer of Judgement" are the same drop only because somebody
+      // said so, and matching on the name alone silently missed it.
+      //
+      // Every phase, like the name lookup beside it: a sheet written for a tier
+      // nobody has raided yet is exactly the one the cache knows least about.
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) {
+          const id = sheetItemIdFor(rule.itemName);
+          if (id === undefined || seen.has(id)) continue;
+          // Only rows with no source at all. One that has one was answered by
+          // Wowhead or by an officer, and both outrank a section heading.
+          if (itemsById.get(id)?.source?.zone) continue;
+          const source = sheetSectionSource(rule.source);
+          if (!source) continue;
+          seen.add(id);
+          out.push({ id, source });
+        }
+      }
+      return out;
+    },
+
     async listEncounterNames(): Promise<string[]> {
       return [...new Set(wclPlayerFights.map((r) => r.encounterName))].sort((a, b) =>
         compareText(a, b),
@@ -1232,14 +1321,152 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     },
 
     async getLootPlan(zone: string) {
-      // Every cached item the zone drops. The cache is the only thing that
-      // knows a drop table, and it only knows what has been imported — so a
-      // thin plan means a thin item cache, not a generous boss.
       const target = zone.toLowerCase();
-      const entries = items
-        .filter((i) => (i.source?.zone ?? "").toLowerCase() === target)
-        .map((item) => ({ item, contention: contentionFor(item.id) }));
-      return buildLootPlan(zone, entries);
+
+      // The drop table first — foundational rows with this guild's overlay
+      // applied. Where it names a boss for a drop, it wins: that is what makes
+      // it the drop table rather than a second opinion. `items.source.boss`
+      // stays the fallback for anything nobody has told it about.
+      const table = await this.getDropTable(zone);
+      const bossByItemId = new Map<number, string>();
+      const bossByItemKey = new Map<string, string>();
+      // What the table calls a drop, for the rows where that says more than the
+      // item's own name does — see `LootPlanEntry.displayName`.
+      const nameByItemId = new Map<number, string>();
+      for (const drop of table) {
+        if (drop.itemId !== undefined) {
+          bossByItemId.set(drop.itemId, drop.boss);
+          if (drop.resolvedName) nameByItemId.set(drop.itemId, drop.itemName);
+        }
+        if (!bossByItemKey.has(drop.itemKey)) bossByItemKey.set(drop.itemKey, drop.boss);
+      }
+
+      // A hide is the one overlay action that has to REMOVE something, and
+      // `getDropTable` has already applied it to the table's own rows. It still
+      // has to be applied to drops that reach the plan from the ITEM CACHE
+      // instead, or a hidden drop reappears by the other door.
+      //
+      // Keyed on the pair, through the table's own `dropKey`: keying on the
+      // item alone also hid the copy a guild had just re-added under a
+      // different boss, which is exactly how a move between bosses is written.
+      const hidden = new Set(
+        guildBossDrops
+          .filter(
+            (d) => d.guildId === guild.id && d.zone.toLowerCase() === target && d.action === "hide",
+          )
+          .map((d) => dropKey(d.bossKey, d.itemKey)),
+      );
+
+      // Which pairs this guild added themselves, so the plan can say so on a
+      // row that would otherwise look like everybody else's.
+      const guildAdded = new Set(
+        guildBossDrops
+          .filter(
+            (d) => d.guildId === guild.id && d.zone.toLowerCase() === target && d.action === "add",
+          )
+          .map((d) => dropKey(d.bossKey, d.itemKey)),
+      );
+
+      // What they have taken off a boss. Not on the plan by definition, and
+      // carried anyway: a hidden drop has no row to un-hide from.
+      const hiddenDrops = guildBossDrops
+        .filter(
+          (d) => d.guildId === guild.id && d.zone.toLowerCase() === target && d.action === "hide",
+        )
+        .map((d) => ({ itemName: d.itemName, itemId: d.itemId, boss: d.boss }));
+
+      const entries: LootPlanEntry[] = [];
+      const covered = new Set<string>();
+      const claim = (name: string | undefined): string | undefined => {
+        if (!name) return undefined;
+        const key = normalizeItemName(name);
+        if (covered.has(key)) return undefined;
+        covered.add(key);
+        return key;
+      };
+
+      // 1. Cached items the zone drops. Still first: they carry the contention,
+      //    the icon and the id, and nothing here is allowed to lose them.
+      for (const item of items) {
+        if ((item.source?.zone ?? "").toLowerCase() !== target) continue;
+        const key = item.name ? normalizeItemName(item.name) : undefined;
+        const boss = bossByItemId.get(item.id) ?? (key ? bossByItemKey.get(key) : undefined);
+        // The pair the guild would have hidden is this item under whichever
+        // boss the plan is about to file it under — the table's answer if it has
+        // one, the cache's otherwise.
+        const under = boss ?? item.source?.boss;
+        if (key && under && hidden.has(dropKey(bossKey(under), key))) continue;
+        if (key) covered.add(key);
+        entries.push({
+          item,
+          contention: contentionFor(item.id),
+          boss,
+          guildAdded: guildAdded.has(dropKey(bossKey(under ?? ""), key ?? "")),
+          displayName: nameByItemId.get(item.id),
+        });
+      }
+
+      // 2. Drops the table knows an id for that the cache has not attributed to
+      //    this zone. This is the table earning its keep: an operator says
+      //    Supremus drops it and it appears, without anyone curating the item.
+      for (const drop of table) {
+        // No hide check: `getDropTable` already applied the overlay to these.
+        if (drop.itemId === undefined) continue;
+        const item = itemsById.get(drop.itemId);
+        if (!item || !claim(item.name ?? drop.itemName)) continue;
+        entries.push({
+          item,
+          contention: contentionFor(item.id),
+          boss: drop.boss,
+          guildAdded: drop.origin === "guild",
+          displayName: nameByItemId.get(item.id),
+        });
+      }
+
+      // 3. Drops the table names but nothing has an id for. Rendered by name,
+      //    with no icon and nothing to click — see `sheetOnly`.
+      const sheetDrops: LootPlanSheetDrop[] = [];
+      for (const drop of table) {
+        if (drop.itemId !== undefined) continue;
+        if (!claim(drop.itemName)) continue;
+        sheetDrops.push({
+          itemName: drop.itemName,
+          boss: drop.boss,
+          chain: priorityRuleFor(drop.itemName)?.chain,
+          slotLabel: drop.slotLabel,
+          guildAdded: drop.origin === "guild",
+        });
+      }
+
+      // 4. Finally the council's own sheet, for anything still unaccounted for.
+      //    This is what carries a zone whose drop table nobody has seeded yet —
+      //    without it, switching the plan to the table would have emptied every
+      //    page until an operator pressed a button.
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) {
+          const key = normalizeItemName(rule.itemName);
+          if (covered.has(key)) continue;
+          // `sheetItemIdFor`, not a name match: a pinned row HAS an item, and
+          // listing it here too put it on the plan twice — once as the real
+          // drop and once as bare text that could not be clicked.
+          if (sheetItemIdFor(rule.itemName) !== undefined) continue;
+          const source = sheetSectionSource(rule.source);
+          if (!source || source.zone.toLowerCase() !== target) continue;
+          if (hidden.has(dropKey(bossKey(source.boss), key))) continue;
+          covered.add(key);
+          sheetDrops.push({
+            itemName: rule.itemName,
+            boss: source.boss,
+            // Through the same lookup every other view uses, so an officer's
+            // edited chain shows here too — a plan quoting the seeded sheet
+            // while the item page quoted the edit would be worse than no chain.
+            chain: priorityRuleFor(rule.itemName)?.chain,
+            slotLabel: rule.slotLabel,
+          });
+        }
+      }
+
+      return buildLootPlan(zone, entries, sheetDrops, hiddenDrops);
     },
 
     async getRosterStanding() {
@@ -1259,6 +1486,204 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       );
     },
 
+    /**
+     * The drop table this guild reads for one zone: the foundational one with
+     * their own additions and removals laid over it.
+     *
+     * The overlay is filtered to THIS guild here rather than in the merge, so
+     * the pure layer never has to know which guild is asking — and so a bug in
+     * the filter is a bug in one place rather than in every caller.
+     */
+    async getDropTable(zone: string): Promise<MergedDrop[]> {
+      const target = zone.toLowerCase();
+      const merged = mergeDropTable(
+        bossDrops.filter((d) => d.zone.toLowerCase() === target),
+        guildBossDrops.filter((d) => d.guildId === guild.id && d.zone.toLowerCase() === target),
+      );
+      // The drop table records how a drop was WRITTEN; the item cache is what
+      // it is CALLED. Reading the name back off the item is what stops the two
+      // being a second copy that can rot — a Wowhead correction reaches the
+      // plan, the boss page and the sheet at once, without anybody retyping.
+      return resolveDropNames(merged, (id) => {
+        const item = itemsById.get(id);
+        return item && { name: item.name, quality: item.quality, icon: item.icon };
+      });
+    },
+
+    /**
+     * Everything this deployment already knows about which boss drops what,
+     * gathered as drafts for the foundational table.
+     *
+     * Two sources, in this order:
+     *
+     *   1. **Every priority sheet's boss sections.** This is where Mount Hyjal
+     *      and Black Temple come from — a complete drop table the guild wrote
+     *      without anyone reading it as one.
+     *   2. **The item cache's own attributions**, for the tiers no sheet covers:
+     *      Karazhan, SSC and Tempest Keep, learned from Wowhead one item at a
+     *      time. Second, so a sheet's wording wins where both know a drop.
+     *
+     * It lives here because parsing sheets is the read model's job — doing it
+     * in a backend would be a second parser to keep in step with this one.
+     */
+    async listKnownDropSources(): Promise<{
+      drafts: BossDropDraft[];
+      fromSheets: number;
+      fromCache: number;
+    }> {
+      const drafts: BossDropDraft[] = [];
+      const seen = new Set<string>();
+      /**
+       * Claim a drop, deduping on the ITEM where one is known and on the name
+       * only where it is not.
+       *
+       * Keying on the name alone let the same item in twice under one boss: the
+       * sheet pass writes "Hammer of Judgment" and the cache pass writes
+       * "Hammer of Judgement", which normalize differently and are the same
+       * drop. Three of this guild's rows were duplicated exactly that way.
+       *
+       * Both keys are claimed on every successful push, so whichever pass runs
+       * second is blocked by either half.
+       */
+      const push = (zone: string, boss: string, itemName: string, extra: Partial<BossDropDraft>) => {
+        const at = `${zone.toLowerCase()}|${bossKey(boss)}`;
+        const nameKey = `${at}|${normalizeItemName(itemName)}`;
+        const idKey = extra.itemId === undefined ? undefined : `${at}|#${extra.itemId}`;
+        if (seen.has(nameKey) || (idKey !== undefined && seen.has(idKey))) return false;
+        seen.add(nameKey);
+        if (idKey !== undefined) seen.add(idKey);
+        drafts.push({ zone, boss, itemName, ...extra });
+        return true;
+      };
+
+      let fromSheets = 0;
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) {
+          const source = sheetSectionSource(rule.source);
+          if (!source) continue;
+          // The pin matters here for the same reason it did on the loot plan:
+          // the sheet's "Hammer of Judgment" and the cache's "Hammer of
+          // Judgement" are one drop only because an officer said so.
+          const id = sheetItemIdFor(rule.itemName);
+          if (push(source.zone, source.boss, rule.itemName, { slotLabel: rule.slotLabel, itemId: id })) {
+            fromSheets += 1;
+          }
+        }
+      }
+
+      let fromCache = 0;
+      for (const item of items) {
+        const zone = item.source?.zone;
+        const boss = item.source?.boss;
+        if (!zone || !boss || !item.name) continue;
+        if (push(zone, boss, item.name, { itemId: item.id })) fromCache += 1;
+      }
+
+      return { drafts, fromSheets, fromCache };
+    },
+
+    /**
+     * Foundational rows that list one item twice under one boss.
+     *
+     * They cannot heal themselves: the table's key is (zone, boss, item NAME),
+     * so two spellings of one item are two legitimate-looking rows and an
+     * upsert will never collapse them. Returns the rows to delete, never the
+     * one to keep.
+     *
+     * Which one survives, in order: **the spelling a priority sheet uses**,
+     * because the sheet references the table and its wording may be carrying a
+     * distinction the item name cannot ("(Main Hand)" on a Warglaive); then the
+     * spelling matching the resolved item; then the first, so the answer is
+     * deterministic rather than whatever the database happened to return.
+     */
+    async listDuplicateDrops(): Promise<{ zone: string; boss: string; itemName: string }[]> {
+      const sheetNames = new Set<string>();
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) sheetNames.add(normalizeItemName(rule.itemName));
+      }
+      const groups = new Map<string, BossDrop[]>();
+      for (const drop of bossDrops) {
+        if (drop.itemId === undefined) continue;
+        const key = `${drop.zone.toLowerCase()}|${drop.bossKey}|${drop.itemId}`;
+        groups.set(key, [...(groups.get(key) ?? []), drop]);
+      }
+      const doomed: { zone: string; boss: string; itemName: string }[] = [];
+      for (const rows of groups.values()) {
+        if (rows.length < 2) continue;
+        const score = (d: BossDrop): number => {
+          if (sheetNames.has(d.itemKey)) return 0;
+          const real = itemsById.get(d.itemId!)?.name;
+          if (real && normalizeItemName(real) === d.itemKey) return 1;
+          return 2;
+        };
+        const ordered = [...rows].sort(
+          (a, b) => score(a) - score(b) || compareText(a.itemKey, b.itemKey),
+        );
+        for (const drop of ordered.slice(1)) {
+          doomed.push({ zone: drop.zone, boss: drop.boss, itemName: drop.itemName });
+        }
+      }
+      return doomed;
+    },
+
+    /**
+     * The foundational table alone, for whoever is editing it.
+     *
+     * Deliberately separate from `getDropTable`: an operator correcting a name
+     * must see what they own, not what one guild's overlay has made of it.
+     */
+    async listFoundationalDrops(zone?: string): Promise<BossDrop[]> {
+      const target = zone?.toLowerCase();
+      return bossDrops.filter((d) => target === undefined || d.zone.toLowerCase() === target);
+    },
+
+    /**
+     * The same rows, with each drop's item resolved — icon, quality, and the
+     * name the cache actually has for it.
+     *
+     * No guild overlay: this is the shared table as its owner sees it. The
+     * resolution is what makes the page useful for correcting: `writtenName`
+     * says what somebody typed and `itemName` what the item is really called,
+     * which is the difference an operator came here to close.
+     */
+    async getFoundationalDropTable(zone: string): Promise<MergedDrop[]> {
+      const target = zone.toLowerCase();
+      const merged = mergeDropTable(
+        bossDrops.filter((d) => d.zone.toLowerCase() === target),
+        [],
+      );
+      return resolveDropNames(merged, (id) => {
+        const item = itemsById.get(id);
+        return item && { name: item.name, quality: item.quality, icon: item.icon };
+      });
+    },
+
+    async listGuildDropOverrides(zone?: string): Promise<GuildBossDrop[]> {
+      const target = zone?.toLowerCase();
+      return guildBossDrops.filter(
+        (d) => d.guildId === guild.id && (target === undefined || d.zone.toLowerCase() === target),
+      );
+    },
+
+    /**
+     * The council's notes for one zone, by boss key.
+     *
+     * A map rather than a per-boss call: the loot plan renders every boss at
+     * once, and asking per boss would be one query per card for data already
+     * held in memory.
+     */
+    async listBossComments(zone: string): Promise<Map<string, BossComment[]>> {
+      const target = zone.toLowerCase();
+      const out = new Map<string, BossComment[]>();
+      for (const [, list] of bossCommentsByBoss) {
+        for (const c of list) {
+          if (c.zone.toLowerCase() !== target) continue;
+          out.set(c.bossKey, [...(out.get(c.bossKey) ?? []), c]);
+        }
+      }
+      return out;
+    },
+
     async listItemComments(itemId: number) {
       return itemCommentsByItem.get(itemId) ?? [];
     },
@@ -1269,8 +1694,8 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       return gearSets;
     },
 
-    async listClassGuides() {
-      return config.classGuides ?? [];
+    async listGuides() {
+      return config.guides ?? [];
     },
 
     async listWishlistAlternatives() {
@@ -1313,13 +1738,6 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
 
     async getPrioritySheet(phase?: number) {
       const forPhase = phase ?? guild.activePhase;
-      // Every name the cache knows, so a sheet row can link to its item. Built
-      // here rather than in the view builder: which names an item goes by is a
-      // read-model fact, and the builder stays pure.
-      const idByName = new Map<string, number>();
-      for (const item of items) {
-        if (item.name) idByName.set(normalizeItemName(item.name), item.id);
-      }
       const stored = config.prioritySheetsByPhase?.[forPhase];
       const view = buildPrioritySheetView({
         rules: rulesForPhase(forPhase),
@@ -1327,10 +1745,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         // tier's sheet still applies to its drop (priorityRuleFor walks every
         // phase), but listing it here put both Warglaives on the phase 2 page.
         overrides: config.itemPriorityRules?.[forPhase] ?? {},
-        // The officer's pin wins over the name match: they set it precisely
-        // because the name couldn't be matched, or matched the wrong thing.
-        itemIdFor: (name) =>
-          config.sheetItemIds?.[normalizeItemName(name)] ?? idByName.get(normalizeItemName(name)),
+        // Shared with the loot plan and the drop-source pass — see
+        // `sheetItemIdFor`. The builder stays pure and only ever sees names.
+        itemIdFor: sheetItemIdFor,
       });
       // Icon and quality for the rows whose name the cache matched, so the
       // sheet renders items the way every other list does. Done here, not in
@@ -1359,7 +1776,6 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     async getItemPriorityRule(itemId: number, ...names: (string | undefined)[]) {
       const item = itemsById.get(itemId);
       return priorityRuleFor(
-        itemId,
         ...names,
         item?.name,
         lootAwards.find((a) => a.itemId === itemId)?.itemName,

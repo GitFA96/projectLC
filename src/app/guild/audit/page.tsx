@@ -33,6 +33,14 @@ export const dynamic = "force-dynamic";
  * different kind, and merging the two would blur a line drawn on purpose: one
  * is about who holds power in this guild, the other about a judgement call on
  * one night's numbers. Both belong to the guild; neither explains the other.
+ *
+ * **Ledger** is the third, for the same reason again: an award edited or
+ * removed after the fact. Those entries share the governance table — it is the
+ * guild's append-only log and there is no second one worth having — so this
+ * page splits them by kind rather than by source. Anything `loot.*` belongs to
+ * the ledger tab and is filtered out of governance; a kind added on one side
+ * and not the other would quietly vanish from both, which is why
+ * `isLedger` is the only place that decides.
  */
 const KIND_LABEL: Record<string, string> = {
   "deployment.claimed": "Claimed",
@@ -54,9 +62,13 @@ const KIND_LABEL: Record<string, string> = {
   "break-glass.opened": "Operator override opened",
   "break-glass.used": "Operator override used",
   "break-glass.closed": "Operator override closed",
+  "loot.amended": "Award edited",
+  "loot.removed": "Award removed",
 };
 
 const isOverride = (kind: string) => kind.startsWith("break-glass");
+/** Loot history, not governance — the split this page's two streams turn on. */
+const isLedger = (kind: string) => kind.startsWith("loot.");
 
 export default async function AuditPage({
   searchParams,
@@ -73,7 +85,9 @@ export default async function AuditPage({
     repo.listConsumableAdjustments(),
     repo.listWclReports(),
   ]);
-  const overrides = entries.filter((e) => isOverride(e.kind)).length;
+  const governance = entries.filter((e) => !isLedger(e.kind));
+  const ledger = entries.filter((e) => isLedger(e.kind));
+  const overrides = governance.filter((e) => isOverride(e.kind)).length;
   const corrections = correctionsLog(
     adjustmentsByCode,
     reports.map((r) => ({
@@ -83,6 +97,9 @@ export default async function AuditPage({
     })),
   );
   const onCorrections = tab === "corrections";
+  const onLedger = tab === "ledger";
+  const onGovernance = !onCorrections && !onLedger;
+  const shown = onLedger ? ledger : governance;
 
   return (
     <>
@@ -97,14 +114,20 @@ export default async function AuditPage({
         <TabLink
           label="Governance"
           href="/guild/audit"
-          active={!onCorrections}
-          count={entries.length}
+          active={onGovernance}
+          count={governance.length}
         />
         <TabLink
           label="Corrections"
           href="/guild/audit?tab=corrections"
           active={onCorrections}
           count={corrections.length}
+        />
+        <TabLink
+          label="Ledger"
+          href="/guild/audit?tab=ledger"
+          active={onLedger}
+          count={ledger.length}
         />
       </div>
 
@@ -116,7 +139,7 @@ export default async function AuditPage({
         />
       ) : (
         <>
-          {overrides > 0 && (
+          {onGovernance && overrides > 0 && (
             <div className="mb-4 flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft p-3 text-sm text-warn-ink">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
@@ -129,11 +152,15 @@ export default async function AuditPage({
 
           <Card>
             <CardContent className="py-4">
-              {entries.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing has happened yet.</p>
+              {shown.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {onLedger
+                    ? "No award has been edited or removed since this was recorded."
+                    : "Nothing has happened yet."}
+                </p>
               ) : (
                 <ul className="space-y-4">
-                  {entries.map((entry) => (
+                  {shown.map((entry) => (
                     <li key={entry.id} className="border-b pb-4 last:border-0">
                       {/* Same shape as the corrections tab: what happened leads,
                           when it happened is pushed to the right edge, and the

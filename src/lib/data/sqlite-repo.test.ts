@@ -570,72 +570,106 @@ describe("sqlite repo", () => {
     });
   });
 
-  describe("class guides", () => {
-    it("starts empty — the app ships no opinion about any class", async () => {
+  describe("guides", () => {
+    const ownerOf = async () => (await getSqliteRepo().getGuild()).id;
+
+    it("starts empty — the app ships no opinion about any class or boss", async () => {
       const repo = getSqliteRepo();
-      expect(await repo.listClassGuides()).toEqual([]);
+      expect(await repo.listGuides()).toEqual([]);
     });
 
-    it("stores a class guide and a spec guide side by side", async () => {
+    it("stores a subject guide and a section guide side by side", async () => {
       const repo = getSqliteRepo();
-      await repo.setClassGuide({
-        wowClass: "Warrior",
-        spec: "",
+      const owner = await ownerOf();
+      await repo.setGuide({
+        kind: "class", subject: "Warrior", section: "", owner,
         body: "Show up enchanted.",
         sources: ["https://www.wowhead.com/tbc/class/warrior"],
         author: "Fredrik",
       });
-      await repo.setClassGuide({
-        wowClass: "Warrior",
-        spec: "Fury",
-        body: "Haste potion with Bloodlust.",
-        sources: [],
+      await repo.setGuide({
+        kind: "class", subject: "Warrior", section: "Fury", owner,
+        body: "Haste potion with Bloodlust.", sources: [],
       });
 
-      const guides = await repo.listClassGuides();
+      const guides = await repo.listGuides();
       expect(guides).toHaveLength(2);
-      const shared = guides.find((g) => g.spec === "");
+      const shared = guides.find((g) => g.section === "");
       expect(shared).toMatchObject({ body: "Show up enchanted.", author: "Fredrik" });
       expect(shared!.sources).toEqual(["https://www.wowhead.com/tbc/class/warrior"]);
-      expect(guides.find((g) => g.spec === "Fury")?.body).toBe("Haste potion with Bloodlust.");
+      expect(guides.find((g) => g.section === "Fury")?.body).toBe("Haste potion with Bloodlust.");
+    });
+
+    it("keeps the operator's baseline and a guild's own as separate rows", async () => {
+      // The whole point of the owner column: neither overwrites the other, and
+      // a guild must never be able to edit what another guild reads.
+      const repo = getSqliteRepo();
+      const owner = await ownerOf();
+      await repo.setGuide({
+        kind: "raid", subject: "Black Temple", section: "Supremus", owner: "operator",
+        body: "Kite him along the wall.", sources: [],
+      });
+      await repo.setGuide({
+        kind: "raid", subject: "Black Temple", section: "Supremus", owner,
+        body: "We use the left ramp.", sources: [],
+      });
+
+      const guides = await repo.listGuides();
+      expect(guides).toHaveLength(2);
+      expect(guides.find((g) => g.owner === "operator")?.body).toBe("Kite him along the wall.");
+      expect(guides.find((g) => g.owner === owner)?.body).toBe("We use the left ramp.");
     });
 
     it("overwrites in place rather than stacking copies", async () => {
       const repo = getSqliteRepo();
-      await repo.setClassGuide({ wowClass: "Mage", spec: "Fire", body: "First.", sources: [] });
-      await repo.setClassGuide({ wowClass: "Mage", spec: "Fire", body: "Second.", sources: [] });
-      const guides = await repo.listClassGuides();
+      const owner = await ownerOf();
+      await repo.setGuide({ kind: "class", subject: "Mage", section: "Fire", owner, body: "First.", sources: [] });
+      await repo.setGuide({ kind: "class", subject: "Mage", section: "Fire", owner, body: "Second.", sources: [] });
+      const guides = await repo.listGuides();
       expect(guides).toHaveLength(1);
       expect(guides[0].body).toBe("Second.");
     });
 
     it("deletes on an empty body — silence and 'nothing to say' are different claims", async () => {
       const repo = getSqliteRepo();
-      await repo.setClassGuide({ wowClass: "Rogue", spec: "", body: "Something.", sources: [] });
-      expect(await repo.listClassGuides()).toHaveLength(1);
+      const owner = await ownerOf();
+      await repo.setGuide({ kind: "class", subject: "Rogue", section: "", owner, body: "Something.", sources: [] });
+      expect(await repo.listGuides()).toHaveLength(1);
 
-      const result = await repo.setClassGuide({ wowClass: "Rogue", spec: "", body: "   ", sources: [] });
+      const result = await repo.setGuide({ kind: "class", subject: "Rogue", section: "", owner, body: "   ", sources: [] });
       expect(result).toEqual({ ok: true, deleted: true });
-      expect(await repo.listClassGuides()).toEqual([]);
+      expect(await repo.listGuides()).toEqual([]);
     });
 
     it("refuses a class or spec the game doesn't have", async () => {
       const repo = getSqliteRepo();
-      expect(await repo.setClassGuide({ wowClass: "Death Knight", spec: "", body: "x", sources: [] }))
+      const owner = await ownerOf();
+      expect(await repo.setGuide({ kind: "class", subject: "Death Knight", section: "", owner, body: "x", sources: [] }))
         .toMatchObject({ ok: false });
-      expect(await repo.setClassGuide({ wowClass: "Warrior", spec: "Frost", body: "x", sources: [] }))
+      expect(await repo.setGuide({ kind: "class", subject: "Warrior", section: "Frost", owner, body: "x", sources: [] }))
         .toMatchObject({ ok: false });
+    });
+
+    it("accepts a boss the raid table has never named", async () => {
+      // Same call as a note on a drop source nobody has listed: the boss list
+      // gains rows, and refusing until it catches up loses the write-up.
+      const repo = getSqliteRepo();
+      const owner = await ownerOf();
+      expect(await repo.setGuide({
+        kind: "raid", subject: "Black Temple", section: "Some Rare Spawn", owner,
+        body: "Worth stopping for.", sources: [],
+      })).toMatchObject({ ok: true });
     });
 
     it("drops blank source lines rather than storing empties", async () => {
       const repo = getSqliteRepo();
-      await repo.setClassGuide({
-        wowClass: "Priest",
-        spec: "Shadow",
+      const owner = await ownerOf();
+      await repo.setGuide({
+        kind: "class", subject: "Priest", section: "Shadow", owner,
         body: "x",
         sources: ["  ", "https://example.com/a", ""],
       });
-      expect((await repo.listClassGuides())[0].sources).toEqual(["https://example.com/a"]);
+      expect((await repo.listGuides())[0].sources).toEqual(["https://example.com/a"]);
     });
   });
 
@@ -1351,6 +1385,67 @@ describe("sqlite repo", () => {
       expect(after.award.raidSessionId).toBe(sessionId); // session/date are preserved
     });
 
+    it("re-dates an award, keeping its time of day and its raid session", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99930)!;
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+
+      const moved = await repo.updateLootAward(award.award.id, {
+        itemId: award.award.itemId,
+        itemName: award.award.itemName,
+        rawWinnerName: thrainn.name,
+        characterId: thrainn.id,
+        external: false,
+        offspec: false,
+        // The day moves; 21:00 is Gargul's and has to survive it.
+        awardedAt: "2026-06-04T21:00:00",
+      });
+      expect(moved.ok).toBe(true);
+
+      const after = (await repo.listLootAwards()).find((a) => a.award.id === award.award.id)!;
+      expect(after.award.awardedAt).toBe("2026-06-04T21:00:00");
+      // The session is the import it arrived in, and a re-date must not move it.
+      expect(after.award.raidSessionId).toBe(sessionId);
+      expect(after.session.date).toBe("2026-06-11");
+    });
+
+    it("records an amendment against the officer who made it, and only what moved", async () => {
+      const repo = getSqliteRepo();
+      await seedSession(repo);
+      const guildId = (await repo.getGuild()).id;
+      const award = (await repo.listLootAwards()).find((a) => a.award.itemId === 99930)!;
+      const fields = {
+        itemId: award.award.itemId,
+        itemName: award.award.itemName,
+        rawWinnerName: award.award.rawWinnerName,
+        characterId: award.award.characterId,
+        external: award.award.external,
+        offspec: award.award.offspec,
+      };
+      const officer = { guildId, actor: "Melige" };
+
+      // A save that changes nothing is not an event, and must not write a line.
+      await repo.updateLootAward(award.award.id, fields, officer);
+      expect(await repo.listGuildAudit()).toHaveLength(0);
+
+      await repo.updateLootAward(
+        award.award.id,
+        { ...fields, offspec: true, awardedAt: "2026-06-04T21:00:00" },
+        officer,
+      );
+      const [entry] = await repo.listGuildAudit();
+      expect(entry.kind).toBe("loot.amended");
+      expect(entry.actor).toBe("Melige");
+      expect(entry.detail).toContain("2026-06-11 → 2026-06-04");
+      expect(entry.detail).toContain("main spec → off-spec");
+      expect(entry.detail).not.toContain("winner");
+
+      await repo.deleteLootAward(award.award.id, officer);
+      const kinds = (await repo.listGuildAudit()).map((e) => e.kind);
+      expect(kinds).toContain("loot.removed");
+    });
+
     it("deletes a single award and reports a missing one", async () => {
       const repo = getSqliteRepo();
       await seedSession(repo);
@@ -1741,6 +1836,457 @@ describe("sqlite repo", () => {
     const plan = await repo.getLootPlan("Serpentshrine Cavern");
     const ids = plan.bosses.flatMap((b) => b.items.map((i) => i.itemId));
     expect(ids).toContain(99980);
+  });
+
+  describe("the foundational drop table", () => {
+    it("seeds itself from the priority sheets and the item cache", async () => {
+      const repo = getSqliteRepo();
+      const { fromSheets, fromCache } = await repo.seedFoundationalDrops();
+      expect(fromSheets).toBeGreaterThan(0);
+      expect(fromCache).toBeGreaterThan(0);
+
+      // Mount Hyjal exists only in the sheet — no shipped drop table covers it,
+      // which is the gap this whole layer was built to close.
+      const hyjal = await repo.listFoundationalDrops("Mount Hyjal");
+      expect(hyjal.some((d) => d.boss === "Rage Winterchill")).toBe(true);
+      expect(hyjal.some((d) => d.boss === "Trash")).toBe(true);
+    });
+
+    it("never lists one item twice under one boss", async () => {
+      // The sheet pass writes the sheet's spelling and the cache pass writes
+      // the item's own; they normalize differently, so keying the dedupe on the
+      // name alone produced two valid-looking rows for one drop. The table's key
+      // IS that name, so an upsert can never collapse them afterwards.
+      const repo = getSqliteRepo();
+      await repo.seedFoundationalDrops();
+      expect(await repo.listDuplicateDrops()).toEqual([]);
+    });
+
+    it("clears duplicates an earlier seed already wrote", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99300, name: "Hammer of Judgement" }]);
+      // Both spellings of one item, as the two passes would have written them.
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Trash", itemName: "Hammer of Judgment", itemId: 99300 },
+        { zone: "Mount Hyjal", boss: "Trash", itemName: "Hammer of Judgement", itemId: 99300 },
+      ]);
+      expect(await repo.listDuplicateDrops()).toHaveLength(1);
+
+      const { deduped } = await repo.seedFoundationalDrops();
+      expect(deduped).toBeGreaterThan(0);
+      expect(await repo.listDuplicateDrops()).toEqual([]);
+
+      // The sheet's spelling is the one that survives: the sheet references the
+      // table, and its wording can carry a distinction the item name cannot.
+      const rows = (await repo.listFoundationalDrops("Mount Hyjal")).filter(
+        (d) => d.itemId === 99300,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].itemName).toBe("Hammer of Judgment");
+    });
+
+    it("shows a corrected drop under the item's real name", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99301, name: "Hammer of Judgement" }]);
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Trash", itemName: "Hammer of Judgment", itemId: 99301 },
+      ]);
+      const drop = (await repo.getDropTable("Mount Hyjal")).find((d) => d.itemId === 99301)!;
+      expect(drop.itemName).toBe("Hammer of Judgement");
+      expect(drop.writtenName).toBe("Hammer of Judgment");
+    });
+
+    it("keeps an annotation that two same-named drops depend on", async () => {
+      // Both Warglaives really are called "Warglaive of Azzinoth".
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([
+        { id: 99302, name: "Warglaive of Azzinoth" },
+        { id: 99303, name: "Warglaive of Azzinoth" },
+      ]);
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "Illidan Stormrage", itemName: "Warglaive of Azzinoth (Main Hand)", itemId: 99302 },
+        { zone: "Black Temple", boss: "Illidan Stormrage", itemName: "Warglaive of Azzinoth (Off Hand)", itemId: 99303 },
+      ]);
+      const names = (await repo.getDropTable("Black Temple"))
+        .filter((d) => d.itemId === 99302 || d.itemId === 99303)
+        .map((d) => d.itemName);
+      expect(names).toEqual([
+        "Warglaive of Azzinoth (Main Hand)",
+        "Warglaive of Azzinoth (Off Hand)",
+      ]);
+
+      // And the plan has to show them apart too, or Illidan drops the same
+      // thing twice and neither row can be told which chain it belongs to.
+      const illidan = (await repo.getLootPlan("Black Temple")).bosses.find(
+        (b) => b.boss === "Illidan Stormrage",
+      )!;
+      expect(illidan.items.filter((i) => /Warglaive/.test(i.name)).map((i) => i.name).sort()).toEqual([
+        "Warglaive of Azzinoth (Main Hand)",
+        "Warglaive of Azzinoth (Off Hand)",
+      ]);
+    });
+
+    it("serves the operator's view with each item resolved", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([
+        { id: 99400, name: "Hammer of Judgement", quality: "epic", icon: "inv_mace_57" },
+      ]);
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Trash", itemName: "Hammer of Judgment", itemId: 99400 },
+      ]);
+      const [row] = (await repo.getFoundationalDropTable("Mount Hyjal")).filter(
+        (d) => d.itemId === 99400,
+      );
+      // Icon and quality so the page renders it like every other item list,
+      // and both names so an operator can see what there is to correct.
+      expect(row.icon).toBe("inv_mace_57");
+      expect(row.quality).toBe("epic");
+      expect(row.itemName).toBe("Hammer of Judgement");
+      expect(row.writtenName).toBe("Hammer of Judgment");
+    });
+
+    it("removes a row by the name it was stored under, not the one shown", async () => {
+      // The key is the written name. Deleting by the item's real name would
+      // silently miss exactly the rows an operator opened the page to remove.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99401, name: "Hammer of Judgement" }]);
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Trash", itemName: "Hammer of Judgment", itemId: 99401 },
+      ]);
+
+      expect(await repo.deleteBossDrop("Mount Hyjal", "Trash", "Hammer of Judgement")).toBe(false);
+      expect(await repo.deleteBossDrop("Mount Hyjal", "Trash", "Hammer of Judgment")).toBe(true);
+    });
+
+    it("is idempotent — re-seeding writes nothing new", async () => {
+      const repo = getSqliteRepo();
+      await repo.seedFoundationalDrops();
+      const first = (await repo.listFoundationalDrops()).length;
+      await repo.seedFoundationalDrops();
+      expect((await repo.listFoundationalDrops()).length).toBe(first);
+    });
+
+    it("stores the boss under a key that survives a respelling", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "Illidari Council", itemName: "Madness of the Betrayer" },
+      ]);
+      const rows = await repo.listFoundationalDrops("Black Temple");
+      // Written without the article, keyed with it stripped — so a later row
+      // spelling him the other way lands on the same drop rather than a second.
+      expect(rows[0].bossKey).toBe("illidaricouncil");
+
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "The Illidari Council", itemName: "Madness of the Betrayer" },
+      ]);
+      expect(await repo.listFoundationalDrops("Black Temple")).toHaveLength(1);
+    });
+
+    it("keeps an id the resolver found when the names are re-pasted", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "Supremus", itemName: "Belt", itemId: 12345 },
+      ]);
+      // An operator re-pasting a drop table has names in front of them, not ids.
+      await repo.upsertBossDrops([{ zone: "Black Temple", boss: "Supremus", itemName: "Belt" }]);
+      expect((await repo.listFoundationalDrops("Black Temple"))[0].itemId).toBe(12345);
+    });
+  });
+
+  describe("a guild's overlay on the drop table", () => {
+    it("hides a foundational drop without touching the foundation", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "Supremus", itemName: "Belt" },
+        { zone: "Black Temple", boss: "Supremus", itemName: "Boots" },
+      ]);
+      expect(await repo.setGuildDropOverride({
+        zone: "Black Temple", boss: "Supremus", itemName: "Belt", action: "hide",
+      })).toEqual({ ok: true });
+
+      expect((await repo.getDropTable("Black Temple")).map((d) => d.itemName)).toEqual(["Boots"]);
+      // The operator's row is still there for every other guild.
+      expect((await repo.listFoundationalDrops("Black Temple"))).toHaveLength(2);
+    });
+
+    it("adds a drop only this guild counts, marked as theirs", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([{ zone: "Black Temple", boss: "Supremus", itemName: "Belt" }]);
+      await repo.setGuildDropOverride({
+        zone: "Black Temple", boss: "Supremus", itemName: "Homebrew", action: "add",
+      });
+      const merged = await repo.getDropTable("Black Temple");
+      expect(merged.map((d) => [d.itemName, d.origin])).toEqual([
+        ["Belt", "foundation"],
+        ["Homebrew", "guild"],
+      ]);
+    });
+
+    it("returns to the foundation when the override is cleared", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([{ zone: "Black Temple", boss: "Supremus", itemName: "Belt" }]);
+      await repo.setGuildDropOverride({
+        zone: "Black Temple", boss: "Supremus", itemName: "Belt", action: "hide",
+      });
+      expect(await repo.getDropTable("Black Temple")).toEqual([]);
+
+      expect(await repo.clearGuildDropOverride("Black Temple", "Supremus", "Belt")).toBe(true);
+      expect((await repo.getDropTable("Black Temple")).map((d) => d.itemName)).toEqual(["Belt"]);
+    });
+
+    it("matches the foundation across a spelling of the boss", async () => {
+      const repo = getSqliteRepo();
+      await repo.upsertBossDrops([
+        { zone: "Black Temple", boss: "The Illidari Council", itemName: "Madness" },
+      ]);
+      // The officer typed the cache's spelling, the operator typed the table's.
+      await repo.setGuildDropOverride({
+        zone: "Black Temple", boss: "Illidari Council", itemName: "Madness", action: "hide",
+      });
+      expect(await repo.getDropTable("Black Temple")).toEqual([]);
+    });
+  });
+
+  describe("the drop table behind the loot plan", () => {
+    const shape = (p: { bosses: { boss: string; items: unknown[] }[] }) =>
+      p.bosses.map((b) => `${b.boss}:${b.items.length}`).join(" ");
+
+    it("seeding the foundation does not change what the plan shows", async () => {
+      // The switchover has to be invisible. Everything the seed writes was
+      // already reaching the plan by another route; if this ever differs, the
+      // table and the old path disagree and one of them is wrong.
+      const repo = getSqliteRepo();
+      const before = shape(await repo.getLootPlan("Serpentshrine Cavern"));
+      await repo.seedFoundationalDrops();
+      expect(shape(await repo.getLootPlan("Serpentshrine Cavern"))).toBe(before);
+    });
+
+    it("puts a drop on the plan that no item curation mentions", async () => {
+      // The table earning its keep: an operator says a boss drops it, and it
+      // appears without anyone touching the item's own zone or boss.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99200, name: "Operator Belt" }]);
+      expect(
+        (await repo.getLootPlan("Mount Hyjal")).bosses.flatMap((b) => b.items.map((i) => i.itemId)),
+      ).not.toContain(99200);
+
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Azgalor", itemName: "Operator Belt", itemId: 99200 },
+      ]);
+      const azgalor = (await repo.getLootPlan("Mount Hyjal")).bosses.find(
+        (b) => b.boss === "Azgalor",
+      )!;
+      expect(azgalor.items.map((i) => i.itemId)).toContain(99200);
+    });
+
+    it("removes a drop the guild hid, even when the item cache still claims it", async () => {
+      // The hide has to reach drops arriving from items.source too, or it only
+      // works on half of them and does so silently.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99201, name: "Doomed Belt" }]);
+      await repo.setItemCuration(99201, {
+        phase: 3,
+        source: { zone: "Mount Hyjal", boss: "Azgalor" },
+      });
+      const on = (p: { bosses: { items: { itemId?: number }[] }[] }) =>
+        p.bosses.flatMap((b) => b.items.map((i) => i.itemId)).includes(99201);
+      expect(on(await repo.getLootPlan("Mount Hyjal"))).toBe(true);
+
+      await repo.setGuildDropOverride({
+        zone: "Mount Hyjal", boss: "Azgalor", itemName: "Doomed Belt", action: "hide",
+      });
+      expect(on(await repo.getLootPlan("Mount Hyjal"))).toBe(false);
+    });
+
+    it("moves a drop between bosses as a hide plus an add", async () => {
+      // The common guild correction, and the case a hide keyed on the item
+      // alone silently broke: it swallowed the re-add too.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99202, name: "Wandering Belt" }]);
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Azgalor", itemName: "Wandering Belt", itemId: 99202 },
+      ]);
+      await repo.setGuildDropOverride({
+        zone: "Mount Hyjal", boss: "Azgalor", itemName: "Wandering Belt", action: "hide",
+      });
+      await repo.setGuildDropOverride({
+        zone: "Mount Hyjal", boss: "Archimonde", itemName: "Wandering Belt",
+        itemId: 99202, action: "add",
+      });
+
+      const plan = await repo.getLootPlan("Mount Hyjal");
+      const at = (boss: string) =>
+        plan.bosses.find((b) => b.boss === boss)!.items.some((i) => i.name === "Wandering Belt");
+      expect(at("Azgalor")).toBe(false);
+      expect(at("Archimonde")).toBe(true);
+    });
+
+    it("lets the table overrule the cache about which boss drops something", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99203, name: "Misfiled Belt" }]);
+      await repo.setItemCuration(99203, {
+        phase: 3,
+        source: { zone: "Mount Hyjal", boss: "Azgalor" },
+      });
+      // The operator says otherwise, and the drop table is the drop table.
+      await repo.upsertBossDrops([
+        { zone: "Mount Hyjal", boss: "Archimonde", itemName: "Misfiled Belt", itemId: 99203 },
+      ]);
+      const plan = await repo.getLootPlan("Mount Hyjal");
+      expect(plan.bosses.find((b) => b.boss === "Archimonde")!.items.map((i) => i.itemId))
+        .toContain(99203);
+      expect(plan.bosses.find((b) => b.boss === "Azgalor")!.items.map((i) => i.itemId))
+        .not.toContain(99203);
+    });
+  });
+
+  describe("council notes under a boss", () => {
+    it("files a note by key and reads it back under the plan's spelling", async () => {
+      const repo = getSqliteRepo();
+      const added = await repo.addBossComment({
+        zone: "Black Temple",
+        // Written while the officer was looking at the cache's spelling...
+        boss: "Illidari Council",
+        body: "Saving tokens for the warriors this reset.",
+        author: "Fredrik",
+      });
+      expect(added.ok).toBe(true);
+
+      // ...and found under the raid table's, which is what the plan heads the
+      // card with. A note nobody can find is the failure this key exists to stop.
+      const byBoss = await repo.listBossComments("Black Temple");
+      expect(byBoss.get("illidaricouncil")?.[0].body).toBe(
+        "Saving tokens for the warriors this reset.",
+      );
+    });
+
+    it("keeps each zone's trash notes apart", async () => {
+      const repo = getSqliteRepo();
+      await repo.addBossComment({ zone: "Mount Hyjal", boss: "Trash", body: "Hyjal note" });
+      await repo.addBossComment({ zone: "Black Temple", boss: "Trash", body: "BT note" });
+
+      // "Trash" is a drop source in every raid, so the zone is half the key.
+      expect((await repo.listBossComments("Mount Hyjal")).get("trash")?.map((c) => c.body)).toEqual([
+        "Hyjal note",
+      ]);
+      expect((await repo.listBossComments("Black Temple")).get("trash")?.map((c) => c.body)).toEqual([
+        "BT note",
+      ]);
+    });
+
+    it("accepts a note about a source the raid table has never named", async () => {
+      // Same reasoning as a comment on an item the cache has not seen: a note
+      // is how an officer records something the app does not know yet.
+      const repo = getSqliteRepo();
+      const added = await repo.addBossComment({
+        zone: "Black Temple",
+        boss: "Some Rare Spawn",
+        body: "Drops a pattern worth stopping for.",
+      });
+      expect(added.ok).toBe(true);
+    });
+
+    it("refuses an empty note and removes one by id", async () => {
+      const repo = getSqliteRepo();
+      expect((await repo.addBossComment({ zone: "Black Temple", boss: "Supremus", body: "   " })).ok)
+        .toBe(false);
+
+      const added = await repo.addBossComment({
+        zone: "Black Temple",
+        boss: "Supremus",
+        body: "Temporary",
+      });
+      if (!added.ok) throw new Error("unreachable");
+      expect(await repo.deleteBossComment(added.comment.id)).toBe(true);
+      expect(await repo.deleteBossComment(added.comment.id)).toBe(false);
+      expect((await repo.listBossComments("Black Temple")).get("supremus")).toBeUndefined();
+    });
+  });
+
+  describe("drop sources from the council's own priority sheet", () => {
+    // "Bracers of Martyrdom" sits under `### Rage Winterchill` in the seeded P3
+    // sheet — a real row, so this breaks if a future paste drops it rather than
+    // passing against a fixture the sheet no longer contains.
+    const SHEET_ITEM = "Bracers of Martyrdom";
+
+    it("places a cached drop the cache has no source for", async () => {
+      const repo = getSqliteRepo();
+      expect(await repo.addItemsIfMissing([{ id: 99001, name: SHEET_ITEM }])).toBe(1);
+      expect((await repo.getItem(99001))!.source).toBeUndefined();
+
+      expect(await repo.applySheetItemSources()).toBe(1);
+      expect((await repo.getItem(99001))!.source).toEqual({
+        zone: "Mount Hyjal",
+        boss: "Rage Winterchill",
+      });
+
+      // Zone is the only thing that puts a drop on a raid's loot plan.
+      const plan = await repo.getLootPlan("Mount Hyjal");
+      expect(plan.bosses.flatMap((b) => b.items.map((i) => i.itemId))).toContain(99001);
+    });
+
+    it("never overwrites a source that is already there", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99002, name: SHEET_ITEM }]);
+      // An officer's answer, deliberately contradicting the sheet's section.
+      expect(await repo.setItemCuration(99002, {
+        phase: 1,
+        source: { zone: "Karazhan", boss: "Moroes" },
+      })).toEqual({ ok: true });
+
+      expect(await repo.applySheetItemSources()).toBe(0);
+      expect((await repo.getItem(99002))!.source).toEqual({ zone: "Karazhan", boss: "Moroes" });
+    });
+
+    it("is idempotent, so an officer can press it as often as they like", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99003, name: SHEET_ITEM }]);
+      expect(await repo.applySheetItemSources()).toBe(1);
+      expect(await repo.applySheetItemSources()).toBe(0);
+    });
+
+    it("honours an officer's pin when the sheet spells the item differently", async () => {
+      // The guild's real case. The P3 sheet writes "Hammer of Judgment"; the
+      // item is "Hammer of Judgement". Exact-name matching is deliberate — it
+      // is what stops a misspelling resolving to a plausible wrong item — so
+      // the pin is the way back, and every reader of the sheet has to honour it.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99010, name: "Hammer of Judgement" }]);
+
+      expect((await repo.listSheetDropSources()).map((p) => p.id)).not.toContain(99010);
+
+      expect((await repo.setSheetItemId("Hammer of Judgment", 99010)).ok).toBe(true);
+      expect((await repo.listSheetDropSources()).map((p) => p.id)).toContain(99010);
+
+      await repo.applySheetItemSources();
+      expect((await repo.getItem(99010))!.source).toEqual({
+        zone: "Mount Hyjal",
+        boss: "Trash",
+      });
+    });
+
+    it("never lists a pinned drop twice on the plan", async () => {
+      // It was appearing as the real item AND as a sheet-only text row that
+      // could not be clicked, because the plan matched on name and the pin is
+      // the thing that says the two names are one drop.
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99011, name: "Hammer of Judgement" }]);
+      await repo.setSheetItemId("Hammer of Judgment", 99011);
+      await repo.applySheetItemSources();
+
+      const trash = (await repo.getLootPlan("Mount Hyjal")).bosses.find((b) => b.boss === "Trash")!;
+      const hammers = trash.items.filter((i) => /judg/i.test(i.name));
+      expect(hammers).toHaveLength(1);
+      expect(hammers[0].itemId).toBe(99011);
+      expect(hammers[0].sheetOnly).toBeUndefined();
+    });
+
+    it("says nothing about an item no sheet section names", async () => {
+      const repo = getSqliteRepo();
+      await repo.addItemsIfMissing([{ id: 99004, name: "Not On Any Sheet Whatsoever" }]);
+      const proposals = await repo.listSheetDropSources();
+      expect(proposals.map((p) => p.id)).not.toContain(99004);
+    });
   });
 
   it("refuses a source with no zone", async () => {

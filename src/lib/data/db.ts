@@ -6,6 +6,9 @@ import {
   attendanceExemptionSchema,
   characterCommentSchema,
   itemCommentSchema,
+  bossCommentSchema,
+  bossDropSchema,
+  guildBossDropSchema,
   characterSchema,
   currentGearOverrideSchema,
   feedbackReportSchema,
@@ -45,6 +48,9 @@ import type {
   Character,
   CharacterComment,
   ItemComment,
+  BossComment,
+  BossDrop,
+  GuildBossDrop,
   ConsumablePrice,
   CurrentGearOverride,
   FeedbackReport,
@@ -278,6 +284,40 @@ CREATE TABLE IF NOT EXISTS wishlist_alternatives (
 -- else's page: the house rule is to name what a source actually says, and a
 -- pasted guide rots silently while a summary an officer wrote gets corrected
 -- when it stops being true.
+/*
+ * Everything the guild and the operator write down, in one table.
+ *
+ * Four parts to the key and each earns its place:
+ *
+ *   kind    'class' or 'raid' — what sort of thing is being described.
+ *   subject 'Warrior', 'Black Temple'.
+ *   section ''  for the subject itself, else 'Fury' or 'Supremus'.
+ *   owner   'operator' for the shared baseline, else the guild's own id.
+ *
+ * Owner is the new half and the reason this replaced class_guides. A fight
+ * write-up is the same for everybody and correcting it should not require a
+ * release; what a particular guild does about it is theirs. Both rows exist at
+ * once and neither overwrites the other — a guild reads the baseline as a
+ * template and writes its own beside it.
+ *
+ * 'operator' is a reserved owner. Guild ids are generated, so a guild cannot
+ * claim it by accident.
+ */
+CREATE TABLE IF NOT EXISTS guides (
+  kind       TEXT NOT NULL,
+  subject    TEXT NOT NULL,
+  section    TEXT NOT NULL,
+  owner      TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  /* Newline-separated URLs the summary was drawn from. */
+  sources    TEXT,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author     TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (kind, subject, section, owner)
+);
+CREATE INDEX IF NOT EXISTS guides_by_subject ON guides(kind, subject);
+
 CREATE TABLE IF NOT EXISTS class_guides (
   wow_class  TEXT NOT NULL,
   spec       TEXT NOT NULL,
@@ -421,6 +461,109 @@ CREATE TABLE IF NOT EXISTS item_comments (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS item_comments_by_item ON item_comments(item_id);
+
+/*
+ * The council's running notes on one boss, shown under him on the loot plan.
+ *
+ * Distinct from a boss guide, which is durable prose about how the fight is
+ * done. This is dated and appended — "saving tokens for the warriors this
+ * reset", "Naj'entus trinket goes to a healer if it drops again" — the kind of
+ * thing an officer says once and nobody can find three weeks later.
+ *
+ * Keyed by zone AND boss_key, never boss_key alone: trash is a drop source in
+ * every raid, so "Trash" is only unique inside its zone. boss_key holds the
+ * bossKey normalization, so a note survives a source spelling him differently
+ * ("Illidari Council" against "The Illidari Council"); boss keeps the label
+ * as it read when the note was written, which is what a reader recognises.
+ *
+ * Nothing here is scored, and no foreign key points at it — the same reasoning
+ * as item_comments, plus one of its own: the raid table gains rows over time and
+ * a note must not vanish because a boss was renamed under it.
+ */
+CREATE TABLE IF NOT EXISTS boss_comments (
+  id         TEXT PRIMARY KEY,
+  zone       TEXT NOT NULL,
+  boss_key   TEXT NOT NULL,
+  boss       TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author     TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS boss_comments_by_boss ON boss_comments(zone, boss_key);
+
+/*
+ * What each boss drops — the foundational layer, owned by whoever runs the
+ * service rather than by any one guild.
+ *
+ * This is a FACT about the game: Supremus drops what Supremus drops, and it is
+ * the same for every guild on every realm. It used to be smeared across three
+ * places that each knew part of it — the raid table in code, Wowhead answers
+ * cached on items.source, and the boss headings of one guild's priority sheet —
+ * so correcting a single wrong item name meant editing a seed file and shipping
+ * a release. Hammer of Judgment/Judgement cost exactly that.
+ *
+ * Deliberately NOT guild-scoped. A guild's own additions and removals live in
+ * guild_boss_drops and are layered over the top at read time, so a guild can
+ * disagree without editing anybody else's data and an operator can correct a
+ * typo once for everyone.
+ *
+ * The key is natural rather than synthetic so an upsert is idempotent: pasting
+ * the same drop table twice changes nothing. item_key is the normalized item
+ * name, matching the priority sheet's own rule.
+ *
+ * item_id is nullable ON PURPOSE. A drop table is written in names — an
+ * operator listing a boss's loot has names in front of them, not ids — and the
+ * id arrives later from the same resolver every other item goes through. A row
+ * with no id is a known drop the cache cannot picture yet, not an error.
+ */
+CREATE TABLE IF NOT EXISTS boss_drops (
+  zone       TEXT NOT NULL,
+  boss_key   TEXT NOT NULL,
+  boss       TEXT NOT NULL,
+  item_key   TEXT NOT NULL,
+  item_name  TEXT NOT NULL,
+  item_id    INTEGER,
+  /* The finer wording a drop table uses: "Plate - Waist", "Main Hand Mace". */
+  slot_label TEXT,
+  note       TEXT,
+  /* Free text — there is no auth. Same compromise as character_comments. */
+  author     TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (zone, boss_key, item_key)
+);
+CREATE INDEX IF NOT EXISTS boss_drops_by_zone ON boss_drops(zone);
+
+/*
+ * One guild's disagreement with the foundational table above.
+ *
+ * Two actions and no third: 'add' means this guild also counts this drop from
+ * this boss, 'hide' means it does not. A drop that moved between bosses is a
+ * hide plus an add, which is clumsier to write and impossible to get half-
+ * applied — a single 'move' row would need a target that could point at a boss
+ * the overlay does not otherwise mention.
+ *
+ * The foundational row is never touched. That is the whole point: an operator
+ * fixing a name must not silently revert a guild's ruling, and a guild must
+ * never be able to edit what another guild reads.
+ */
+CREATE TABLE IF NOT EXISTS guild_boss_drops (
+  guild_id   TEXT NOT NULL,
+  zone       TEXT NOT NULL,
+  boss_key   TEXT NOT NULL,
+  boss       TEXT NOT NULL,
+  item_key   TEXT NOT NULL,
+  item_name  TEXT NOT NULL,
+  item_id    INTEGER,
+  /* 'add' | 'hide'. */
+  action     TEXT NOT NULL,
+  slot_label TEXT,
+  note       TEXT,
+  author     TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (guild_id, zone, boss_key, item_key)
+);
+CREATE INDEX IF NOT EXISTS guild_boss_drops_by_zone ON guild_boss_drops(guild_id, zone);
 
 /*
  * Bug reports filed from inside the app. Deliberately references nothing —
@@ -594,6 +737,36 @@ export function getDb(): DatabaseSync {
   return db;
 }
 
+/**
+ * Fold `class_guides` into the general `guides` table.
+ *
+ * A key change rather than a column, so `addColumn` cannot do it — the rows are
+ * copied and the old table dropped, once. Every existing guide was written by
+ * the guild, so it is copied under the guild's own id; nothing becomes an
+ * operator baseline by accident, because nobody has written one yet.
+ *
+ * Runs before the `addColumn` block so a database that never had class_guides
+ * (a fresh one) does nothing and costs one PRAGMA.
+ */
+function migrateClassGuidesToGuides(db: DatabaseSync): void {
+  const cols = db.prepare("PRAGMA table_info(class_guides)").all() as { name: string }[];
+  if (cols.length === 0) return;
+  const pending = db.prepare("SELECT COUNT(*) c FROM class_guides").get() as { c: number };
+  if (pending.c > 0) {
+    // The guild that wrote them. Single-guild deployments are the only ones
+    // that can have rows here, so "the first guild" is exact rather than a
+    // guess — but if there is somehow none, the rows are left in place rather
+    // than filed under an owner nobody can read.
+    const guild = db.prepare("SELECT id FROM guild LIMIT 1").get() as { id: string } | undefined;
+    if (!guild) return;
+    db.prepare(
+      `INSERT OR IGNORE INTO guides (kind, subject, section, owner, body, sources, author, updated_at)
+       SELECT 'class', wow_class, spec, ?, body, sources, author, updated_at FROM class_guides`,
+    ).run(guild.id);
+  }
+  db.exec("DROP TABLE class_guides");
+}
+
 /** Additive migrations for databases created by earlier versions of the schema. */
 function migrate(db: DatabaseSync): void {
   const addColumn = (table: string, column: string, ddl: string) => {
@@ -606,6 +779,7 @@ function migrate(db: DatabaseSync): void {
       if (!/duplicate column/i.test(String(e))) throw e;
     }
   };
+  migrateClassGuidesToGuides(db);
   addColumn("guild", "visibility", "visibility TEXT NOT NULL DEFAULT 'private'");
   addColumn("guild", "succession_admin_days", "succession_admin_days INTEGER");
   addColumn("guild", "succession_member_days", "succession_member_days INTEGER");
@@ -1951,10 +2125,15 @@ export function deleteWishlistAlternative(
   );
 }
 
-export interface StoredClassGuide {
-  wowClass: string;
-  /** Empty string for the class-level guide. */
-  spec: string;
+export interface StoredGuide {
+  /** 'class' | 'raid'. */
+  kind: string;
+  /** 'Warrior', 'Black Temple'. */
+  subject: string;
+  /** '' for the subject itself, else 'Fury' or 'Supremus'. */
+  section: string;
+  /** 'operator' for the shared baseline, else the guild's id. */
+  owner: string;
   body: string;
   sources: string[];
   author?: string;
@@ -1967,20 +2146,24 @@ const splitSources = (raw: string | null): string[] =>
     .map((l) => l.trim())
     .filter(Boolean);
 
-export function getClassGuides(db: DatabaseSync): StoredClassGuide[] {
+export function getGuides(db: DatabaseSync): StoredGuide[] {
   const rows = db
-    .prepare("SELECT wow_class, spec, body, sources, author, updated_at FROM class_guides")
+    .prepare("SELECT kind, subject, section, owner, body, sources, author, updated_at FROM guides")
     .all() as {
-    wow_class: string;
-    spec: string;
+    kind: string;
+    subject: string;
+    section: string;
+    owner: string;
     body: string;
     sources: string | null;
     author: string | null;
     updated_at: string;
   }[];
   return rows.map((r) => ({
-    wowClass: r.wow_class,
-    spec: r.spec,
+    kind: r.kind,
+    subject: r.subject,
+    section: r.section,
+    owner: r.owner,
     body: r.body,
     sources: splitSources(r.sources),
     author: r.author ?? undefined,
@@ -1988,19 +2171,29 @@ export function getClassGuides(db: DatabaseSync): StoredClassGuide[] {
   }));
 }
 
-export function setClassGuide(
+export function setGuide(
   db: DatabaseSync,
-  guide: { wowClass: string; spec: string; body: string; sources: string[]; author?: string },
+  guide: {
+    kind: string;
+    subject: string;
+    section: string;
+    owner: string;
+    body: string;
+    sources: string[];
+    author?: string;
+  },
 ): void {
   db.prepare(
-    `INSERT INTO class_guides (wow_class, spec, body, sources, author, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(wow_class, spec) DO UPDATE SET
+    `INSERT INTO guides (kind, subject, section, owner, body, sources, author, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(kind, subject, section, owner) DO UPDATE SET
        body = excluded.body, sources = excluded.sources,
        author = excluded.author, updated_at = excluded.updated_at`,
   ).run(
-    guide.wowClass,
-    guide.spec,
+    guide.kind,
+    guide.subject,
+    guide.section,
+    guide.owner,
     guide.body,
     guide.sources.join("\n") || null,
     guide.author ?? null,
@@ -2009,11 +2202,18 @@ export function setClassGuide(
 }
 
 /** Remove a guide entirely — an empty one would read as "we have nothing to say". */
-export function deleteClassGuide(db: DatabaseSync, wowClass: string, spec: string): boolean {
+export function deleteGuide(
+  db: DatabaseSync,
+  kind: string,
+  subject: string,
+  section: string,
+  owner: string,
+): boolean {
   return (
     Number(
-      db.prepare("DELETE FROM class_guides WHERE wow_class = ? AND spec = ?").run(wowClass, spec)
-        .changes,
+      db
+        .prepare("DELETE FROM guides WHERE kind = ? AND subject = ? AND section = ? AND owner = ?")
+        .run(kind, subject, section, owner).changes,
     ) > 0
   );
 }
@@ -2195,6 +2395,80 @@ export function insertItemComment(db: DatabaseSync, c: ItemComment): void {
 
 export function deleteItemComment(db: DatabaseSync, id: string): boolean {
   return db.prepare("DELETE FROM item_comments WHERE id = ?").run(id).changes > 0;
+}
+
+export function insertBossComment(db: DatabaseSync, c: BossComment): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO boss_comments (id, zone, boss_key, boss, body, author, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.zone, c.bossKey, c.boss, c.body, c.author ?? null, c.createdAt);
+}
+
+export function deleteBossComment(db: DatabaseSync, id: string): boolean {
+  return db.prepare("DELETE FROM boss_comments WHERE id = ?").run(id).changes > 0;
+}
+
+/**
+ * Upsert foundational drops. Idempotent by construction — the key is natural,
+ * so re-importing the same table twice changes nothing.
+ *
+ * `item_id` is COALESCEd rather than overwritten: an operator writing a drop
+ * table types names, and an id the resolver has already found must survive a
+ * re-paste of the same names.
+ */
+export function upsertBossDrops(db: DatabaseSync, drops: BossDrop[]): number {
+  const stmt = db.prepare(
+    `INSERT INTO boss_drops (zone, boss_key, boss, item_key, item_name, item_id, slot_label, note, author, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(zone, boss_key, item_key) DO UPDATE SET
+       boss       = excluded.boss,
+       item_name  = excluded.item_name,
+       item_id    = COALESCE(excluded.item_id, boss_drops.item_id),
+       slot_label = COALESCE(excluded.slot_label, boss_drops.slot_label),
+       note       = COALESCE(excluded.note, boss_drops.note),
+       author     = COALESCE(excluded.author, boss_drops.author),
+       updated_at = excluded.updated_at
+     WHERE boss_drops.boss      IS NOT excluded.boss
+        OR boss_drops.item_name IS NOT excluded.item_name
+        OR (excluded.item_id    IS NOT NULL AND boss_drops.item_id    IS NULL)
+        OR (excluded.slot_label IS NOT NULL AND boss_drops.slot_label IS NULL)
+        OR (excluded.note       IS NOT NULL AND boss_drops.note       IS NULL)`,
+  );
+  let written = 0;
+  for (const d of drops) {
+    written += Number(
+      stmt.run(
+        d.zone, d.bossKey, d.boss, d.itemKey, d.itemName, d.itemId ?? null,
+        d.slotLabel ?? null, d.note ?? null, d.author ?? null, d.updatedAt,
+      ).changes,
+    ) > 0 ? 1 : 0;
+  }
+  return written;
+}
+
+export function deleteBossDrop(db: DatabaseSync, zone: string, bossKey: string, itemKey: string): boolean {
+  return db
+    .prepare("DELETE FROM boss_drops WHERE zone = ? AND boss_key = ? AND item_key = ?")
+    .run(zone, bossKey, itemKey).changes > 0;
+}
+
+export function upsertGuildBossDrop(db: DatabaseSync, d: GuildBossDrop): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO guild_boss_drops
+       (guild_id, zone, boss_key, boss, item_key, item_name, item_id, action, slot_label, note, author, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    d.guildId, d.zone, d.bossKey, d.boss, d.itemKey, d.itemName, d.itemId ?? null,
+    d.action, d.slotLabel ?? null, d.note ?? null, d.author ?? null, d.updatedAt,
+  );
+}
+
+export function deleteGuildBossDrop(
+  db: DatabaseSync, guildId: string, zone: string, bossKey: string, itemKey: string,
+): boolean {
+  return db
+    .prepare("DELETE FROM guild_boss_drops WHERE guild_id = ? AND zone = ? AND boss_key = ? AND item_key = ?")
+    .run(guildId, zone, bossKey, itemKey).changes > 0;
 }
 
 export function insertFeedback(db: DatabaseSync, f: FeedbackReport): void {
@@ -3245,6 +3519,25 @@ function rowToItemComment(r: Row): unknown {
   };
 }
 
+function rowToBossComment(r: Row): unknown {
+  return {
+    id: r.id, zone: r.zone, bossKey: r.boss_key, boss: r.boss,
+    body: r.body, author: opt(r.author), createdAt: r.created_at,
+  };
+}
+
+function rowToBossDrop(r: Row): unknown {
+  return {
+    zone: r.zone, bossKey: r.boss_key, boss: r.boss, itemKey: r.item_key,
+    itemName: r.item_name, itemId: opt(r.item_id), slotLabel: opt(r.slot_label),
+    note: opt(r.note), author: opt(r.author), updatedAt: r.updated_at,
+  };
+}
+
+function rowToGuildBossDrop(r: Row): unknown {
+  return { ...(rowToBossDrop(r) as object), guildId: r.guild_id, action: r.action };
+}
+
 function rowToFeedback(r: Row): unknown {
   return {
     id: r.id, kind: r.kind, reporter: opt(r.reporter), body: r.body, route: r.route, url: r.url,
@@ -3387,6 +3680,9 @@ export function loadStore(db: DatabaseSync): EntityStore {
     attendanceExemptions: parseAll("attendance_exemptions", attendanceExemptionSchema, (db.prepare("SELECT * FROM attendance_exemptions").all() as Row[]).map(rowToAttendanceExemption)),
     characterComments: parseAll("character_comments", characterCommentSchema, (db.prepare("SELECT * FROM character_comments ORDER BY created_at DESC").all() as Row[]).map(rowToCharacterComment)),
     itemComments: parseAll("item_comments", itemCommentSchema, (db.prepare("SELECT * FROM item_comments ORDER BY created_at DESC").all() as Row[]).map(rowToItemComment)),
+    bossComments: parseAll("boss_comments", bossCommentSchema, (db.prepare("SELECT * FROM boss_comments ORDER BY created_at DESC").all() as Row[]).map(rowToBossComment)),
+    bossDrops: parseAll("boss_drops", bossDropSchema, (db.prepare("SELECT * FROM boss_drops").all() as Row[]).map(rowToBossDrop)),
+    guildBossDrops: parseAll("guild_boss_drops", guildBossDropSchema, (db.prepare("SELECT * FROM guild_boss_drops").all() as Row[]).map(rowToGuildBossDrop)),
     feedback: parseAll("feedback", feedbackReportSchema, (db.prepare("SELECT * FROM feedback ORDER BY created_at DESC").all() as Row[]).map(rowToFeedback)),
     memberships: parseAll("memberships", membershipSchema, (db.prepare("SELECT * FROM memberships").all() as Row[]).map(rowToMembership)),
     guildRoles: parseAll("guild_roles", guildRoleSchema, (db.prepare("SELECT * FROM guild_roles ORDER BY sort, name").all() as Row[]).map(rowToGuildRole)),

@@ -730,3 +730,70 @@ describe("claiming cannot be locked out by an ordinary sign-in", () => {
     expect(deploymentClaimed()).toBe(false);
   });
 });
+
+describe("the class_guides → guides migration", () => {
+  /**
+   * A key change, not a column, so `addColumn` cannot do it and the CREATE
+   * TABLE block will not either — it only runs on a fresh database. A guild's
+   * written guides are exactly the sort of thing nobody notices is gone until
+   * they go looking for it months later.
+   */
+  function legacyDatabase(rows: [string, string, string][]): void {
+    const old = new DatabaseSync(process.env.PROJECTLC_DB!);
+    old.exec(`CREATE TABLE guild (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, realm TEXT NOT NULL,
+      faction TEXT NOT NULL, active_phase INTEGER NOT NULL
+    )`);
+    old.exec(`INSERT INTO guild (id, name, realm, faction, active_phase)
+              VALUES ('g1', 'Oilers', 'Spineshatter', 'Horde', 3)`);
+    old.exec(`CREATE TABLE class_guides (
+      wow_class TEXT NOT NULL, spec TEXT NOT NULL, body TEXT NOT NULL,
+      sources TEXT, author TEXT, updated_at TEXT NOT NULL,
+      PRIMARY KEY (wow_class, spec)
+    )`);
+    for (const [wowClass, spec, body] of rows) {
+      old
+        .prepare(
+          `INSERT INTO class_guides (wow_class, spec, body, sources, author, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(wowClass, spec, body, "https://example.com/a", "Fredrik", "2026-01-01T00:00:00.000Z");
+    }
+    old.close();
+  }
+
+  it("carries every guide across, filed under the guild that wrote it", async () => {
+    legacyDatabase([
+      ["Warrior", "", "Show up enchanted."],
+      ["Warrior", "Fury", "Haste potion with Bloodlust."],
+    ]);
+
+    const guides = await getSqliteRepo().listGuides();
+    expect(guides).toHaveLength(2);
+    // Nobody becomes the operator's shared baseline by accident: every existing
+    // guide was written by the guild, so that is who owns it.
+    expect(guides.every((g) => g.owner === "g1")).toBe(true);
+    expect(guides.every((g) => g.kind === "class")).toBe(true);
+    expect(guides.find((g) => g.section === "Fury")?.body).toBe("Haste potion with Bloodlust.");
+    // The detail most likely to be dropped by a hand-written copy.
+    expect(guides.find((g) => g.section === "")?.sources).toEqual(["https://example.com/a"]);
+    expect(guides.find((g) => g.section === "")?.author).toBe("Fredrik");
+  });
+
+  it("drops the old table, so the migration cannot run twice", async () => {
+    legacyDatabase([["Mage", "Fire", "Scorch to five."]]);
+    const repo = getSqliteRepo();
+    expect(await repo.listGuides()).toHaveLength(1);
+
+    const tables = getDb()
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'class_guides'")
+      .all();
+    expect(tables).toEqual([]);
+  });
+
+  it("costs nothing on a database that never had the old table", async () => {
+    // The overwhelmingly common case, and it must not throw.
+    const repo = getSqliteRepo();
+    expect(await repo.listGuides()).toEqual([]);
+  });
+});

@@ -43,6 +43,8 @@ export interface LootRow {
   awardedAt: string;
   sessionId: string;
   sessionLabel: string;
+  /** The night it is filed under — what a re-dated award is compared against. */
+  sessionDate: string;
   phase?: Phase;
   item: ItemRef;
   winnerName: string;
@@ -79,10 +81,13 @@ export function LootView({
   rows,
   sessions,
   characters,
+  canAmend = false,
 }: {
   rows: LootRow[];
   sessions: SessionOption[];
   characters: { id: string; name: string; wowClass: WowClass }[];
+  /** `loot.amend` — whether the editor offers the date. See LootAwardDialog. */
+  canAmend?: boolean;
 }) {
   const searchParams = useSearchParams();
   const [search, setSearch] = React.useState("");
@@ -120,6 +125,7 @@ export function LootView({
     mode: "edit",
     raidSessionId: r.sessionId,
     sessionLabel: r.sessionLabel,
+    sessionDate: r.sessionDate,
     award: {
       id: r.id,
       itemId: r.item.itemId,
@@ -129,6 +135,7 @@ export function LootView({
       external: r.winnerStatus === "external",
       offspec: r.offspec,
       note: r.note,
+      awardedAt: r.awardedAt,
     },
   });
 
@@ -528,6 +535,7 @@ export function LootView({
         <LootAwardDialog
           target={dialog}
           roster={characters}
+          canAmend={canAmend}
           onClose={() => setDialog(null)}
         />
       )}

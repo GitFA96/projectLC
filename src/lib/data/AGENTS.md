@@ -23,10 +23,12 @@ identically to SQLite. Never compute a summary in a backend.
 - **Every write calls `bumpDataVersion(db)`.** The read model is an in-memory
   rebuild triggered by that counter. Skip it and the write commits to disk and
   stays invisible until restart.
-- **Every schema change after the first release needs an `addColumn()` line in
-  `migrate()`.** The `CREATE TABLE` block only runs on a fresh database, so a
-  missing migration works in tests and breaks the user's real database — the
-  one failure mode nothing here catches. PK/constraint changes need a full
+- **Every *column* added after the first release needs an `addColumn()` line in
+  `migrate()`.** A missing one works in tests and breaks the user's real
+  database — the one failure mode nothing here catches. A whole **new table**
+  is the exception and needs nothing: `getDb()` runs the entire `SCHEMA` on
+  every boot and every statement in it is `CREATE TABLE IF NOT EXISTS`, so it
+  appears in old databases by itself. PK/constraint changes need a full
   table rebuild; copy `current_gear_overrides_spec` or `items_relaxed`.
 - **Per-report settings go in `meta` under `<name>:<code>`, not a new table.**
   Four already do. Empty return = "unset, use defaults", and every getter

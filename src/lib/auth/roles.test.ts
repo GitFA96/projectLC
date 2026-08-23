@@ -217,7 +217,7 @@ describe("what the guild is told happened", () => {
 
     const entry = loadStore(db).guildAudit.find((a) => a.kind === "role.created");
     expect(entry?.detail).toContain("Class Lead");
-    expect(entry?.detail).toContain("Write class guides");
+    expect(entry?.detail).toContain("Write guides");
     expect(entry?.detail).not.toContain("guides.edit");
   });
 

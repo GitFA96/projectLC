@@ -5,6 +5,7 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
+import { actingOfficer } from "@/app/acting-officer";
 import { itemDisplayName, isPlaceholderName } from "@/lib/items/item-data";
 import { resolveItemsFromWowhead } from "@/lib/items/wowhead";
 
@@ -110,7 +111,7 @@ export async function clearAwardAction(input: { awardId: string }): Promise<Awar
   try {
     requireCapability(await resolveViewer(), "loot.award");
     const repo = await getWriteRepo();
-    const removed = await repo.deleteLootAward(parsed.data.awardId);
+    const removed = await repo.deleteLootAward(parsed.data.awardId, await actingOfficer());
     if (!removed) return { ok: false, message: "That award was already gone." };
     refreshAfterWrite("/", "layout");
     return { ok: true, message: "Award removed — the wishlist slot is open again." };

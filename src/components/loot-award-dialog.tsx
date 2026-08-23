@@ -32,6 +32,8 @@ export interface AwardDialogTarget {
   mode: "add" | "edit";
   raidSessionId: string;
   sessionLabel: string;
+  /** The night the award is filed under, ISO date — what a re-date is measured against. */
+  sessionDate?: string;
   /** Present in edit mode — the award being changed. */
   award?: {
     id: string;
@@ -42,6 +44,8 @@ export interface AwardDialogTarget {
     external: boolean;
     offspec: boolean;
     note?: string;
+    /** When it was won, ISO. The date half is editable; the time is kept. */
+    awardedAt: string;
   };
 }
 
@@ -59,10 +63,17 @@ const EXTERNAL = "__external__";
 export function LootAwardDialog({
   target,
   roster,
+  canAmend = false,
   onClose,
 }: {
   target: AwardDialogTarget;
   roster: { id: string; name: string; wowClass: WowClass }[];
+  /**
+   * Does this viewer hold `loot.amend`? The date field is hidden without it —
+   * the same decision the action enforces, expressed twice on purpose: a
+   * control that always refuses reads as the app being broken.
+   */
+  canAmend?: boolean;
   onClose: () => void;
 }) {
   const a = target.award;
@@ -76,6 +87,8 @@ export function LootAwardDialog({
     a && (a.external || !a.winnerCharacterId) ? a.winnerName : "",
   );
   const [offspec, setOffspec] = React.useState(a?.offspec ?? false);
+  /** Date half only — the stored time of day survives the edit, server-side. */
+  const [awardedDay, setAwardedDay] = React.useState(a ? a.awardedAt.slice(0, 10) : "");
   const [note, setNote] = React.useState(a?.note ?? "");
   const [error, setError] = React.useState<string>();
   const [pending, startTransition] = React.useTransition();
@@ -106,7 +119,14 @@ export function LootAwardDialog({
 
   const known = validItemId && lookup?.id === itemId ? lookup.item : undefined;
   const winnerNeedsText = winnerValue === CUSTOM || winnerValue === EXTERNAL;
-  const canSubmit = validItemId && (!winnerNeedsText || winnerName.trim().length > 0) && !pending;
+  const editingDate = target.mode === "edit" && canAmend;
+  const validDay = /^\d{4}-\d{2}-\d{2}$/.test(awardedDay);
+  const canSubmit =
+    validItemId && (!winnerNeedsText || winnerName.trim().length > 0) && (!editingDate || validDay) && !pending;
+  /* A re-dated award keeps its raid session, so the two can disagree. Say so
+     rather than let an officer find out from a ledger row that reads wrong. */
+  const dateOffSession =
+    editingDate && validDay && target.sessionDate !== undefined && awardedDay !== target.sessionDate;
 
   const winnerPayload = () => {
     if (winnerValue.startsWith("chr:")) return { kind: "character" as const, characterId: winnerValue.slice(4) };
@@ -132,7 +152,14 @@ export function LootAwardDialog({
       finish(
         target.mode === "add"
           ? await addAwardAction({ ...fields, raidSessionId: target.raidSessionId })
-          : await updateAwardAction({ ...fields, awardId: a!.id }),
+          : await updateAwardAction({
+              ...fields,
+              awardId: a!.id,
+              // Only when it moved: an unchanged date is left out entirely, so
+              // an ordinary edit never touches the timestamp or trips the
+              // `loot.amend` check.
+              awardedAt: editingDate && awardedDay !== a!.awardedAt.slice(0, 10) ? awardedDay : undefined,
+            }),
       );
     });
   };
@@ -212,6 +239,23 @@ export function LootAwardDialog({
             />
           )}
         </div>
+
+        {editingDate && (
+          <div className="space-y-1">
+            <Label className="text-xs">Date won</Label>
+            <Input
+              type="date"
+              value={awardedDay}
+              onChange={(e) => setAwardedDay(e.target.value)}
+              className="h-8"
+            />
+            {dateOffSession && (
+              <p className="text-xs text-muted-foreground">
+                The award stays filed under the {target.sessionLabel} night of {target.sessionDate}.
+              </p>
+            )}
+          </div>
+        )}
 
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <Checkbox checked={offspec} onChange={(e) => setOffspec(e.target.checked)} />

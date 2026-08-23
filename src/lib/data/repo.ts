@@ -4,8 +4,12 @@ import type { SuccessionState } from "@/lib/auth/succession";
 import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
 import type { EnchantReference } from "@/lib/analysis/enchants";
 import type { PrioritySheetDocument } from "@/lib/loot/priority-sheet";
+import type { BossDropDraft, MergedDrop } from "@/lib/loot/drop-table";
+export type { BossDropDraft };
+
+
 import type { GuildPolicy, PolicyOverrides } from "@/lib/analysis/policy";
-import type { ClassGuide } from "@/lib/guides";
+import type { Guide, GuideKind } from "@/lib/guides";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type { PolicyPreview, PolicyPreviewRow } from "@/lib/analysis/policy-preview";
 import type { AbilityInfo } from "@/lib/items/ability-data";
@@ -20,6 +24,9 @@ import type {
   CharacterBundle,
   CharacterComment,
   ItemComment,
+  BossComment,
+  BossDrop,
+  GuildBossDrop,
   CharacterComparisonView,
   CharacterPerformance,
   CharacterSummary,
@@ -175,6 +182,15 @@ export interface Repo {
    */
   listUnmatchedSheetNames(): Promise<string[]>;
   /**
+   * Cached drops the priority sheet can place and the cache cannot: rows with
+   * no source at all, whose name a sheet section names a boss for.
+   *
+   * The sheet is written boss by boss, so its headings are a drop table nobody
+   * was reading as one. Feeding these to `applySheetItemSources` is what puts
+   * them on their raid's loot plan.
+   */
+  listSheetDropSources(): Promise<{ id: number; source: { zone: string; boss: string } }[]>;
+  /**
    * Every boss the imported logs have seen, alphabetically.
    *
    * The council excuses content by name (policy.preparation.excusedEncounters),
@@ -258,7 +274,48 @@ export interface Repo {
    * lot, since a character's own sets ride along in their bundle.
    */
   listGearSets(): Promise<GearSet[]>;
-  listClassGuides(): Promise<ClassGuide[]>;
+  /**
+   * The council's notes for one zone's bosses, keyed by `bossKey`.
+   *
+   * A map, because the loot plan renders every boss at once — a per-boss call
+   * would be one round trip per card for data the read model already holds.
+   */
+  /**
+   * The drop table this guild reads for one zone — the foundational table with
+   * their own overlay applied. This is what the loot plan is built from.
+   */
+  getDropTable(zone: string): Promise<MergedDrop[]>;
+  /** The foundational table alone, for whoever is editing it. */
+  listFoundationalDrops(zone?: string): Promise<BossDrop[]>;
+  /**
+   * The same rows with each item resolved — icon, quality, and the name the
+   * cache has. No guild overlay: this is the shared table as its owner sees it.
+   */
+  getFoundationalDropTable(zone: string): Promise<MergedDrop[]>;
+  /**
+   * Foundational rows listing one item twice under one boss, as the rows to
+   * delete. They cannot heal themselves — the key is the item NAME, so two
+   * spellings are two valid-looking rows. `seedFoundationalDrops` clears them.
+   */
+  listDuplicateDrops(): Promise<{ zone: string; boss: string; itemName: string }[]>;
+  /** This guild's own additions and removals, for the same reason. */
+  listGuildDropOverrides(zone?: string): Promise<GuildBossDrop[]>;
+  /**
+   * What this deployment already knows about which boss drops what, as drafts
+   * for the foundational table — the priority sheets' boss sections, then the
+   * item cache's own attributions. Read-only; `seedFoundationalDrops` writes it.
+   */
+  listKnownDropSources(): Promise<{
+    drafts: BossDropDraft[];
+    fromSheets: number;
+    fromCache: number;
+  }>;
+  listBossComments(zone: string): Promise<Map<string, BossComment[]>>;
+  /**
+   * Every guide on the deployment — the operator's baselines and this guild's
+   * own. Both, because a page shows them side by side rather than picking one.
+   */
+  listGuides(): Promise<Guide[]>;
   /**
    * Notes on one item, newest first — a raider's about their own claim, an
    * officer's about the council's. Nothing here feeds a score: the council
@@ -397,6 +454,31 @@ export interface AwardEditInput {
   external: boolean;
   offspec: boolean;
   note?: string;
+  /**
+   * When the item was won, ISO. Absent leaves the stored timestamp alone.
+   *
+   * The award keeps its raid session either way — the session is the Gargul
+   * import it arrived in, and re-filing it under another night would rewrite a
+   * second raid's record to fix one row. So a re-dated award can sit on a
+   * session whose own date differs, and the editor says so rather than hiding
+   * it. Everything derived from "when" — recency, fairness windows, the
+   * ledger's order — reads this field, which is why changing it is gated
+   * harder than the rest (`loot.amend`).
+   */
+  awardedAt?: string;
+}
+
+/**
+ * Who is amending the ledger, for the line the guild gets to read.
+ *
+ * Passed into the write rather than logged beside it: the award change and the
+ * record of it commit in one transaction, so there is no state where the
+ * ledger moved and nothing says who moved it.
+ */
+export interface AwardAuditActor {
+  guildId: string;
+  /** A display name, as `actingOfficer()` resolves it. */
+  actor: string;
 }
 
 export type AwardWriteResult =
@@ -610,10 +692,66 @@ export interface WriteRepo extends Repo {
     items: { itemId: number; itemName?: string; note?: string }[];
   }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** Write one class or spec guide. An empty body deletes it. */
-  setClassGuide(input: {
-    wowClass: string;
-    /** Empty for the class-level guide. */
-    spec: string;
+  /**
+   * Add a council note under one boss on the loot plan.
+   *
+   * The boss is named, not keyed: the caller passes the label it is showing and
+   * the store derives the key, so a note can never be filed under a spelling
+   * the reader will not look up. Notes are appended, never edited — a decision
+   * that changed is a second note, and the first one is why.
+   */
+  /**
+   * Write foundational drops — the operator's surface, service-wide.
+   *
+   * Idempotent: the key is (zone, boss, item), so re-importing a table changes
+   * nothing. Gated on running the service, not on any guild capability; see
+   * the action for why.
+   */
+  upsertBossDrops(drops: BossDropDraft[]): Promise<number>;
+  /** Remove one foundational drop. */
+  deleteBossDrop(zone: string, boss: string, itemName: string): Promise<boolean>;
+  /**
+   * Seed the foundational table from what this deployment already knows: the
+   * priority sheets' boss sections and the item cache's own attributions.
+   *
+   * A migration, not an ongoing path — it exists so the table starts full
+   * rather than empty, using data an operator has already curated by hand.
+   */
+  seedFoundationalDrops(): Promise<{ fromSheets: number; fromCache: number; deduped: number }>;
+
+  /** One guild's addition to, or removal from, a foundational drop. */
+  setGuildDropOverride(input: {
+    zone: string;
+    boss: string;
+    itemName: string;
+    itemId?: number;
+    action: "add" | "hide";
+    note?: string;
+    author?: string;
+  }): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Drop the override, so the guild reads the foundation again. */
+  clearGuildDropOverride(zone: string, boss: string, itemName: string): Promise<boolean>;
+  addBossComment(input: {
+    zone: string;
+    boss: string;
+    body: string;
+    author?: string;
+  }): Promise<{ ok: true; comment: BossComment } | { ok: false; error: string }>;
+  /** Remove one note by id. */
+  deleteBossComment(id: string): Promise<boolean>;
+  /**
+   * Write one guide.
+   *
+   * `owner` decides whose it is: `OPERATOR_OWNER` for the shared baseline,
+   * which needs app-admin, or the guild's id for their own. An empty body
+   * deletes — a guide with nothing in it reads as "we have nothing to say",
+   * which is not the same as never having written one.
+   */
+  setGuide(input: {
+    kind: GuideKind;
+    subject: string;
+    section: string;
+    owner: string;
     body: string;
     sources: string[];
     author?: string;
@@ -633,15 +771,22 @@ export interface WriteRepo extends Repo {
   resolveAward(awardId: string, resolution: AwardResolution): Promise<ResolveAwardResult>;
   /** Add one award to an existing session (manual entry, not from a paste). */
   addLootAward(raidSessionId: string, input: AwardEditInput): Promise<AwardWriteResult>;
-  /** Edit one award's item, winner, off-spec flag and note (date/session stay put). */
-  updateLootAward(awardId: string, input: AwardEditInput): Promise<AwardWriteResult>;
-  /** Remove one award outright. Returns false when it didn't exist. */
-  deleteLootAward(awardId: string): Promise<boolean>;
+  /**
+   * Edit one award's item, winner, off-spec flag, note and — when the input
+   * says so — the date it was won. The raid session stays put.
+   *
+   * `audit` names the officer; given one, the change is written to the guild
+   * audit log in the same transaction.
+   */
+  updateLootAward(awardId: string, input: AwardEditInput, audit?: AwardAuditActor): Promise<AwardWriteResult>;
+  /** Remove one award outright. Returns false when it didn't exist. Audited like an edit. */
+  deleteLootAward(awardId: string, audit?: AwardAuditActor): Promise<boolean>;
   /**
    * Delete a whole raid session (one Gargul import): its awards are removed and
    * any Warcraft Logs report linked to it is unlinked (the report itself stays).
+   * Audited like a single-award removal — it is the same act at a larger scale.
    */
-  deleteRaidSession(raidSessionId: string): Promise<DeleteSessionResult>;
+  deleteRaidSession(raidSessionId: string, audit?: AwardAuditActor): Promise<DeleteSessionResult>;
   /**
    * Persist one fetched Warcraft Logs report. Players are matched to roster
    * characters by name (like Gargul winners); re-saving the same report code
@@ -817,6 +962,20 @@ export interface WriteRepo extends Repo {
    * this guild counts it as.
    */
   applyCuratedItemSources(): Promise<number>;
+  /**
+   * Attribute cached drops from the council's own priority sheet — its `###`
+   * headings name the boss every item under them comes from.
+   *
+   * Gap-filling like its neighbour, and for a sharper reason than convenience:
+   * a section heading is the council saying where loot drops, which is worth
+   * strictly less than Wowhead's answer or an officer's curation and must never
+   * overwrite either. Measured against this guild's live cache the two sources
+   * disagree once in 189 rows, and that once is an article — so what this
+   * actually does is fill blanks, not arbitrate.
+   *
+   * Returns rows that learned something.
+   */
+  applySheetItemSources(): Promise<number>;
   /**
    * Replace the invented "Item #30048" names frozen into old loot rows with
    * the real name, once the cache knows it. Returns rows repaired.

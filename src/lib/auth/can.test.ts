@@ -63,6 +63,22 @@ describe("the capability vocabulary", () => {
     expect(CAPABILITIES["import.run"].implies).toBeUndefined();
   });
 
+  it("keeps re-dating an award out of reach of an ordinary awarder", () => {
+    /*
+     * The one that matters about `loot.amend`: recording a win and rewriting
+     * when a recorded win happened are different powers, and every fairness and
+     * recency number reads the date. An `implies` added for convenience — in
+     * either direction — would quietly hand history back to everyone who may
+     * award, and nothing else in the app would notice.
+     */
+    const awarder = member(["loot.award"]);
+    expect(can(awarder, "loot.award")).toBe(true);
+    expect(can(awarder, "loot.amend")).toBe(false);
+    expect(can(member(["loot.amend"]), "loot.award")).toBe(false);
+    // It does carry the ledger: amending what you cannot see is a blank page.
+    expect(can(member(["loot.amend"]), "loot.view")).toBe(true);
+  });
+
   it("expands implications transitively", () => {
     // roles.manage -> members.manage -> roster.view
     expect([...expandCapabilities(["roles.manage"])].sort()).toEqual(

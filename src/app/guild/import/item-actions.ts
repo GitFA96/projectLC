@@ -35,6 +35,8 @@ export interface BackfillItemsResult {
   harvested: number;
   /** Items that gained a zone, boss or phase from the shipped drop table. */
   curated: number;
+  /** Items whose drop source came from the council's own priority sheet. */
+  sheeted: number;
   /** Items looked up on Wowhead this run. */
   resolved: number;
   /** Of those, rows whose cached name/quality/icon/slot Wowhead disagreed with. */
@@ -55,7 +57,7 @@ export interface BackfillItemsResult {
 const RESOLVE_LIMIT = 60;
 
 export async function backfillItemData(): Promise<BackfillItemsResult> {
-  const empty = { harvested: 0, curated: 0, resolved: 0, corrected: 0, failed: 0, remaining: 0, repaired: 0 };
+  const empty = { harvested: 0, curated: 0, sheeted: 0, resolved: 0, corrected: 0, failed: 0, remaining: 0, repaired: 0 };
   try {
     requireCapability(await resolveViewer(), "import.run");
     const repo = await getWriteRepo();
@@ -72,6 +74,14 @@ export async function backfillItemData(): Promise<BackfillItemsResult> {
     // way out fills that hole in the same press. Curating first would leave the
     // corrections a press behind, which reads as the button not working.
     const curated = await repo.applyCuratedItemSources();
+    // Then the council's own sheet, for what the shipped table still has no
+    // answer to. Second because the shipped list is a drop table proper and
+    // carries a phase as well as a zone, where a `###` heading is a priority
+    // document being read for provenance — the more direct statement of where
+    // an item comes from goes first. Both only fill blanks, and on this guild's
+    // cache the two have no row in common, so the order costs nothing today and
+    // is the defensible one when they eventually overlap.
+    const sheeted = await repo.applySheetItemSources();
     const repaired = await repo.repairPlaceholderAwardNames();
     const remaining = Math.max(0, unresolved.length - resolved.length - failed.length);
 
@@ -79,6 +89,7 @@ export async function backfillItemData(): Promise<BackfillItemsResult> {
     const parts = [
       harvested > 0 ? `${harvested} filled from imports` : undefined,
       curated > 0 ? `${curated} given a drop source` : undefined,
+      sheeted > 0 ? `${sheeted} placed by the priority sheet` : undefined,
       `${resolved.length} looked up on Wowhead`,
       corrected > 0 ? `${corrected} corrected` : undefined,
       repaired > 0 ? `${repaired} loot rows renamed` : undefined,
@@ -91,11 +102,12 @@ export async function backfillItemData(): Promise<BackfillItemsResult> {
     ].filter(Boolean);
     return {
       ok: true,
-      message: unresolved.length === 0 && harvested === 0 && curated === 0
+      message: unresolved.length === 0 && harvested === 0 && curated === 0 && sheeted === 0
         ? "Every referenced item has been confirmed against Wowhead."
         : parts.join(" · "),
       harvested,
       curated,
+      sheeted,
       resolved: resolved.length,
       corrected,
       failed: failed.length,

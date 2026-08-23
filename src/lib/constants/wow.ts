@@ -216,9 +216,54 @@ export const TBC_RAIDS: { name: string; short: string; bosses: string[] }[] = [
   },
 ];
 
-/** Loose key so apostrophe and casing differences between sources still match. */
-function bossKey(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+/**
+ * What a zone's trash drops are filed under.
+ *
+ * Not a boss, but it is where a real part of a tier's loot comes from, and both
+ * the council's sheet ("Hyjal Trash", "Black Temple Trash") and the raid night
+ * treat it as a stop on the way in. `TBC_RAIDS` deliberately does not list it —
+ * that array is encounters, and a log has no "Trash" fight — so anything
+ * ordering a zone's drop sources has to place it explicitly. It goes first,
+ * because that is when the raid meets it.
+ */
+export const TRASH_BOSS = "Trash";
+
+/**
+ * Other names for an encounter this table already lists, keyed loosely.
+ *
+ * Only names a real source actually emitted belong here. Wowhead's item pages
+ * call Karazhan's opera "Opera Event"; the raid table calls it "Opera Hall".
+ * Neither is wrong, and an item filed under one is invisible to a lookup on the
+ * other — which on the loot plan means a boss's whole drop list sorts into the
+ * unattributed tail. Every entry should name where it was seen, so a future
+ * reader can tell an observation from a guess.
+ */
+const BOSS_ALIASES: Record<string, string> = {
+  // Seen on Wowhead's drop data for Karazhan opera loot.
+  operaevent: "Opera Hall",
+};
+
+/**
+ * Loose key so spelling differences between sources still match.
+ *
+ * Punctuation and case go first — `Kael'thas` and `Kael’thas` are one boss, and
+ * so are `Kaz'rogal` and the sheet's `Kazrogal`. A leading **article** goes too:
+ * Wowhead files Black Temple's council under "Illidari Council" while this
+ * table (and Warcraft Logs) say "The Illidari Council". That one cost the loot
+ * plan a whole boss — unmatched names sort last, so its eight drops appeared
+ * after Illidan instead of before him, and nothing failed.
+ *
+ * The article is stripped from the **raw** name, where a trailing space proves
+ * it is a word. Doing it to the punctuation-free key instead would silently eat
+ * the first three letters of any boss whose name merely begins with those
+ * letters — "Thekal" becoming "kal" — and this table gains rows over time.
+ */
+export function bossKey(name: string): string {
+  const key = (raw: string) =>
+    raw.trim().replace(/^the\s+/i, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const direct = key(name);
+  const alias = BOSS_ALIASES[direct];
+  return alias ? key(alias) : direct;
 }
 
 const RAID_BY_BOSS = new Map<string, (typeof TBC_RAIDS)[number]>(

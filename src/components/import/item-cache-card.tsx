@@ -111,13 +111,15 @@ export function ItemCacheCard({
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           Loot pastes and log gear snapshots often carry only an item id. This fills the gaps —
-          from data already imported, from the shipped drop table (zone, boss and phase), and
-          then one Wowhead lookup per id Wowhead hasn&apos;t answered for yet. Rows with a hole
+          from data already imported, from the shipped drop table (zone, boss and phase), from
+          the boss headings on your own priority sheet, and then one Wowhead lookup per id
+          Wowhead hasn&apos;t answered for yet. Rows with a hole
           in them go first, then anything still unconfirmed, a batch per press (Wowhead turns
           away anyone asking for hundreds at once), so a backlog takes a few presses. Safe to
           press any time: only Wowhead&apos;s own answer overwrites anything, it never asks
           twice about an item it has confirmed, and your own zone, boss and phase always win
-          over the shipped ones.
+          over the shipped ones. A sheet heading only ever fills a drop with no source at
+          all, so it can neither overrule Wowhead nor a curation of yours.
         </p>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-2">

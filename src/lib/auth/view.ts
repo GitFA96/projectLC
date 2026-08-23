@@ -68,7 +68,9 @@ export const ROUTE_NEEDS: Record<string, ViewNeed> = {
   "/fight-graph": "logs.view",
   "/sim": "logs.view",
   "/guides": "guild.view",
+  "/guides/raids": "guild.view",
   "/service": "app-admin",
+  "/service/drops": "app-admin",
   "/service/tenancy": "app-admin",
   "/service/feedback": "app-admin",
 };

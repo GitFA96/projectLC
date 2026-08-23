@@ -4,9 +4,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
-import { classFromSlug, findGuide, guideSlots } from "@/lib/guides";
+import { classFromSlug, findGuides, guideSlots } from "@/lib/guides";
 import { PageHeader } from "@/components/page-header";
-import { GuideEditor } from "@/components/guides/guide-editor";
+import { GuidePanel } from "@/components/guides/guide-panel";
+import { guidePermissions } from "@/app/guides/actions";
 import { cn } from "@/lib/utils";
 
 import { pageView } from "@/lib/auth/view";
@@ -41,42 +42,50 @@ export default async function ClassGuidePage({
   if (!wowClass) notFound();
 
   const repo = await getRepo();
-  const guides = await repo.listClassGuides();
+  const [guides, guild, permissions] = await Promise.all([
+    repo.listGuides(),
+    repo.getGuild(),
+    guidePermissions(),
+  ]);
 
   return (
     <div>
       <PageHeader
         title={<span className={CLASS_TEXT_COLORS[wowClass]}>{wowClass}</span>}
-        description="What this guild expects, in its own words. Each section is editable, and every summary should name where it came from."
+        description="What this guild expects, in its own words, over whatever shared baseline exists. Every summary should name where it came from."
       >
         <Link
           href="/guides"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          All classes
+          All guides
         </Link>
       </PageHeader>
 
       <div className="space-y-4">
-        {guideSlots(wowClass).map(({ spec, label }) => (
+        {guideSlots(wowClass).map(({ section, label }) => (
           <section
-            key={spec || "class"}
-            className={cn("rounded-xl border bg-card p-4", spec === "" && "border-primary/30")}
+            key={section || "class"}
+            className={cn("rounded-xl border bg-card p-4", section === "" && "border-primary/30")}
           >
             <h2 className="mb-2 text-sm font-semibold">
               {label}
-              {spec === "" && (
+              {section === "" && (
                 <span className="ml-2 font-normal text-xs text-muted-foreground">
                   applies to every {wowClass}
                 </span>
               )}
             </h2>
-            <GuideEditor
-              wowClass={wowClass}
-              spec={spec}
-              label={spec ? `${spec} ${wowClass}` : wowClass}
-              guide={findGuide(guides, wowClass, spec)}
+            <GuidePanel
+              kind="class"
+              subject={wowClass}
+              section={section}
+              label={section ? `${section} ${wowClass}` : wowClass}
+              guides={findGuides(guides, "class", wowClass, section, guild.id)}
+              permissions={permissions}
+              hint="Consumables, enchants, gems, cooldown use — what this guild expects. A few lines beats a transcription."
+              placeholder={"Flask of Relentless Assault.\nHaste potion on cooldown with Bloodlust.\n…"}
             />
           </section>
         ))}
