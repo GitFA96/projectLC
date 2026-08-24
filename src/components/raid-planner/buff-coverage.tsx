@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, ChevronDown, CircleHelp, Minus } from "lucide-react";
-import type { BuffCoverage, BoardView } from "@/lib/analysis/raid-planner";
+import type { BuffCoverage, BoardView, PlacedMember } from "@/lib/analysis/raid-planner";
+import { slotKey } from "@/lib/analysis/raid-planner";
 import {
   PARTY_BUFFS,
   SCOPE_LABELS,
@@ -35,16 +36,62 @@ const STATE_ICON = {
   missing: Minus,
 } as const;
 
+/**
+ * Providers, with repeats folded into a count.
+ *
+ * A template's slots are archetypes, so three Restoration Shamans are three
+ * providers sharing one name, and printing the name three times reads as a
+ * rendering fault. The count is also the better answer to what this column
+ * actually asks: not *which* shaman — a template has no such thing — but how
+ * many. Numbering them ("Resto Shaman 2") would be worse than either: provider
+ * order follows group order, so the numbers shuffle when anyone is dragged, and
+ * the board never shows a number to match them against.
+ *
+ * An officer's own slot label wins over the archetype name, because giving two
+ * twins different labels is how they already tell them apart.
+ */
+interface FoldedProvider {
+  key: string;
+  name: string;
+  wowClass?: string;
+  count: number;
+}
+
+function foldProviders(members: readonly PlacedMember[]): FoldedProvider[] {
+  const out: FoldedProvider[] = [];
+  const at = new Map<string, number>();
+  for (const m of members) {
+    const name = m.label ?? m.name;
+    // Folded on class too, so two slots an officer happened to label the same
+    // thing keep their own colour rather than merging into one.
+    const foldKey = `${name}|${m.wowClass ?? ""}`;
+    const seen = at.get(foldKey);
+    if (seen === undefined) {
+      at.set(foldKey, out.length);
+      out.push({ key: slotKey(m.slot), name, wowClass: m.wowClass, count: 1 });
+    } else {
+      out[seen].count += 1;
+    }
+  }
+  return out;
+}
+
+/** The same folding as plain text, for the hover titles. */
+const providerText = (members: readonly PlacedMember[]): string =>
+  foldProviders(members)
+    .map((p) => (p.count > 1 ? `${p.name} ×${p.count}` : p.name))
+    .join(", ");
+
 /** Everything hover has to say about one buff — who brings it, and what the log knows. */
-function buffTitle(cover: BuffCoverage): string {
+function buffTitle(cover: BuffCoverage<PlacedMember>): string {
   const { buff } = cover;
   const lines = [`${buff.name} — ${buff.effect}`];
 
   if (cover.providers.length > 0) {
-    lines.push(`From: ${cover.providers.map((p) => p.name).join(", ")}`);
+    lines.push(`From: ${providerText(cover.providers)}`);
   }
   if (cover.possible.length > 0) {
-    const who = cover.possible.map((p) => p.name).join(", ");
+    const who = providerText(cover.possible);
     const requires = buff.sources.find((s) => s.requires)?.requires;
     lines.push(
       buff.exclusiveWith
@@ -62,7 +109,7 @@ function buffTitle(cover: BuffCoverage): string {
     );
   }
   if (cover.evidenced.length > 0) {
-    lines.push(`The log caught ${cover.evidenced.map((p) => p.name).join(", ")} providing it.`);
+    lines.push(`The log caught ${providerText(cover.evidenced)} providing it.`);
   } else if (buff.unloggedBecause) {
     lines.push(`Not confirmable: ${buff.unloggedBecause}`);
   }
@@ -73,7 +120,7 @@ function BuffChip({
   cover,
   compact = false,
 }: {
-  cover: BuffCoverage;
+  cover: BuffCoverage<PlacedMember>;
   compact?: boolean;
 }) {
   const Icon = STATE_ICON[cover.state];
@@ -103,7 +150,7 @@ function BuffChip({
  * it needs no state, keyboard-works for free, and eight of them can be open at
  * once without fighting each other.
  */
-export function GroupBuffPanel({ coverage }: { coverage: BuffCoverage[] }) {
+export function GroupBuffPanel({ coverage }: { coverage: BuffCoverage<PlacedMember>[] }) {
   const has = coverage.filter((c) => c.state !== "missing");
   const covered = coverage.filter((c) => c.state === "covered").length;
 
@@ -238,7 +285,7 @@ export function PartyBuffMatrix({ view }: { view: BoardView }) {
 const classColor = (wowClass: string | undefined) =>
   wowClass && wowClass in CLASS_TEXT_COLORS ? CLASS_TEXT_COLORS[wowClass as WowClass] : undefined;
 
-function ProviderList({ cover }: { cover: BuffCoverage }) {
+function ProviderList({ cover }: { cover: BuffCoverage<PlacedMember> }) {
   const shown = cover.providers.length > 0 ? cover.providers : cover.possible;
   if (shown.length === 0) {
     const needs = [...new Set(cover.buff.sources.map((s) => s.wowClass))];
@@ -248,14 +295,18 @@ function ProviderList({ cover }: { cover: BuffCoverage }) {
       </span>
     );
   }
+  // The cap counts folded entries, so "+2" is two more archetypes, not two more
+  // bodies of one already listed.
+  const folded = foldProviders(shown);
   return (
     <span className="flex flex-wrap gap-x-1.5">
-      {shown.slice(0, 4).map((p) => (
-        <span key={p.name} style={{ color: classColor(p.wowClass) }}>
+      {folded.slice(0, 4).map((p) => (
+        <span key={p.key} style={{ color: classColor(p.wowClass) }}>
           {p.name}
+          {p.count > 1 && <span className="ml-0.5 opacity-70">×{p.count}</span>}
         </span>
       ))}
-      {shown.length > 4 && <span className="text-muted-foreground">+{shown.length - 4}</span>}
+      {folded.length > 4 && <span className="text-muted-foreground">+{folded.length - 4}</span>}
     </span>
   );
 }

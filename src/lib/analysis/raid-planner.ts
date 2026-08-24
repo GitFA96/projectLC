@@ -700,20 +700,28 @@ function meetsSpec(source: RaidBuff["sources"][number], member: PoolMember): boo
 
 export type CoverageState = "covered" | "conditional" | "missing";
 
-export interface BuffCoverage {
+/**
+ * Coverage carries whichever member type it was computed from.
+ *
+ * A board's coverage holds `PlacedMember`s, and the UI needs that: a template's
+ * slots are archetypes, so three Restoration Shamans share one `name` and only
+ * `slotKey(slot)` tells them apart. Widening these to `PoolMember` here would
+ * throw that identity away before the list ever gets rendered.
+ */
+export interface BuffCoverage<M extends PoolMember = PoolMember> {
   buff: RaidBuff;
   state: CoverageState;
   /** Raiders who bring it — spec confirmed, or the log caught them doing it. */
-  providers: PoolMember[];
+  providers: M[];
   /**
    * Raiders who *could* bring it and haven't been confirmed doing so — either
    * their spec was never recorded, or the buff competes with others they bring
    * instead (`exclusiveWith`). They may well bring it; the app refuses to claim
    * so.
    */
-  possible: PoolMember[];
+  possible: M[];
   /** Providers the log actually caught doing it — the evidence, not the prediction. */
-  evidenced: PoolMember[];
+  evidenced: M[];
 }
 
 /**
@@ -734,10 +742,13 @@ export interface BuffCoverage {
  * a tool that added them all up would be wrong in the direction that flatters —
  * the worst direction for something an officer plans a raid on.
  */
-export function coverageOf(buff: RaidBuff, members: readonly PoolMember[]): BuffCoverage {
-  const providers: PoolMember[] = [];
-  const possible: PoolMember[] = [];
-  const evidenced: PoolMember[] = [];
+export function coverageOf<M extends PoolMember>(
+  buff: RaidBuff,
+  members: readonly M[],
+): BuffCoverage<M> {
+  const providers: M[] = [];
+  const possible: M[] = [];
+  const evidenced: M[] = [];
 
   for (const member of members) {
     if (member.broughtBuffs?.includes(buff.id)) {
@@ -777,7 +788,7 @@ export interface GroupView {
   number: number;
   members: PlacedMember[];
   /** Party buffs only — the ones grouping decides. */
-  coverage: BuffCoverage[];
+  coverage: BuffCoverage<PlacedMember>[];
   covered: number;
 }
 
@@ -786,7 +797,7 @@ export interface BoardView {
   bench: PlacedMember[];
   unknown: string[];
   /** Raid-wide and on-the-boss buffs, across everyone assigned. */
-  raid: BuffCoverage[];
+  raid: BuffCoverage<PlacedMember>[];
   /** Assigned raiders by role — the "do we have four healers" line. */
   roles: Record<WclRole, number>;
   /** Assigned raiders by class, most first. */
