@@ -230,6 +230,28 @@ CREATE TABLE IF NOT EXISTS enchant_names (
   name        TEXT NOT NULL,
   resolved_at TEXT NOT NULL
 );
+-- Item names taken to Wowhead and refused.
+--
+-- The queues that offer names for lookup are built from what the cache CANNOT
+-- match, so without this a name Wowhead has already declined is indistinguishable
+-- from one nobody has asked about: the button keeps offering the same count,
+-- pressing it changes nothing, and the officer has no way to tell the two apart.
+-- Same distinction the items table draws with armor_token: absent means
+-- nobody asked, a row means we asked and the answer needs a person.
+--
+-- Keyed by the NORMALIZED name, because that is what the queues compare with.
+-- A transport failure is deliberately never recorded: it says nothing about the
+-- name and would take it out of a queue it belongs in.
+CREATE TABLE IF NOT EXISTS item_name_lookups (
+  name_key   TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  -- NameMissReason, minus "error": 'unknown' | 'no-exact' | 'ambiguous'.
+  reason     TEXT NOT NULL,
+  -- What Wowhead did offer, JSON. "Antonidas's …" beside the sheet's "Antonidas' …"
+  -- is the whole answer to a near-miss, and it is a person's job to read it.
+  near       TEXT NOT NULL DEFAULT '[]',
+  checked_at TEXT NOT NULL
+);
 -- Officer edits to the council's spec priority sheet. Keyed by NORMALIZED item
 -- name, not id: a sheet covers everything a boss can drop, most of which the
 -- item cache has never heard of. Absent = the seeded sheet stands.
@@ -2294,6 +2316,82 @@ export function addEnchantNames(db: DatabaseSync, names: { id: number; name: str
     written += Number(stmt.run(id, name.trim(), at).changes);
   }
   return written;
+}
+
+/** One name Wowhead was asked about and would not identify. */
+export interface RefusedItemName {
+  nameKey: string;
+  name: string;
+  reason: string;
+  near: string[];
+  checkedAt: string;
+}
+
+/** Every name the app has asked about and been refused. */
+export function getRefusedItemNames(db: DatabaseSync): RefusedItemName[] {
+  const rows = db
+    .prepare("SELECT name_key, name, reason, near, checked_at FROM item_name_lookups")
+    .all() as { name_key: string; name: string; reason: string; near: string; checked_at: string }[];
+  return rows.map((r) => ({
+    nameKey: r.name_key,
+    name: r.name,
+    reason: r.reason,
+    near: parseNear(r.near),
+    checkedAt: r.checked_at,
+  }));
+}
+
+/** A malformed blob is nothing offered, never a thrown read. */
+function parseNear(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Record names Wowhead refused, replacing any earlier verdict on the same name.
+ *
+ * Replacing rather than ignoring: a re-ask is how an officer checks whether a
+ * fixed sheet row now resolves, and the newer answer is the true one. Callers
+ * must filter out transport errors before getting here — see the table comment.
+ */
+export function recordRefusedItemNames(
+  db: DatabaseSync,
+  refused: { nameKey: string; name: string; reason: string; near: string[] }[],
+): number {
+  const stmt = db.prepare(
+    `INSERT INTO item_name_lookups (name_key, name, reason, near, checked_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(name_key) DO UPDATE SET
+       name = excluded.name, reason = excluded.reason,
+       near = excluded.near, checked_at = excluded.checked_at`,
+  );
+  const at = new Date().toISOString();
+  let written = 0;
+  for (const r of refused) {
+    if (!r.nameKey.trim() || !r.name.trim()) continue;
+    written += Number(stmt.run(r.nameKey, r.name.trim(), r.reason, JSON.stringify(r.near), at).changes);
+  }
+  return written;
+}
+
+/**
+ * Forget past refusals, so the ordinary queue offers those names again.
+ *
+ * With no keys, forgets all of them — the "look at these again" press after a
+ * sheet has been corrected or a curated label has moved.
+ */
+export function clearRefusedItemNames(db: DatabaseSync, nameKeys?: string[]): number {
+  if (nameKeys === undefined) {
+    return Number(db.prepare("DELETE FROM item_name_lookups").run().changes);
+  }
+  const stmt = db.prepare("DELETE FROM item_name_lookups WHERE name_key = ?");
+  let removed = 0;
+  for (const key of nameKeys) removed += Number(stmt.run(key).changes);
+  return removed;
 }
 
 /* Entity <-> row mapping. SQLite has no undefined: optionals become NULL and

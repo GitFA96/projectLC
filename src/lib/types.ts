@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { BossDeathProfile } from "@/lib/analysis/deaths";
+import type { CoverageGrade } from "@/lib/analysis/preparation";
+import type { ElixirSlot } from "@/lib/wcl/consumables";
 import type {
   attendanceExemptionSchema,
   characterCommentSchema,
@@ -922,6 +924,173 @@ export interface PlayerImprovements {
   findings: ImprovementFinding[];
 }
 
+/**
+ * One raider's preparation on one pull — the fact, before any aggregation.
+ *
+ * Kept per pull because a raid night is not one state: a raider fed on nine
+ * pulls and not on five is neither "fed" nor "not fed", and a single tick per
+ * raider has to pick one. Absent from a raider's `pulls` means they were not
+ * on that pull at all, which is a third thing again.
+ */
+export interface PreparednessPull {
+  fightId: number;
+  /** How much of the elixir budget was filled — the fact, not the standard. */
+  grade: CoverageGrade;
+  /** The empty half of a partial set, when the curated list can name it. */
+  missingSlot?: ElixirSlot;
+  flask?: string;
+  elixirs: string[];
+  food: boolean;
+  /** Scroll buffs up at the pull, rank included. */
+  scrolls: string[];
+  weaponBuff: boolean;
+  /**
+   * Temporary weapon enchantments at the pull, main hand first.
+   *
+   * **Both hands, because a raider buffs both.** A dual-wielding rogue runs a
+   * different poison on each, and reporting only the main hand called that
+   * half a job done. Empty when neither carried one.
+   *
+   * Ids and nothing more: Warcraft Logs records that a weapon slot held a
+   * temporary enchant, never which stone, oil or poison applied it. The enchant
+   * dictionary names most of them; the sharpening stones only resolve to effect
+   * text. Nothing here guesses an item.
+   */
+  weaponEnchants: { hand: "main" | "off"; id: number }[];
+  /** Enchantable slots carrying a permanent enchant at this pull. */
+  enchanted: number;
+  /** Slots expected to be enchanted that weren't, by label. */
+  missingEnchants: string[];
+  /** Gems socketed across the worn set at this pull. */
+  gems: number;
+  /** False for pulls imported before gear tracking — an empty set, not a naked raider. */
+  hasGear?: true;
+  /** Average item level worn, shirt and tabard excluded. */
+  ilvl?: number;
+  /**
+   * Coverage AND food — `isPrepared`, the same rule the loot-priority factor
+   * and the standing board read. Computed here so nothing downstream invents a
+   * second definition of the word.
+   */
+  prepared: boolean;
+}
+
+/**
+ * What a raider put on their pet, for the whole night.
+ *
+ * **Not per pull, and it cannot be.** Pet food is a twenty-minute buff applied
+ * between pulls, so the ingest records it once per player per report — there is
+ * no fight row to hang it on. The table shows the same answer at every scope
+ * and says so, rather than implying a pull-by-pull fact it does not have.
+ */
+export interface PreparednessPet {
+  /** Pet food applied across the night, most-used first: [name, times]. */
+  food: [string, number][];
+  /** Scrolls read onto the pet, most-used first. */
+  scrolls: [string, number][];
+  /**
+   * Each application in the order it happened.
+   *
+   * What makes a scoped view readable: the night's total against one pull
+   * reads as a bug, while "fed before this boss" is the same fact answering
+   * the question actually being asked. `fightId` absent means between pulls,
+   * which is where most feeding happens.
+   */
+  applications: { name: string; atMs?: number; fightId?: number }[];
+}
+
+/** One item seen in a slot across a raid night, with the evidence behind it. */
+export interface PreparednessWorn {
+  itemId: number;
+  name?: string;
+  ilvl?: number;
+  /** Pulls in the report that wore it. */
+  pulls: number;
+  /** Bosses it was worn on, most pulls first. */
+  encounters: string[];
+  /**
+   * Temporary enchant ids seen on THIS item, most-seen first.
+   *
+   * Per item rather than per raider, because that is the question a swap
+   * raises: the off-set weapon that never gets an oil is invisible when the
+   * enchant is only read off whichever weapon was in hand at the last pull.
+   */
+  tempEnchantIds: number[];
+}
+
+/**
+ * A gear slot that held more than one item over the night.
+ *
+ * The reason this exists is the fishing pole. Lurker is spawned by fishing, so
+ * a raider pulls him holding a level 30 rod — which is a real fact about that
+ * pull and a terrible answer to "how geared is this raider". The swap is the
+ * thing worth reporting; the pull's own snapshot was never wrong, it was just
+ * being read as something it isn't.
+ */
+export interface PreparednessSwap {
+  /** Gear-slot label ("Main hand", "Off hand"). */
+  label: string;
+  /** Items seen there, most-worn first. The first is the raider's usual. */
+  items: PreparednessWorn[];
+}
+
+/** One raider's night, pull by pull. */
+export interface PreparednessRow {
+  name: string;
+  slug?: string;
+  className?: string;
+  spec?: string;
+  role: WclRole;
+  /** In pull order. Pulls they missed are absent rather than blank. */
+  pulls: PreparednessPull[];
+  /**
+   * Absent when the log recorded nothing for a pet — which is **not** the same
+   * as "they forgot". Warcraft Logs types every pet, shaman totem, druid treant
+   * and Shadowfiend identically (`Pet/Pet`), so nothing here can tell a hunter
+   * who owns a pet from a shaman who owns a totem, and the table must not put a
+   * cross against anyone on that basis.
+   */
+  pet?: PreparednessPet;
+  /**
+   * Average item level over the raider's **usual** gear — the item worn on the
+   * most pulls in each slot, not whatever the latest pull happened to hold.
+   *
+   * A single pull is a bad witness: the Lurker fisher's snapshot is honest and
+   * says 124 when they are wearing 129, because a fishing rod really was in
+   * their hand. Taking the most-worn item per slot answers the question the
+   * column is actually asking.
+   */
+  ilvl?: number;
+  /** Weapon slots that held more than one item this night. Empty is the norm. */
+  weaponSwaps: PreparednessSwap[];
+}
+
+/**
+ * One name the app took to Wowhead and did not get an id for.
+ *
+ * Distinct from "not looked up yet" on purpose: the lookup queues are built
+ * from what the item cache cannot match, so without this record the two are the
+ * same number and pressing the button changes nothing, forever.
+ */
+export interface RefusedNameView {
+  /** Normalized — what the queues compare with. */
+  nameKey: string;
+  /** As written, for a person to read and correct. */
+  name: string;
+  /** Why: an unknown name, no exact match, or several items sharing it. */
+  reason: string;
+  /** What Wowhead did offer instead — a near-miss is obvious on sight. */
+  near: string[];
+  checkedAt: string;
+}
+
+export interface PreparednessView {
+  /** Alphabetical — the order that never moves under the reader. */
+  rows: PreparednessRow[];
+  /** How many slots are expected to carry an enchant — the denominator. */
+  enchantSlots: number;
+}
+
 export interface RaidReportView {
   report: WclReport;
   session?: RaidSession;
@@ -936,6 +1105,8 @@ export interface RaidReportView {
   cooldowns: RaidCooldownRow[];
   /** Raiders with at least one preparation gap, worst first. */
   improvements: PlayerImprovements[];
+  /** What everyone brought, pull by pull — the preparedness table's whole input. */
+  preparedness: PreparednessView;
   /** Per-raider usage tallies for the rankings tab, most consumables first. */
   usage: RaiderUsage[];
   /**

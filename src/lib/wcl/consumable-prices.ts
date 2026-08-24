@@ -81,30 +81,69 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Elixir of Major Shadow Power": { gold: 6, charges: 1 },
   "Elixir of Healing Power": { gold: 1, charges: 1 },
   "Greater Arcane Elixir": { gold: 4, charges: 1 },
-  "Spellpower Elixir": { gold: 12, charges: 1 },
-  "Mageblood Elixir": { gold: 3, charges: 1 },
   /*
-   * The mana-regen guardian elixir, labelled by its buff because the log names
-   * the spell and never the item (see consumables.ts on spell 28509).
+   * These three are keyed by the ITEM name, which is not what the log calls
+   * them — WCL serves them as "Spellpower Elixir", "Greater Mana Regeneration"
+   * and "Mageblood Elixir", all buff names. `consumables.ts` now resolves each
+   * by spell id to the item that casts it, so ingest stores the item name and
+   * these keys are what it stores.
    *
-   * It needs an entry rather than a fallback: the name-pattern fallback only
-   * catches labels starting with "elixir of" or ending in "elixir", so this one
-   * resolved to 0 gold — free, silently. Priced with Mageblood above, being the
-   * same effect in the same slot.
+   * **A re-import is what connects them.** Rows imported under the old labels
+   * keep those labels, and a label with no key here falls through the
+   * name-pattern fallback — which only catches "elixir of…" or "…elixir", so
+   * "Greater Mana Regeneration" resolved to 0 gold, free and silently. That is
+   * the failure mode to watch whenever a label moves: see change-chains §5.
    */
-  "Greater Mana Regeneration": { gold: 3, charges: 1 },
+  "Adept's Elixir": { gold: 12, charges: 1 },
+  "Mageblood Potion": { gold: 3, charges: 1 },
+  "Elixir of Major Mageblood": { gold: 3, charges: 1 },
   "Elixir of Major Defense": { gold: 4.5, charges: 1 },
   "Elixir of Major Fortitude": { gold: 1, charges: 1 },
   "Elixir of Draenic Wisdom": { gold: 5, charges: 1 },
   "Gift of Arthas": { gold: 2, charges: 1 },
-  /* Scrolls — rank V dearer than the base rank */
-  "Scroll of Agility": { gold: 3, charges: 1 },
+  /*
+   * Scrolls, every rank.
+   *
+   * All five are curated by id now (see `SCROLL_IDS`), so all five reach the
+   * gold view as distinct labels and every one needs a price. Rank was
+   * previously lost for anything below V, which put 202 uses of Agility IV on
+   * this guild's books at the price of a rank I.
+   *
+   * The shape is the guild's to set on the raid page; what matters here is
+   * that the ranks are no longer the same number. Ranks I–III are vendor
+   * trash, IV is the auction-house rank most raiders actually buy, and V is
+   * the crafted one.
+   */
+  "Scroll of Agility": { gold: 1, charges: 1 },
+  "Scroll of Agility II": { gold: 1, charges: 1 },
+  "Scroll of Agility III": { gold: 2, charges: 1 },
+  "Scroll of Agility IV": { gold: 3, charges: 1 },
   "Scroll of Agility V": { gold: 8, charges: 1 },
-  "Scroll of Strength": { gold: 3, charges: 1 },
+  "Scroll of Strength": { gold: 1, charges: 1 },
+  "Scroll of Strength II": { gold: 1, charges: 1 },
+  "Scroll of Strength III": { gold: 2, charges: 1 },
+  "Scroll of Strength IV": { gold: 3, charges: 1 },
   "Scroll of Strength V": { gold: 6, charges: 1 },
-  "Scroll of Protection": { gold: 0.5, charges: 1 },
-  "Scroll of Protection V": { gold: 1, charges: 1 },
+  "Scroll of Spirit": { gold: 0.5, charges: 1 },
+  "Scroll of Spirit II": { gold: 0.5, charges: 1 },
+  "Scroll of Spirit III": { gold: 1, charges: 1 },
+  "Scroll of Spirit IV": { gold: 2, charges: 1 },
   "Scroll of Spirit V": { gold: 0.5, charges: 1 },
+  "Scroll of Stamina": { gold: 0.5, charges: 1 },
+  "Scroll of Stamina II": { gold: 0.5, charges: 1 },
+  "Scroll of Stamina III": { gold: 1, charges: 1 },
+  "Scroll of Stamina IV": { gold: 2, charges: 1 },
+  "Scroll of Stamina V": { gold: 4, charges: 1 },
+  "Scroll of Intellect": { gold: 0.5, charges: 1 },
+  "Scroll of Intellect II": { gold: 0.5, charges: 1 },
+  "Scroll of Intellect III": { gold: 1, charges: 1 },
+  "Scroll of Intellect IV": { gold: 2, charges: 1 },
+  "Scroll of Intellect V": { gold: 4, charges: 1 },
+  "Scroll of Protection": { gold: 0.5, charges: 1 },
+  "Scroll of Protection II": { gold: 0.5, charges: 1 },
+  "Scroll of Protection III": { gold: 1, charges: 1 },
+  "Scroll of Protection IV": { gold: 1, charges: 1 },
+  "Scroll of Protection V": { gold: 1, charges: 1 },
   /* Prep buffs with no logged item name — flat prices, applied when present. */
   Food: { gold: 0.5, charges: 1 },
   "Weapon oil/stone": { gold: 4, charges: 1 },

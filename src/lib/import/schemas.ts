@@ -600,8 +600,42 @@ export const wclPlayerOffPullSchema = z.object({
   runes: z.number().int().nonnegative().default(0),
   healthstones: z.number().int().nonnegative().default(0),
   sappers: z.number().int().nonnegative().default(0),
-  /** Food and scrolls put on their pet, whenever in the night it happened. */
-  petConsumables: z.array(z.string()).default([]),
+  /**
+   * Food and scrolls put on their pet, with when it happened.
+   *
+   * **A bare string is how a row imported before the timing looks**, and it
+   * parses to a record carrying the name and nothing else — which is exactly
+   * what such a row knows. Same shape as `deathTimes`, for the same reason:
+   * re-import is what fills the rest in.
+   *
+   * The timing matters because the count alone is unreadable at any scope
+   * smaller than the night. "Kibler's Bits ×3" against a single pull looks
+   * broken; "fed before Hydross, again before Vashj" is the same fact and
+   * answers the question an officer actually has.
+   */
+  petConsumables: z
+    .array(
+      z.union([
+        // Annotated so both branches carry the same shape: without this the
+        // union keeps a narrower arm and every reader has to prove `atMs`
+        // exists before touching it.
+        z
+          .string()
+          .min(1)
+          .transform((name): { name: string; atMs?: number; fightId?: number } => ({ name })),
+        z.object({
+          name: z.string().min(1),
+          /** Ms from the report start — orders applications across the night. */
+          atMs: z.number().nonnegative().optional(),
+          /**
+           * The boss pull it landed in. Absent means between pulls, which is
+           * where most feeding happens and is not a gap in the data.
+           */
+          fightId: z.number().int().nonnegative().optional(),
+        }),
+      ]),
+    )
+    .default([]),
 });
 
 /**

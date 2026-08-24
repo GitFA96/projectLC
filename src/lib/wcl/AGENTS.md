@@ -72,6 +72,14 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   `normalize.test.ts` possible.
 - Ids under-count when wrong, names break when wrong. Prefer id matching for
   casts, name matching for auras (all ranks, no id list to maintain).
+- **An aura's name is not the item's name, and a `label` must be the item's.**
+  WCL names the buff — "Spellpower Elixir" for what Adept's Elixir applies — and
+  resolves some TBC ids against a *modern* spell database on top of that. Label
+  an entry with the buff and you get a **second entry** the day somebody curates
+  the item: one consumable's pulls, gold and icon split across two names, with
+  nothing to flag it. Take the id to Wowhead and label the entry with the item
+  that lists the spell as a use-effect. Renaming a label later is
+  [change-chains §5f](../../../docs/change-chains.md) and needs a re-import.
 - Some ids are genuinely ambiguous and can't be split — 28499 is both Super
   Mana Potion and Auchenai Mana Potion. Say so in a comment rather than
   pretending precision.

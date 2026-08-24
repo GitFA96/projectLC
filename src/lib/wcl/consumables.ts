@@ -109,19 +109,24 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Mastery", category: "battleElixir", buffNames: ["Mastery"] },
   { label: "Fel Strength Elixir", category: "battleElixir", buffNames: ["Fel Strength"] },
   { label: "Elixir of Demonslaying", category: "battleElixir" },
-  { label: "Adept's Elixir", category: "battleElixir" },
+  /*
+   * WCL serves 33721 as "Spellpower Elixir", which is the aura's name and not
+   * an item — Wowhead's TBC data has item 28103 "Adept's Elixir" casting
+   * exactly that spell, with the same "+24 spell damage/healing, +24 spell
+   * crit, 1 hour, Battle Elixir" text. Probed, not remembered.
+   *
+   * Both labels used to sit in this list as separate entries, so one elixir was
+   * filed under two names: the buff name carried 699 of this guild's pulls and
+   * the item name matched nothing at all. That split its gold, its leaderboard
+   * row, and left it with no item id to draw an icon from.
+   */
+  { label: "Adept's Elixir", category: "battleElixir", ids: [33721], buffNames: ["Spellpower Elixir"] },
   { label: "Onslaught Elixir", category: "battleElixir", buffNames: ["Onslaught"] },
   { label: "Elixir of the Mongoose", category: "battleElixir" },
   { label: "Greater Arcane Elixir", category: "battleElixir" },
   { label: "Elixir of the Giants", category: "battleElixir" },
   { label: "Elixir of Greater Agility", category: "battleElixir", buffNames: ["Greater Agility"] },
   { label: "Winterfall Firewater", category: "battleElixir" },
-  // Caught by the name-pattern fallback long before it was curated, which
-  // counted it as coverage but couldn't place it in a slot. The slot is
-  // evidence rather than memory: across 432 pulls in this guild's logs it never
-  // once sat beside another battle elixir, and sat beside a guardian (Draenic
-  // Wisdom, Major Fortitude) on 415 of them. A raider holds one of each.
-  { label: "Spellpower Elixir", category: "battleElixir" },
   /*
    * Three ids Warcraft Logs serves under **retail** names.
    *
@@ -138,20 +143,20 @@ const AURA_DEFS: AuraDef[] = [
    * already imported under it still match. The lesson generalises: an ability id
    * from a log is a fact, an ability *name* from a log is not.
    *
-   * 28509 sits in the guardian slot on this guild's own evidence, not from
-   * memory: across 541 pulls carrying it there was always exactly one battle
-   * elixir beside it (Major Agility 503, Healing Power 25, Spellpower 9), never
-   * a second guardian, and never a flask. Its label is the buff name because the
-   * log names the spell and never the item — a wrong item name would be worse
-   * than an accurate buff name.
+   * 28509 was labelled with its spell name for a while, on the reasoning that
+   * the log names the spell and never the item, so an accurate buff name beat a
+   * guessed item name. That premise no longer holds: Wowhead's TBC page for
+   * item 22840, Elixir of Major Mageblood, lists 28509 as its use-effect, and
+   * the tooltips agree word for word ("Regenerate 16 mana per 5 sec for 1 hour,
+   * Guardian Elixir"). It is the item, and the entry that carried its item name
+   * lower down was matching nothing.
    */
-  { label: "Greater Mana Regeneration", category: "guardianElixir", ids: [28509], buffNames: ["Greater Mana Regeneration", "Greater Versatility"] },
+  { label: "Elixir of Major Mageblood", category: "guardianElixir", ids: [28509], buffNames: ["Major Mageblood", "Greater Mana Regeneration", "Greater Versatility"] },
   { label: "Empowerment", category: "guardianElixir", ids: [28514], buffNames: ["Empowerment"] },
   { label: "Flask of Mighty Restoration", category: "flask", ids: [28519], buffNames: ["Flask of Mighty Restoration", "Flask of Mighty Versatility"] },
   /* Guardian elixirs */
   { label: "Elixir of Major Defense", category: "guardianElixir", ids: [28502], buffNames: ["Major Defense", "Major Armor"] },
   { label: "Elixir of Major Fortitude", category: "guardianElixir", ids: [39625], buffNames: ["Major Fortitude"] },
-  { label: "Elixir of Major Mageblood", category: "guardianElixir", buffNames: ["Major Mageblood"] },
   { label: "Elixir of Draenic Wisdom", category: "guardianElixir", ids: [39627], buffNames: ["Draenic Wisdom"] },
   { label: "Earthen Elixir", category: "guardianElixir", ids: [39626] },
   { label: "Elixir of Ironskin", category: "guardianElixir", ids: [39628], buffNames: ["Ironskin"] },
@@ -159,9 +164,18 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Fortitude", category: "guardianElixir", buffNames: ["Health II"] },
   { label: "Gift of Arthas", category: "guardianElixir" },
   { label: "Major Troll's Blood Elixir", category: "guardianElixir", buffNames: ["Regeneration"] },
-  // Same probe: 8 pulls, every one beside Elixir of Major Agility (battle),
-  // never alone. Agrees with Elixir of Major Mageblood above.
-  { label: "Mageblood Elixir", category: "guardianElixir" },
+  /*
+   * WCL serves 24363 as "Mageblood Elixir"; the spell's own name is the generic
+   * "Mana Regeneration", and item 20007 "Mageblood Potion" is what casts it
+   * ("Regenerate 12 mana per 5 sec for 1 hour, Guardian Elixir"). The vanilla
+   * 12 mp5 version, distinct from the 16 mp5 TBC elixir above — same family,
+   * different item, and the guild has raiders still drinking both.
+   *
+   * `buffNames` keeps the logged name so reports imported before this still
+   * match; "Mana Regeneration" is deliberately NOT an alias, being far too
+   * generic a phrase to match auras on.
+   */
+  { label: "Mageblood Potion", category: "guardianElixir", ids: [24363], buffNames: ["Mageblood Elixir"] },
   /* Zanza buffs (Zandalar) — guardian-elixir slot, "one Zanza at a time". */
   { label: "Swiftness of Zanza", category: "guardianElixir", ids: [24383] },
   { label: "Spirit of Zanza", category: "guardianElixir" },
@@ -252,15 +266,68 @@ export const CURATED_ELIXIR_LABELS: readonly string[] = AURA_DEFS.filter(
   (d) => d.category === "battleElixir" || d.category === "guardianElixir",
 ).map((d) => d.label);
 
-/** Scroll buffs are named after the bare stat in logs ("Agility", "Armor"). */
-const SCROLL_RANK_V_IDS: Record<number, string> = {
+/**
+ * Every scroll rank, by the spell id the buff and the cast both carry.
+ *
+ * **All five ranks, not just rank V.** A scroll's aura is named after the bare
+ * stat — "Agility", never "Scroll of Agility IV" — so without an id the rank is
+ * simply gone, and every rank collapsed into one rankless label. That is not a
+ * cosmetic loss: rank V costs a multiple of rank I, and this guild really runs
+ * the lower ranks. Across five reports: 202 uses of Agility IV, 121 of Strength
+ * IV, plus ranks II and III, every one of them counted and priced as the
+ * cheapest scroll in the game.
+ *
+ * The ids are derived, not remembered: each is the use-effect Wowhead lists on
+ * the scroll's own TBC item page (Scroll of Agility IV = item 10309 = spell
+ * 12174). The six rank-V ids that were already curated came back identical,
+ * which is the cross-check that the other twenty-four are right.
+ *
+ * **WCL renames some of these.** Its modern spell database calls Protection
+ * "Armor" and Spirit "Versatility" — so the name is not a fallback that can
+ * recover a rank, and for Spirit it cannot even recover the scroll. The id is
+ * the only thing that works, which is the whole reason this table exists.
+ */
+const SCROLL_IDS: Record<number, string> = {
+  /* Agility — items 3012, 1477, 4425, 10309, 27498 */
+  8115: "Scroll of Agility",
+  8116: "Scroll of Agility II",
+  8117: "Scroll of Agility III",
+  12174: "Scroll of Agility IV",
   33077: "Scroll of Agility V",
-  33078: "Scroll of Intellect V",
-  33079: "Scroll of Protection V",
-  33080: "Scroll of Spirit V",
-  33081: "Scroll of Stamina V",
+  /* Strength — items 954, 2289, 4426, 10310, 27503 */
+  8118: "Scroll of Strength",
+  8119: "Scroll of Strength II",
+  8120: "Scroll of Strength III",
+  12179: "Scroll of Strength IV",
   33082: "Scroll of Strength V",
+  /* Spirit — items 1181, 1712, 4424, 10306, 27501 */
+  8112: "Scroll of Spirit",
+  8113: "Scroll of Spirit II",
+  8114: "Scroll of Spirit III",
+  12177: "Scroll of Spirit IV",
+  33080: "Scroll of Spirit V",
+  /* Stamina — items 1180, 1711, 4422, 10307, 27502 */
+  8099: "Scroll of Stamina",
+  8100: "Scroll of Stamina II",
+  8101: "Scroll of Stamina III",
+  12178: "Scroll of Stamina IV",
+  33081: "Scroll of Stamina V",
+  /* Intellect — items 955, 2290, 4419, 10308, 27499 */
+  8096: "Scroll of Intellect",
+  8097: "Scroll of Intellect II",
+  8098: "Scroll of Intellect III",
+  12176: "Scroll of Intellect IV",
+  33078: "Scroll of Intellect V",
+  /* Protection — items 3013, 1478, 4421, 10305, 27500 */
+  8091: "Scroll of Protection",
+  8094: "Scroll of Protection II",
+  8095: "Scroll of Protection III",
+  12175: "Scroll of Protection IV",
+  33079: "Scroll of Protection V",
 };
+
+/** Every curated scroll label, for the price catalog to be checked against. */
+export const SCROLL_LABELS: readonly string[] = Object.values(SCROLL_IDS);
 
 /**
  * Reading a scroll casts the same spell that shows up as the aura, so these
@@ -268,15 +335,37 @@ const SCROLL_RANK_V_IDS: Record<number, string> = {
  * as a CAST, which is the only way to see a hunter scrolling their pet. A
  * self-cast is already covered by the pull aura, so only the pet-targeted ones
  * are recorded from the cast stream.
+ *
+ * This list is part of what the *fetch* asks Warcraft Logs for, so widening it
+ * from six ids to thirty is a §1 change: **already-imported reports have to be
+ * re-imported before the lower ranks can be found at all.**
  */
-export const SCROLL_CAST_IDS = Object.keys(SCROLL_RANK_V_IDS).map(Number);
+export const SCROLL_CAST_IDS = Object.keys(SCROLL_IDS).map(Number);
 
 /** The scroll a cast id names, when it is one. */
 export function scrollCastName(abilityId: number | undefined): string | undefined {
-  return abilityId === undefined ? undefined : SCROLL_RANK_V_IDS[abilityId];
+  return abilityId === undefined ? undefined : SCROLL_IDS[abilityId];
 }
 
-/** Bare-stat buff name → generic scroll label (rank unknown without the id). */
+/**
+ * Bare-stat buff name → a scroll with **no rank**, for rows that reach us
+ * without an id.
+ *
+ * Every rank is curated by id above, so this is now only the last resort: a
+ * pre-id import, or a log that names the aura and nothing else. It cannot
+ * recover the rank, which is exactly why the id table exists — a rankless
+ * label prices at the family default and reads as the cheapest scroll.
+ *
+ * "Versatility" is deliberately **not** listed, though WCL uses it for Spirit
+ * scrolls: it is also what WCL calls Elixir of Major Mageblood's aura, and a
+ * name that means two consumables can only be resolved by id.
+ *
+ * These labels **collide with rank I on purpose** — "Scroll of Agility" is the
+ * rank I scroll's real name, and inventing a "(rank unknown)" label would put a
+ * string no item is called into the officer's gold table and price editor, for
+ * rows a re-import deletes anyway. An id-less scroll therefore reads as the
+ * cheapest rank, which is the right way to be wrong about an unknown.
+ */
 const SCROLL_BUFF_NAMES: Record<string, string> = {
   agility: "Scroll of Agility",
   strength: "Scroll of Strength",
@@ -354,8 +443,8 @@ export function classifyAura(name: string, abilityId?: number): ClassifiedAura |
   if (abilityId !== undefined) {
     const byId = AURA_BY_ID.get(abilityId);
     if (byId) return { category: byId.category, label: byId.label };
-    const scrollV = SCROLL_RANK_V_IDS[abilityId];
-    if (scrollV) return { category: "scroll", label: scrollV };
+    const scroll = SCROLL_IDS[abilityId];
+    if (scroll) return { category: "scroll", label: scroll };
     if (PREPOT_AURA_IDS.has(abilityId)) return { category: "potion", label: trimmed };
   }
   const byName = AURA_BY_NAME.get(lower);

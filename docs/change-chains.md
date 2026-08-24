@@ -614,6 +614,97 @@ inputs, different scopes) but it means a rule added to one makes **the same raid
 night read two different ways** on the raid page and the career page. Nothing
 catches this but a test that compares them.
 
+## 4f2. A lookup queue must record what it already asked
+
+**Chain:** the resolver's `unmatched` → `recordRefusedItemNames` →
+`listUnmatched*Names` (which filter on it) → the import card.
+
+The two name queues (`listUnmatchedSheetNames`,
+`listUnmatchedConsumableNames`) are built from what the item cache **cannot
+match**. That makes "nobody has asked" and "we asked and Wowhead refused" the
+same number, so the button offers four names, the press does nothing, and it
+offers the same four next time — forever. The failure is silent and it is the
+officer who absorbs it.
+
+`item_name_lookups` is the difference, in the same shape the items table uses
+for `armor_token`: absent means nobody asked, a row means we asked and the
+answer needs a person. Three things follow:
+
+- **Never record `reason: "error"`.** That is a transport failure and says
+  nothing about the name; filing it takes a resolvable name out of a queue it
+  belongs in. The resolver's own doc already calls errors "worth another press,
+  unlike the rest".
+- **Re-asking replaces the verdict.** A corrected sheet row or a relabelled
+  consumable is a *different* name; the newer answer is the true one.
+- **Settled means settled by any route.** A refusal is dropped once the name
+  gains an id — including by a **pin**, which does not put the name in the item
+  cache at all ("Warglaive of Azzinoth (Main Hand)" pins to an item called
+  something else). Filtering on the cache alone leaves a finished job on the
+  list permanently, which is the exact failure this record exists to prevent.
+
+## 5g. A consumable whose rank only the id carries
+
+**Chain:** `wcl/consumables.ts` (`SCROLL_IDS`) → `consumable-prices.ts` (a key
+per rank) → **a re-import**.
+
+Scrolls are the case that makes the rule. Their aura is named after the bare
+stat — "Agility", never "Scroll of Agility IV" — so a name-matched scroll
+arrives with **no rank at all**, and every rank collapses into one label priced
+as one thing. On this guild's logs that was 202 uses of Agility IV and 121 of
+Strength IV, all counted at the cheapest rank.
+
+Three traps, all of which were live:
+
+- **The name cannot be a fallback that recovers a rank.** It can't even always
+  recover the consumable: WCL renames Protection to "Armor" and Spirit to
+  "Versatility", and "Versatility" is *also* what it calls Elixir of Major
+  Mageblood. A word meaning two consumables is only resolvable by id, which is
+  why that alias is deliberately absent from `SCROLL_BUFF_NAMES`.
+- **The rankless label is the rank I item's real name.** They collide, on
+  purpose: inventing "(rank unknown)" would put a string no item is called into
+  the officer's price editor for rows a re-import removes. An id-less scroll
+  reads as the cheapest rank.
+- **Every curated label needs a catalog entry**, or it lands on the family
+  fallback — a wrong number on the gold page with nothing to notice it.
+  `consumable-prices.test.ts` walks `SCROLL_LABELS` for exactly this.
+
+`SCROLL_CAST_IDS` is part of the *fetch* filter (it is how a hunter scrolling
+their pet is seen), so widening the list is a §1 change: **re-import, or the
+lower ranks are never found.**
+
+## 5f. Rename a consumable's label
+
+**Chain:** `wcl/consumables.ts` (the `label`) → `wcl/consumable-prices.ts` (the
+key) → **a re-import**, or the rename half-lands.
+
+A label is not a display string. Ingest writes it into the row, the price
+catalog is keyed by it, and the item cache is searched by it — so moving one
+moves three things and leaves history behind:
+
+- **Stored rows keep the old label until the report is re-imported.** They are
+  what the gold, the leaderboard and the preparedness table read, so the guild
+  goes on seeing the old name where nothing has been refetched.
+- **A relabel makes any stored refusal on the old name dead.** It is dropped
+  automatically once nothing references that spelling (§4f2), and the four *new*
+  names are simply "never looked up" — which is why the import card can show the
+  same count after a re-import that changed everything.
+- **A label with no price key falls through the family fallback**, which only
+  catches `elixir of…` and `…elixir`. Anything else lands at **0 gold, free and
+  silently** — which is exactly how a mana-regen elixir under its buff name
+  priced at nothing for months. Price both names while old reports survive.
+
+**Why it comes up at all:** Warcraft Logs names an aura, and the aura is
+routinely not the item. WCL also resolves some TBC ids against a *modern* spell
+database, so the log offers names for stats TBC doesn't have. The rule the file
+already states — *an ability id from a log is a fact, an ability name from a log
+is not* — is what settles it: take the id to Wowhead, and label the entry with
+the item that lists it as a use-effect.
+
+The failure that motivates this is duplication, not ugliness. One elixir sitting
+under both its buff name and its item name is **two entries**: the buff-name one
+collects every pull, the item-name one matches nothing, and the gold, the
+leaderboard row and the icon are split between them with nothing to flag it.
+
 ## 5a. Change what counts as prepared
 
 **Chain:** `analysis/preparation.ts` — and nowhere else.
@@ -621,8 +712,8 @@ catches this but a test that compares them.
 Preparation used to be written out inline in four places under two different
 rules, one of them named `isPrepared` while never testing food. Everything that
 asks now goes through this module: the loot-priority factor, the raid page's
-coverage percentage and improvements list, the career rollup, the comparison
-page, and the per-pull tick on a character.
+coverage percentage, improvements list and preparedness table, the career
+rollup, the comparison page, and the per-pull tick on a character.
 
 Two separate questions live here on purpose:
 
@@ -1112,6 +1203,76 @@ belongs on the guild page, not in the note.
 A note may name a raider. Deleting that raider **unlinks** it (§ invariant 6) —
 `deleteCharacter` sets `character_id` to NULL rather than deleting the row, and
 `validateStore` enforces that a set id still resolves.
+
+## 5e. The preparedness table's two silent dependencies
+
+**Chain:** `analysis/preparedness.ts` → the table → **two things that live
+somewhere else entirely**, and both fail by quietly showing less rather than by
+breaking.
+
+- **Consumable icons need the item cache to know the name.** Warcraft Logs
+  reports a flask as an *aura*, which ingest matches to a curated item **name**
+  — a name is all it ever carries. An icon, a quality colour and a Wowhead
+  tooltip all need an **id**, so the table renders anything unresolved as plain
+  text. `listUnmatchedConsumableNames` is the queue and the import page's
+  "Identify N consumables" button is what drains it, through the same
+  `resolveItemIdsByName` the priority sheets use. A fresh deployment therefore
+  shows a correct table with no icons, which looks like a bug in the table and
+  is not one.
+- **One pull is a bad witness for gear.** Warcraft Logs fires exactly one
+  `combatantinfo` per player per fight (probed: 475 events, 25 players × 14
+  pulls, never two for the same pair), so there is no in-fight swap to read —
+  but there IS a swap *between* pulls, and Lurker is spawned by fishing. That
+  pull catches raiders holding a level 30 rod: honest about the pull, useless as
+  "how geared are they". Item level therefore reads the **most-worn item per
+  slot** across the report, and `weaponSwaps` names what changed. Seen 29 times
+  with a fishing lure on the rod and 13 more without one, so the lure is not a
+  sufficient signal on its own — the raider's own other pulls are.
+- **The pet record is per report, and carries its own clock.** Pet food outlives
+  the pull it was applied in, so ingest keeps it on the off-pull record — one
+  per player per *report*, with no fight that owns it. The night's total shown
+  against a single pull reads as a bug ("Kibler's Bits ×3" on one boss), so each
+  application stores `atMs` and, when it landed inside a pull, `fightId`. A
+  scoped view then answers what landed here and how much came earlier, which is
+  the question actually being asked. **A bare string is a row imported before
+  the timing** — it parses to a name and nothing else, exactly as `deathTimes`
+  does, and a re-import fills the rest in.
+- **The pet's buff state at a pull is not knowable, and never will be.** Probed:
+  138 "Well Fed" buff events across six spell ids in one report, **none of them
+  targeting a pet**. The cast is the only evidence there is, so the column
+  reports feeding, not fed-ness.
+- **An empty pet cell is "nothing logged", never "they forgot".** Warcraft Logs
+  types hunter pets, shaman totems, druid treants and Shadowfiend identically
+  (`type: Pet, subType: Pet`, probed on a real report), so **who owns a feedable
+  pet is not derivable** — a cross against a raider on that basis would be an
+  accusation the log does not support. Naming pet classes from memory to fix
+  this is exactly the invention AGENTS §4 forbids.
+- **A weapon buff is two facts, not one.** Both hands carry their own temporary
+  enchant and a dual-wielding rogue runs a different poison on each, so
+  `weaponEnchants` reports both. `weaponBuff` — the stored boolean, and what the
+  pip strip reads — stays "either hand had one", which is what `normalize`
+  writes; the pair is only visible once a pull is scoped to on its own.
+- **A weapon "buff" is any temporary enchant, including ones nobody bought.**
+  `normalize` sets `weaponBuff` from `temporaryEnchant > 0` on either weapon
+  slot, and **Windfury Totem reaches a party's weapons the same way an oil
+  does** — as does a fishing lure. On this guild's logs that is 905 player-pulls
+  credited for preparation nobody paid for, 16% of every pull flagged. It feeds
+  `weaponBuffPct` on the raid page and the performance page; it does **not**
+  feed `isPrepared`, so no loot ranking moves on it. Naming the ids (§ the
+  enchant dictionary) is what makes this visible at all — before that the
+  column could only say "something was applied".
+- **The enchant badge links to an anchor.** It points at `#enchants` on the
+  performance page, because that card is the one place that names *which* slots
+  are bare — repeating the audit in the table would be a second place to get it
+  wrong. Renaming or dropping that `id` leaves a link that still works and
+  lands in the wrong place, which nothing catches.
+
+**What the table does NOT do is score anything new.** `prepared` is
+`isPrepared` (§5a), computed in the analysis layer so no component invents a
+second definition on the way to the screen. Enchants, gems and item level ride
+along as facts and are deliberately unscored: folding them into that figure
+would re-rank every raider's loot priority and standing, which is §4b's
+business and the council's call.
 
 ## 5d. A panel seeded from props on a page that switches subject
 

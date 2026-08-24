@@ -48,6 +48,8 @@ export default async function ImportPage({
     gearSets,
     tokenQueue,
     unmatchedSheetNames,
+    unmatchedConsumableNames,
+    refusedNames,
   ] = await Promise.all([
       repo.listCharacters(),
       repo.listItems(),
@@ -58,6 +60,8 @@ export default async function ImportPage({
       repo.listGearSets(),
       repo.listTokenBackfill(),
       repo.listUnmatchedSheetNames(),
+      repo.listUnmatchedConsumableNames(),
+      repo.listRefusedItemNames(),
     ]);
 
   /*
@@ -129,6 +133,8 @@ export default async function ImportPage({
         <ItemCacheCard
           unresolved={unresolvedItems.length}
           unmatchedSheetNames={unmatchedSheetNames.length}
+          unmatchedConsumableNames={unmatchedConsumableNames.length}
+          refusedNames={refusedNames}
         />
         <EnchantNamesCard unnamed={unnamedEnchants.length} />
         <TierTokenCard

@@ -27,11 +27,14 @@ import {
   applyAdjustments,
 } from "@/lib/analysis/consumable-adjustments";
 import type { WowClass } from "@/lib/constants/wow";
+import type { ItemRef } from "@/components/item-link";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { PageHeader } from "@/components/page-header";
 import { DeathProfiles } from "@/components/logs/death-profiles";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
 import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
+import { PreparednessPanel } from "@/components/logs/preparedness-table";
 import { RaidBoard } from "@/components/raid-planner/board";
 import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
 import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard";
@@ -87,6 +90,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   const sp = await searchParams;
   const requested = Array.isArray(sp.report) ? sp.report[0] : sp.report;
   const seasonMode = requested === "all";
+  // A scoped preparedness link has to land on the tab it describes.
+  const prepScope = Array.isArray(sp.prep) ? sp.prep[0] : sp.prep;
 
   const repo = await getRepo();
   const reports = await repo.listWclReports();
@@ -98,6 +103,15 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   let board: Board = emptyBoard();
   let pool: PoolMember[] = [];
   let recovered: RecoveredParty[] = [];
+  /*
+   * Consumable name → the cache's item, for the preparedness table's icons and
+   * Wowhead tooltips. The logs store a flask by NAME and never say which item
+   * it was, so a name the cache hasn't matched simply renders as text — see
+   * the consumable resolver on the import page.
+   */
+  let consumableItems: Record<string, ItemRef> = {};
+  /** Temporary weapon-enchant id → name, for the preparedness table's oils and stones. */
+  let enchantNames: Record<number, string> = {};
 
   if (seasonMode) {
     const built = await Promise.all(
@@ -149,6 +163,19 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
         })),
       );
       recovered = partiesFromLogs(rows);
+      enchantNames = Object.fromEntries(
+        (await repo.getEnchantReference()).names.map((e) => [e.id, e.name] as const),
+      );
+      consumableItems = Object.fromEntries(
+        (await repo.listConsumableItems()).flatMap((item) =>
+          item.name === undefined
+            ? []
+            : [[
+                normalizeItemName(item.name),
+                { itemId: item.id, name: item.name, quality: item.quality, icon: item.icon },
+              ] as const],
+        ),
+      );
     }
   }
 
@@ -189,6 +216,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
               board={board}
               pool={pool}
               recovered={recovered}
+              consumableItems={consumableItems}
+              enchantNames={enchantNames}
+              prepScope={prepScope}
             />
           ) : (
             <EmptyState
@@ -231,6 +261,9 @@ function RaidDashboard({
   board,
   pool,
   recovered,
+  consumableItems,
+  enchantNames,
+  prepScope,
 }: {
   raid: RaidReportView;
   priceOverrides: Record<string, ConsumablePrice>;
@@ -238,6 +271,9 @@ function RaidDashboard({
   board: Board;
   pool: PoolMember[];
   recovered: RecoveredParty[];
+  consumableItems: Record<string, ItemRef>;
+  enchantNames: Record<number, string>;
+  prepScope?: string;
 }) {
   const { report, session, prep, fights } = raid;
   // A flask and a battle+guardian pair are both a full set; one elixir is half
@@ -323,6 +359,17 @@ function RaidDashboard({
           />
         }
         gold={<GoldPanel raid={raid} overrides={priceOverrides} adjustments={adjustments} />}
+        preparedness={
+          <PreparednessPanel
+            view={raid.preparedness}
+            // Excluded pulls feed nothing else derived; they get no column here.
+            fights={counted}
+            reportCode={report.code}
+            itemsByName={consumableItems}
+            enchantNames={enchantNames}
+          />
+        }
+        defaultTab={prepScope === undefined ? undefined : "preparedness"}
       />
     </>
   );

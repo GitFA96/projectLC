@@ -842,7 +842,8 @@ function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
   const groups: { label: string; entries: [string, number][] }[] = [
     { label: "Off-pull potions", entries: tally(offPull.potions) },
     { label: "Off-pull items", entries: tally(offPull.otherCasts) },
-    { label: "Pet", entries: tally(offPull.petConsumables) },
+    // Names only here — this panel counts what was used, not when.
+    { label: "Pet", entries: tally(offPull.petConsumables.map((p) => p.name)) },
   ].filter((g) => g.entries.length > 0);
   if (groups.length === 0) return null;
 
@@ -940,7 +941,10 @@ function GearPanel({
   const gems = summarizeGems(gradeWornGems(latest?.gear ?? [], itemsById, activePhase));
 
   return (
-    <Card>
+    /* Anchored: the raid page's preparedness table links straight to this
+       audit, which is the one place that names WHICH slots are bare. Landing
+       at the top of a long page would leave the reader to hunt for it. */
+    <Card id="enchants" className="scroll-mt-4">
       <CardHeader>
         <CardTitle>Gear worn{latest ? ` on ${latest.encounterName}` : ""}</CardTitle>
         <p className="text-xs text-muted-foreground">

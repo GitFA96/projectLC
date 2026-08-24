@@ -88,6 +88,7 @@ import type {
   WclPlayerOffPull,
   WclReport,
   WclReportView,
+  RefusedNameView,
 } from "@/lib/types";
 import type { Repo, TokenBackfillQueue } from "@/lib/data/repo";
 
@@ -304,6 +305,15 @@ export interface StoreConfig {
   wishlistAlternatives?: WishlistAlternative[];
   /** Enchant ids resolved from the enchantment table, for the gear panel. */
   enchantNames?: Record<number, string>;
+  /**
+   * Names taken to Wowhead and refused, by normalized name.
+   *
+   * The lookup queues are built from what the cache cannot match, so without
+   * this a name already declined looks exactly like one nobody has asked about.
+   * They are different jobs — one is a press, the other is a person reading a
+   * near-miss — and the import card now says which is which.
+   */
+  refusedItemNames?: { nameKey: string; name: string; reason: string; near: string[]; checkedAt: string }[];
   /** Officer corrections to consumable counts, keyed by report code. */
   consumableAdjustmentsByCode?: Record<string, ConsumableAdjustment[]>;
 }
@@ -818,6 +828,32 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return new Map([...pulls].map(([code, set]) => [code, set.size]));
   }
 
+  /**
+   * Every distinct flask, elixir and scroll name the imported logs carry.
+   *
+   * Ingest stores these as canonical item NAMES, because a name is all
+   * Warcraft Logs gives it — an aura, matched against the curated list. Any
+   * icon, quality colour or Wowhead tooltip needs an item id instead, so this
+   * is the list of names to go and find ids for.
+   */
+  function consumableNames(): string[] {
+    const names = new Map<string, string>();
+    const add = (name: string | undefined) => {
+      if (name === undefined) return;
+      const key = normalizeItemName(name);
+      if (key.length > 0 && !names.has(key)) names.set(key, name);
+    };
+    for (const row of wclPlayerFights) {
+      for (const name of [row.flask, ...row.elixirs, ...row.scrolls]) add(name);
+    }
+    // Pet food and pet scrolls too — they render in the preparedness table
+    // beside the raider's own, and want the same icon and tooltip.
+    for (const off of wclPlayerOffPull) {
+      for (const applied of off.petConsumables) add(applied.name);
+    }
+    return [...names.values()].sort((a, b) => compareText(a, b));
+  }
+
   function computeAttendance(characterId: string): AttendanceSummary | undefined {
     if (wclReports.length === 0) return undefined;
     const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
@@ -1230,6 +1266,8 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       }
       return summarizeRaidReport({
         report,
+        // Where anything put on a pet lives — one record per player per report.
+        offPull: wclPlayerOffPull.filter((o) => o.reportCode === report.code),
         session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
         rows,
         reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
@@ -1239,11 +1277,61 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       });
     },
 
+    async listUnmatchedConsumableNames(): Promise<string[]> {
+      const known = new Set<string>();
+      for (const item of items) {
+        if (item.name) known.add(normalizeItemName(item.name));
+      }
+      for (const r of config.refusedItemNames ?? []) known.add(r.nameKey);
+      return consumableNames().filter((name) => !known.has(normalizeItemName(name)));
+    },
+
+    async listRefusedItemNames(): Promise<RefusedNameView[]> {
+      /*
+       * Only the refusals that still matter.
+       *
+       * A refusal is a fact about a name, and names stop being used: a sheet row
+       * is corrected, a curated consumable label is moved onto the item it
+       * actually is. Listing a verdict on a name nothing references any more
+       * would leave the officer a chore that finished itself.
+       */
+      const live = new Set<string>();
+      for (const name of consumableNames()) live.add(normalizeItemName(name));
+      for (const phase of PHASE_IDS) {
+        for (const rule of rulesForPhase(phase)) live.add(normalizeItemName(rule.itemName));
+      }
+      /*
+       * Settled by any route, not just by a matching cache name.
+       *
+       * A pin is the other one, and it does NOT put the name in the cache: an
+       * officer pinning "Warglaive of Azzinoth (Main Hand)" — an annotation
+       * that is nobody's item name — attaches it to an id whose real name is
+       * something else. Checking only the cache leaves the finished job on the
+       * list forever, which is the failure this whole record exists to avoid.
+       */
+      const settled = new Set<string>(Object.keys(config.sheetItemIds ?? {}));
+      for (const item of items) {
+        if (item.name) settled.add(normalizeItemName(item.name));
+      }
+      return (config.refusedItemNames ?? [])
+        .filter((r) => live.has(r.nameKey) && !settled.has(r.nameKey))
+        .sort((a, b) => compareText(a.name, b.name));
+    },
+
+    async listConsumableItems(): Promise<Item[]> {
+      const wanted = new Set(consumableNames().map(normalizeItemName));
+      return items.filter(
+        (item) => item.name !== undefined && wanted.has(normalizeItemName(item.name)),
+      );
+    },
+
     async listUnmatchedSheetNames(): Promise<string[]> {
       const known = new Set<string>(Object.keys(config.sheetItemIds ?? {}));
       for (const item of items) {
         if (item.name) known.add(normalizeItemName(item.name));
       }
+      // Already asked and declined: a person's job now, not another press.
+      for (const r of config.refusedItemNames ?? []) known.add(r.nameKey);
       const missing = new Map<string, string>();
       // Every phase, not just the active one: a sheet the guild wrote for next
       // tier is exactly the one nobody has wishlisted out of yet, so it is the
@@ -1804,10 +1892,25 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       }
       for (const id of Object.keys(config.enchantNames ?? {})) named.add(Number(id));
       const counts = new Map<number, number>();
+      const want = (id: number | undefined) => id !== undefined && id > 0 && !named.has(id);
       for (const row of wclPlayerFights) {
         for (const item of row.gear) {
-          if (item.enchant === undefined || named.has(item.enchant)) continue;
-          counts.set(item.enchant, (counts.get(item.enchant) ?? 0) + 1);
+          if (want(item.enchant)) {
+            counts.set(item.enchant!, (counts.get(item.enchant!) ?? 0) + 1);
+          }
+          /*
+           * Temporary enchants too — the oils, stones and poisons the raid
+           * page's weapon-buff column reports.
+           *
+           * They were never queued, so that column could only ever say "a
+           * temporary enchant was present". The same dictionary names them:
+           * every one of this guild's sixteen resolved on the first run, most
+           * to an item name outright ("Superior Wizard Oil"), the sharpening
+           * stones to their effect text.
+           */
+          if (want(item.temp)) {
+            counts.set(item.temp!, (counts.get(item.temp!) ?? 0) + 1);
+          }
         }
       }
       return [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([id]) => id);

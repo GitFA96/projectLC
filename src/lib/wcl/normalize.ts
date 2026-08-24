@@ -379,11 +379,17 @@ export interface NormalizedPlayerOffPull {
   healthstones: number;
   sappers: number;
   /**
-   * Consumables put on their PET — food and scrolls, whenever they were fed.
-   * Kept whole rather than split by window: a hunter feeds the pet once for
-   * the night, and which side of a pull it landed on says nothing useful.
+   * Consumables put on their PET — food and scrolls — with when it happened.
+   *
+   * Still one record per player per report, because a pet buff outlives the
+   * pull it was applied in and there is no fight to own it. The **timing** is
+   * kept because the bare count is unreadable at any scope smaller than the
+   * night: "×3" against a single pull reads as a bug, while "before Hydross,
+   * again before Vashj" is the same fact and answers the real question.
+   *
+   * `fightId` absent means between pulls, which is where most feeding happens.
    */
-  petConsumables: string[];
+  petConsumables: { name: string; atMs?: number; fightId?: number }[];
 }
 
 export interface NormalizedReport {
@@ -877,7 +883,12 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     if (scroll) {
       const target = event.targetID !== undefined ? anyActorById.get(event.targetID) : undefined;
       if (target?.petOwner === event.sourceID) {
-        offPullFor(actor.name, actor.subType).petConsumables.push(scroll);
+        offPullFor(actor.name, actor.subType).petConsumables.push({
+          name: scroll,
+          // WCL event timestamps are already ms from the report start.
+          atMs: event.timestamp,
+          ...(fight ? { fightId: fight.id } : {}),
+        });
       }
       continue;
     }
@@ -885,11 +896,19 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     const hit = classifyCast(abilityId, event.ability?.name);
     /*
      * Pet food is a night-long buff applied between pulls, so it's recorded
-     * per player rather than per pull — and recorded wherever it happened,
-     * since "did they feed the pet tonight" has one answer either way.
+     * per player rather than per pull — and recorded wherever it happened.
+     *
+     * The *when* rides along: a pull it landed in (usually none — feeding
+     * happens between them) and the report clock, which is what lets a scoped
+     * view say "fed before this boss" instead of showing the night's total
+     * against one pull and looking broken.
      */
     if (hit?.category === "pet") {
-      offPullFor(actor.name, actor.subType).petConsumables.push(hit.name);
+      offPullFor(actor.name, actor.subType).petConsumables.push({
+        name: hit.name,
+        atMs: event.timestamp,
+        ...(fight ? { fightId: fight.id } : {}),
+      });
       continue;
     }
 

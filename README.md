@@ -297,7 +297,7 @@ because a wowsims setup describes a spec rather than a person. The header keeps 
 
 ## Raid logs `/logs`
 
-One raid night at a time, or **All raids** ranked, in three tabs.
+One raid night at a time, or **All raids** ranked, in five tabs.
 
 **Which pulls count** is a switch, not a setting: click a pull in the header to
 leave it out and everything recomputes without it. A joke pull or a two-man farm
@@ -325,6 +325,21 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
 - **Gold spent** — the night priced, with editable per-raid consumable prices and
   **manual adjustments**: add or remove uses the log got wrong, each logged with
   a reason and undoable, flowing through to every other gold figure.
+- **Preparedness** — what everyone brought, one row per raider. A raid night is
+  not one state — half a roster is typically fed on some pulls and not others —
+  so a cell is a strip of one pip per pull rather than a tick that would have to
+  pick which truth to tell. Scope to a boss, then to a single attempt, and the
+  strips give way to the consumables themselves. The scope is in the URL, so a
+  link to one pull is a link. **Prepared** is `preparedPct`, the same figure the
+  loot score and the standing board read; enchants, gems and item level sit
+  beside it as facts and are deliberately not scored. **Pet** shows the food and
+  scrolls put on a pet — logged once for the night, so it alone doesn't narrow
+  with the scope, and a blank means nothing was logged rather than that anyone
+  forgot; scoped to a pull it says what landed there and how much came earlier,
+  rather than showing the night's total against one boss. Item level reads a
+  raider's **most-worn** gear rather than one pull's
+  snapshot, so the fishing rod Lurker is pulled with stops answering for a
+  whole night, and a marker names any weapon that changed hands.
 
 ## Raid planner `/raid-planner`
 

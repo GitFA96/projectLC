@@ -683,14 +683,33 @@ describe("normalizeWclReport — off-pull consumables and pets", () => {
   });
 
   it("records what a hunter puts on their pet, and only their own pet", () => {
-    expect(off("Sylvaria")!.petConsumables).toEqual(["Kibler's Bits", "Scroll of Agility V"]);
+    expect(off("Sylvaria")!.petConsumables.map((p) => p.name)).toEqual([
+      "Kibler's Bits",
+      "Scroll of Agility V",
+    ]);
     // Kazrak's scroll went to a pet he owns, so it's his — and his alone.
-    expect(off("Kazrak")!.petConsumables).toEqual(["Scroll of Strength V"]);
+    expect(off("Kazrak")!.petConsumables.map((p) => p.name)).toEqual(["Scroll of Strength V"]);
+  });
+
+  it("timestamps each pet application, and names the pull when it landed in one", () => {
+    /*
+     * The count alone is unreadable at any scope smaller than the night —
+     * "Kibler's Bits ×3" against one boss reads as a bug. The clock is what
+     * lets a scoped view say "fed earlier tonight" instead.
+     */
+    for (const applied of off("Sylvaria")!.petConsumables) {
+      expect(applied.atMs, `${applied.name} has no clock`).toBeGreaterThan(0);
+    }
+    // Feeding between pulls carries no fight, which is not a gap in the data.
+    const fed = off("Sylvaria")!.petConsumables.find((p) => p.name === "Kibler's Bits")!;
+    expect("fightId" in fed).toBe(fed.fightId !== undefined);
   });
 
   it("never counts a self-cast scroll — the pull aura already has it", () => {
     // Sylvaria read two Agility scrolls: one on the pet, one on herself.
-    expect(off("Sylvaria")!.petConsumables.filter((c) => c === "Scroll of Agility V")).toHaveLength(1);
+    expect(
+      off("Sylvaria")!.petConsumables.filter((c) => c.name === "Scroll of Agility V"),
+    ).toHaveLength(1);
   });
 
   it("keeps no record for a raider who used nothing off-pull", () => {
@@ -1411,16 +1430,87 @@ describe("ids Warcraft Logs serves under retail names", () => {
    * Arcane Protection Potion" and 541 pulls of a guardian elixir were recorded
    * as pre-pots because of it.
    */
-  it("classifies 28509 as a guardian elixir under either name", () => {
-    // Wowhead TBC: 28509 is Greater Mana Regeneration.
-    expect(classifyAura("Greater Mana Regeneration", 28509)).toEqual({
-      category: "guardianElixir",
-      label: "Greater Mana Regeneration",
-    });
-    // What the log actually says — matched by id, and by the alias when the id
-    // is missing, so already-imported reports still resolve.
-    expect(classifyAura("Greater Versatility", 28509)?.category).toBe("guardianElixir");
+  it("labels 28509 with the item that casts it, under any of its names", () => {
+    /*
+     * The spell is named "Greater Mana Regeneration"; the ITEM casting it is
+     * Elixir of Major Mageblood (Wowhead TBC item 22840 lists 28509 as its
+     * use-effect, same "16 mana per 5 sec for 1 hour, Guardian Elixir" text).
+     *
+     * The label was the spell name for a while, on the reasoning that the log
+     * never names the item. It does not — but Wowhead does, and while the two
+     * sat here as separate entries one elixir was filed under two names, with
+     * all the pulls on one and the item id on neither.
+     */
+    for (const name of ["Greater Mana Regeneration", "Greater Versatility", "Major Mageblood"]) {
+      expect(classifyAura(name, 28509)).toEqual({
+        category: "guardianElixir",
+        label: "Elixir of Major Mageblood",
+      });
+    }
+    // Matched by the alias alone too, so reports imported under the old name
+    // still resolve without their id.
     expect(classifyAura("Greater Versatility")?.category).toBe("guardianElixir");
+  });
+
+  it("keeps a scroll's rank, which only the id carries", () => {
+    /*
+     * The aura is named after the bare stat, so the name alone cannot say which
+     * rank was read. Ids are the scrolls' own item use-effects: Scroll of
+     * Agility IV is item 10309, spell 12174.
+     *
+     * This is a gold bug as much as a counting one — across five of this
+     * guild's reports, 202 uses of Agility IV and 121 of Strength IV were all
+     * landing on the rankless label at the cheapest rank's price.
+     */
+    expect(classifyAura("Agility", 12174)).toEqual({
+      category: "scroll",
+      label: "Scroll of Agility IV",
+    });
+    expect(classifyAura("Strength", 8120)).toEqual({
+      category: "scroll",
+      label: "Scroll of Strength III",
+    });
+    expect(classifyAura("Agility", 33077)?.label).toBe("Scroll of Agility V");
+  });
+
+  it("reads the ranks WCL renames, which the name can never recover", () => {
+    // WCL's modern database calls Protection "Armor" and Spirit "Versatility".
+    expect(classifyAura("Armor", 12175)).toEqual({
+      category: "scroll",
+      label: "Scroll of Protection IV",
+    });
+    expect(classifyAura("Versatility", 33080)).toEqual({
+      category: "scroll",
+      label: "Scroll of Spirit V",
+    });
+    /*
+     * And "Versatility" without an id must NOT become a scroll: WCL uses the
+     * same word for Elixir of Major Mageblood's aura, so the name alone is
+     * ambiguous between two different consumables.
+     */
+    expect(classifyAura("Versatility")?.category).not.toBe("scroll");
+  });
+
+  it("falls back to a rankless scroll only when there is no id to read", () => {
+    expect(classifyAura("Agility")).toEqual({ category: "scroll", label: "Scroll of Agility" });
+  });
+
+  it("labels 33721 as Adept's Elixir, not the buff WCL names it after", () => {
+    // Wowhead TBC item 28103 casts 33721; "Spellpower Elixir" is the aura.
+    expect(classifyAura("Spellpower Elixir", 33721)).toEqual({
+      category: "battleElixir",
+      label: "Adept's Elixir",
+    });
+    expect(classifyAura("Spellpower Elixir")?.category).toBe("battleElixir");
+  });
+
+  it("keeps the vanilla Mageblood Potion apart from the TBC elixir", () => {
+    // 24363 is item 20007's use-effect (12 mp5); 28509 is item 22840's (16
+    // mp5). Same family, different items, and this guild drinks both.
+    expect(classifyAura("Mageblood Elixir", 24363)).toEqual({
+      category: "guardianElixir",
+      label: "Mageblood Potion",
+    });
   });
 
   it("no longer calls it a pre-pot", () => {

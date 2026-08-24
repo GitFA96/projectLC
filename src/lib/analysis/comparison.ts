@@ -172,7 +172,12 @@ export function goldPerRaid(
     // A potion drunk on trash is bought and paid for exactly like one drunk on
     // the boss; pet food is the hunter's own gold too.
     const off = offPullByReport.get(ordered[0].reportCode);
-    for (const name of [...(off?.potions ?? []), ...(off?.otherCasts ?? []), ...(off?.petConsumables ?? [])]) {
+    for (const name of [
+      ...(off?.potions ?? []),
+      ...(off?.otherCasts ?? []),
+      // Pet consumables carry their timing now; gold only wants the name.
+      ...(off?.petConsumables ?? []).map((p) => p.name),
+    ]) {
       itemCounts.set(name, (itemCounts.get(name) ?? 0) + 1);
     }
     const apps = (kind: keyof typeof PREP_HOURS, persistsDeath: boolean) =>

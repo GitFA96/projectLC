@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Pager } from "@/components/ui/pager";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1051,6 +1052,12 @@ function ImportedReportRow({
   );
 }
 
+/**
+ * Raid nights per page. Ten is roughly a tier's worth of recent raids, and the
+ * card sits under three others on a tab people open to import one report.
+ */
+const REPORTS_PAGE_SIZE = 10;
+
 function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
   const { pending, result, run } = useRosterAction();
   const [picked, setPicked] = React.useState<string[]>([]);
@@ -1065,9 +1072,29 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
   const selected = React.useMemo(() => picked.filter((c) => live.has(c)), [picked, live]);
   const setSelected = setPicked;
 
-  const allSelected = reports.length > 0 && selected.length === reports.length;
   const toggle = (code: string) =>
     setSelected((s) => (s.includes(code) ? s.filter((c) => c !== code) : [...s, code]));
+
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const pageCount = Math.max(1, Math.ceil(reports.length / REPORTS_PAGE_SIZE));
+  // Deleting the last report on the last page takes that page with it.
+  const page = Math.min(pageIndex, pageCount - 1);
+  const visible = reports.slice(page * REPORTS_PAGE_SIZE, (page + 1) * REPORTS_PAGE_SIZE);
+  const visibleCodes = visible.map((r) => r.code);
+  /*
+   * The header box selects **this page**, matching the puggers table. Behind a
+   * pager, "select all" arming a delete with rows the officer cannot see is the
+   * failure worth designing out — and here those rows are raid nights, whose
+   * removal recounts everyone's attendance. Selections still survive paging.
+   */
+  const allOnPageSelected =
+    visibleCodes.length > 0 && visibleCodes.every((code) => selected.includes(code));
+  const togglePage = () =>
+    setSelected((s) =>
+      allOnPageSelected
+        ? s.filter((code) => !visibleCodes.includes(code))
+        : [...new Set([...s, ...visibleCodes])],
+    );
 
   const [queue, setQueue] = React.useState<QueueItem[] | null>(null);
   const [refetching, startRefetch] = React.useTransition();
@@ -1139,9 +1166,11 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
               <TableRow>
                 <TableHead className="w-8">
                   <Checkbox
-                    checked={allSelected}
-                    onChange={() => setSelected(allSelected ? [] : reports.map((r) => r.code))}
-                    aria-label="Select all reports"
+                    checked={allOnPageSelected}
+                    onChange={togglePage}
+                    aria-label={
+                      pageCount > 1 ? "Select every report on this page" : "Select all reports"
+                    }
                   />
                 </TableHead>
                 <TableHead className="w-28">Date</TableHead>
@@ -1157,7 +1186,7 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {reports.map((r) => (
+              {visible.map((r) => (
                 <ImportedReportRow
                   key={r.code}
                   r={r}
@@ -1172,6 +1201,14 @@ function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) {
             </TableBody>
           </Table>
         )}
+        <Pager
+          pageIndex={page}
+          pageCount={pageCount}
+          total={reports.length}
+          pageSize={REPORTS_PAGE_SIZE}
+          onPrev={() => setPageIndex(page - 1)}
+          onNext={() => setPageIndex(page + 1)}
+        />
         {queue && <RefetchFailures items={queue} />}
         <ActionResultLine result={result} />
       </CardContent>

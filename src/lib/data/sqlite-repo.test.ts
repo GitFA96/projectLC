@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSqliteRepo } from "@/lib/data/sqlite-repo";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { loadSeedStore } from "@/lib/data/seed-data";
 import type { GearSetDraft, WclPlayerFightDraft } from "@/lib/data/repo";
 import { TRACKED_AURA_NAMES } from "@/lib/wcl/class-tracks";
@@ -2420,6 +2421,74 @@ describe("sqlite repo", () => {
     expect((await repo.setSheetItemId("   ", 1)).ok).toBe(false);
   });
 
+  it("separates a name nobody has looked up from one Wowhead already refused", async () => {
+    const repo = getSqliteRepo();
+    const name = "Warglaive of Azzinoth (Main Hand)";
+    const key = normalizeItemName(name);
+
+    // Never asked: it is work the button can still do.
+    expect(await repo.listUnmatchedSheetNames()).toContain(name);
+    expect(await repo.listRefusedItemNames()).toHaveLength(0);
+
+    expect(
+      await repo.recordRefusedItemNames([
+        { nameKey: key, name, reason: "ambiguous", near: ["Warglaive of Azzinoth"] },
+      ]),
+    ).toBe(1);
+
+    /*
+     * The whole point: the queue shrinks by exactly the name that was tried, so
+     * a count that stays put is honest about work still worth a press. Before
+     * this, the same names were offered forever and every press failed the same
+     * way.
+     */
+    expect(await repo.listUnmatchedSheetNames()).not.toContain(name);
+    const refused = await repo.listRefusedItemNames();
+    expect(refused.map((r) => r.name)).toEqual([name]);
+    expect(refused[0].reason).toBe("ambiguous");
+    // What Wowhead offered survives the round trip — it is the whole answer.
+    expect(refused[0].near).toEqual(["Warglaive of Azzinoth"]);
+  });
+
+  it("re-asking replaces the old verdict rather than keeping both", async () => {
+    const repo = getSqliteRepo();
+    const name = "Warglaive of Azzinoth (Main Hand)";
+    const key = normalizeItemName(name);
+    await repo.recordRefusedItemNames([{ nameKey: key, name, reason: "unknown", near: [] }]);
+    await repo.recordRefusedItemNames([{ nameKey: key, name, reason: "ambiguous", near: ["a", "b"] }]);
+    const refused = await repo.listRefusedItemNames();
+    expect(refused).toHaveLength(1);
+    // The newer answer is the true one — a re-ask is how a fix gets confirmed.
+    expect(refused[0].reason).toBe("ambiguous");
+  });
+
+  it("clearing a refusal hands the name back to the queue", async () => {
+    const repo = getSqliteRepo();
+    const name = "Warglaive of Azzinoth (Main Hand)";
+    await repo.recordRefusedItemNames([
+      { nameKey: normalizeItemName(name), name, reason: "unknown", near: [] },
+    ]);
+    expect(await repo.listUnmatchedSheetNames()).not.toContain(name);
+
+    expect(await repo.clearRefusedItemNames()).toBe(1);
+    expect(await repo.listRefusedItemNames()).toHaveLength(0);
+    expect(await repo.listUnmatchedSheetNames()).toContain(name);
+  });
+
+  it("drops a refusal once the name gains an id by another route", async () => {
+    const repo = getSqliteRepo();
+    const name = "Warglaive of Azzinoth (Main Hand)";
+    await repo.recordRefusedItemNames([
+      { nameKey: normalizeItemName(name), name, reason: "ambiguous", near: [] },
+    ]);
+    expect(await repo.listRefusedItemNames()).toHaveLength(1);
+
+    // An officer pins it by hand. The chore finished itself, so it stops being
+    // listed as one — a to-do list that keeps solved jobs stops being read.
+    expect((await repo.setSheetItemId(name, 32837)).ok).toBe(true);
+    expect(await repo.listRefusedItemNames()).toHaveLength(0);
+  });
+
   it("puts rings back in the token queue after they were filed as tokens", async () => {
     // The state the buggy classifier left: rings flagged as armor tokens with
     // their slot wiped, plus one genuine token something redeems from.
@@ -2810,7 +2879,7 @@ describe("sqlite repo", () => {
             runes: 0,
             healthstones: 0,
             sappers: 0,
-            petConsumables: ["Kibler's Bits"],
+            petConsumables: [{ name: "Kibler's Bits", atMs: 1000, fightId: 3 }],
           },
         ],
       );

@@ -1,0 +1,963 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { ItemLink, type ItemRef } from "@/components/item-link";
+import { Raider } from "@/components/logs/rank-bits";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import type {
+  PreparednessPet,
+  PreparednessPull,
+  PreparednessRow,
+  PreparednessSwap,
+  PreparednessView,
+  RaidFight,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+import { compareText } from "@/lib/sort";
+
+/**
+ * What every raider brought, pull by pull.
+ *
+ * The shape this takes is decided by one fact about raid nights: they are not
+ * one state. On a real report roughly half the roster is fed on some pulls and
+ * not on others, lets a weapon buff lapse, or runs scrolls for part of the
+ * evening — so a tick-or-cross per raider would have to pick one of two true
+ * answers, and a "this varied" warning icon would light up half the table and
+ * tell nobody anything.
+ *
+ * So the cell **is** the consistency: one pip per pull, left to right in pull
+ * order, and the ratio beside it. Where the gaps fall is then readable in the
+ * same glance as how many there were, with no second indicator competing for
+ * attention.
+ *
+ * Scope down to a single pull and that ambiguity disappears with it — one pull
+ * has exactly one honest answer per cell — so the strips give way to the
+ * consumables themselves, with their icons and Wowhead tooltips.
+ */
+
+/** Which column orders the table, and which way. */
+type Sort = { by: "name" | "prepared"; dir: "asc" | "desc" };
+
+/** The URL parameter holding the scope, so a scoped view is a link. */
+export const PREP_SCOPE_PARAM = "prep";
+
+/**
+ * The scope lives in the URL, not in state.
+ *
+ * Officers paste these at each other — "look at Vashj pull 2" is the whole
+ * point of scoping down — so the view has to survive being copied out of the
+ * address bar. `replace` rather than `push`: stepping through pulls shouldn't
+ * bury the page in back-button history.
+ */
+export function PreparednessPanel(props: Omit<Props, "scope" | "onScopeChange">) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const scope = search.get(PREP_SCOPE_PARAM) ?? "all";
+
+  function onScopeChange(next: string) {
+    const params = new URLSearchParams(search);
+    if (next === "all") params.delete(PREP_SCOPE_PARAM);
+    else params.set(PREP_SCOPE_PARAM, next);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  return <PreparednessTable {...props} scope={scope} onScopeChange={onScopeChange} />;
+}
+
+interface Props {
+  view: PreparednessView;
+  fights: RaidFight[];
+  reportCode: string;
+  itemsByName: Record<string, ItemRef>;
+  /**
+   * Temporary weapon-enchant id → what it is.
+   *
+   * The log records that the weapon carried an enchantment and its id, never
+   * the item; the enchant dictionary turns most of those ids into a name
+   * ("Superior Wizard Oil"), and the sharpening stones into effect text. An id
+   * nobody has looked up yet stays an id.
+   */
+  enchantNames: Record<number, string>;
+  scope: string;
+  onScopeChange: (next: string) => void;
+}
+
+export function PreparednessTable({
+  view,
+  fights,
+  reportCode,
+  /**
+   * Consumable name (lowercased, punctuation stripped) → the cache's item.
+   *
+   * Warcraft Logs names a flask and never says which item it was, so an icon
+   * and a Wowhead tooltip need the cache to have matched the name to an id.
+   * Anything it hasn't renders as its plain name — the same rule the priority
+   * sheets follow, and the reason the import page offers to resolve them.
+   */
+  itemsByName,
+  enchantNames,
+  scope,
+  onScopeChange,
+}: Props) {
+  const [sort, setSort] = React.useState<Sort>({ by: "name", dir: "asc" });
+
+  /* Encounters in pull order, each with the pulls it took. */
+  const encounters = React.useMemo(() => {
+    const byName = new Map<string, RaidFight[]>();
+    for (const fight of fights) {
+      const list = byName.get(fight.encounterName) ?? [];
+      list.push(fight);
+      byName.set(fight.encounterName, list);
+    }
+    return [...byName.entries()].map(([name, list]) => ({ name, fights: list }));
+  }, [fights]);
+
+  /* `all`, an encounter name, or `fight:<id>` for one attempt. */
+  const selectedFightId = scope.startsWith("fight:") ? Number(scope.slice(6)) : undefined;
+  const selectedEncounter =
+    selectedFightId !== undefined
+      ? fights.find((f) => f.fightId === selectedFightId)?.encounterName
+      : scope === "all"
+        ? undefined
+        : scope;
+
+  const inScope = React.useMemo(() => {
+    if (selectedFightId !== undefined) return fights.filter((f) => f.fightId === selectedFightId);
+    if (selectedEncounter !== undefined) {
+      return fights.filter((f) => f.encounterName === selectedEncounter);
+    }
+    return fights;
+  }, [fights, selectedEncounter, selectedFightId]);
+
+  const scopeIds = React.useMemo(() => new Set(inScope.map((f) => f.fightId)), [inScope]);
+  const single = inScope.length === 1;
+
+  /** Click a header to order by it; click again to flip direction. */
+  const sortBy = (by: Sort["by"]) =>
+    setSort((current) =>
+      current.by === by
+        ? { by, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { by, dir: by === "name" ? "asc" : "desc" },
+    );
+
+  const rows = React.useMemo(() => {
+    const scoped = view.rows.map((row) => {
+      const pulls = row.pulls.filter((p) => scopeIds.has(p.fightId));
+      const prepared = pulls.filter((p) => p.prepared).length;
+      return {
+        row,
+        pulls,
+        byFight: new Map(pulls.map((p) => [p.fightId, p] as const)),
+        // Undefined, not zero: a raider who was on none of these pulls has no
+        // figure, and a 0% they never earned reads as the worst in the room.
+        preparedPct: pulls.length === 0 ? undefined : Math.round((prepared / pulls.length) * 100),
+      };
+    });
+    return scoped.sort((a, b) => {
+      if (sort.by === "name") {
+        const byName = compareText(a.row.name, b.row.name);
+        return sort.dir === "asc" ? byName : -byName;
+      }
+      const av = a.preparedPct;
+      const bv = b.preparedPct;
+      // Raiders with no pulls in scope sit at the bottom either way.
+      if (av === undefined || bv === undefined) {
+        return (
+          (av === undefined ? 1 : 0) - (bv === undefined ? 1 : 0) ||
+          compareText(a.row.name, b.row.name)
+        );
+      }
+      return (sort.dir === "desc" ? bv - av : av - bv) || compareText(a.row.name, b.row.name);
+    });
+  }, [view.rows, scopeIds, sort]);
+
+  if (view.rows.length === 0) {
+    return (
+      <EmptyState
+        title="No preparation rows on this report"
+        description="This raid has no per-player pulls to read. Re-fetch it once Warcraft Logs has finished parsing."
+      />
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Preparedness</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          What every raider brought, pull by pull. Reads the same pulls the list above leaves
+          switched on — {inScope.length} of {fights.length}. <strong>Pet</strong> is the
+          exception: it is logged once for the night, so it does not narrow with the scope.
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <ScopePill active={scope === "all"} onClick={() => onScopeChange("all")}>
+            All pulls
+            <Count n={fights.length} />
+          </ScopePill>
+          {encounters.map((encounter) => (
+            <ScopePill
+              key={encounter.name}
+              active={selectedEncounter === encounter.name}
+              onClick={() => onScopeChange(encounter.name)}
+            >
+              {encounter.name}
+              {encounter.fights.length > 1 && <Count n={encounter.fights.length} />}
+            </ScopePill>
+          ))}
+        </div>
+        {/* One boss, several attempts: the second row steps into a single pull,
+            which is what turns the strips into named consumables. */}
+        {selectedEncounter !== undefined && (
+          <PullPicker
+            encounter={selectedEncounter}
+            fights={fights.filter((f) => f.encounterName === selectedEncounter)}
+            scope={scope}
+            onScopeChange={onScopeChange}
+          />
+        )}
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <div className="relative w-full overflow-x-auto">
+          <table className="w-full caption-bottom text-sm">
+            <thead className="[&_tr]:border-b">
+              <tr>
+                <Th>
+                  <SortHeader sort={sort} column="name" onClick={() => sortBy("name")}>
+                    Raider
+                  </SortHeader>
+                </Th>
+                <Th>Flask / elixirs</Th>
+                <Th>Food</Th>
+                <Th>Scrolls</Th>
+                <Th>Weapon buff</Th>
+                <Th>Pet</Th>
+                <Th className="text-center">Enchants</Th>
+                <Th className="text-right">Gems</Th>
+                <Th className="text-right">iLvl</Th>
+                <Th className="text-right">
+                  <SortHeader
+                    sort={sort}
+                    column="prepared"
+                    onClick={() => sortBy("prepared")}
+                    align="right"
+                  >
+                    Prepared
+                  </SortHeader>
+                </Th>
+              </tr>
+            </thead>
+            <tbody className="[&_tr:last-child]:border-0">
+              {rows.map(({ row, pulls, byFight, preparedPct }) => {
+                const latest = pulls[pulls.length - 1];
+                const only = single ? byFight.get(inScope[0].fightId) : undefined;
+                return (
+                  <tr key={row.name} className="border-b transition-colors hover:bg-muted/50">
+                    <Td>
+                      <span className="flex flex-col leading-tight">
+                        <Raider name={row.name} slug={row.slug} className={row.className} />
+                        <span className="text-[10px] text-muted-foreground">
+                          {row.spec ?? ROLE_LABEL[row.role]}
+                        </span>
+                      </span>
+                    </Td>
+                    <Td>
+                      {single ? (
+                        <Coverage pull={only} itemsByName={itemsByName} />
+                      ) : (
+                        <Strip
+                          fights={inScope}
+                          byFight={byFight}
+                          read={(p) =>
+                            p.grade === "none" ? false : p.grade === "partial" ? "half" : true
+                          }
+                        />
+                      )}
+                    </Td>
+                    <Td>
+                      {single ? (
+                        only === undefined ? (
+                          <Absent />
+                        ) : only.food ? (
+                          <Badge variant="success">Well Fed</Badge>
+                        ) : (
+                          <Nothing>not fed</Nothing>
+                        )
+                      ) : (
+                        <Strip fights={inScope} byFight={byFight} read={(p) => p.food} />
+                      )}
+                    </Td>
+                    <Td>
+                      {single ? (
+                        <Consumables names={only?.scrolls} itemsByName={itemsByName} />
+                      ) : (
+                        <Strip
+                          fights={inScope}
+                          byFight={byFight}
+                          read={(p) => p.scrolls.length > 0}
+                        />
+                      )}
+                    </Td>
+                    <Td>
+                      {single ? (
+                        <WeaponBuff pull={only} enchantNames={enchantNames} />
+                      ) : (
+                        <Strip fights={inScope} byFight={byFight} read={(p) => p.weaponBuff} />
+                      )}
+                    </Td>
+                    <Td>
+                      <Pet pet={row.pet} scopeIds={scopeIds} all={scope === "all"} itemsByName={itemsByName} />
+                    </Td>
+                    <Td className="text-center">
+                      <Enchants
+                        pulls={pulls}
+                        slots={view.enchantSlots}
+                        name={row.name}
+                        slug={row.slug}
+                        reportCode={reportCode}
+                      />
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {latest?.hasGear ? latest.gems : <Absent />}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      <ItemLevel row={row} enchantNames={enchantNames} />
+                    </Td>
+                    <Td className="text-right">
+                      {preparedPct === undefined ? (
+                        <Badge variant="muted">–</Badge>
+                      ) : (
+                        <Badge
+                          variant={
+                            preparedPct >= 90
+                              ? "success"
+                              : preparedPct >= 60
+                                ? "warning"
+                                : "destructive"
+                          }
+                          title={`Flask or elixirs AND food on ${preparedPct}% of ${pulls.length} pull${pulls.length === 1 ? "" : "s"} — the same rule the loot score reads`}
+                        >
+                          {preparedPct}%
+                        </Badge>
+                      )}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2.5 text-[11px] text-muted-foreground">
+          {single ? (
+            <span>One pull — every cell names what was actually up.</span>
+          ) : (
+            <>
+              <Key className="bg-success">had it</Key>
+              <Key className="bg-warn">half a set of elixirs</Key>
+              <Key className="bg-muted-foreground/30">did not</Key>
+              <Key className="bg-transparent ring-1 ring-inset ring-border">not on that pull</Key>
+              <span>Pips read in pull order — hover one for the boss.</span>
+            </>
+          )}
+          <span>
+            <span className="font-medium text-warn-ink">△</span> changed during the night
+          </span>
+          <span>
+            <span className="font-medium text-info-ink">⇄</span> swapped weapons (a fishing rod on
+            Lurker, a resist set) — item level reads the most-worn gear
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" } as const;
+
+function Th({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <th
+      className={cn(
+        "h-9 px-2 text-left align-middle text-xs font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <td className={cn("px-2 py-1.5 align-middle", className)}>{children}</td>;
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="ml-1 tabular-nums opacity-60">{n}</span>;
+}
+
+function Absent() {
+  return <span className="text-muted-foreground/50">–</span>;
+}
+
+function Nothing({ children }: { children: React.ReactNode }) {
+  return <span className="text-xs text-danger-ink">{children}</span>;
+}
+
+function Key({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("h-3 w-1.5 rounded-[1.5px]", className)} />
+      {children}
+    </span>
+  );
+}
+
+/** Same pill language as the report picker above it. */
+function ScopePill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-accent",
+        active && "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The attempts on one boss.
+ *
+ * Only worth a row when there were several: a boss killed first time has one
+ * pull, and its own pill already selected it.
+ */
+function PullPicker({
+  encounter,
+  fights,
+  scope,
+  onScopeChange,
+}: {
+  encounter: string;
+  fights: RaidFight[];
+  scope: string;
+  onScopeChange: (next: string) => void;
+}) {
+  if (fights.length < 2) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/50 px-2.5 py-2">
+      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {encounter}
+      </span>
+      <ScopePill active={scope === encounter} onClick={() => onScopeChange(encounter)}>
+        All {fights.length} pulls
+      </ScopePill>
+      {fights.map((fight, index) => (
+        <ScopePill
+          key={fight.fightId}
+          active={scope === `fight:${fight.fightId}`}
+          onClick={() => onScopeChange(`fight:${fight.fightId}`)}
+        >
+          <span
+            className={cn(
+              "mr-1 inline-block h-1.5 w-1.5 rounded-full",
+              fight.kill ? "bg-success" : "bg-warn",
+            )}
+          />
+          Pull {index + 1} · {fight.kill ? "kill" : "wipe"}
+        </ScopePill>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One pip per pull, in pull order.
+ *
+ * `read` returns true, false, or `"half"` for the one state that is neither —
+ * a battle elixir with no guardian, which passes a lenient coverage bar while
+ * still being half a set.
+ */
+function Strip({
+  fights,
+  byFight,
+  read,
+}: {
+  fights: RaidFight[];
+  byFight: Map<number, PreparednessPull>;
+  read: (pull: PreparednessPull) => boolean | "half";
+}) {
+  let good = 0;
+  let present = 0;
+  const gaps: string[] = [];
+  const pips = fights.map((fight) => {
+    const pull = byFight.get(fight.fightId);
+    if (pull === undefined) {
+      return (
+        <span
+          key={fight.fightId}
+          title={`${fight.encounterName} — not on this pull`}
+          className="h-3.5 w-[5px] rounded-[1.5px] ring-1 ring-inset ring-border"
+        />
+      );
+    }
+    present++;
+    const value = read(pull);
+    if (value === "half") {
+      good++;
+      gaps.push(`${fight.encounterName} (half)`);
+    } else if (value) {
+      good++;
+    } else {
+      gaps.push(fight.encounterName);
+    }
+    return (
+      <span
+        key={fight.fightId}
+        title={`${fight.encounterName} — ${value === "half" ? "half a set" : value ? "yes" : "no"}`}
+        className={cn(
+          "h-3.5 w-[5px] rounded-[1.5px]",
+          value === "half" ? "bg-warn" : value ? "bg-success" : "bg-muted-foreground/30",
+        )}
+      />
+    );
+  });
+
+  return (
+    <span
+      className="inline-flex items-center"
+      title={gaps.length > 0 ? `Gaps on: ${gaps.join(", ")}` : "Every pull"}
+    >
+      <span className="inline-flex items-center gap-[2px]">{pips}</span>
+      <span
+        className={cn(
+          "ml-1.5 text-[11px] tabular-nums text-muted-foreground",
+          present > 0 && good === present && "text-success-ink",
+          good === 0 && "text-danger-ink",
+        )}
+      >
+        {good}/{present}
+      </span>
+    </span>
+  );
+}
+
+/** Consumable name → the cache's item, when it knows one. */
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * A consumable as an item where possible, and as its plain name otherwise.
+ *
+ * The fallback is the point: an icon and a Wowhead tooltip need an item id,
+ * the log only ever gave us a name, and a name nobody has resolved is still
+ * worth reading. Nothing here guesses an id.
+ */
+function Consumable({ name, itemsByName }: { name: string; itemsByName: Record<string, ItemRef> }) {
+  const item = itemsByName[nameKey(name)];
+  if (item === undefined) {
+    return (
+      <span className="text-xs" title="Not matched to an item yet — resolve names on the import page">
+        {name}
+      </span>
+    );
+  }
+  return <ItemLink item={item} size="sm" />;
+}
+
+function Consumables({
+  names,
+  itemsByName,
+}: {
+  names?: string[];
+  itemsByName: Record<string, ItemRef>;
+}) {
+  if (names === undefined) return <Absent />;
+  if (names.length === 0) return <Nothing>none</Nothing>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      {names.map((name) => (
+        <Consumable key={name} name={name} itemsByName={itemsByName} />
+      ))}
+    </span>
+  );
+}
+
+/** The elixir budget on one pull — a flask, or whatever filled the two slots. */
+function Coverage({
+  pull,
+  itemsByName,
+}: {
+  pull?: PreparednessPull;
+  itemsByName: Record<string, ItemRef>;
+}) {
+  if (pull === undefined) return <Absent />;
+  if (pull.flask !== undefined) {
+    return <Consumable name={pull.flask} itemsByName={itemsByName} />;
+  }
+  if (pull.elixirs.length === 0) return <Nothing>nothing</Nothing>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      {pull.elixirs.map((name) => (
+        <Consumable key={name} name={name} itemsByName={itemsByName} />
+      ))}
+      {/* Half a set passes a lenient coverage bar, so say which half is empty
+          rather than letting it read as complete. */}
+      {pull.grade === "partial" && (
+        <Badge variant="warning" title="One elixir slot filled, the other empty">
+          no {pull.missingSlot === "battleElixir" ? "battle" : "guardian"}
+        </Badge>
+      )}
+    </span>
+  );
+}
+
+/**
+ * What each weapon carried, main hand first.
+ *
+ * **Both hands, because a raider buffs both** — a dual-wielding rogue runs a
+ * different poison on each, and showing only the main hand reported half a job
+ * as done. The hand is labelled whenever a pull carried two, and left off when
+ * there is only one thing to say.
+ *
+ * Warcraft Logs records the enchantment id and never the item that applied it,
+ * so the name comes from the enchant dictionary: an item name for the oils and
+ * poisons, effect text for the stones ("Sharpened (+14 Crit Rating…)"). An id
+ * nobody has resolved shows as an id rather than as a guess.
+ *
+ * A totem is not a consumable, and the column says so. Windfury Totem reaches a
+ * party's weapons as a temporary enchant exactly like an oil does, so a raider
+ * standing near a shaman otherwise reads as buffed without having bought
+ * anything.
+ */
+function WeaponBuff({
+  pull,
+  enchantNames,
+}: {
+  pull?: PreparednessPull;
+  enchantNames: Record<number, string>;
+}) {
+  if (pull === undefined) return <Absent />;
+  const worn = pull.weaponEnchants;
+  if (worn.length === 0) {
+    // The stored flag and the gear snapshot can only disagree on a pull
+    // imported before gear was captured — say "unknown" rather than "none".
+    return pull.weaponBuff ? <Badge variant="secondary">applied</Badge> : <Nothing>none</Nothing>;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      {worn.map(({ hand, id }) => (
+        <WeaponEnchant
+          key={hand}
+          id={id}
+          name={enchantNames[id]}
+          hand={worn.length > 1 ? hand : undefined}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * What went on the pet.
+ *
+ * Pet food outlives the pull it was applied in and there is no fight that owns
+ * it, so the record is per player per report. Showing the night's total against
+ * a single pull reads as a bug — "Kibler's Bits ×3" on one boss — so a scoped
+ * view answers the question actually being asked instead: what landed inside
+ * the scope, and how much came earlier in the night.
+ *
+ * A blank is "nothing logged for a pet", never "they forgot". Warcraft Logs
+ * types hunter pets, shaman totems, druid treants and Shadowfiend identically,
+ * so nothing here can tell who owns a pet, and a cross would be an accusation
+ * the log does not support.
+ */
+function Pet({
+  pet,
+  scopeIds,
+  all,
+  itemsByName,
+}: {
+  pet?: PreparednessPet;
+  scopeIds: Set<number>;
+  all: boolean;
+  itemsByName: Record<string, ItemRef>;
+}) {
+  if (pet === undefined) {
+    return (
+      <span className="text-muted-foreground/50" title="Nothing logged for a pet this night">
+        –
+      </span>
+    );
+  }
+
+  if (all) {
+    const entries = [...pet.food, ...pet.scrolls];
+    return (
+      <span
+        className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5"
+        title="Applied across the whole night"
+      >
+        {entries.map(([name, times]) => (
+          <span key={name} className="inline-flex items-center gap-1">
+            <Consumable name={name} itemsByName={itemsByName} />
+            {times > 1 && (
+              <span className="text-[11px] tabular-nums text-muted-foreground">×{times}</span>
+            )}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
+  /*
+   * Scoped. "Between pulls" applications carry no fightId, so they can only be
+   * placed on the clock — which is why the timing is stored at all. Everything
+   * before the scope's first pull counts as earlier, feeding included.
+   */
+  const inScope = pet.applications.filter(
+    (a) => a.fightId !== undefined && scopeIds.has(a.fightId),
+  );
+  const firstScoped = Math.min(...[...scopeIds]);
+  const earlier = pet.applications.filter((a) => {
+    if (a.fightId !== undefined) return a.fightId < firstScoped;
+    // No pull: place it by the clock when we have one, else count it as earlier
+    // (a row imported before the timing — a re-import fills it in).
+    return true;
+  }).length - inScope.filter((a) => a.fightId === undefined).length;
+
+  if (inScope.length === 0) {
+    return earlier > 0 ? (
+      <span
+        className="text-xs text-muted-foreground"
+        title={`Nothing applied during this pull. ${earlier} earlier tonight: ${pet.applications.map((a) => a.name).join(", ")}`}
+      >
+        fed {earlier}× earlier
+      </span>
+    ) : (
+      <span className="text-muted-foreground/50" title="Nothing logged for a pet this night">
+        –
+      </span>
+    );
+  }
+
+  const counts = new Map<string, number>();
+  for (const a of inScope) counts.set(a.name, (counts.get(a.name) ?? 0) + 1);
+  return (
+    <span
+      className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5"
+      title={earlier > 0 ? `Applied during this pull. ${earlier} more earlier tonight.` : "Applied during this pull"}
+    >
+      {[...counts].map(([name, times]) => (
+        <span key={name} className="inline-flex items-center gap-1">
+          <Consumable name={name} itemsByName={itemsByName} />
+          {times > 1 && (
+            <span className="text-[11px] tabular-nums text-muted-foreground">×{times}</span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Item level over the raider's usual gear, flagged when a weapon changed hands.
+ *
+ * Deliberately NOT the pull's own snapshot. Lurker is spawned by fishing, so
+ * that pull catches raiders holding a level 30 rod — true about the pull and a
+ * useless answer to "how geared are they", which is what this column is asked.
+ * The most-worn item per slot answers that instead, and the marker says a swap
+ * happened rather than hiding it.
+ */
+function ItemLevel({ row, enchantNames }: { row: PreparednessRow; enchantNames: Record<number, string> }) {
+  if (row.ilvl === undefined) return <Absent />;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {row.ilvl.toFixed(1)}
+      {row.weaponSwaps.length > 0 && (
+        <SwapMark swaps={row.weaponSwaps} enchantNames={enchantNames} />
+      )}
+    </span>
+  );
+}
+
+/** The detail sits in the tooltip, not in the row. */
+function SwapMark({
+  swaps,
+  enchantNames,
+}: {
+  swaps: PreparednessSwap[];
+  enchantNames: Record<number, string>;
+}) {
+  const detail = swaps
+    .map((swap) => {
+      const items = swap.items
+        .map((i) => {
+          // Per weapon, because that is the question a swap raises: an off-set
+          // weapon that never gets an oil is invisible when the enchant is read
+          // off whichever weapon happened to be in hand last.
+          const temps = i.tempEnchantIds.map((id) => enchantNames[id] ?? `#${id}`).join(", ");
+          return `${i.name ?? `#${i.itemId}`}${i.ilvl ? ` (${i.ilvl})` : ""} on ${i.pulls} pull${i.pulls === 1 ? "" : "s"} [${i.encounters.join(", ")}]${temps ? ` — ${temps}` : " — no temp enchant"}`;
+        })
+        .join(" | ");
+      return `${swap.label} — ${items}`;
+    })
+    .join(" // ");
+  return (
+    <span
+      title={`Weapon changed during the night, so item level reads the most-worn set. ${detail}`}
+      className="cursor-help text-[10px] font-semibold text-info-ink"
+    >
+      ⇄
+    </span>
+  );
+}
+
+const HAND_LABEL = { main: "MH", off: "OH" } as const;
+
+function WeaponEnchant({
+  id,
+  name,
+  hand,
+}: {
+  id: number;
+  name?: string;
+  hand?: "main" | "off";
+}) {
+  const label = hand === undefined ? null : (
+    <span className="text-[10px] font-semibold uppercase opacity-60">{HAND_LABEL[hand]}</span>
+  );
+  if (name === undefined) {
+    return (
+      <Badge variant="secondary" title={`Enchantment #${id} — not looked up yet. The import page names these.`}>
+        {label}
+        applied
+        <span className="tabular-nums opacity-60">#{id}</span>
+      </Badge>
+    );
+  }
+  const totem = /windfury/i.test(name);
+  return (
+    <Badge
+      variant={totem ? "muted" : "secondary"}
+      title={
+        totem
+          ? `${name} — a shaman's totem reaching their party's weapons, not something this raider bought.`
+          : name
+      }
+    >
+      {label}
+      {name}
+    </Badge>
+  );
+}
+
+/**
+ * Enchanted slots, as of the last pull in scope, linking to the gear audit.
+ *
+ * The audit on the performance page already names which slots are bare and
+ * grades what the rest carry; repeating that here would be a second place to
+ * get it wrong. A raider the roster doesn't know has nowhere to link to.
+ */
+function Enchants({
+  pulls,
+  slots,
+  name,
+  slug,
+  reportCode,
+}: {
+  pulls: PreparednessPull[];
+  slots: number;
+  name: string;
+  slug?: string;
+  reportCode: string;
+}) {
+  const latest = pulls[pulls.length - 1];
+  if (latest === undefined || !latest.hasGear) return <Badge variant="muted">–</Badge>;
+
+  const complete = latest.enchanted >= slots;
+  // Freshly awarded items show up bare until they're enchanted, so a value that
+  // moved during the night is usually good news — say it moved either way.
+  const changed = new Set(pulls.filter((p) => p.hasGear).map((p) => p.enchanted)).size > 1;
+  const title = complete
+    ? "Every expected slot carries a permanent enchant"
+    : `Missing: ${latest.missingEnchants.join(", ")}`;
+
+  const badge = (
+    <>
+      <Badge
+        variant={complete ? "success" : latest.enchanted >= slots - 2 ? "warning" : "destructive"}
+        title={title}
+      >
+        {latest.enchanted}/{slots}
+      </Badge>
+      {changed && (
+        <span className="ml-0.5 text-[10px] font-bold text-warn-ink" title="Changed during the night">
+          △
+        </span>
+      )}
+    </>
+  );
+
+  if (slug === undefined) {
+    return <span title={`${name} isn't matched to a roster character`}>{badge}</span>;
+  }
+  return (
+    <Link
+      href={`/characters/${encodeURIComponent(slug)}/performance?report=${encodeURIComponent(reportCode)}#enchants`}
+      className="hover:underline"
+      title={`${title} — open the gear audit`}
+    >
+      {badge}
+    </Link>
+  );
+}
+
+function SortHeader({
+  sort,
+  column,
+  onClick,
+  align = "left",
+  children,
+}: {
+  sort: Sort;
+  column: Sort["by"];
+  onClick: () => void;
+  align?: "left" | "right";
+  children: React.ReactNode;
+}) {
+  const active = sort.by === column;
+  const Arrow = sort.dir === "asc" ? ChevronUp : ChevronDown;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={column === "name" ? "Sort alphabetically" : "Sort by how prepared they were"}
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-0.5 hover:text-foreground",
+        align === "right" && "flex-row-reverse",
+        active && "text-foreground",
+      )}
+    >
+      {children}
+      <Arrow className={cn("h-3 w-3", active ? "opacity-100" : "opacity-0")} />
+    </button>
+  );
+}

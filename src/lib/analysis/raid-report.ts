@@ -2,6 +2,7 @@ import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
+import { buildPreparedness } from "@/lib/analysis/preparedness";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   ConsumableTypeRow,
@@ -24,6 +25,7 @@ import type {
   TotemDropLane,
   UpkeepFightProvider,
   WclPlayerFight,
+  WclPlayerOffPull,
   WclReport,
 } from "@/lib/types";
 
@@ -110,6 +112,12 @@ export interface RaidReportInput {
    * improvements.
    */
   excludedFightIds?: number[];
+  /**
+   * This report's off-pull records — potions drunk on trash, and anything put
+   * on a pet. Kept per player per report because there is no pull to hang them
+   * on; the preparedness table reads the pet half.
+   */
+  offPull?: WclPlayerOffPull[];
   /** The council's policy — what counts as prepared, and how gaps are ranked. */
   policy?: GuildPolicy;
 }
@@ -634,6 +642,18 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   }
   improvements.sort((a, b) => b.score - a.score || compareText(a.name, b.name));
 
+  /* ---- What everyone brought, pull by pull ---- */
+  // Built from the same filtered `rows` as everything else on this page, so a
+  // pull the officer switched off leaves the table with it.
+  const preparedness = buildPreparedness({
+    rows,
+    slugByActor,
+    // Not filtered by the pull switch: a pet was fed once for the night, and
+    // which pull that landed beside says nothing.
+    offPull: input.offPull,
+    policy,
+  });
+
   /* ---- Why we struggle on a boss ---- */
   const deathProfiles = buildDeathProfiles(rows);
 
@@ -642,6 +662,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
 
   return {
     report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
+    preparedness,
     deathProfiles,
     parseBoards,
   };

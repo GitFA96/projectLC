@@ -5,6 +5,7 @@ import {
   defaultPriceFor,
   effectivePrice,
 } from "@/lib/wcl/consumable-prices";
+import { SCROLL_LABELS } from "@/lib/wcl/consumables";
 
 describe("consumable pricing", () => {
   it("prices known consumables from the default catalog", () => {
@@ -24,13 +25,37 @@ describe("consumable pricing", () => {
     expect(defaultPriceFor("Some Trinket").gold).toBe(0);
   });
 
+  it("prices every scroll rank the curated list knows", () => {
+    /*
+     * The coupling that goes wrong quietly: a scroll curated by id reaches the
+     * gold view under its own label, and a label with no catalog entry falls
+     * through to the family default. That is a real number being wrong on a
+     * page officers read, with nothing to notice it — so the catalog is checked
+     * against the curated list rather than trusted to keep up with it.
+     */
+    for (const label of SCROLL_LABELS) {
+      const rank = /\s(II|III|IV|V)$/.exec(label)?.[1] ?? "I";
+      const price = defaultPriceFor(label);
+      expect(price.charges, `${label} has no price`).toBe(1);
+      expect(price.gold, `${label} is priced at nothing`).toBeGreaterThan(0);
+      // A listed rank must not be landing on the family fallback, which is what
+      // "priced by rank" looks like when the catalog entry is simply missing.
+      const fallback = { I: 1, II: 2, III: 3, IV: 6, V: 20 }[rank];
+      if (price.gold === fallback && rank !== "I") {
+        expect.unreachable(`${label} looks like it fell through to the rank fallback`);
+      }
+    }
+  });
+
   it("prices explicit prep staples and falls back by family for the rest", () => {
     // Explicit catalog entries.
     expect(defaultPriceFor("Flask of Relentless Assault").gold).toBe(82);
     expect(defaultPriceFor("Elixir of Major Shadow Power").gold).toBe(6);
-    // Labelled by its buff, so no name-pattern fallback reaches it — without an
-    // explicit entry this elixir is free, which is the quiet kind of wrong.
-    expect(defaultPriceFor("Greater Mana Regeneration")).toEqual({ gold: 3, charges: 1 });
+    // Keyed by the item name ingest now stores. The name-pattern fallback only
+    // catches "elixir of…" or "…elixir", so a mana-regen elixir under its buff
+    // name reached no entry and priced at 0 — free, and silently so.
+    expect(defaultPriceFor("Elixir of Major Mageblood")).toEqual({ gold: 3, charges: 1 });
+    expect(defaultPriceFor("Mageblood Potion")).toEqual({ gold: 3, charges: 1 });
     expect(defaultPriceFor("Scroll of Agility V").gold).toBe(8);
     expect(defaultPriceFor("Flame Cap").gold).toBe(3);
     expect(defaultPriceFor("Food").gold).toBe(0.5);
@@ -39,10 +64,28 @@ describe("consumable pricing", () => {
     expect(defaultPriceFor("Flask of Fortification").gold).toBe(25);
     expect(defaultPriceFor("Elixir of the Mongoose").gold).toBe(12);
     expect(defaultPriceFor("Adept's Elixir").gold).toBe(12);
-    // Scrolls scale by rank — an unlisted V is far dearer than I.
-    expect(defaultPriceFor("Scroll of Intellect V").gold).toBe(20);
+    // Every real scroll rank is now listed outright, and the ranks differ —
+    // rank was lost entirely before, so 202 uses of Agility IV were priced as
+    // rank I.
+    expect(defaultPriceFor("Scroll of Agility").gold).toBe(1);
+    expect(defaultPriceFor("Scroll of Agility IV").gold).toBe(3);
+    expect(defaultPriceFor("Scroll of Agility V").gold).toBe(8);
+    // The rank-scaling fallback still covers a scroll nobody has listed.
+    expect(defaultPriceFor("Scroll of Cunning V").gold).toBe(20);
+    expect(defaultPriceFor("Scroll of Cunning").gold).toBe(3);
+    // "Scroll of Intellect I" is nobody's item name — the rank I scroll is just
+    // "Scroll of Intellect" — so this stays on the rank fallback.
     expect(defaultPriceFor("Scroll of Intellect I").gold).toBe(1);
-    expect(defaultPriceFor("Scroll of Intellect").gold).toBe(3); // rank unknown → generic
+    /*
+     * The rankless label now means rank I, because that IS the rank I item's
+     * name. It used to be the catch-all for ranks I–IV at a blended 3g.
+     *
+     * So an id-less row — only a report imported before the ranks were curated
+     * — prices as rank I rather than as a guess at the middle. That is the
+     * cheapest reading of an unknown, and a re-import is what removes the
+     * ambiguity rather than repricing it: every rank has an id now.
+     */
+    expect(defaultPriceFor("Scroll of Intellect").gold).toBe(0.5);
   });
 
   it("prefers a raid's logged override over the default", () => {

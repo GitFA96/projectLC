@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   addEnchantNames,
+  clearRefusedItemNames,
+  getRefusedItemNames,
+  recordRefusedItemNames,
   bumpDataVersion,
   getDataVersion,
   deleteItemPriorityRule,
@@ -209,6 +212,7 @@ function readModel(): CachedModel {
       guides: asGuides(getGuides(db)),
       wishlistAlternatives: getWishlistAlternatives(db) as WishlistAlternative[],
       enchantNames: getEnchantNames(db),
+      refusedItemNames: getRefusedItemNames(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     }),
     store,
@@ -1688,6 +1692,30 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     return this.addItemsIfMissing(harvestItemFacts(store));
   },
 
+  async recordRefusedItemNames(
+    refused: { nameKey: string; name: string; reason: string; near: string[] }[],
+  ): Promise<number> {
+    if (refused.length === 0) return 0;
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = recordRefusedItemNames(db, refused);
+      // The lookup queues are part of the read model, and they filter on these.
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
+  async clearRefusedItemNames(nameKeys?: string[]): Promise<number> {
+    const db = getDb();
+    let removed = 0;
+    withTx(db, () => {
+      removed = clearRefusedItemNames(db, nameKeys);
+      if (removed > 0) bumpDataVersion(db);
+    });
+    return removed;
+  },
+
   async addEnchantNames(names: { id: number; name: string }[]): Promise<number> {
     if (names.length === 0) return 0;
     const db = getDb();
@@ -1916,6 +1944,9 @@ export function getSqliteRepo(): WriteRepo {
     listAbilities: async () => getAbilities(getDb()),
     listEncounterNames: () => readModel().repo.listEncounterNames(),
     listUnmatchedSheetNames: () => readModel().repo.listUnmatchedSheetNames(),
+    listUnmatchedConsumableNames: () => readModel().repo.listUnmatchedConsumableNames(),
+    listRefusedItemNames: () => readModel().repo.listRefusedItemNames(),
+    listConsumableItems: () => readModel().repo.listConsumableItems(),
     listBossComments: (zone: string) => readModel().repo.listBossComments(zone),
     listGuides: () => readModel().repo.listGuides(),
     getDropTable: (zone: string) => readModel().repo.getDropTable(zone),
@@ -1970,6 +2001,7 @@ export function getSqliteRepo(): WriteRepo {
         sheetItemIds: getSheetItemIds(db),
         guides: asGuides(getGuides(db)),
         enchantNames: getEnchantNames(db),
+      refusedItemNames: getRefusedItemNames(db),
         consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
       });
       const after = await proposed.measureRoster();

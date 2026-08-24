@@ -10,6 +10,7 @@ import {
   resolveItemsFromWowhead,
   type UnmatchedName,
 } from "@/lib/items/wowhead";
+import { normalizeItemName } from "@/lib/loot/priority-sheet";
 
 /**
  * Filling the item cache, in the two steps that keep it cheap:
@@ -297,6 +298,7 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
       limit: NAME_LIMIT,
     });
     const matched = resolved.length > 0 ? await repo.addItemsIfMissing(resolved) : 0;
+    await fileRefusals(repo, unmatched);
     const remaining = Math.max(0, names.length - resolved.length - unmatched.length);
 
     refreshAfterWrite("/", "layout");
@@ -324,5 +326,110 @@ export async function resolveSheetItemNames(): Promise<SheetNameResult> {
       unmatched: [],
       remaining: 0,
     };
+  }
+}
+
+/**
+ * Give the logs' consumables their item ids.
+ *
+ * Warcraft Logs reports a flask, elixir or scroll as an aura, which the ingest
+ * matches to a curated item NAME — and stops there, because a name is all the
+ * log ever carried. So the preparedness table on the raid page renders them as
+ * plain text: no icon, no quality colour, no Wowhead hover, on the table an
+ * officer reads while working out who to nudge.
+ *
+ * Exactly the same gap as the priority sheet's names above, closed the same
+ * way and with the same rule: an exact match, and only when there is exactly
+ * one. A guild runs a few dozen distinct consumables all season, so this is a
+ * press or two and then never again until somebody drinks something new.
+ */
+export async function resolveConsumableItemNames(): Promise<SheetNameResult> {
+  try {
+    requireCapability(await resolveViewer(), "import.run");
+    const repo = await getWriteRepo();
+    const names = await repo.listUnmatchedConsumableNames();
+    if (names.length === 0) {
+      return {
+        ok: true,
+        message: "Every consumable the logs name already has an id.",
+        matched: 0,
+        unmatched: [],
+        remaining: 0,
+      };
+    }
+    const { resolved, unmatched, throttled } = await resolveItemIdsByName(names, {
+      limit: NAME_LIMIT,
+    });
+    const matched = resolved.length > 0 ? await repo.addItemsIfMissing(resolved) : 0;
+    await fileRefusals(repo, unmatched);
+    const remaining = Math.max(0, names.length - resolved.length - unmatched.length);
+
+    refreshAfterWrite("/", "layout");
+    const parts = [
+      `${resolved.length} of ${Math.min(names.length, NAME_LIMIT)} consumables identified`,
+      matched > 0 ? `${matched} added to the cache` : undefined,
+      throttled
+        ? `Wowhead started refusing requests — press again in a few minutes for the remaining ${remaining}`
+        : remaining > 0
+          ? `${remaining} left, press again to continue`
+          : undefined,
+    ].filter(Boolean);
+    return { ok: true, message: parts.join(" · "), matched, unmatched, remaining };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not look the consumables up.",
+      matched: 0,
+      unmatched: [],
+      remaining: 0,
+    };
+  }
+}
+
+/**
+ * File what Wowhead refused, so the queues stop offering it.
+ *
+ * **Transport errors are deliberately not recorded.** `reason: "error"` means
+ * the request failed, which says nothing about the name — filing it would take
+ * a perfectly resolvable name out of the queue and leave it in a list of jobs
+ * for a person that no person can do anything about.
+ */
+async function fileRefusals(
+  repo: { recordRefusedItemNames: (r: { nameKey: string; name: string; reason: string; near: string[] }[]) => Promise<number> },
+  unmatched: UnmatchedName[],
+): Promise<void> {
+  const verdicts = unmatched
+    .filter((u) => u.reason !== "error")
+    .map((u) => ({
+      nameKey: normalizeItemName(u.name),
+      name: u.name,
+      reason: u.reason,
+      near: u.near,
+    }));
+  if (verdicts.length > 0) await repo.recordRefusedItemNames(verdicts);
+}
+
+/**
+ * Put refused names back in the queue.
+ *
+ * The press after a sheet row is corrected or a curated consumable label moves
+ * onto the item it actually is — both change what the name IS, which the stored
+ * verdict on the old spelling cannot know.
+ */
+export async function retryRefusedItemNames(): Promise<{ ok: boolean; message: string }> {
+  try {
+    requireCapability(await resolveViewer(), "import.run");
+    const repo = await getWriteRepo();
+    const cleared = await repo.clearRefusedItemNames();
+    refreshAfterWrite("/", "layout");
+    return {
+      ok: true,
+      message:
+        cleared === 0
+          ? "Nothing was waiting on a second look."
+          : `${cleared} name${cleared === 1 ? "" : "s"} back in the queue — press the lookup button again.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not clear the list." };
   }
 }

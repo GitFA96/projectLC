@@ -55,6 +55,7 @@ import type {
   SimSpecView,
   SlotId,
   SlotItem,
+  RefusedNameView,
   UntrackedLogPlayer,
   WclPlayerFight,
   WclPlayerOffPull,
@@ -181,6 +182,37 @@ export interface Repo {
    * gap — see the item resolver on the import page.
    */
   listUnmatchedSheetNames(): Promise<string[]>;
+  /**
+   * Consumable names the logs carry that the item cache can't match to an id.
+   *
+   * Warcraft Logs names a flask, elixir or scroll and never says which item it
+   * was — the ingest stores the canonical name and nothing more. So these are
+   * the rows the preparedness table renders as bare text, with no icon and no
+   * Wowhead hover, for exactly the reason the sheet names above do. Same fix,
+   * same resolver.
+   */
+  listUnmatchedConsumableNames(): Promise<string[]>;
+  /**
+   * Names Wowhead has already been asked about and declined.
+   *
+   * The counterpart to the two queues above, and the reason they can be trusted:
+   * anything here has been *tried*, so a queue that keeps offering the same
+   * number is telling the truth about work left rather than about work that
+   * cannot succeed. Each carries why, and what Wowhead did offer — which is the
+   * whole answer to a near-miss, and a person's job to read.
+   *
+   * Refusals on names nothing uses any more, or that have since gained an id by
+   * another route, are dropped rather than listed: that chore finished itself.
+   */
+  listRefusedItemNames(): Promise<RefusedNameView[]>;
+  /**
+   * The cache entries behind the consumable names the logs use.
+   *
+   * Small by nature — a guild runs a few dozen distinct flasks, elixirs and
+   * scrolls all season — so the preparedness table takes the whole set rather
+   * than resolving per row.
+   */
+  listConsumableItems(): Promise<Item[]>;
   /**
    * Cached drops the priority sheet can place and the cache cannot: rows with
    * no source at all, whose name a sheet section names a boss for.
@@ -945,6 +977,23 @@ export interface WriteRepo extends Repo {
    * returns how many rows were written.
    */
   addEnchantNames(names: { id: number; name: string }[]): Promise<number>;
+  /**
+   * Record that Wowhead was asked about these names and would not identify
+   * them, so the lookup queues stop offering work that cannot succeed.
+   *
+   * Transport failures must be filtered out by the caller: an aborted request
+   * says nothing about the name, and recording it would quietly remove a
+   * perfectly resolvable name from the queue.
+   */
+  recordRefusedItemNames(
+    refused: { nameKey: string; name: string; reason: string; near: string[] }[],
+  ): Promise<number>;
+  /**
+   * Forget past refusals so those names are offered again — the press after a
+   * sheet row is corrected, or after a curated label moves onto its real item.
+   * With no keys, forgets every one.
+   */
+  clearRefusedItemNames(nameKeys?: string[]): Promise<number>;
   /**
    * Harvest item data out of records already imported: names from wishlists
    * and loot pastes, icons from the gear snapshot on every logged pull. No
