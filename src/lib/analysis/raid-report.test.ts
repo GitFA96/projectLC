@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { DEFAULT_POLICY } from "@/lib/analysis/policy";
-import type { WclPlayerFight, WclReport } from "@/lib/types";
+import type { WclPlayerFight, WclPlayerOffPull, WclReport } from "@/lib/types";
 
 const report: WclReport = {
   code: "RAID001",
@@ -565,5 +565,91 @@ describe("summarizeRaidReport — the pre-pull potion counts as a potion", () =>
       slugByActor,
     });
     expect(raid.improvements.some((p) => p.name === "Wiper")).toBe(false);
+  });
+});
+
+/** Minimal off-pull record; overrides win. */
+function offPull(over: Partial<WclPlayerOffPull> & { actorName: string }): WclPlayerOffPull {
+  return {
+    id: `RAID001:${over.actorName.toLowerCase()}`,
+    reportCode: "RAID001",
+    characterId: null,
+    potions: [],
+    otherCasts: [],
+    drums: 0,
+    runes: 0,
+    healthstones: 0,
+    sappers: 0,
+    petConsumables: [],
+    ...over,
+  };
+}
+
+/*
+ * The raid page's scope is the night, not the boss pulls inside it. Probed on
+ * mbwNGRaxhPHMTpKB: 43% of that night's sappers and 13% of its potions were
+ * used on trash, and the heaviest user in the raid read as one of the lightest.
+ */
+describe("off-pull consumables count toward the night", () => {
+  const rows: WclPlayerFight[] = [
+    row({ fightId: 1, actorName: "Delta", className: "Paladin", potions: ["Bottled Nethergon Energy"],
+      otherCasts: ["Super Sapper Charge"], sappers: 1 }),
+    row({ fightId: 1, actorName: "Quiet", className: "Priest" }),
+  ];
+  const offPulls = [
+    offPull({ actorName: "Delta", potions: ["Bottled Nethergon Energy", "Bottled Nethergon Energy"],
+      otherCasts: ["Super Sapper Charge", "Goblin Sapper Charge"], sappers: 2 }),
+    // Nobody by this name held a pull — no row to fold into, and inventing one
+    // would put a stranger in the rankings.
+    offPull({ actorName: "Passerby", potions: ["Haste Potion"], otherCasts: [] }),
+  ];
+  const view = summarizeRaidReport({
+    report, rows, reportPulls: 1, slugByActor: new Map(), offPull: offPulls,
+  });
+
+  it("adds trash use to the raid totals", () => {
+    expect(view.prep.potionsTotal).toBe(3);
+    expect(view.prep.sappersTotal).toBe(3);
+    expect(view.prep.potionTypes.find((t) => t.name === "Bottled Nethergon Energy")!.uses).toBe(3);
+    expect(view.prep.inFightTypes.find((t) => t.name === "Goblin Sapper Charge")!.uses).toBe(1);
+  });
+
+  it("adds it to the raider's own tallies and breakdown", () => {
+    const delta = view.usage.find((u) => u.name === "Delta")!;
+    expect(delta.potions).toBe(3);
+    expect(delta.sappers).toBe(3);
+    expect(delta.consumablesTotal).toBe(6);
+    expect(delta.itemBreakdown.find((b) => b.name === "Super Sapper Charge")!.count).toBe(2);
+  });
+
+  it("keeps the totals equal to the sum of the rows the page lists", () => {
+    // An off-pull record for somebody with no included pull is dropped, so a
+    // total can never exceed the rows beside it. Passerby's potion is not here.
+    expect(view.usage.reduce((s, u) => s + u.potions, 0)).toBe(view.prep.potionsTotal);
+    expect(view.usage.some((u) => u.name === "Passerby")).toBe(false);
+  });
+
+  it("prices pet food with the rest, the way career gold always has", () => {
+    const fed = summarizeRaidReport({
+      report,
+      rows: [row({ fightId: 1, actorName: "Houndmaster", className: "Hunter" })],
+      reportPulls: 1,
+      slugByActor: new Map(),
+      offPull: [offPull({ actorName: "Houndmaster", petConsumables: [{ name: "Kibler's Bits" }, { name: "Kibler's Bits" }] })],
+    });
+    const u = fed.usage.find((x) => x.name === "Houndmaster")!;
+    expect(u.itemBreakdown.find((b) => b.name === "Kibler's Bits")!.count).toBe(2);
+    expect(u.otherItems).toBe(2);
+  });
+
+  it("is out of the pull switch's reach", () => {
+    // Excluding a pull excludes that fight, not the trash before it. Delta
+    // still holds pull 1, so his off-pull use stays.
+    const twoPulls = [...rows, row({ fightId: 2, actorName: "Delta", className: "Paladin" })];
+    const filtered = summarizeRaidReport({
+      report, rows: twoPulls, reportPulls: 2, slugByActor: new Map(),
+      offPull: offPulls, excludedFightIds: [2],
+    });
+    expect(filtered.usage.find((u) => u.name === "Delta")!.potions).toBe(3);
   });
 });

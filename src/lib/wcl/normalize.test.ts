@@ -916,6 +916,17 @@ describe("consumable classification", () => {
     expect(classifyCast(undefined, undefined)).toBeUndefined();
   });
 
+  it("counts a healthstone from the use ranks, not the warlock's create spell", () => {
+    // The curated ids were Lightwell's for the life of the app, so this counter
+    // read zero forever. Probed on mbwNGRaxhPHMTpKB: 27 uses, no warlocks.
+    expect(classifyCast(27235, "Master Healthstone")?.category).toBe("healthstone");
+    expect(classifyCast(27236, "Master Healthstone")?.category).toBe("healthstone");
+    expect(classifyCast(27237, "Master Healthstone")?.category).toBe("healthstone");
+    // Conjuring one is not using one, and Lightwell is not a healthstone.
+    expect(classifyCast(27230, "Create Healthstone")).toBeUndefined();
+    expect(classifyCast(27875, "Lightwell")).toBeUndefined();
+  });
+
   it("labels Thistle Tea from its id, which the log calls 'Restore Energy'", () => {
     // The item name never appears in the log — only the id can catch this.
     expect(classifyCast(9512, "Restore Energy")).toMatchObject({

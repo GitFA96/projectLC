@@ -760,19 +760,31 @@ export interface RaidPrepStats {
   foodPct: number;
   weaponBuffPct: number;
   prepotPct: number;
+  /**
+   * Combat potions drunk this night, boss pulls AND trash, pre-pots included.
+   *
+   * The coverage percentages above it are per player-pull and stay that way —
+   * a flask is a state at a pull, a potion is an event on the night.
+   */
   potionsTotal: number;
+  /** Pulls opened potted. Per pull by nature, so boss pulls only. */
   prepots: number;
-  /** Potion casts by type, most-used first. */
+  /** Potion casts by type, most-used first — trash included. */
   potionTypes: ConsumableTypeRow[];
-  /** Non-potion in-fight items (gems, seeds, healthstones, runes, drums, sappers). */
+  /** Non-potion consumables (gems, seeds, healthstones, runes, drums, sappers, pet food) — trash included. */
   inFightTypes: ConsumableTypeRow[];
-  /** Total sapper charges thrown across all player-pulls this night. */
+  /** Total sapper charges thrown this night, boss pulls and trash. */
   sappersTotal: number;
 }
 
 /**
- * One raider's in-fight consumable and cooldown usage for the night — the
- * per-player tallies the rankings tab leaderboards are built from.
+ * One raider's consumable and cooldown usage for the night — the per-player
+ * tallies the rankings tab leaderboards are built from.
+ *
+ * The night, not the boss pulls inside it: everything below counts trash use
+ * too, which is where most of a raid actually happens. Cooldowns are the
+ * exception and are boss-pull only — a class cooldown pressed on trash says
+ * nothing about whether it was pressed when it mattered.
  */
 /* Parse boards — the WCL-style "everyone × every boss" percentile grid */
 
@@ -842,13 +854,13 @@ export interface RaiderUsage {
   slug?: string;
   className?: string;
   role: WclRole;
-  /** Combat potions consumed, the pre-pull one included. */
+  /** Combat potions consumed across the night, the pre-pull one included. */
   potions: number;
   /** Sapper charges thrown (both goblin and super). */
   sappers: number;
-  /** In-fight items other than sappers (healthstones, runes, gems, seeds, drums). */
+  /** Consumables other than potions and sappers (healthstones, runes, gems, seeds, drums, pet food). */
   otherItems: number;
-  /** Every in-fight consumable: potions + all non-potion casts (incl. sappers). */
+  /** Every consumable used: potions + all non-potion casts (incl. sappers). */
   consumablesTotal: number;
   /** Pulls opened with a potion already running. Included in `potions`. */
   prepots: number;
@@ -936,6 +948,15 @@ export interface PreparednessPull {
   fightId: number;
   /** How much of the elixir budget was filled — the fact, not the standard. */
   grade: CoverageGrade;
+  /**
+   * Whether that grade clears the council's bar — `hasConsumableCoverage`.
+   *
+   * The standard beside the fact, and they are not the same number: under
+   * `coverage: "full"` a half set is real coverage and still not enough. The
+   * table colours its pips from `grade` and counts its percentage from this, so
+   * the flask column and the Prepared column can never drift apart.
+   */
+  covered: boolean;
   /** The empty half of a partial set, when the curated list can name it. */
   missingSlot?: ElixirSlot;
   flask?: string;

@@ -32,9 +32,17 @@ import { compareText } from "@/lib/sort";
  * tell nobody anything.
  *
  * So the cell **is** the consistency: one pip per pull, left to right in pull
- * order, and the ratio beside it. Where the gaps fall is then readable in the
+ * order, and the share beside it. Where the gaps fall is then readable in the
  * same glance as how many there were, with no second indicator competing for
  * attention.
+ *
+ * Every strip states its share as a **percentage**, in the same unit as the
+ * Prepared column, because that column is a compound of two of them and "0%
+ * prepared" is only actionable once you can see which half failed. Two of the
+ * headers are marked as the ones it is made of; the rest are facts read beside
+ * it and deliberately not scored — a weapon buff is set by any temporary
+ * enchant, Windfury and fishing lures included, and pet is logged once for the
+ * night rather than per pull.
  *
  * Scope down to a single pull and that ambiguity disappears with it — one pull
  * has exactly one honest answer per cell — so the strips give way to the
@@ -234,11 +242,19 @@ export function PreparednessTable({
                     Raider
                   </SortHeader>
                 </Th>
-                <Th>Flask / elixirs</Th>
-                <Th>Food</Th>
+                <Th>
+                  <Scored>Flask / elixirs</Scored>
+                </Th>
+                <Th>
+                  <Scored>Food</Scored>
+                </Th>
                 <Th>Scrolls</Th>
-                <Th>Weapon buff</Th>
-                <Th>Pet</Th>
+                <Th title="A fact beside the score, not part of it — any temporary enchant sets this, Windfury Totem and fishing lures included.">
+                  Weapon buff
+                </Th>
+                <Th title="Logged once for the night, so it has no per-pull percentage and does not narrow with the scope.">
+                  Pet
+                </Th>
                 <Th className="text-center">Enchants</Th>
                 <Th className="text-right">Gems</Th>
                 <Th className="text-right">iLvl</Th>
@@ -278,6 +294,9 @@ export function PreparednessTable({
                           read={(p) =>
                             p.grade === "none" ? false : p.grade === "partial" ? "half" : true
                           }
+                          // Amber pip either way; whether half a set counts is
+                          // the council's coverage rule, so the % asks that.
+                          counts={(p) => p.covered}
                         />
                       )}
                     </Td>
@@ -342,7 +361,11 @@ export function PreparednessTable({
                                 ? "warning"
                                 : "destructive"
                           }
-                          title={`Flask or elixirs AND food on ${preparedPct}% of ${pulls.length} pull${pulls.length === 1 ? "" : "s"} — the same rule the loot score reads`}
+                          title={
+                            `Flask or elixirs AND food on ${preparedPct}% of ${pulls.length} pull${pulls.length === 1 ? "" : "s"} — the same rule the loot score reads. ` +
+                            `Read it against the two ● columns: both have to hold on the same pull. ` +
+                            `Weapon buff, scrolls and pet are not in it.`
+                          }
                         >
                           {preparedPct}%
                         </Badge>
@@ -363,9 +386,14 @@ export function PreparednessTable({
               <Key className="bg-warn">half a set of elixirs</Key>
               <Key className="bg-muted-foreground/30">did not</Key>
               <Key className="bg-transparent ring-1 ring-inset ring-border">not on that pull</Key>
-              <span>Pips read in pull order — hover one for the boss.</span>
+              <span>Pips read in pull order — hover one for the boss, or the % for the count.</span>
             </>
           )}
+          <span>
+            <span className="font-medium text-foreground">●</span> the two columns{" "}
+            <strong>Prepared</strong> is made of — both on the same pull. Weapon buff and scrolls
+            are read beside it, not into it; pet is logged for the night, not the pull.
+          </span>
           <span>
             <span className="font-medium text-warn-ink">△</span> changed during the night
           </span>
@@ -381,9 +409,42 @@ export function PreparednessTable({
 
 const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" } as const;
 
-function Th({ className, children }: { className?: string; children: React.ReactNode }) {
+/**
+ * Marks a column the Prepared figure is actually made of.
+ *
+ * Two of these columns are the score and four sit beside it, and once every
+ * one of them carries a percentage that distinction stops being obvious — a
+ * raider at 100% weapon buff and 0% food reads as mostly fine until you know
+ * which number the loot council's rule reads. The marker is on the two that
+ * count rather than the four that don't, because a badge saying "not scored"
+ * four times reads as an apology.
+ */
+function Scored({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      title="Part of the Prepared figure — flask or elixirs AND food, the rule the loot score reads"
+    >
+      {children}
+      <span aria-hidden className="text-[9px] leading-none text-foreground/60">
+        ●
+      </span>
+    </span>
+  );
+}
+
+function Th({
+  className,
+  title,
+  children,
+}: {
+  className?: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
     <th
+      title={title}
       className={cn(
         "h-9 px-2 text-left align-middle text-xs font-medium text-muted-foreground",
         className,
@@ -496,14 +557,31 @@ function PullPicker({
  * a battle elixir with no guardian, which passes a lenient coverage bar while
  * still being half a set.
  */
+/**
+ * One pip per pull, with the share beside it.
+ *
+ * **A percentage, not a ratio.** The Prepared column is a percentage, and the
+ * point of these is to decompose it — "0% prepared" against "flask 100%, food
+ * 0%" is the answer to the question the compound figure raises, and two numbers
+ * in different units can't be read against each other at a glance. The count
+ * they came from is a hover away, because 100% of one pull is not 100% of
+ * twelve.
+ *
+ * `counts` is how a column whose pips show a *fact* scores itself against the
+ * *standard*: the flask strip paints a half set amber either way, but whether
+ * half counts is `policy.preparation.coverage`'s call, not this component's.
+ */
 function Strip({
   fights,
   byFight,
   read,
+  counts,
 }: {
   fights: RaidFight[];
   byFight: Map<number, PreparednessPull>;
   read: (pull: PreparednessPull) => boolean | "half";
+  /** What the percentage counts, when that isn't simply "the pip wasn't empty". */
+  counts?: (pull: PreparednessPull) => boolean;
 }) {
   let good = 0;
   let present = 0;
@@ -521,14 +599,9 @@ function Strip({
     }
     present++;
     const value = read(pull);
-    if (value === "half") {
-      good++;
-      gaps.push(`${fight.encounterName} (half)`);
-    } else if (value) {
-      good++;
-    } else {
-      gaps.push(fight.encounterName);
-    }
+    if (counts ? counts(pull) : value !== false) good++;
+    if (value === "half") gaps.push(`${fight.encounterName} (half)`);
+    else if (!value) gaps.push(fight.encounterName);
     return (
       <span
         key={fight.fightId}
@@ -541,20 +614,26 @@ function Strip({
     );
   });
 
+  const pct = present === 0 ? undefined : Math.round((good / present) * 100);
   return (
     <span
       className="inline-flex items-center"
-      title={gaps.length > 0 ? `Gaps on: ${gaps.join(", ")}` : "Every pull"}
+      title={[
+        `${good} of ${present} pull${present === 1 ? "" : "s"}`,
+        gaps.length > 0 ? `gaps on: ${gaps.join(", ")}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" — ")}
     >
       <span className="inline-flex items-center gap-[2px]">{pips}</span>
       <span
         className={cn(
           "ml-1.5 text-[11px] tabular-nums text-muted-foreground",
           present > 0 && good === present && "text-success-ink",
-          good === 0 && "text-danger-ink",
+          present > 0 && good === 0 && "text-danger-ink",
         )}
       >
-        {good}/{present}
+        {pct === undefined ? "–" : `${pct}%`}
       </span>
     </span>
   );

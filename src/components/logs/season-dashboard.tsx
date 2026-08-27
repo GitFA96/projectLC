@@ -133,7 +133,7 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
                 Consumable spend across {chosen.length} raid{chosen.length === 1 ? "" : "s"}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Total and typical (median) gold and in-fight items per raid, ranked by total spend.
+                Total and typical (median) gold and items used per raid, ranked by total spend.
               </p>
             </CardHeader>
             <CardContent>

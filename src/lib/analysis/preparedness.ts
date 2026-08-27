@@ -1,4 +1,4 @@
-import { elixirCoverage, hasFood, isPrepared } from "@/lib/analysis/preparation";
+import { elixirCoverage, hasConsumableCoverage, hasFood, isPrepared } from "@/lib/analysis/preparation";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { ENCHANTABLE_GEAR_SLOTS, consumableGroupOf } from "@/lib/wcl/consumables";
 import { GEAR_SLOT_LABELS } from "@/lib/wcl/enchants";
@@ -32,6 +32,14 @@ import { compareText } from "@/lib/sort";
  * the word on the way to the screen is the failure mode `preparation.ts`
  * exists to prevent (see change-chains §5a), so this module asks rather than
  * re-implements.
+ *
+ * Each pull therefore carries the coverage question **twice**: `grade` is the
+ * fact (flask, both slots, half, nothing) and `covered` is whether that clears
+ * the council's bar. The table needs both — it paints from the fact and counts
+ * from the standard — and under `coverage: "full"` they disagree on exactly the
+ * pulls where it matters. Asking `preparation.ts` for the second one is what
+ * keeps the flask column's percentage and the Prepared percentage describing
+ * the same night.
  *
  * Enchants, gems and item level ride along as **facts, deliberately unscored**.
  * They are worth reading beside the consumables and they are not part of what
@@ -160,6 +168,9 @@ function pullOf(row: WclPlayerFight, policy: GuildPolicy): PreparednessPull {
   return {
     fightId: row.fightId,
     grade: coverage.grade,
+    // The standard, asked of `preparation.ts` rather than re-read off `grade`
+    // here — that inline re-derivation is the whole failure §5a exists for.
+    covered: hasConsumableCoverage(row, policy.preparation),
     ...(coverage.missing !== undefined ? { missingSlot: coverage.missing } : {}),
     ...(row.flask !== undefined ? { flask: row.flask } : {}),
     elixirs: row.elixirs,

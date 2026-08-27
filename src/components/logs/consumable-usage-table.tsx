@@ -38,7 +38,7 @@ interface Group {
 }
 
 /**
- * The raid's in-fight consumables by type, each foldable to reveal which
+ * The raid's consumables by type — boss pulls and trash — each foldable to reveal which
  * raiders used it and how many they threw — the same providers pattern as the
  * cooldown table, but per potion / item (sappers included). Click a type to
  * expand.
@@ -57,7 +57,7 @@ export function ConsumableUsageTable({
   ].filter((g) => g.rows.length > 0);
 
   if (groups.length === 0) {
-    return <p className="py-1 text-sm text-muted-foreground">No in-fight consumables used.</p>;
+    return <p className="py-1 text-sm text-muted-foreground">No consumables used.</p>;
   }
 
   return (

@@ -335,8 +335,8 @@ function RaidDashboard({
         <KpiCard label="Food" value={`${prep.foodPct}%`} sub="Well Fed at pull" />
         <KpiCard label="Weapon buff" value={`${prep.weaponBuffPct}%`} sub="oil / stone / poison" />
         <KpiCard label="Pre-pots" value={`${prep.prepotPct}%`} sub={`${prep.prepots} pulls opened potted`} />
-        <KpiCard label="Potions used" value={prep.potionsTotal} sub="combat potions, all raiders" />
-        <KpiCard label="Sappers" value={prep.sappersTotal} sub="sapper charges thrown" />
+        <KpiCard label="Potions used" value={prep.potionsTotal} sub="all raiders, bosses + trash" />
+        <KpiCard label="Sappers" value={prep.sappersTotal} sub="charges thrown, bosses + trash" />
       </div>
 
       {prep.unplacedElixirs.length > 0 && (
@@ -506,7 +506,7 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
         </CollapsibleCard>
       )}
 
-      {/* Section 2: cooldowns + in-fight consumable types */}
+      {/* Section 2: cooldowns + consumable types */}
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -542,10 +542,10 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Potions &amp; in-fight items</CardTitle>
+            <CardTitle>Potions &amp; items used</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Everything consumed mid-fight, by type — sappers included. Click a row to see which
-              raiders used it and how many they threw.
+              Everything the night consumed, by type — bosses and trash, sappers included. Click a
+              row to see which raiders used it and how many they threw.
             </p>
           </CardHeader>
           <CardContent>
@@ -629,7 +629,7 @@ function RankingsPanel({
     .filter((u) => u.cooldowns > 0)
     .sort((a, b) => b.cooldowns - a.cooldowns || compareText(a.name, b.name));
 
-  // In-fight items thrown this raid drive the (precise) gold toggle here.
+  // Items used this raid — trash included — drive the (precise) gold toggle here.
   const itemNames = new Set(usage.flatMap((u) => u.itemBreakdown.map((b) => b.name)));
   const costPerUse = costPerUseMap(itemNames, overrides);
   const usingDefault = Object.keys(overrides).length === 0;
@@ -752,7 +752,7 @@ function GoldPanel({
   adjustments: ConsumableAdjustment[];
 }) {
   const { usage } = raid;
-  // Union of every consumable this raid touched — in-fight casts + prep buffs.
+  // Union of every consumable this raid touched — casts (boss and trash) + prep buffs.
   const names = new Set<string>();
   for (const u of usage) {
     for (const b of u.itemBreakdown) names.add(b.name);
@@ -773,7 +773,7 @@ function GoldPanel({
     .map((u) => {
       const inFight = goldOfBreakdown(u.itemBreakdown, costPerUse);
       const prep = goldOfBreakdown(u.prepBreakdown, costPerUse);
-      // Merge both breakdowns for the "includes" column. The logged in-fight
+      // Merge both breakdowns for the "includes" column. The logged usage
       // and prep columns stay as the log reported them, so the adjustment
       // column shows exactly what a person changed rather than hiding it
       // inside a bigger number.

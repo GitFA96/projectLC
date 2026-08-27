@@ -11,9 +11,13 @@ import { cn } from "@/lib/utils";
  * The night's pull list, doubling as the switch for which pulls count.
  * Officers turn off the ones that would only add noise — a joke pull, a
  * two-man farm boss, a wipe called five seconds in — and everything derived
- * from the report (preparation coverage, potion and in-fight item counts,
- * cooldowns, debuff averages, uptime and the player-improvement list)
- * recomputes without them.
+ * from the report (preparation coverage, consumable counts, cooldowns, debuff
+ * averages, uptime and the player-improvement list) recomputes without them.
+ *
+ * **Off-pull use is out of its reach.** Trash consumables belong to no pull, so
+ * switching a pull off does not switch them off; a raider only drops out of the
+ * consumable totals when every pull they were in is off. Switching a pull off
+ * says "this fight was noise", not "this hour did not happen".
  *
  * Rendered inside the raid's header card: the pull list has to be there
  * anyway, so the toggle rides along instead of taking a card of its own. The

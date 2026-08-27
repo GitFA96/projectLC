@@ -614,6 +614,29 @@ inputs, different scopes) but it means a rule added to one makes **the same raid
 night read two different ways** on the raid page and the career page. Nothing
 catches this but a test that compares them.
 
+**Two of the three read the same rows; all three must read the same *set* of
+them.** A consumable used away from a boss pull has no fight row and arrives as
+an off-pull record instead, so any count built from `WclPlayerFight` alone is
+silently a boss-pull count. That is what went wrong: `goldPerRaid` folded
+off-pull in, `summarizeRaidReport` did not, and the raid page priced one
+raider's night at 80g against the 287g his career page charged him — while
+showing 6 of the 21 sappers he threw. Probed on mbwNGRaxhPHMTpKB: 43% of that
+night's sappers, 13% of its potions and ~315g were used on trash.
+
+`summarizeRaidReport` now folds it in, and `summarizeSeason` inherits that
+through `RaiderUsage`. Three rules hold it together:
+
+- **Fold only into raiders who hold an included pull**, or the raid-wide totals
+  stop being the sum of the per-raider rows printed beside them.
+- **Pet food and pet scrolls are in**, because `goldPerRaid` has always priced
+  them. Leaving them out of one site is the disagreement, not the fix.
+- **The pull switch does not reach off-pull use.** Trash belongs to no pull, so
+  excluding a farm wipe must not exclude the hour before it.
+
+Per-pull views are the exception and stay per-pull: the character performance
+page keeps off-pull under its own heading, because "what did this raider bring
+to *this* wipe" is a different question from "what did the night cost".
+
 ## 4f2. A lookup queue must record what it already asked
 
 **Chain:** the resolver's `unmatched` → `recordRefusedItemNames` →
@@ -1273,6 +1296,24 @@ second definition on the way to the screen. Enchants, gems and item level ride
 along as facts and are deliberately unscored: folding them into that figure
 would re-rank every raider's loot priority and standing, which is §4b's
 business and the council's call.
+
+**Every column states a percentage, and only two of them are the score.** The
+compound figure is unactionable on its own — "0% prepared" does not say whether
+they went unflasked or unfed — so each strip carries its own share in the same
+unit, and the two the figure is made of are marked. Two traps come with that:
+
+- **A column that paints a fact must count the standard.** The flask strip
+  colours a half set amber whatever the policy says, but whether half *counts*
+  is `preparation.coverage`. So `PreparednessPull` carries `grade` and
+  `covered` separately and the strip reads one for each; count the pip instead
+  and under `coverage: "full"` the column reads 100% beside a Prepared 0%,
+  which makes the breakdown contradict the number it is decomposing.
+- **Weapon buff must stay out of the score no matter how it is displayed.**
+  Giving it a percentage next to the two that count is exactly when somebody
+  will fold it in. It is set by any temporary enchant — Windfury Totem and
+  fishing lures included, 905 player-pulls in this guild's history — so scoring
+  it credits a shaman's totem as a raider's oil, and it would move loot
+  priority. Changing that is §4b, on the guild page, not here.
 
 ## 5d. A panel seeded from props on a page that switches subject
 

@@ -396,5 +396,29 @@ describe("buildPreparedness", () => {
     expect(strict.rows[0].pulls[0].grade).toBe("partial");
     expect(lenient.rows[0].pulls[0].prepared).toBe(true);
     expect(strict.rows[0].pulls[0].prepared).toBe(false);
+    // `covered` is what the flask column's percentage counts, so it has to move
+    // with the policy — otherwise that column reads 100% beside a Prepared 0%
+    // and the breakdown stops explaining the figure it decomposes.
+    expect(lenient.rows[0].pulls[0].covered).toBe(true);
+    expect(strict.rows[0].pulls[0].covered).toBe(false);
+  });
+
+  it("separates the coverage fact from the coverage standard on every pull", () => {
+    const view = buildPreparedness({
+      rows: [
+        row({ fightId: 1, flask: FLASK }),
+        row({ fightId: 2, elixirs: [BATTLE, GUARDIAN] }),
+        row({ fightId: 3, elixirs: [BATTLE] }),
+        row({ fightId: 4 }),
+      ],
+      slugByActor: new Map(),
+      policy: DEFAULT_POLICY,
+    });
+    const pulls = view.rows[0].pulls;
+    expect(pulls.map((p) => p.grade)).toEqual(["flask", "full", "partial", "none"]);
+    // Under "any" a half set clears the bar; the grade still says it was half.
+    expect(pulls.map((p) => p.covered)).toEqual([true, true, true, false]);
+    // And none of them is prepared, because nobody ate.
+    expect(pulls.every((p) => !p.prepared)).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
  * Splits the raid dashboard into "Overview" (preparation, uptime, cooldowns,
- * improvements), a "Rankings" leaderboard of in-fight usage, "Groups" (which
+ * improvements), a "Rankings" leaderboard of consumable usage, "Groups" (which
  * groups the night was run in — the same board the raid planner shows), "Gold
  * spent" (the total economic view incl. passive prep buffs) and "Preparedness"
  * (what each raider brought, pull by pull). Panels are server-rendered and

@@ -115,7 +115,13 @@ export interface RaidReportInput {
   /**
    * This report's off-pull records — potions drunk on trash, and anything put
    * on a pet. Kept per player per report because there is no pull to hang them
-   * on; the preparedness table reads the pet half.
+   * on.
+   *
+   * **This page counts them.** The raid night is the scope here: what the guild
+   * used and what it cost, bosses and trash together. A raider who potions hard
+   * through the trash read as one who never potions at all, and 43% of one
+   * night's sappers were invisible. The per-pull view is the character page's
+   * question, and it still keeps the two apart.
    */
   offPull?: WclPlayerOffPull[];
   /** The council's policy — what counts as prepared, and how gaps are ranked. */
@@ -167,6 +173,34 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     byActor.set(r.actorName, list);
   }
 
+  /*
+   * Off-pull consumables, keyed to the raider who used them.
+   *
+   * Only raiders who hold at least one included pull get theirs folded in, so
+   * the raid-wide totals stay the sum of the per-raider rows the page lists
+   * beside them. Someone who cast on trash and never made a boss ranking has
+   * no row here for anything else either — no pulls, no prep, no deaths — and
+   * inventing one to carry two potions would put a stranger in the rankings.
+   *
+   * The pull switch does not reach this. Excluding a farm wipe excludes that
+   * pull, not the trash before it; a raider only drops out of the fold when
+   * every pull they were in is switched off.
+   */
+  const canonicalActor = new Map([...byActor.keys()].map((n) => [n.toLowerCase(), n] as const));
+  const offPullByActor = new Map<string, WclPlayerOffPull>();
+  for (const o of input.offPull ?? []) {
+    const actorName = canonicalActor.get(o.actorName.toLowerCase());
+    if (actorName !== undefined) offPullByActor.set(actorName, o);
+  }
+  /**
+   * Everything an off-pull record holds except potions, as names to count.
+   *
+   * Pet food and pet scrolls ride along: the hunter bought them for this raid,
+   * and `goldPerRaid` has always priced them — leaving them out here would make
+   * the raid page and the career page disagree about the same night (§5).
+   */
+  const offPullItems = (o: WclPlayerOffPull) => [...o.otherCasts, ...o.petConsumables.map((p) => p.name)];
+
   /* ---- Preparation + in-fight totals ---- */
   // Each consumable type tracks who used it (actor → count) for the per-type
   // provider breakdown the overview folds out.
@@ -190,6 +224,16 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     for (const c of r.otherCasts) bump(inFightTypes, c, r.actorName);
     if (r.prepot) prepots++;
     sappersTotal += r.sappers;
+  }
+  // The rest of the night. Pre-pots are per pull and have no off-pull analogue,
+  // so `prepots` and its percentage stay a boss-pull figure.
+  for (const [actorName, off] of offPullByActor) {
+    for (const p of off.potions) {
+      bump(potionTypes, p, actorName);
+      potionsTotal++;
+    }
+    for (const c of offPullItems(off)) bump(inFightTypes, c, actorName);
+    sappersTotal += off.sappers;
   }
   const toTypeRows = (m: Map<string, Map<string, number>>): ConsumableTypeRow[] =>
     [...m]
@@ -298,6 +342,20 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
         }
         className = r.className ?? className;
         role = r.role ?? role;
+      }
+      // Trash, running back, buffing up — same gold, same habit, no pull to
+      // hang it on. Counted here so the leaderboard, the breakdown and the
+      // gold all describe the night rather than the boss pulls inside it.
+      const off = offPullByActor.get(actorName);
+      if (off) {
+        for (const p of off.potions) {
+          itemCounts.set(p, (itemCounts.get(p) ?? 0) + 1);
+          potions++;
+        }
+        const items = offPullItems(off);
+        for (const c of items) itemCounts.set(c, (itemCounts.get(c) ?? 0) + 1);
+        otherCastsTotal += items.length;
+        sappers += off.sappers;
       }
       const rank = (m: Map<string, number>) =>
         [...m]

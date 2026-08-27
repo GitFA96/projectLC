@@ -54,7 +54,7 @@ export function ConsumableLeaderboard({
             Consumable usage
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Who threw the most mid-fight — potions, sappers and other items combined, with what
+            Who used the most — potions, sappers and other items across the whole night, with what
             they actually used.
             {gold &&
               (usingDefault ? (
@@ -90,7 +90,7 @@ export function ConsumableLeaderboard({
       </CardHeader>
       <CardContent>
         {leaders.length === 0 ? (
-          <p className="py-1 text-sm text-muted-foreground">No in-fight consumables used this night.</p>
+          <p className="py-1 text-sm text-muted-foreground">No consumables used this night.</p>
         ) : (
           <Table>
             <TableHeader>

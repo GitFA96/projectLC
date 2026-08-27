@@ -535,9 +535,23 @@ const TRACKED_CASTS: TrackedCast[] = [
   { id: 35474, name: "Drums of Panic", category: "drums" },
   { id: 27869, name: "Dark Rune", category: "rune" },
   { id: 16666, name: "Demonic Rune", category: "rune" },
-  { id: 27875, name: "Master Healthstone", category: "healthstone" },
-  { id: 27876, name: "Master Healthstone", category: "healthstone" },
-  { id: 27877, name: "Master Healthstone", category: "healthstone" },
+  /*
+   * Master Healthstone — the ids here were 27875/27876/27877, which are
+   * Lightwell (27877 is not a spell at all), so the counter read zero for
+   * every raider of every report ever imported: 6,548 fight rows, not one
+   * healthstone. Nothing flagged it, because a wrong id under-counts silently
+   * and there is no name fallback for it in the casts filter — the events were
+   * never even requested.
+   *
+   * These three are the *use* ranks, one per Improved Healthstone rank; the
+   * warlock's own "Create Healthstone" is 27230 and must not be counted as a
+   * use. Probed on the 26 Aug SSC/TK report (mbwNGRaxhPHMTpKB): 27 casts of
+   * 27235/27237 across 14 raiders, none of them warlocks, against zero casts
+   * of the old ids — and confirmed by name through WCL's own gameData.
+   */
+  { id: 27235, name: "Master Healthstone", category: "healthstone" },
+  { id: 27236, name: "Master Healthstone", category: "healthstone" },
+  { id: 27237, name: "Master Healthstone", category: "healthstone" },
   // Mana gems all cast "Replenish Mana" — the spell rank tells the gem apart.
   { id: 27103, name: "Mana Emerald", category: "gem" },
   { id: 10058, name: "Mana Ruby", category: "gem" },
