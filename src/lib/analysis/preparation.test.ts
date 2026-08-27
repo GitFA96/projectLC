@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   elixirCoverage,
+  extraSlotsFilled,
+  extrasPct,
   hasConsumableCoverage,
   hasFood,
+  hasOwnWeaponBuff,
   isPrepared,
+  type ExtrasRow,
   type PreparationRow,
 } from "@/lib/analysis/preparation";
 
@@ -148,5 +152,83 @@ describe("hasFood", () => {
   it("feeds isPrepared, so the score sees it too", () => {
     const soup = row({ flask: "Flask of Relentless Assault", food: false, extras: ["Enlightened"] });
     expect(isPrepared(soup)).toBe(true);
+  });
+});
+
+/* Names as the enchant reference resolves them — see wcl/enchants.ts. */
+const OIL = 2678; // Superior Wizard Oil
+const STONE = 2713; // Sharpened (+14 Crit Rating and +12 Damage)
+const IMBUE = 2636; // Windfury 5 — the shaman's own
+const TOTEM = 2639; // Windfury Totem 5 — somebody else's
+const LURE = 266; // Fishing Lure
+const NAMES: Record<number, string> = {
+  [OIL]: "Superior Wizard Oil",
+  [STONE]: "Sharpened (+14 Crit Rating and +12 Damage)",
+  [IMBUE]: "Windfury 5",
+  [TOTEM]: "Windfury Totem 5",
+  [LURE]: "Fishing Lure (+100 Fishing Skill)",
+};
+const nameOf = (id: number) => NAMES[id];
+
+const extras = (over: Partial<ExtrasRow> = {}): ExtrasRow => ({
+  scrolls: [],
+  weaponBuff: false,
+  weaponEnchants: [],
+  ...over,
+});
+
+describe("extras", () => {
+  it("credits a weapon buff the raider put there", () => {
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: OIL }] }), nameOf)).toBe(true);
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: STONE }] }), nameOf)).toBe(true);
+  });
+
+  it("does not credit somebody else's totem, or a fishing lure", () => {
+    // The whole reason this function exists: `weaponBuff` is true for both.
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: TOTEM }] }), nameOf)).toBe(false);
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: LURE }] }), nameOf)).toBe(false);
+  });
+
+  it("credits a shaman's own imbue — it is their weapon and it fills the slot", () => {
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: IMBUE }] }), nameOf)).toBe(true);
+  });
+
+  it("credits an id the reference cannot name, rather than withholding on a guess", () => {
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true, weaponEnchants: [{ id: 99999 }] }), nameOf)).toBe(true);
+  });
+
+  it("falls back to the boolean when the report carries no enchant ids", () => {
+    // Imported before gear tracking: the boolean is the whole record, and
+    // reading it as zero would mark everyone in that report down.
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: true }), nameOf)).toBe(true);
+    expect(hasOwnWeaponBuff(extras({ weaponBuff: false }), nameOf)).toBe(false);
+  });
+
+  it("counts the two slots independently, never as an AND", () => {
+    const oiled = extras({ weaponBuff: true, weaponEnchants: [{ id: OIL }] });
+    expect(extraSlotsFilled(oiled, nameOf)).toBe(1);
+    expect(extraSlotsFilled({ ...oiled, scrolls: ["Scroll of Agility V"] }, nameOf)).toBe(2);
+    expect(extraSlotsFilled(extras(), nameOf)).toBe(0);
+  });
+
+  it("averages the filled slots across the pulls in scope", () => {
+    const oiled = extras({ weaponBuff: true, weaponEnchants: [{ id: OIL }] });
+    // Oil every pull, no scrolls: half the extras on offer.
+    expect(extrasPct([oiled, oiled], nameOf)).toBe(50);
+    // Both, every pull.
+    expect(extrasPct([{ ...oiled, scrolls: ["Scroll of Agility V"] }], nameOf)).toBe(100);
+    // Riding a totem is not an extra.
+    expect(extrasPct([extras({ weaponBuff: true, weaponEnchants: [{ id: TOTEM }] })], nameOf)).toBe(0);
+  });
+
+  it("has no figure for a raider who was on none of the pulls", () => {
+    expect(extrasPct([], nameOf)).toBeUndefined();
+  });
+
+  it("stays out of isPrepared", () => {
+    // The point of the whole section: scrolls and oil move this figure and
+    // nothing else. Widening `isPrepared` would re-rank loot priority.
+    const bare = row({ flask: "Flask of Relentless Assault", food: true });
+    expect(isPrepared(bare)).toBe(true);
   });
 });

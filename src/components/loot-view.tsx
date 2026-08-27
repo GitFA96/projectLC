@@ -18,6 +18,13 @@ import {
 } from "@/components/roster-actions";
 import { LootAwardDialog, type AwardDialogTarget } from "@/components/loot-award-dialog";
 import { OffSpecConflict } from "@/components/loot/offspec-conflict";
+import {
+  LOOT_WINDOWS,
+  dayOf,
+  inLootWindow,
+  isLootWindowKey,
+  lootWindowRange,
+} from "@/lib/analysis/loot-recency";
 import { deleteAwardsAction, deleteSessionAction, type LootActionResult } from "@/app/loot/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,7 +105,17 @@ export function LootView({
   const [phaseFilter, setPhaseFilter] = React.useState("all");
   const [sessionFilter, setSessionFilter] = React.useState(searchParams.get("session") ?? "all");
   const [typeFilter, setTypeFilter] = React.useState("all");
-  const [matchFilter, setMatchFilter] = React.useState("all");
+  /*
+   * Seeded from the URL like `character`/`session`/`winner` already are: the
+   * dashboard's BiS card links straight to `?match=matched&when=week`, and a
+   * link that lands on an unfiltered ledger is a link that answers a different
+   * question than the card it came from.
+   */
+  const [matchFilter, setMatchFilter] = React.useState(searchParams.get("match") ?? "all");
+  const [whenFilter, setWhenFilter] = React.useState(() => {
+    const requested = searchParams.get("when");
+    return requested !== null && isLootWindowKey(requested) ? requested : "all";
+  });
   const [winnerFilter, setWinnerFilter] = React.useState(searchParams.get("winner") ?? "all");
 
   // Editing: row selection for bulk delete, the add/edit dialog, and a shared
@@ -139,6 +156,24 @@ export function LootView({
     },
   });
 
+  /*
+   * The raid week is anchored to the newest award, exactly as the dashboard
+   * anchors it — see `analysis/loot-recency.ts` for why not to today. Both read
+   * that module rather than each doing the arithmetic, which is the only thing
+   * keeping the card and this view showing the same rows.
+   */
+  const window = React.useMemo(() => {
+    const newest = rows.reduce<string | undefined>(
+      (max, r) => (max === undefined || r.awardedAt > max ? r.awardedAt : max),
+      undefined,
+    );
+    return lootWindowRange(
+      whenFilter,
+      newest === undefined ? undefined : dayOf(newest),
+      dayOf(new Date().toISOString()),
+    );
+  }, [rows, whenFilter]);
+
   const filtered = React.useMemo(
     () =>
       rows.filter((r) => {
@@ -152,9 +187,10 @@ export function LootView({
         if (matchFilter === "matched" && !r.matched) return false;
         if (matchFilter === "unmatched" && r.matched) return false;
         if (winnerFilter !== "all" && r.winnerStatus !== winnerFilter) return false;
+        if (!inLootWindow(r.awardedAt, window)) return false;
         return true;
       }),
-    [rows, search, characterFilter, classFilter, phaseFilter, sessionFilter, typeFilter, matchFilter, winnerFilter],
+    [rows, search, characterFilter, classFilter, phaseFilter, sessionFilter, typeFilter, matchFilter, winnerFilter, window],
   );
 
   const filteredIds = React.useMemo(() => filtered.map((r) => r.id), [filtered]);
@@ -408,6 +444,18 @@ export function LootView({
               <SelectItem value="all">Wishlist: any</SelectItem>
               <SelectItem value="matched">On wishlist</SelectItem>
               <SelectItem value="unmatched">Not on wishlist</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={whenFilter} onValueChange={(v) => isLootWindowKey(v) && setWhenFilter(v)}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="When" />
+            </SelectTrigger>
+            <SelectContent>
+              {LOOT_WINDOWS.map((w) => (
+                <SelectItem key={w.key} value={w.key}>
+                  {w.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Select value={winnerFilter} onValueChange={setWinnerFilter}>

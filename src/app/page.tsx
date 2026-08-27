@@ -6,6 +6,7 @@ import { getRepo } from "@/lib/data/repo";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { ItemLink } from "@/components/item-link";
+import { CharacterLink } from "@/components/class-badge";
 import { FairnessPanel } from "@/components/fairness-panel";
 import { LootWeightsEditor } from "@/components/loot/priority-editor";
 import { ActivePhasePicker } from "@/components/guild/active-phase-picker";
@@ -164,6 +165,7 @@ export default async function GuildPage() {
           </CardContent>
         </Card>
 
+        <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
             <CardTitle>Most contested items</CardTitle>
@@ -222,6 +224,100 @@ export default async function GuildPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* The other half of the same question. The card above is what the
+            council is about to argue over; this is how the last argument
+            landed — who actually walked away with the thing they asked for. */}
+        <Card>
+          <CardHeader>
+            <CardTitle>BiS won last raid week</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {data.bisWins.from && data.bisWins.to ? (
+                <>
+                  Awards that landed on the winner&apos;s own wishlist,{" "}
+                  {format(parseISO(data.bisWins.from), "d MMM")}–
+                  {format(parseISO(data.bisWins.to), "d MMM")} · tier tokens
+                  counted as what they buy ·{" "}
+                  <Link
+                    href="/loot?match=matched&when=week"
+                    className="font-medium text-foreground hover:underline"
+                  >
+                    open in the ledger
+                  </Link>
+                </>
+              ) : (
+                <>No loot imported yet — awards arrive from a Gargul export.</>
+              )}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.bisWins.wins.map((win) => (
+              <div
+                key={win.awardId}
+                className="flex items-center justify-between gap-2"
+                // Said on hover rather than in the row, the same way the
+                // ledger says it — a token's own name is what dropped, and
+                // spelling the redemption out inline would push the winner
+                // off the end of a narrow card.
+                title={
+                  win.redeemsTo
+                    ? `Buys ${win.redeemsTo.itemName}, which is on their wishlist`
+                    : undefined
+                }
+              >
+                <ItemLink
+                  item={{
+                    itemId: win.itemId,
+                    name: win.itemName,
+                    quality: win.item?.quality,
+                    icon: win.item?.icon,
+                  }}
+                  className="min-w-0"
+                />
+                <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                  {/* Off-spec is marked, never hidden: an off-spec set is
+                      still a list the raider wrote, and the council reads the
+                      two differently. */}
+                  {win.offspec && (
+                    <Badge
+                      variant="outline"
+                      className="px-1 py-0 text-[10px] font-medium"
+                      title="Awarded as off-spec"
+                    >
+                      OS
+                    </Badge>
+                  )}
+                  {win.winnerClass ? (
+                    <CharacterLink
+                      name={win.winnerName}
+                      wowClass={win.winnerClass}
+                      className="text-xs"
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {win.winnerName}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+            {data.bisWins.total > data.bisWins.wins.length && (
+              <Link
+                href="/loot?match=matched&when=week"
+                className="block pt-0.5 text-xs text-muted-foreground hover:underline"
+              >
+                +{data.bisWins.total - data.bisWins.wins.length} more this week
+                →
+              </Link>
+            )}
+            {data.bisWins.wins.length === 0 && data.bisWins.from && (
+              <p className="text-sm text-muted-foreground">
+                Nobody won a wishlisted item last raid week.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        </div>
 
         <Card>
           <CardHeader>

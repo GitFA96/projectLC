@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { extrasPct, hasOwnWeaponBuff } from "@/lib/analysis/preparation";
 import { compareText } from "@/lib/sort";
 
 /**
@@ -50,7 +51,7 @@ import { compareText } from "@/lib/sort";
  */
 
 /** Which column orders the table, and which way. */
-type Sort = { by: "name" | "prepared"; dir: "asc" | "desc" };
+type Sort = { by: "name" | "prepared" | "extras"; dir: "asc" | "desc" };
 
 /** The URL parameter holding the scope, so a scoped view is a link. */
 export const PREP_SCOPE_PARAM = "prep";
@@ -156,6 +157,12 @@ export function PreparednessTable({
         : { by, dir: by === "name" ? "asc" : "desc" },
     );
 
+  /** Enchant id → name, for telling a bought oil from somebody else's totem. */
+  const enchantNameOf = React.useCallback(
+    (id: number): string | undefined => enchantNames[id],
+    [enchantNames],
+  );
+
   const rows = React.useMemo(() => {
     const scoped = view.rows.map((row) => {
       const pulls = row.pulls.filter((p) => scopeIds.has(p.fightId));
@@ -167,6 +174,11 @@ export function PreparednessTable({
         // Undefined, not zero: a raider who was on none of these pulls has no
         // figure, and a 0% they never earned reads as the worst in the room.
         preparedPct: pulls.length === 0 ? undefined : Math.round((prepared / pulls.length) * 100),
+        // Scored into nothing — see `extrasPct`. Asked of the analysis layer
+        // rather than counted here, so the rule has one home.
+        extras: extrasPct(pulls, enchantNameOf),
+        scrollPulls: pulls.filter((p) => p.scrolls.length > 0).length,
+        ownWeaponPulls: pulls.filter((p) => hasOwnWeaponBuff(p, enchantNameOf)).length,
       };
     });
     return scoped.sort((a, b) => {
@@ -174,8 +186,8 @@ export function PreparednessTable({
         const byName = compareText(a.row.name, b.row.name);
         return sort.dir === "asc" ? byName : -byName;
       }
-      const av = a.preparedPct;
-      const bv = b.preparedPct;
+      const av = sort.by === "extras" ? a.extras : a.preparedPct;
+      const bv = sort.by === "extras" ? b.extras : b.preparedPct;
       // Raiders with no pulls in scope sit at the bottom either way.
       if (av === undefined || bv === undefined) {
         return (
@@ -185,7 +197,7 @@ export function PreparednessTable({
       }
       return (sort.dir === "desc" ? bv - av : av - bv) || compareText(a.row.name, b.row.name);
     });
-  }, [view.rows, scopeIds, sort]);
+  }, [view.rows, scopeIds, sort, enchantNameOf]);
 
   if (view.rows.length === 0) {
     return (
@@ -268,10 +280,20 @@ export function PreparednessTable({
                     Prepared
                   </SortHeader>
                 </Th>
+                <Th className="text-right">
+                  <SortHeader
+                    sort={sort}
+                    column="extras"
+                    onClick={() => sortBy("extras")}
+                    align="right"
+                  >
+                    Extras
+                  </SortHeader>
+                </Th>
               </tr>
             </thead>
             <tbody className="[&_tr:last-child]:border-0">
-              {rows.map(({ row, pulls, byFight, preparedPct }) => {
+              {rows.map(({ row, pulls, byFight, preparedPct, extras, scrollPulls, ownWeaponPulls }) => {
                 const latest = pulls[pulls.length - 1];
                 const only = single ? byFight.get(inScope[0].fightId) : undefined;
                 return (
@@ -371,6 +393,25 @@ export function PreparednessTable({
                         </Badge>
                       )}
                     </Td>
+                    <Td className="text-right">
+                      {extras === undefined ? (
+                        <Badge variant="muted">–</Badge>
+                      ) : (
+                        <Badge
+                          // Never red. A raider who buys no scrolls has not
+                          // failed at anything — this only ever adds.
+                          variant={extras === 0 ? "muted" : "info"}
+                          title={
+                            `Scroll on ${scrollPulls} of ${pulls.length}, own weapon buff on ${ownWeaponPulls} of ${pulls.length} — ` +
+                            `${extras}% of the two extra slots each pull offers. ` +
+                            `A Windfury Totem somebody else dropped does not count; a shaman's own imbue does. ` +
+                            `Nothing scores this — it is credit, not a requirement.`
+                          }
+                        >
+                          +{extras}%
+                        </Badge>
+                      )}
+                    </Td>
                   </tr>
                 );
               })}
@@ -391,8 +432,13 @@ export function PreparednessTable({
           )}
           <span>
             <span className="font-medium text-foreground">●</span> the two columns{" "}
-            <strong>Prepared</strong> is made of — both on the same pull. Weapon buff and scrolls
-            are read beside it, not into it; pet is logged for the night, not the pull.
+            <strong>Prepared</strong> is made of — both on the same pull. Pet is logged for the
+            night, not the pull.
+          </span>
+          <span>
+            <strong className="text-info-ink">Extras</strong> is the other two — a scroll and a
+            weapon buff they put on themselves — counted separately and scored into nothing. A
+            Windfury Totem from somebody else&apos;s shaman is not one.
           </span>
           <span>
             <span className="font-medium text-warn-ink">△</span> changed during the night

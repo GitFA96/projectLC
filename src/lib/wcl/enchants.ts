@@ -95,3 +95,40 @@ export const P2_ENCHANT_GUIDE: { slot: string; picks: string }[] = [
   { slot: "Back", picks: "Greater Agility / Subtlety (threat) · Major Resistance situational" },
   { slot: "Rings", picks: "Enchanter-only (Spellpower / Healing Power / Striking) — not expected of everyone" },
 ];
+
+/**
+ * Temporary weapon enchants the raider did not put there themselves.
+ *
+ * `weaponBuff` on a pull is set by ANY temporary enchant on either weapon, and
+ * a party's Windfury Totem reaches every melee weapon in it exactly the way an
+ * oil does — as does a fishing lure on the rod somebody used to spawn Lurker.
+ * Probed on the 26 Aug SSC/TK report: of 351 buffed weapon-pulls, 56 were a
+ * Windfury Totem somebody else dropped and one was a lure.
+ *
+ * That is harmless in a column reporting "was something applied" and dishonest
+ * in anything that credits the raider for it, so the extras score reads through
+ * here. Matched by **name**, because the ranks are separate ids (1783 and 2639
+ * are both Windfury Totem) and the dictionary already resolves every one this
+ * guild's logs have produced.
+ *
+ * A shaman's own Windfury *Weapon* is deliberately NOT on this list. It costs
+ * nothing, but it is their imbue on their weapon and it occupies the slot an
+ * oil would use — excluding it would leave two enhancement shamans structurally
+ * unable to score the weapon half of anything, which is a class penalty rather
+ * than a judgement about what they did.
+ */
+const UNEARNED_TEMP_ENCHANTS = [/^windfury totem/i, /^fishing lure/i];
+
+/**
+ * Did the raider provide this weapon buff themselves?
+ *
+ * **An id the dictionary cannot name counts as theirs.** The alternative is to
+ * quietly withhold credit on the strength of not knowing, which is the same
+ * mistake as reading an empty pet cell as "they forgot" — an unnamed id is a
+ * gap in our reference, not evidence against anyone. Resolve it in the enchant
+ * reference and the answer sharpens on its own.
+ */
+export function isOwnWeaponBuff(name: string | undefined): boolean {
+  if (name === undefined) return true;
+  return !UNEARNED_TEMP_ENCHANTS.some((rx) => rx.test(name.trim()));
+}

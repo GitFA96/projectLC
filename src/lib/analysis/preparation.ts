@@ -27,6 +27,7 @@
 
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { elixirCategoryOf, isFoodLabel, type ElixirSlot } from "@/lib/wcl/consumables";
+import { isOwnWeaponBuff } from "@/lib/wcl/enchants";
 
 /**
  * The one policy field these checks read.
@@ -179,4 +180,64 @@ export function isPrepared(
   rule: CoverageRule = DEFAULT_POLICY.preparation,
 ): boolean {
   return hasConsumableCoverage(row, rule) && hasFood(row);
+}
+
+/* ------------------------------------------------------------------------- *
+ * Extras — what a raider adds ON TOP of being prepared.
+ *
+ * Deliberately a second figure and not a term in the first. `isPrepared` is
+ * what the council decided to hold people to, and it feeds loot priority and
+ * the standing board; widening it would re-rank everyone (§4b) on a rule nobody
+ * agreed to. But "brought a scroll and oiled their weapon" is real effort that
+ * the prepared figure is structurally blind to — it is the same 100% either
+ * way — so it gets its own number, shown beside and scored into nothing.
+ *
+ * Two slots per pull, credited independently. Not an AND: most of this roster
+ * runs no scrolls at all, and an AND would erase the oil of everyone who
+ * buys one but not the other — which is exactly the behaviour this is for.
+ * ------------------------------------------------------------------------- */
+
+/** Extras a single pull can fill: a scroll, and a weapon buff they own. */
+export const EXTRA_SLOTS_PER_PULL = 2;
+
+/** The facts an extras count reads. Any row carrying them works. */
+export interface ExtrasRow {
+  scrolls: string[];
+  weaponBuff: boolean;
+  /** Temporary enchants at the pull. Empty on reports imported before gear. */
+  weaponEnchants: { id: number }[];
+}
+
+/** Enchant id → its name, or undefined when the reference hasn't got it. */
+export type EnchantNameLookup = (id: number) => string | undefined;
+
+/**
+ * A weapon buff this raider is responsible for.
+ *
+ * **The boolean is the fallback, not the answer.** Reports imported before gear
+ * tracking carry `weaponBuff` and no enchant ids at all, so there is nothing to
+ * classify and the boolean is the whole record — reading those as zero would
+ * turn a gap in the import into a mark against everyone in it.
+ */
+export function hasOwnWeaponBuff(row: ExtrasRow, nameOf: EnchantNameLookup): boolean {
+  if (row.weaponEnchants.length === 0) return row.weaponBuff;
+  return row.weaponEnchants.some((w) => isOwnWeaponBuff(nameOf(w.id)));
+}
+
+/** How many of this pull's extra slots were filled — 0, 1 or 2. */
+export function extraSlotsFilled(row: ExtrasRow, nameOf: EnchantNameLookup): number {
+  return (row.scrolls.length > 0 ? 1 : 0) + (hasOwnWeaponBuff(row, nameOf) ? 1 : 0);
+}
+
+/**
+ * Share of the extra slots a raider filled across the pulls in scope.
+ *
+ * Undefined for nobody-was-here, the same rule the prepared percentage uses: a
+ * raider on none of these pulls has no figure, and a 0 they never earned reads
+ * as the worst in the room.
+ */
+export function extrasPct(rows: ExtrasRow[], nameOf: EnchantNameLookup): number | undefined {
+  if (rows.length === 0) return undefined;
+  const filled = rows.reduce((sum, row) => sum + extraSlotsFilled(row, nameOf), 0);
+  return Math.round((filled / (rows.length * EXTRA_SLOTS_PER_PULL)) * 100);
 }

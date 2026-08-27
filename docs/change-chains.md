@@ -778,6 +778,46 @@ Two things follow, and both have bitten:
   count under `UNNAMED_PREPOT`, so a re-import is what turns "Pre-pull potion"
   into "Haste Potion" — see §1.
 
+## 5h. "Recently" is one rule, and two pages show it
+
+**Chain:** `analysis/loot-recency.ts` → the dashboard's BiS card
+(`getDashboard` in `store.ts`) → the ledger's **when** filter
+(`components/loot-view.tsx`).
+
+The card lists the raid week's wishlist hits and links to the ledger filtered to
+the same thing. Compute that window twice and the card shows rows its own link
+does not, on a page where both halves look right in isolation — so the window
+lives in one module and both read it.
+
+**A raid week is anchored to the last raid, not to today.** An award carries its
+session's DATE and every award of a night shares one timestamp; the Gargul
+export lands whenever somebody remembers. Probed on the live data: the newest
+loot session was 2026-08-19 against a newest log of 2026-08-26, so a literal
+"last 7 days" card was empty on the day it would have shipped. Anchor to the
+newest **award**, not the newest session — a raid that dropped nothing, or whose
+export has not arrived, otherwise anchors the week to itself and hides the week
+before it.
+
+Two smaller traps, both live:
+
+- **Compare by day, never by the timestamp string.** Every award is currently
+  midnight, so a string compare happens to work and would start dropping the
+  last night of a window the first time an import records a real clock time.
+  `dayOf` is the comparison that means the same thing either way.
+- **A URL filter needs seeding at both ends.** `match` and `when` are read from
+  the query string exactly as `character`/`session`/`winner` already are. A link
+  the ledger silently ignores is worse than no link: it answers a different
+  question than the card it came from, confidently.
+
+**"BiS" here means the winner's wishlist and nothing more.** There is no first
+choice versus second in this data — the council was asked and said the call is
+too situational to automate, which is why `item_comments` carries the argument
+instead (§5c). A SixtyUpgrades wishlist is the raider's BiS list for its phase,
+so a matched award is the strongest honest reading the app can make. Tier tokens
+count as what they buy, because `matchAwardToWishlists` already resolves
+redemptions — on the probed week that was 5 of the 9 hits, so dropping it would
+have halved the card.
+
 ## 4c. A ranked wishlist fallback
 
 **Chain:** `analysis/contention.ts` → `analysis/loot-priority.ts` →
@@ -1314,6 +1354,27 @@ unit, and the two the figure is made of are marked. Two traps come with that:
   fishing lures included, 905 player-pulls in this guild's history — so scoring
   it credits a shaman's totem as a raider's oil, and it would move loot
   priority. Changing that is §4b, on the guild page, not here.
+
+**Extras is the second figure, and it is credit rather than a requirement.**
+Scrolls and a weapon buff are real effort that `isPrepared` is structurally
+blind to — it reads the same 100% whether or not they bothered — so they get
+`extrasPct` in `analysis/preparation.ts`, shown beside Prepared and **scored
+into nothing**. Three rules, each of which was wrong the obvious way first:
+
+- **It counts the weapon buff the raider provided, not the boolean.** The raw
+  flag credited three raiders on this roster for a shaman standing next to
+  them: Greymatter reads 92% weapon buff and 0% once totems are excluded, and
+  so does Risbexwx. `isOwnWeaponBuff` in `wcl/enchants.ts` does the classifying,
+  **by name**, since the ranks are separate ids. A shaman's own Windfury
+  *Weapon* deliberately counts — it is their imbue in the slot an oil would
+  take, and excluding it would penalise a class rather than a behaviour.
+- **The two slots are independent, never an AND.** Most of this roster runs no
+  scrolls, so an AND would zero out the oil of everyone who buys one and not
+  the other — the exact behaviour the figure exists to notice.
+- **It never renders as a failure.** Zero extras is muted, not red. A raider who
+  buys no scrolls has not failed a standard, because there is no standard here.
+
+Widening `isPrepared` to swallow any of this is §4b and the council's call.
 
 ## 5d. A panel seeded from props on a page that switches subject
 
