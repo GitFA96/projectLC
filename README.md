@@ -341,6 +341,25 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   snapshot, so the fishing rod Lurker is pulled with stops answering for a
   whole night, and a marker names any weapon that changed hands.
 
+### All raids
+
+Pick the nights to include, then read the season two ways.
+
+**Consumable spend** ranks people. It splits **guild characters** from **all
+players** because a pug is somebody else's raider — real spend, and on this
+guild's own season a quarter of the total — so leaving them in answers a
+different question from the one an officer asks. The guild side filters to mains
+or alts, and the total above the table is the sum of whatever is on screen, not
+a season-wide figure that happens to sit there.
+
+**Consumable usage** ranks consumables. Pick one — or a family, or a potion
+sub-family like mana potions — and see everyone who used it with their own
+per-raid average, divided by the raids *they* attended. Only people who used it
+are listed: who didn't would need the app to know who *should* have, and a mage
+with no haste potions is playing their class rather than skipping their
+consumables. Where a label covers two items the log can't separate, the board
+says so instead of implying a precision it hasn't got.
+
 ## Raid planner `/raid-planner`
 
 Eight groups of five, a bench, and what each arrangement actually buys. TBC pays

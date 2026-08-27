@@ -637,6 +637,37 @@ Per-pull views are the exception and stay per-pull: the character performance
 page keeps off-pull under its own heading, because "what did this raider bring
 to *this* wipe" is a different question from "what did the night cost".
 
+**Season gold is stored unrounded, and rounded where it is drawn.** The season
+view sums the same spend two ways — per raider and per consumable — and both
+totals sit on one screen. A drum charge costs 0.24g and a scroll 0.5g, so
+rounding each row before adding them puts the two totals tens of gold apart on a
+full season, and the app then contradicts itself in public. `goldTotal` on a
+raider and `gold` on a consumable row are therefore full precision; every
+`Math.round` lives in the component. Adding a rounded field to
+`SeasonRankingsView` re-opens this.
+
+## 5i. Who counts as the guild, on a page built from logs
+
+**Chain:** `characters.status` → `listCharacters` → the season branch of
+`app/logs/page.tsx` → `SeasonRosterEntry` → `isGuildCharacter` in
+`analysis/season.ts` → the spend tabs and the usage board's Guild-only switch.
+
+Logs cannot answer "is this one of ours". A pug raids beside the guild and their
+pulls, potions and gold look identical in every report — so the roster is the
+only source, and it is joined in at the page rather than folded into
+`RaiderUsage`, which is what a night's pulls know and nothing more.
+
+Two consequences. **A character's `status` is now a display input to the logs
+page**, so a status that stops being written, or a new one nobody teaches
+`isGuildCharacter` about, silently moves spend between the two tabs — the rule
+is one function for exactly that reason. And **the join is by slug** (the
+character name, lowercased), the same key `RaiderUsage.slug` carries: a rename
+that moves one and not the other drops that raider out of the guild view while
+leaving them in the totals, which reads as a missing row rather than an error.
+
+`inactive` is deliberately inside the guild. They raided with us and their
+nights still have to add up — §6 of the invariants, one page down.
+
 ## 4f2. A lookup queue must record what it already asked
 
 **Chain:** the resolver's `unmatched` → `recordRefusedItemNames` →

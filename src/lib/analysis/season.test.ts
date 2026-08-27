@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeSeason } from "@/lib/analysis/season";
+import { isGuildCharacter, summarizeSeason } from "@/lib/analysis/season";
 import type { RaiderUsage, SeasonReportInput } from "@/lib/types";
 
 function usage(over: Partial<RaiderUsage> & { name: string }): RaiderUsage {
@@ -120,5 +120,113 @@ describe("summarizeSeason", () => {
     expect(spender.tone).toBe("positive");
     expect(spender.raider.name).toBe("Kaz");
     expect(view.notables.some((n) => n.tone === "negative")).toBe(true);
+  });
+});
+
+describe("summarizeSeason — per-consumable rollup", () => {
+  const view = summarizeSeason(reports);
+  const of = (name: string) => view.consumables.find((c) => c.name === name)!;
+
+  it("pivots the same spend by consumable, most gold first", () => {
+    // Flasks: 2 × 82 = 164. Haste: 7 × 15 = 105.
+    expect(view.consumables.map((c) => c.name)).toEqual([
+      "Flask of Relentless Assault",
+      "Haste Potion",
+    ]);
+    expect(of("Flask of Relentless Assault").gold).toBe(164);
+    expect(of("Haste Potion").uses).toBe(7);
+    expect(of("Haste Potion").gold).toBe(105);
+  });
+
+  it("counts the raids a consumable was used in, not the raids selected", () => {
+    // Both nights had haste potions; only Kaz's flask spans both, and Morg
+    // never flasked at all.
+    expect(of("Haste Potion").raids).toBe(2);
+    expect(of("Flask of Relentless Assault").raids).toBe(2);
+  });
+
+  it("lists only players who used it, ranked by uses", () => {
+    const haste = of("Haste Potion");
+    expect(haste.users.map((u) => u.name)).toEqual(["Kaz", "Morg"]);
+    expect(haste.users[0]).toMatchObject({ name: "Kaz", uses: 6, gold: 90 });
+    // Morg never flasked, so he is absent rather than present with a zero.
+    expect(of("Flask of Relentless Assault").users.map((u) => u.name)).toEqual(["Kaz"]);
+  });
+
+  it("divides by the raids the player attended, not the raids selected", () => {
+    // Morg raided once of the two. His average is per HIS night — the board
+    // divides by this number, and halving it would flatter everyone who skips.
+    expect(of("Haste Potion").users.find((u) => u.name === "Morg")!.raids).toBe(1);
+    expect(of("Haste Potion").users.find((u) => u.name === "Kaz")!.raids).toBe(2);
+  });
+
+  it("agrees with the per-raider totals it was built from", () => {
+    // The same corrected lines feed both views; if they ever diverge, one of
+    // the two is lying about the same night. See docs/change-chains.md §5.
+    const perConsumable = view.consumables.reduce((s, c) => s + c.gold, 0);
+    const perRaider = view.raiders.reduce((s, r) => s + r.goldTotal, 0);
+    expect(perConsumable).toBe(perRaider);
+  });
+
+  it("carries a hand correction into the consumable view too", () => {
+    const adjusted = summarizeSeason([
+      {
+        ...reports[0],
+        adjustments: [
+          { actorName: "Kaz", name: "Flask of Relentless Assault", delta: 1, at: "2026-08-02T20:00:00.000Z" },
+        ],
+      },
+      reports[1],
+    ]);
+    const flask = adjusted.consumables.find((c) => c.name === "Flask of Relentless Assault")!;
+    expect(flask.uses).toBe(3);
+    expect(flask.gold).toBe(246);
+    expect(flask.users[0]).toMatchObject({ name: "Kaz", uses: 3 });
+  });
+});
+
+describe("summarizeSeason — roster status", () => {
+  it("stamps the roster's own words on a logged name", () => {
+    const view = summarizeSeason(reports, {
+      kaz: { status: "main" },
+      morg: { status: "alt", mainName: "Kaz" },
+    });
+    expect(view.raiders.find((r) => r.name === "Kaz")).toMatchObject({ status: "main" });
+    expect(view.raiders.find((r) => r.name === "Morg")).toMatchObject({
+      status: "alt",
+      mainName: "Kaz",
+    });
+    const haste = view.consumables.find((c) => c.name === "Haste Potion")!;
+    expect(haste.users.map((u) => u.status)).toEqual(["main", "alt"]);
+  });
+
+  it("leaves a name the roster doesn't know unstamped rather than guessing", () => {
+    // No status is how a pug — or an unmatched logged name — reads. The guild
+    // filter has to be able to tell "not on the roster" from "on it as a pug".
+    const view = summarizeSeason(reports, { kaz: { status: "main" } });
+    expect(view.raiders.find((r) => r.name === "Morg")!.status).toBeUndefined();
+  });
+
+  it("works with no roster at all", () => {
+    const view = summarizeSeason(reports);
+    expect(view.raiders.every((r) => r.status === undefined)).toBe(true);
+  });
+});
+
+describe("isGuildCharacter", () => {
+  it("counts the roster and not the visitors", () => {
+    expect(isGuildCharacter("main")).toBe(true);
+    expect(isGuildCharacter("alt")).toBe(true);
+    expect(isGuildCharacter("trial")).toBe(true);
+    // Kept: they raided with us, and their nights still have to add up.
+    expect(isGuildCharacter("inactive")).toBe(true);
+    expect(isGuildCharacter("pug")).toBe(false);
+  });
+
+  it("treats a name the roster never matched as not ours", () => {
+    // The roster is what makes somebody a guild character. Silence isn't
+    // membership — and defaulting the other way would quietly move a stranger's
+    // spend into the guild's total.
+    expect(isGuildCharacter(undefined)).toBe(false);
   });
 });

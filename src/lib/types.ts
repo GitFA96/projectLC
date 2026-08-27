@@ -1160,15 +1160,44 @@ export interface SeasonReportInput {
   adjustments?: ConsumableAdjustment[];
 }
 
+/**
+ * What the roster says about a logged raider, keyed by slug (= their character
+ * name, lowercased — the same key `RaiderUsage.slug` carries).
+ *
+ * The season views need it to tell a guild character from a pug, and the logs
+ * themselves never say: a pug is a real player who raided with us, and every
+ * name in a report looks the same until the roster is asked. Handed in rather
+ * than folded into `RaiderUsage`, because it is roster state and not something
+ * the night's pulls know.
+ */
+export interface SeasonRosterEntry {
+  status: CharacterStatus;
+  /** Whose alt this is, when the roster links one. */
+  mainName?: string;
+}
+
 /** One raider's cross-raid tallies, with per-raid medians (robust to a wild night). */
 export interface SeasonRaiderStat {
   name: string;
   slug?: string;
   className?: string;
   role: WclRole;
+  /** Roster status, when the raider matched a character. Absent = not on the roster. */
+  status?: CharacterStatus;
+  /** Whose alt they are, for the alt filter's benefit. */
+  mainName?: string;
   /** Reports the raider appeared in (of those selected). */
   raids: number;
+  /**
+   * Gold across every selected raid, **unrounded**.
+   *
+   * The views sum these — a filter's total, the whole roster's — and rounding
+   * per raider first drifts: a scroll costs 0.5g and a drum charge 0.24g, so
+   * 150 rounded rows land tens of gold from what they're worth, and the same
+   * season then reads two ways in two cards. Round it where it's shown.
+   */
   goldTotal: number;
+  /** Rounded: a per-row figure, and nothing adds these up. */
   goldMedianPerRaid: number;
   consumablesTotal: number;
   consumablesMedianPerRaid: number;
@@ -1192,10 +1221,63 @@ export interface SeasonNotable {
   detail: string;
 }
 
+/** One player's use of one consumable across the selected raids. */
+export interface SeasonConsumableUser {
+  name: string;
+  slug?: string;
+  className?: string;
+  status?: CharacterStatus;
+  /**
+   * Raids the PLAYER appeared in, not raids they used this consumable in — the
+   * denominator for "per raid". Someone who drank ten potions on the one night
+   * they showed up averages ten, not ten twenty-firsts.
+   */
+  raids: number;
+  uses: number;
+  /** Unrounded — see the note on `SeasonConsumableStat.gold`. */
+  gold: number;
+}
+
+/**
+ * One consumable across the selected raids, with everyone who used it.
+ *
+ * `users` holds only players with at least one use. Listing who *didn't* would
+ * need the app to know who *should* have, and it doesn't: a mage with no haste
+ * potions and a mage who forgot their flask look identical from here, and only
+ * one of them is a problem. That judgement is the council's.
+ *
+ * Family and potion sub-family are deliberately not stored — `consumableGroupOf`
+ * and `potionPurposeOf` derive them from the label, so there is one curated list
+ * rather than a copy of it in every row.
+ */
+export interface SeasonConsumableStat {
+  name: string;
+  uses: number;
+  /**
+   * Gold, **unrounded** — the view rolls these up (all potions, everyone's
+   * flasks) and rounding first then summing drifts: a drum charge costs 0.24g
+   * and a scroll 0.5g, so a season's worth of rounded rows lands tens of gold
+   * away from what the same rows are worth. Round where it's displayed.
+   */
+  gold: number;
+  /**
+   * Raids (of those selected) this consumable was used in at all.
+   *
+   * True of this row and **not summable across rows** — two consumables used in
+   * ten raids each may be the same ten. A view rolling several rows into one
+   * (all potions, all flasks) has to leave it out rather than add it up.
+   */
+  raids: number;
+  /** Sorted by uses, descending. */
+  users: SeasonConsumableUser[];
+}
+
 export interface SeasonRankingsView {
   reportCount: number;
   /** Sorted by total gold spent, descending. */
   raiders: SeasonRaiderStat[];
+  /** Every consumable used, most gold first. */
+  consumables: SeasonConsumableStat[];
   /** Boss debuffs first, then by best average uptime. */
   uptime: SeasonUptimeRow[];
   notables: SeasonNotable[];

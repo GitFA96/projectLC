@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { CONSUMABLE_GROUP_ORDER, consumableGroupOf, type ConsumableGroup } from "./consumables";
+import {
+  CONSUMABLE_GROUP_ORDER,
+  POTION_PURPOSE_ORDER,
+  consumableGroupOf,
+  isRestrictedRestore,
+  potionPurposeOf,
+  type ConsumableGroup,
+  type PotionPurpose,
+} from "./consumables";
 
 /**
  * `consumableGroupOf` reads families back out of the curated lists rather than
@@ -56,5 +64,54 @@ describe("consumableGroupOf", () => {
   it("can place every group it can return", () => {
     const groups = new Set<ConsumableGroup>(CONSUMABLE_GROUP_ORDER);
     expect(groups.size).toBe(CONSUMABLE_GROUP_ORDER.length);
+  });
+});
+
+describe("potionPurposeOf", () => {
+  it("names what the common potions are drunk for", () => {
+    expect(potionPurposeOf("Haste Potion")).toBe("damage");
+    expect(potionPurposeOf("Destruction Potion")).toBe("damage");
+    expect(potionPurposeOf("Super Mana Potion")).toBe("mana");
+    expect(potionPurposeOf("Super Healing Potion")).toBe("healing");
+    expect(potionPurposeOf("Major Fire Protection Potion")).toBe("protection");
+    expect(potionPurposeOf("Free Action Potion")).toBe("utility");
+  });
+
+  it("leaves a potion that does two things unassigned", () => {
+    // Deliberate: naming these by one half of what they do would be the app
+    // deciding something no source it holds has said. See the list's comment.
+    expect(potionPurposeOf("Heroic Potion")).toBeUndefined();
+    expect(potionPurposeOf("Mighty Rage Potion")).toBeUndefined();
+  });
+
+  it("does not guess a purpose from a name it hasn't curated", () => {
+    // It still groups as a potion — that fallback is the name's to make. The
+    // purpose isn't, so it stays absent rather than being pattern-matched.
+    expect(consumableGroupOf("Mystery Potion")).toBe("potion");
+    expect(potionPurposeOf("Mystery Potion")).toBeUndefined();
+    expect(potionPurposeOf("Flask of Relentless Assault")).toBeUndefined();
+  });
+
+  it("can place every purpose it can return", () => {
+    const purposes = new Set<PotionPurpose>(POTION_PURPOSE_ORDER);
+    expect(purposes.size).toBe(POTION_PURPOSE_ORDER.length);
+  });
+});
+
+describe("isRestrictedRestore", () => {
+  it("separates the vendor restores from the bought ones", () => {
+    expect(isRestrictedRestore("Bottled Nethergon Energy")).toBe(true);
+    expect(isRestrictedRestore("Cenarion Mana Salve")).toBe(true);
+    expect(isRestrictedRestore("Bottled Nethergon Vapor")).toBe(true);
+    expect(isRestrictedRestore("Cenarion Healing Salve")).toBe(true);
+    expect(isRestrictedRestore("Super Mana Potion")).toBe(false);
+    expect(isRestrictedRestore("Major Mana Potion")).toBe(false);
+  });
+
+  it("pairs each vendor's restore with its heal", () => {
+    expect(potionPurposeOf("Cenarion Mana Salve")).toBe("mana");
+    expect(potionPurposeOf("Bottled Nethergon Energy")).toBe("mana");
+    expect(potionPurposeOf("Cenarion Healing Salve")).toBe("healing");
+    expect(potionPurposeOf("Bottled Nethergon Vapor")).toBe("healing");
   });
 });

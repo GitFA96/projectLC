@@ -18,6 +18,7 @@ import type {
   ImprovementSeverity,
   RaidReportView,
   SeasonReportInput,
+  SeasonRosterEntry,
   WclRole,
 } from "@/lib/types";
 import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
@@ -100,6 +101,13 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   let priceOverrides: Record<string, ConsumablePrice> = {};
   let adjustments: ConsumableAdjustment[] = [];
   let seasonInputs: SeasonReportInput[] = [];
+  /*
+   * Who on the roster each logged name is, for the season view's guild/pug
+   * split. The logs can't answer it — a pug raids beside the guild and their
+   * pulls look identical — and it is the difference between "the raid spent
+   * 130k" and "the guild spent 94k".
+   */
+  let seasonRoster: Record<string, SeasonRosterEntry> = {};
   let board: Board = emptyBoard();
   let pool: PoolMember[] = [];
   let recovered: RecoveredParty[] = [];
@@ -137,6 +145,17 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
       }),
     );
     seasonInputs = built.filter((x): x is SeasonReportInput => x !== null);
+    // Keyed by slug, which is the character name lowercased — the same key the
+    // usage rows carry, so a rename moves both together or neither.
+    seasonRoster = Object.fromEntries(
+      (await repo.listCharacters()).map(
+        (c) =>
+          [
+            c.character.name.toLowerCase(),
+            { status: c.character.status, mainName: c.mainCharacterName },
+          ] as const,
+      ),
+    );
   } else {
     raid = await repo.getRaidReport(requested);
     priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
@@ -201,7 +220,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           <ReportPicker reports={reports} activeCode={seasonMode ? "all" : raid?.report.code} />
           {seasonMode ? (
             seasonInputs.length > 0 ? (
-              <SeasonDashboard reports={seasonInputs} />
+              <SeasonDashboard reports={seasonInputs} roster={seasonRoster} />
             ) : (
               <EmptyState
                 title="Nothing to rank yet"

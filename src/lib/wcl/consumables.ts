@@ -478,10 +478,54 @@ export type CastCategory =
   | "pet"
   | "other";
 
+/**
+ * What a combat potion is drunk *for* — the sub-family the season board's
+ * picker groups potions under, so "who drinks mana potions" is one question
+ * rather than six.
+ *
+ * Assigned conservatively, and only where the item's own name or this file's
+ * existing curation already says it. A potion whose effect this codebase can't
+ * justify from a source is left unassigned rather than guessed at, and shows up
+ * under the family with no sub-group — the same house rule as everything else
+ * here (invariant 4).
+ */
+export type PotionPurpose = "damage" | "mana" | "healing" | "protection" | "utility";
+
+export const POTION_PURPOSE_LABELS: Record<PotionPurpose, string> = {
+  damage: "Damage",
+  mana: "Mana",
+  healing: "Healing",
+  protection: "Protection",
+  utility: "Utility",
+};
+
+/** Fixed order, so the picker lists sub-groups the same way every time. */
+export const POTION_PURPOSE_ORDER: readonly PotionPurpose[] = [
+  "damage",
+  "mana",
+  "healing",
+  "protection",
+  "utility",
+];
+
 export interface TrackedCast {
   id: number;
   name: string;
   category: CastCategory;
+  /** Potions only — see `PotionPurpose`. Undefined where nothing justifies one. */
+  purpose?: PotionPurpose;
+  /**
+   * A restore bought from a reputation or instance vendor and usable only in
+   * the zone it belongs to, rather than an auction-house staple.
+   *
+   * Tracked apart because a raider burning fifty of these has not spent what a
+   * raider burning fifty Super Mana Potions has — which is exactly the
+   * comparison the potion board invites. **Which zone each one is for is not
+   * recorded anywhere in this app**, and naming them "the SSC one" and "the TK
+   * one" from memory is the invention this codebase doesn't allow, so they're
+   * labelled by what the vendor is instead.
+   */
+  restricted?: true;
 }
 
 /**
@@ -489,33 +533,44 @@ export interface TrackedCast {
  * ids the cast event reports (= the use-effect of the item).
  */
 const TRACKED_CASTS: TrackedCast[] = [
-  { id: 28507, name: "Haste Potion", category: "potion" },
-  { id: 28508, name: "Destruction Potion", category: "potion" },
-  { id: 28494, name: "Insane Strength Potion", category: "potion" },
+  { id: 28507, name: "Haste Potion", category: "potion", purpose: "damage" },
+  { id: 28508, name: "Destruction Potion", category: "potion", purpose: "damage" },
+  { id: 28494, name: "Insane Strength Potion", category: "potion", purpose: "damage" },
+  /*
+   * Heroic Potion and Mighty Rage Potion carry no `purpose` on purpose. Both do
+   * two things at once (a restore and a stat), and picking which half names
+   * them would be this app deciding something no source it holds has said. They
+   * list under Potions with no sub-group, which is the honest answer.
+   */
   { id: 28506, name: "Heroic Potion", category: "potion" },
-  { id: 28515, name: "Ironshield Potion", category: "potion" },
+  { id: 28515, name: "Ironshield Potion", category: "potion", purpose: "protection" },
   // 28499 is "Restore Mana" — shared by the Super Mana Potion AND the Auchenai
   // Mana Potion, which are the same restore. Nothing in the cast event tells
   // them apart, so they're counted under one label rather than guessed at.
-  { id: 28499, name: "Super Mana Potion", category: "potion" },
-  { id: 38929, name: "Fel Mana Potion", category: "potion" },
-  { id: 28495, name: "Super Healing Potion", category: "potion" },
+  { id: 28499, name: "Super Mana Potion", category: "potion", purpose: "mana" },
+  { id: 38929, name: "Fel Mana Potion", category: "potion", purpose: "mana" },
+  { id: 28495, name: "Super Healing Potion", category: "potion", purpose: "healing" },
   /*
    * The reputation / instance-vendor restores. Each has its own use-spell, so
    * unlike the Auchenai potion these are distinguishable — and being cheap or
    * free they're what a well-drilled raider actually burns through a night.
+   *
+   * They pair mana/healing per vendor, which is what their ids and this list's
+   * own ordering say (41617/41618 restore, 41619/41620 heal) and what the price
+   * table beside them repeats. `restricted` is what keeps them off the same row
+   * as a bought potion.
    */
-  { id: 41617, name: "Cenarion Mana Salve", category: "potion" },
-  { id: 41618, name: "Bottled Nethergon Energy", category: "potion" },
-  { id: 41619, name: "Cenarion Healing Salve", category: "potion" },
-  { id: 41620, name: "Bottled Nethergon Vapor", category: "potion" },
+  { id: 41617, name: "Cenarion Mana Salve", category: "potion", purpose: "mana", restricted: true },
+  { id: 41618, name: "Bottled Nethergon Energy", category: "potion", purpose: "mana", restricted: true },
+  { id: 41619, name: "Cenarion Healing Salve", category: "potion", purpose: "healing", restricted: true },
+  { id: 41620, name: "Bottled Nethergon Vapor", category: "potion", purpose: "healing", restricted: true },
   { id: 17528, name: "Mighty Rage Potion", category: "potion" },
-  { id: 17531, name: "Major Mana Potion", category: "potion" },
-  { id: 6615, name: "Free Action Potion", category: "potion" },
-  { id: 24364, name: "Living Action Potion", category: "potion" },
-  { id: 28511, name: "Major Fire Protection Potion", category: "potion" },
-  { id: 28512, name: "Major Frost Protection Potion", category: "potion" },
-  { id: 28513, name: "Major Nature Protection Potion", category: "potion" },
+  { id: 17531, name: "Major Mana Potion", category: "potion", purpose: "mana" },
+  { id: 6615, name: "Free Action Potion", category: "potion", purpose: "utility" },
+  { id: 24364, name: "Living Action Potion", category: "potion", purpose: "utility" },
+  { id: 28511, name: "Major Fire Protection Potion", category: "potion", purpose: "protection" },
+  { id: 28512, name: "Major Frost Protection Potion", category: "potion", purpose: "protection" },
+  { id: 28513, name: "Major Nature Protection Potion", category: "potion", purpose: "protection" },
   /*
    * Arcane, shadow and holy protection potions are deliberately absent.
    *
@@ -766,4 +821,38 @@ export function consumableGroupOf(label: string): ConsumableGroup {
   if (lower.includes("sapper charge")) return "sapper";
   if (lower.startsWith("drums of")) return "drums";
   return "other";
+}
+
+/**
+ * What a potion is drunk for, or undefined for anything that isn't a curated
+ * potion — an uncurated "…potion" included, which groups as a potion by name
+ * and stops there rather than being sorted by a guess at its effect.
+ */
+export function potionPurposeOf(label: string): PotionPurpose | undefined {
+  return CAST_BY_NAME.get(label.trim().toLowerCase())?.purpose;
+}
+
+/** True for the vendor/reputation restores — see `TrackedCast.restricted`. */
+export function isRestrictedRestore(label: string): boolean {
+  return CAST_BY_NAME.get(label.trim().toLowerCase())?.restricted === true;
+}
+
+/**
+ * Labels that stand for more than one real item, and what a reader has to know
+ * before quoting the number beside them.
+ *
+ * Warcraft Logs reports the cast's spell, not the item, so two items sharing a
+ * use-effect arrive as one label and no amount of re-importing separates them.
+ * That is a fact about the source, not a gap in the curation — so the honest
+ * fix is to say so wherever the count is shown rather than to invent a split.
+ */
+export const SHARED_CAST_NOTES: Record<string, string> = {
+  // See the note on spell 28499 in TRACKED_CASTS.
+  "Super Mana Potion":
+    "Shares its restore spell with the Auchenai Mana Potion — nothing in the log tells the two apart, so both are counted here.",
+};
+
+/** What a label leaves ambiguous, when it does. */
+export function sharedCastNote(label: string): string | undefined {
+  return SHARED_CAST_NOTES[label.trim()];
 }

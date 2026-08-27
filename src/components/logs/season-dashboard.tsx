@@ -3,10 +3,13 @@
 import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { Coins, Trophy, TriangleAlert } from "lucide-react";
-import type { SeasonReportInput } from "@/lib/types";
-import { summarizeSeason } from "@/lib/analysis/season";
+import type { SeasonRaiderStat, SeasonReportInput, SeasonRosterEntry } from "@/lib/types";
+import { isGuildCharacter, summarizeSeason } from "@/lib/analysis/season";
+import { STATUS_LABELS, type CharacterStatus } from "@/lib/constants/wow";
 import { RankBadge, Raider } from "@/components/logs/rank-bits";
+import { SeasonConsumableBoard } from "@/components/logs/season-consumable-board";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -23,13 +26,23 @@ function uptimeClass(pct: number): string {
   return pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : "";
 }
 
+/** One identity for the empty case, so the rollup memo isn't busted every render. */
+const NO_ROSTER: Record<string, SeasonRosterEntry> = {};
+
 /**
  * Cross-raid rankings: pick which imported raids to include, then see who
  * spends the most gold on consumables, who keeps the key debuffs up, and the
  * season's notable leaders and laggards — all on per-raid medians so one wild
  * night doesn't distort the picture.
  */
-export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
+export function SeasonDashboard({
+  reports,
+  roster = NO_ROSTER,
+}: {
+  reports: SeasonReportInput[];
+  /** Slug → what the roster says, for the guild/pug split. Empty is legal. */
+  roster?: Record<string, SeasonRosterEntry>;
+}) {
   const sorted = React.useMemo(
     () => [...reports].sort((a, b) => compareText(b.startTime, a.startTime)),
     [reports],
@@ -37,7 +50,7 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set(sorted.map((r) => r.code)));
 
   const chosen = sorted.filter((r) => selected.has(r.code));
-  const view = React.useMemo(() => summarizeSeason(chosen), [chosen]);
+  const view = React.useMemo(() => summarizeSeason(chosen, roster), [chosen, roster]);
 
   const toggle = (code: string) =>
     setSelected((prev) => {
@@ -126,55 +139,9 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
             </div>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Coins className="h-4 w-4 text-warn" />
-                Consumable spend across {chosen.length} raid{chosen.length === 1 ? "" : "s"}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Total and typical (median) gold and items used per raid, ranked by total spend.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8" />
-                    <TableHead>Raider</TableHead>
-                    <TableHead className="w-16 text-right">Raids</TableHead>
-                    <TableHead className="w-28 text-right">Items / raid</TableHead>
-                    <TableHead className="w-24 text-right">Gold / raid</TableHead>
-                    <TableHead className="w-24 text-right">Total gold</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {view.raiders.map((r, i) => (
-                    <TableRow key={r.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
-                      <TableCell>
-                        <RankBadge rank={i + 1} />
-                      </TableCell>
-                      <TableCell>
-                        <Raider name={r.name} slug={r.slug} className={r.className} />
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                        {r.raids}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {r.consumablesMedianPerRaid}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                        {r.goldMedianPerRaid.toLocaleString("en-US")}g
-                      </TableCell>
-                      <TableCell className="text-right text-sm font-semibold tabular-nums">
-                        {r.goldTotal.toLocaleString("en-US")}g
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <SpendCard raiders={view.raiders} raidCount={chosen.length} />
+
+          <SeasonConsumableBoard consumables={view.consumables} raidCount={chosen.length} />
 
           <Card>
             <CardHeader>
@@ -219,5 +186,207 @@ export function SeasonDashboard({ reports }: { reports: SeasonReportInput[] }) {
         </>
       )}
     </div>
+  );
+}
+
+/** Guild statuses, in the order the filter offers them. */
+const GUILD_STATUS_ORDER: readonly CharacterStatus[] = ["main", "trial", "alt", "inactive"];
+
+/**
+ * Chip labels. Written out rather than pluralising `STATUS_LABELS`, which turns
+ * a perfectly good adjective into "Inactives".
+ */
+const STATUS_CHIP_LABELS: Record<CharacterStatus, string> = {
+  main: "Mains",
+  trial: "Trials",
+  alt: "Alts",
+  inactive: "Inactive",
+  pug: "Pugs",
+};
+
+/**
+ * What the roster calls this raider, where it's worth saying.
+ *
+ * Mains carry no tag — they're the default and a badge on every row would be
+ * noise. An alt names whose it is, which is the whole reason an officer reads
+ * the alt filter rather than guessing from names.
+ */
+function StatusTag({ status, mainName }: { status?: CharacterStatus; mainName?: string }) {
+  if (status === undefined || status === "main") return null;
+  return (
+    <span className="ml-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+      {STATUS_LABELS[status].toLowerCase()}
+      {status === "alt" && mainName && <> of {mainName}</>}
+    </span>
+  );
+}
+
+/**
+ * The season's spend, guild first.
+ *
+ * Split because the two questions are different and the same table can't answer
+ * both: "what do our raiders put in" is about the roster, and a pug's night —
+ * real spend, somebody else's raider — inflates it. The totals strip follows
+ * whatever is on screen, so the number under the tab is always the sum of the
+ * rows beneath it rather than a season-wide figure that happens to sit there.
+ */
+function SpendCard({ raiders, raidCount }: { raiders: SeasonRaiderStat[]; raidCount: number }) {
+  const [scope, setScope] = React.useState<"guild" | "all">("guild");
+  const [status, setStatus] = React.useState<CharacterStatus | "all">("all");
+
+  const guild = React.useMemo(() => raiders.filter((r) => isGuildCharacter(r.status)), [raiders]);
+  const present = GUILD_STATUS_ORDER.filter((s) => guild.some((r) => r.status === s));
+  // Deselecting raids can empty the status somebody was filtered to; fall back
+  // rather than showing an empty table with a chip that no longer applies.
+  const active = status !== "all" && present.includes(status) ? status : "all";
+  const guildRows = active === "all" ? guild : guild.filter((r) => r.status === active);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-warn" />
+          Consumable spend across {raidCount} raid{raidCount === 1 ? "" : "s"}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Total and typical (median) gold and items used per raid, ranked by total spend.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={scope} onValueChange={(v) => setScope(v as "guild" | "all")}>
+          <TabsList>
+            <TabsTrigger value="guild">Guild characters</TabsTrigger>
+            <TabsTrigger value="all">All players</TabsTrigger>
+          </TabsList>
+          <TabsContent value="guild" className="space-y-3">
+            {present.length > 1 && (
+              <div className="flex flex-wrap gap-1.5">
+                <StatusChip
+                  label="All"
+                  count={guild.length}
+                  on={active === "all"}
+                  onClick={() => setStatus("all")}
+                />
+                {present.map((s) => (
+                  <StatusChip
+                    key={s}
+                    label={STATUS_CHIP_LABELS[s]}
+                    count={guild.filter((r) => r.status === s).length}
+                    on={active === s}
+                    onClick={() => setStatus(s)}
+                  />
+                ))}
+              </div>
+            )}
+            <SpendTotals rows={guildRows} raidCount={raidCount} noun="character" />
+            <SpendTable rows={guildRows} />
+          </TabsContent>
+          <TabsContent value="all" className="space-y-3">
+            <SpendTotals rows={raiders} raidCount={raidCount} noun="player" />
+            <SpendTable rows={raiders} />
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusChip({
+  label,
+  count,
+  on,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-2.5 py-1 text-xs transition-colors",
+        on
+          ? "border-foreground/30 bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-accent",
+      )}
+    >
+      {label} <span className="tabular-nums opacity-70">{count}</span>
+    </button>
+  );
+}
+
+/** The sum of exactly what's in the table below it. */
+function SpendTotals({
+  rows,
+  raidCount,
+  noun,
+}: {
+  rows: SeasonRaiderStat[];
+  raidCount: number;
+  noun: string;
+}) {
+  const total = Math.round(rows.reduce((s, r) => s + r.goldTotal, 0));
+  const perRaid = raidCount > 0 ? Math.round(total / raidCount) : 0;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2">
+      <span className="text-lg font-semibold tabular-nums">
+        {total.toLocaleString("en-US")}g
+      </span>
+      <span className="text-xs text-muted-foreground">
+        across {rows.length} {noun}
+        {rows.length === 1 ? "" : "s"} and {raidCount} raid{raidCount === 1 ? "" : "s"}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        ≈<span className="tabular-nums">{perRaid.toLocaleString("en-US")}g</span> per raid
+      </span>
+    </div>
+  );
+}
+
+function SpendTable({ rows }: { rows: SeasonRaiderStat[] }) {
+  if (rows.length === 0) {
+    return <p className="py-1 text-sm text-muted-foreground">Nobody here in the selected raids.</p>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-8" />
+          <TableHead>Raider</TableHead>
+          <TableHead className="w-16 text-right">Raids</TableHead>
+          <TableHead className="w-28 text-right">Items / raid</TableHead>
+          <TableHead className="w-24 text-right">Gold / raid</TableHead>
+          <TableHead className="w-24 text-right">Total gold</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r, i) => (
+          <TableRow key={r.name} className={cn(i === 0 && "bg-warn-soft/70 hover:bg-warn-soft/70")}>
+            <TableCell>
+              <RankBadge rank={i + 1} />
+            </TableCell>
+            <TableCell>
+              <Raider name={r.name} slug={r.slug} className={r.className} />
+              <StatusTag status={r.status} mainName={r.mainName} />
+            </TableCell>
+            <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+              {r.raids}
+            </TableCell>
+            <TableCell className="text-right text-sm tabular-nums">
+              {r.consumablesMedianPerRaid}
+            </TableCell>
+            <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+              {r.goldMedianPerRaid.toLocaleString("en-US")}g
+            </TableCell>
+            <TableCell className="text-right text-sm font-semibold tabular-nums">
+              {Math.round(r.goldTotal).toLocaleString("en-US")}g
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
