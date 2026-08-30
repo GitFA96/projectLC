@@ -61,6 +61,7 @@ const build = (
 const offPullFor = (
   actorName: string,
   petConsumables: { name: string; atMs?: number; fightId?: number }[],
+  petBuffsSeen: { name: string; atMs: number }[] = [],
 ): WclPlayerOffPull => ({
   id: `r|${actorName.toLowerCase()}`,
   reportCode: "r",
@@ -73,6 +74,7 @@ const offPullFor = (
   healthstones: 0,
   sappers: 0,
   petConsumables,
+  petBuffsSeen,
 });
 
 describe("averageItemLevel", () => {
@@ -266,6 +268,73 @@ describe("buildPreparedness", () => {
     expect(view.rows[0].pet?.food).toEqual([["Kibler's Bits", 2]]);
     expect(view.rows[0].pet?.scrolls).toEqual([["Scroll of Agility V", 1]]);
   });
+
+  it("keeps a scroll only seen on the pet apart from the ones a cast counted", () => {
+    /*
+     * Two kinds of evidence, and the difference is the point: a cast is somebody
+     * doing something and is priced, a sighting only says the aura was there.
+     * For a pet the sighting is usually all there is — no combatantinfo, and
+     * scrolls read between pulls where nothing is logged.
+     */
+    const view = build(
+      [row({ actorName: "Huntigo" })],
+      [],
+      [
+        offPullFor(
+          "Huntigo",
+          [{ name: "Scroll of Agility V", atMs: 200 }],
+          [
+            { name: "Scroll of Agility V", atMs: 210 },
+            { name: "Scroll of Strength V", atMs: 220 },
+          ],
+        ),
+      ],
+    );
+    // The Agility scroll has a cast behind it, so it stays counted and is not
+    // repeated as a sighting — listing both would read as two scrolls.
+    expect(view.rows[0].pet?.scrolls).toEqual([["Scroll of Agility V", 1]]);
+    expect(view.rows[0].pet?.held).toEqual([{ name: "Scroll of Strength V", atMs: 220 }]);
+  });
+
+  it("keeps a food seen on the pet out of the list when a cast already counted it", () => {
+    const view = build(
+      [row({ actorName: "Huntigo" })],
+      [],
+      [
+        offPullFor(
+          "Huntigo",
+          [{ name: "Kibler's Bits", atMs: 100 }],
+          [{ name: "Kibler's Bits", atMs: 110 }],
+        ),
+      ],
+    );
+    expect(view.rows[0].pet?.food).toEqual([["Kibler's Bits", 1]]);
+    expect(view.rows[0].pet?.held).toEqual([]);
+  });
+
+  it("shows a pet fed only according to the aura stream", () => {
+    // The common case: fed between pulls, where the cast is not logged.
+    const view = build(
+      [row({ actorName: "Huntigo" })],
+      [],
+      [offPullFor("Huntigo", [], [{ name: "Kibler's Bits", atMs: 110 }])],
+    );
+    expect(view.rows[0].pet?.food).toEqual([]);
+    expect(view.rows[0].pet?.held).toEqual([{ name: "Kibler's Bits", atMs: 110 }]);
+  });
+
+  it("shows a pet whose only evidence is a sighting, and gives it no count", () => {
+
+    const view = build(
+      [row({ actorName: "Huntigo" })],
+      [],
+      [offPullFor("Huntigo", [], [{ name: "Scroll of Agility V", atMs: 200 }])],
+    );
+    expect(view.rows[0].pet?.scrolls).toEqual([]);
+    expect(view.rows[0].pet?.food).toEqual([]);
+    expect(view.rows[0].pet?.held).toEqual([{ name: "Scroll of Agility V", atMs: 200 }]);
+  });
+
 
   it("leaves the pet absent when nothing was logged, rather than saying it went unfed", () => {
     /*

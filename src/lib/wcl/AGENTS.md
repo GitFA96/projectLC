@@ -43,8 +43,23 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   without a refetch — the one place that rule doesn't apply. An elixir the list
   doesn't name still counts as coverage (the pattern fallback in `classifyAura`
   catches it) but stays unplaced, and the raid page names it for curation.
+- **A pet has no `combatantinfo`, so its consumables live in the buff stream.**
+  WCL writes one snapshot per player per pull and none for a pet. The cast that
+  applied a scroll or a meal is usually not logged either — both happen *between*
+  pulls, and a log contains no out-of-combat time: one scroll cast in 73,837 on a
+  probed full clear, none on a pet, and 3 pet-food casts against 20 pet-food
+  auras. `SCROLL_BUFF_IDS` and `PET_BUFF_IDS` put those ids in the **Buffs**
+  filter so the pet's own aura stream can answer instead. Read it as a sighting
+  and never as a use: a pet re-entering play republishes every aura it holds in a
+  single millisecond, so counting them bills a hunter for each summon.
+- **Pet food's aura is "Pet Treat", not "Well Fed".** The buff is not named after
+  the item — the same trap as Skullfish Soup applying "Enlightened", and the
+  reason an earlier probe concluded a pet's fed-ness could not be read at all.
+  Match pet consumables by id.
+
 - **A food that names its own buff has to be curated, or its eaters read as
-  unfed.** TBC dishes don't all apply "Well Fed" — Skullfish Soup applies
+  unfed.**
+ TBC dishes don't all apply "Well Fed" — Skullfish Soup applies
   "Enlightened", which sat in the off-slot bucket and cost three raiders their
   food on 84 pulls. `isFoodLabel` recovers those at read time from `extras`, the
   same trick as `elixirCategoryOf`, so curating one fixes the past too. When you

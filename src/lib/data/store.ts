@@ -851,7 +851,10 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     // beside the raider's own, and want the same icon and tooltip.
     for (const off of wclPlayerOffPull) {
       for (const applied of off.petConsumables) add(applied.name);
+      // Sightings render in the same cell as the casts and want the same icon.
+      for (const seen of off.petBuffsSeen) add(seen.name);
     }
+
     return [...names.values()].sort((a, b) => compareText(a, b));
   }
 

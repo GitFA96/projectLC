@@ -202,8 +202,13 @@ CREATE TABLE IF NOT EXISTS wcl_player_offpull (
   runes                INTEGER NOT NULL DEFAULT 0,
   healthstones         INTEGER NOT NULL DEFAULT 0,
   sappers              INTEGER NOT NULL DEFAULT 0,
-  pet_consumables_json TEXT NOT NULL DEFAULT '[]'
+  pet_consumables_json TEXT NOT NULL DEFAULT '[]',
+  -- What the pet was seen HOLDING, which is not what anyone was seen doing:
+  -- a pet has no combatantinfo, so its aura stream is the only evidence it was
+  -- scrolled. Never counted or priced — see normalize.ts.
+  pet_buffs_seen_json TEXT NOT NULL DEFAULT '[]'
 );
+
 CREATE INDEX IF NOT EXISTS wcl_player_offpull_report ON wcl_player_offpull(report_code);
 -- Ability names resolved from Wowhead, so a simulation's actions have names.
 -- Warcraft Logs only names what somebody cast, which leaves exactly the
@@ -830,6 +835,12 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "death_times_json", "death_times_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
+  addColumn(
+    "wcl_player_offpull",
+    "pet_buffs_seen_json",
+    "pet_buffs_seen_json TEXT NOT NULL DEFAULT '[]'",
+  );
+
   addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
   // Reports imported before this get an empty list, which is honest: the dump
   // was computed and shown at the time, and nothing kept it. It is not the same
@@ -3503,13 +3514,15 @@ export function insertWclPlayerOffPull(db: DatabaseSync, o: WclPlayerOffPull): v
   db.prepare(
     `INSERT OR REPLACE INTO wcl_player_offpull (
        id, report_code, actor_name, character_id, potions_json, other_casts_json,
-       drums, runes, healthstones, sappers, pet_consumables_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       drums, runes, healthstones, sappers, pet_consumables_json, pet_buffs_seen_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     o.id, o.reportCode, o.actorName, o.characterId,
     JSON.stringify(o.potions), JSON.stringify(o.otherCasts),
     o.drums, o.runes, o.healthstones, o.sappers, JSON.stringify(o.petConsumables),
+    JSON.stringify(o.petBuffsSeen),
   );
+
 }
 
 function rowToWclPlayerOffPull(r: Row): unknown {
@@ -3525,8 +3538,12 @@ function rowToWclPlayerOffPull(r: Row): unknown {
     healthstones: r.healthstones,
     sappers: r.sappers,
     petConsumables: JSON.parse(r.pet_consumables_json as string),
+    // Null on a database written before the column existed; the schema default
+    // turns that into "nothing seen", which a re-import fills in.
+    petBuffsSeen: JSON.parse((r.pet_buffs_seen_json as string | null) ?? "[]"),
   };
 }
+
 
 function rowToGuild(r: Row): unknown {
   return {

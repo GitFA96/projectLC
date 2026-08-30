@@ -636,7 +636,30 @@ export const wclPlayerOffPullSchema = z.object({
       ]),
     )
     .default([]),
+  /**
+   * Scrolls the pet was seen **holding**, earliest sighting first.
+   *
+   * Separate from `petConsumables` on purpose, and the separation is the whole
+   * point: that field counts what somebody was logged doing and is what the
+   * gold is built from, while this one only reports that the aura was on the
+   * pet. It cannot say how many scrolls were read and must not be counted as
+   * though it could — a pet re-entering play republishes its entire aura set at
+   * once, so counting sightings would bill a hunter for every summon.
+   *
+   * Defaults empty, which is also what every report imported before the buff
+   * stream carried scroll ids reads as. A re-import is what fills it in.
+   */
+  petBuffsSeen: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        /** Ms from the report start — the first time it was seen. */
+        atMs: z.number().nonnegative(),
+      }),
+    )
+    .default([]),
 });
+
 
 /**
  * One officer comment on a character — a timestamped log entry, richer than the

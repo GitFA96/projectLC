@@ -25,8 +25,13 @@ ability.id IN (TRACKED_CAST_IDS ∪ SCROLL_CAST_IDS ∪ COOLDOWN_CAST_IDS)
   OR ability.name IN (SAPPER_CAST_NAMES ∪ SHAMAN_TOTEM_CASTS)
 ```
 
-The Buffs fetch is filtered the same way (`BUFF_TRACK_NAMES` ∪ `FLASK_BUFF_IDS`),
-so it carries the same cost.
+The Buffs fetch is filtered the same way (`BUFF_TRACK_NAMES` ∪ `FLASK_BUFF_IDS`
+∪ `SCROLL_BUFF_IDS` ∪ `PET_BUFF_IDS`), so it carries the same cost. Every id set
+is there for one reason — the pull's `combatantinfo` cannot carry it. The flasks
+because Warcraft Logs leaves them out of the snapshot; the scrolls and pet food
+because for a **pet** there is no snapshot at all (§5e).
+
+
 
 So a report fetched **before** you added the id never contained the event, and
 never will until it is re-fetched. The app will look completely healthy and
@@ -637,6 +642,34 @@ Per-pull views are the exception and stay per-pull: the character performance
 page keeps off-pull under its own heading, because "what did this raider bring
 to *this* wipe" is a different question from "what did the night cost".
 
+**A pet's copy of a consumable is a different line from the raider's own, and
+the label that makes it one is applied in two places.** A hunter reads one
+Scroll of Agility V to themselves and one to the pet; the first arrives as a
+prep buff on the pull, the second as an off-pull pet record, and under one name
+they folded into a single line — so an officer's ±1 against that name moved
+both, because a correction is keyed by the name it corrects. `petConsumableLabel`
+suffixes the pet's copy, and **`summarizeRaidReport` and `goldPerRaid` both have
+to apply it** or the raid page and the career page count the same night
+differently. Two more steps fail quietly:
+
+- **`effectivePrice` strips the suffix before either lookup.** A label the
+  catalog does not know lands at 0 gold in silence (§5f), and the officer's
+  override for the week is stored against the item.
+- **The price panel lists items, not line labels.** Two rows for one scroll let
+  a raid hold two prices for it, and only one of them would be read.
+
+Nothing stored carries the suffix — it is applied where a breakdown is built, so
+the item cache, the icons and the preparedness table go on seeing real names.
+
+**Pet gold is the one figure the app reports as a range, and the range lives
+outside the ranking.** All three sites charge the logged pet applications and
+only those, which for a pet is a floor rather than a count (§5e). The gold tab's
+pet card shows what keeping the same consumables up all night would cost beside
+it, and folding that estimate into any of the three would have to move all three
+in the same change — otherwise the raid page and the career page charge the same
+hunter differently. Whether it should be folded in at all is the council's call,
+not a modelling improvement.
+
 **Season gold is stored unrounded, and rounded where it is drawn.** The season
 view sums the same spend two ways — per raider and per consumable — and both
 totals sit on one screen. A drum charge costs 0.24g and a scroll 0.5g, so
@@ -722,9 +755,12 @@ Three traps, all of which were live:
   fallback — a wrong number on the gold page with nothing to notice it.
   `consumable-prices.test.ts` walks `SCROLL_LABELS` for exactly this.
 
-`SCROLL_CAST_IDS` is part of the *fetch* filter (it is how a hunter scrolling
-their pet is seen), so widening the list is a §1 change: **re-import, or the
-lower ranks are never found.**
+The same ids are in **two** fetch filters, and they answer different questions.
+`SCROLL_CAST_IDS` catches a scroll read during a pull; `SCROLL_BUFF_IDS` catches
+one sitting on a pet, which is the only evidence a pet ever offers (§5e). Either
+way widening the list is a §1 change: **re-import, or the lower ranks are never
+found.**
+
 
 ## 5f. Rename a consumable's label
 
@@ -1331,10 +1367,50 @@ breaking.
   the question actually being asked. **A bare string is a row imported before
   the timing** — it parses to a name and nothing else, exactly as `deathTimes`
   does, and a re-import fills the rest in.
-- **The pet's buff state at a pull is not knowable, and never will be.** Probed:
-  138 "Well Fed" buff events across six spell ids in one report, **none of them
-  targeting a pet**. The cast is the only evidence there is, so the column
-  reports feeding, not fed-ness.
+- **The cast stream is the weak witness for a pet, not the strong one.** A pet
+  is scrolled and fed *between* pulls, and a log holds no out-of-combat time, so
+  the cast that would name the item is usually never recorded. Probed on
+  mbwNGRaxhPHMTpKB, a full SSC/TK clear: **one** scroll cast in 73,837 casts and
+  none on a pet, on a night whose aura stream shows a hunter's pet holding two;
+  and 20 pet-food auras across three hunters' pets against 3 casts, one of those
+  hunters having fed a pet the cast stream never saw. Across 21 imported reports
+  the cast path found 60 pet scrolls against 4,286 for players, and its zero
+  nights are not roster nights — the same three hunters raided 01 Jul and 08 Jul
+  for 0 and 8. So `petBuffsSeen` reads the pet's own aura stream instead
+  (`SCROLL_BUFF_IDS`, `PET_BUFF_IDS`), which for a pet is the whole evidence
+  base: there is no `combatantinfo` for one.
+- **"No Well Fed on a pet" was a name problem, not a limit.** An earlier probe
+  found 138 "Well Fed" events across six ids and none on a pet, and read that as
+  a pet's fed-ness being unknowable. Feeding a pet applies **"Pet Treat"**
+  (43771) — the buff is not named after the item, exactly like Skullfish Soup
+  applying "Enlightened". Match pet consumables by **id**; the name can name
+  neither the item nor, for a scroll, its rank.
+- **A sighting is not a use, and merging them would charge for the difference.**
+  A pet re-entering play republishes its entire aura set in one millisecond —
+  eleven auras from eight sources 79ms after `Call Pet`, probed — and leaving
+  play drops all of them the same way. So `petBuffsSeen` carries no count and is
+  never priced; `petConsumables` stays the thing gold is built from (§5). It is
+  named unlike its neighbour on purpose, because §5's gold sites enumerate
+  off-pull fields by hand. `PreparednessPet.held` drops anything a cast already
+  counted, or one scroll read during a pull would render as two.
+
+
+- **The preparedness tab and the gold tab read one pet view, not two.**
+  `RaidReportView.petSpend` feeds the pet tally and the `→ ×N` marks in the Pet
+  column as well as the gold card, so the two tabs cannot quote different counts
+  for the same hunter. The tally is deliberately scope-independent — a pet is
+  fed once for the night — while the estimate is drawn only in the all-pulls
+  view, because a night's figure beside a single pull reads as a per-pull count.
+- **A consumable only ever *seen* on a pet has no price unless the page asks
+  for one.** `costPerUseMap` is built from the usage breakdowns, and a scroll
+  the cast stream never recorded appears in neither — so the gold tab's pet card
+  seeds the price map from `petSpend` as well. Miss that and the card prices the
+  invisible half of a hunter's night at 0g, which is exactly the silence it
+  exists to break, and the officer never gets the name in the price panel to
+  correct. `analysis/pet-consumables.ts` is the model and takes its re-buy
+  windows as an argument, from the `PREP_HOURS` a raider's own food and scrolls
+  already use: a pet's Scroll of Agility V is the raider's Scroll of Agility V,
+  and a second copy of that number would drift silently.
 - **An empty pet cell is "nothing logged", never "they forgot".** Warcraft Logs
   types hunter pets, shaman totems, druid treants and Shadowfiend identically
   (`type: Pet, subType: Pet`, probed on a real report), so **who owns a feedable

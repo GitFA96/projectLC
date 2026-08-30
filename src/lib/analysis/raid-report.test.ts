@@ -576,6 +576,7 @@ function offPull(over: Partial<WclPlayerOffPull> & { actorName: string }): WclPl
     characterId: null,
     potions: [],
     otherCasts: [],
+    petBuffsSeen: [],
     drums: 0,
     runes: 0,
     healthstones: 0,
@@ -638,8 +639,68 @@ describe("off-pull consumables count toward the night", () => {
       offPull: [offPull({ actorName: "Houndmaster", petConsumables: [{ name: "Kibler's Bits" }, { name: "Kibler's Bits" }] })],
     });
     const u = fed.usage.find((x) => x.name === "Houndmaster")!;
-    expect(u.itemBreakdown.find((b) => b.name === "Kibler's Bits")!.count).toBe(2);
+    expect(u.itemBreakdown.find((b) => b.name === "Kibler's Bits (pet)")!.count).toBe(2);
     expect(u.otherItems).toBe(2);
+  });
+
+  it("keeps a hunter's own scroll and their pet's apart", () => {
+    // One name, two purchases, and they used to fold into a single line — so
+    // an officer's ±1 against "Scroll of Agility V" moved the raider's count
+    // and the pet's at once. 14 of the 18 raider-nights in this guild's logs
+    // that scrolled a pet ran the same scroll on the raider too.
+    const both = summarizeRaidReport({
+      report,
+      rows: [
+        row({
+          fightId: 1,
+          actorName: "Houndmaster",
+          className: "Hunter",
+          scrolls: ["Scroll of Agility V"],
+        }),
+      ],
+      reportPulls: 1,
+      slugByActor: new Map(),
+      offPull: [
+        offPull({
+          actorName: "Houndmaster",
+          petConsumables: [{ name: "Scroll of Agility V" }],
+        }),
+      ],
+    });
+    const u = both.usage.find((x) => x.name === "Houndmaster")!;
+    expect(u.itemBreakdown.map((b) => b.name)).toEqual(["Scroll of Agility V (pet)"]);
+    expect(u.prepBreakdown.map((b) => b.name)).toContain("Scroll of Agility V");
+    expect(u.prepBreakdown.map((b) => b.name)).not.toContain("Scroll of Agility V (pet)");
+  });
+
+  it("reports pet spend as a range, without moving the ranking", () => {
+    // The wiring, not the model (that has its own tests): the night's span and
+    // the raider's identity have to reach it, or the card renders one row of
+    // logged counts and silently claims the log saw everything.
+    const fed = summarizeRaidReport({
+      report, // 19:00 → 23:00, four hours
+      rows: [row({ fightId: 1, actorName: "Houndmaster", className: "Hunter" })],
+      reportPulls: 1,
+      slugByActor: new Map([["houndmaster", "houndmaster"]]),
+      offPull: [
+        offPull({
+          actorName: "Houndmaster",
+          petConsumables: [{ name: "Kibler's Bits" }],
+          petBuffsSeen: [{ name: "Scroll of Agility V", atMs: 10 }],
+        }),
+        // No pull tonight, so no row here either — the same fold rule the gold
+        // totals run on.
+        offPull({ actorName: "Passerby", petConsumables: [{ name: "Kibler's Bits" }] }),
+      ],
+    });
+    expect(fed.petSpend.rows.map((r) => r.name)).toEqual(["Houndmaster"]);
+    const [pet] = fed.petSpend.rows;
+    expect(pet.slug).toBe("houndmaster");
+    const seen = pet.lines.find((l) => l.name === "Scroll of Agility V")!;
+    expect(seen).toMatchObject({ logged: 0, seen: true, maintained: 4 });
+    // And the ranking beside it still charges the logged half only.
+    const u = fed.usage.find((x) => x.name === "Houndmaster")!;
+    expect(u.itemBreakdown.map((b) => b.name)).toEqual(["Kibler's Bits (pet)"]);
   });
 
   it("is out of the pull switch's reach", () => {

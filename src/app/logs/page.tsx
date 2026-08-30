@@ -22,6 +22,7 @@ import type {
   WclRole,
 } from "@/lib/types";
 import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
+import { baseConsumableName } from "@/lib/wcl/consumables";
 import {
   adjustmentGold,
   adjustmentsFor,
@@ -42,6 +43,7 @@ import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard"
 import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { GoldTable } from "@/components/logs/gold-table";
+import { PetSpendCard } from "@/components/logs/pet-spend-card";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
@@ -381,6 +383,9 @@ function RaidDashboard({
         preparedness={
           <PreparednessPanel
             view={raid.preparedness}
+            // The same night's pet counts the gold tab prices, so the two tabs
+            // cannot disagree about how many scrolls a hunter's pet had.
+            petSpend={raid.petSpend}
             // Excluded pulls feed nothing else derived; they get no column here.
             fights={counted}
             reportCode={report.code}
@@ -770,7 +775,7 @@ function GoldPanel({
   overrides: Record<string, ConsumablePrice>;
   adjustments: ConsumableAdjustment[];
 }) {
-  const { usage } = raid;
+  const { usage, petSpend } = raid;
   // Union of every consumable this raid touched — casts (boss and trash) + prep buffs.
   const names = new Set<string>();
   for (const u of usage) {
@@ -779,9 +784,20 @@ function GoldPanel({
   }
   // A hand-added consumable needs a price too, even if nobody was logged using it.
   for (const a of adjustments) names.add(a.name);
+  // And a scroll only ever SEEN on a pet, which by definition never reached a
+  // breakdown above — leave it out and the card prices it at zero, which is the
+  // silence the card exists to break. It also puts the name in the price panel,
+  // where the officer can give it this week's real price.
+  for (const row of petSpend.rows) for (const line of row.lines) names.add(line.name);
   const costPerUse = costPerUseMap(names, overrides);
   const usingDefault = Object.keys(overrides).length === 0;
-  const priceRows = [...names].sort().map((name) => ({ name, price: effectivePrice(name, overrides) }));
+  // One row per ITEM, not per line label: a pet's scroll is listed apart in the
+  // breakdowns so it can be counted and corrected apart, but it is the same
+  // scroll at the same price, and two rows here would let one raid hold two
+  // prices for it.
+  const priceRows = [...new Set([...names].map(baseConsumableName))]
+    .sort()
+    .map((name) => ({ name, price: effectivePrice(name, overrides) }));
 
   // Rank against the SAVED adjustments and hand the rows over in that order.
   // GoldTable re-prices them as the officer presses ±, but does not re-sort:
@@ -818,6 +834,11 @@ function GoldPanel({
         adjustments={adjustments}
         usingDefault={usingDefault}
       />
+
+      {/* Below the ranking, and outside it: pet gold is a range, not a number,
+          and folding it into the totals would be §5 — three call sites and the
+          council's call. See `pet-spend-card.tsx`. */}
+      <PetSpendCard view={petSpend} costPerUse={costPerUse} />
 
       <ConsumablePricePanel
         key={raid.report.code}

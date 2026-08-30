@@ -2,12 +2,16 @@ import { z } from "zod";
 import {
   ENCHANTABLE_GEAR_SLOTS,
   FLASK_BUFF_IDS,
+  PET_BUFF_IDS,
+  SCROLL_BUFF_IDS,
   WEAPON_GEAR_SLOTS,
+
   classifyAura,
   classifyCast,
   isNonConsumableAura,
   scrollCastName,
 } from "@/lib/wcl/consumables";
+
 import { normalizeIcon, qualityFromId } from "@/lib/items/item-data";
 import type { Quality } from "@/lib/types";
 import {
@@ -390,7 +394,28 @@ export interface NormalizedPlayerOffPull {
    * `fightId` absent means between pulls, which is where most feeding happens.
    */
   petConsumables: { name: string; atMs?: number; fightId?: number }[];
+  /**
+   * Consumables their PET was seen **carrying** — scrolls and food — earliest
+   * sighting first.
+   *
+   * A different statement from `petConsumables`, and deliberately not merged
+   * into it: that list counts things somebody was logged *doing*, and is what
+   * the gold is built from. This one only says the aura was on the pet. It
+   * cannot say how many were applied, and must never be counted as if it could
+   * — a pet entering play carries its whole aura set into the log in a single
+   * millisecond, so every summon would bill its owner for consumables nobody
+   * bought. The name is deliberately unlike `petConsumables`, because the gold
+   * call sites (§5) enumerate off-pull fields by hand.
+   *
+   * It exists because for a pet there is nothing else. Warcraft Logs writes
+   * `combatantinfo` per player and none for pets, and both scrolls and food are
+   * applied between pulls, which a log does not contain. See `SCROLL_BUFF_IDS`
+   * and `PET_BUFF_IDS`.
+   */
+  petBuffsSeen: { name: string; atMs: number }[];
+
 }
+
 
 export interface NormalizedReport {
   title: string;
@@ -858,8 +883,10 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         healthstones: 0,
         sappers: 0,
         petConsumables: [],
+        petBuffsSeen: [],
       };
       offPullByActor.set(actorName, entry);
+
     }
     return entry;
   };
@@ -1234,7 +1261,67 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     }
   }
 
+  /*
+   * What a PET was carrying — the other half of the pet-consumable question.
+   *
+   * A raider's own scroll arrives in the pull's `combatantinfo`, which is what
+   * makes `row.scrolls` trustworthy. A pet has no snapshot to arrive in:
+   * Warcraft Logs writes one `combatantinfo` per player per pull and none at
+   * all for pets, so the pet's own aura stream is the entire evidence base.
+   * Probed on mbwNGRaxhPHMTpKB, a full SSC/TK clear: ten scroll aura events on
+   * one hunter's pet against zero pet-targeted scroll casts, and twenty pet-food
+   * auras across three hunters' pets against three casts — one of those hunters
+   * having fed a pet the cast stream never saw.
+   *
+   * Recorded as a **sighting, never an application.** Almost every event a pet
+   * emits here is a presence transition rather than a use: `Call Pet` puts the
+   * pet's whole aura set into the log in a single millisecond (on that report,
+   * eleven auras from eight different sources at 28:51.312, 79ms after the
+   * summon cast), and the pet leaving play drops all of them the same way.
+   * Counting those as applications would invent consumables nobody bought and
+   * charge a hunter gold for them, so this keeps one entry per consumable with
+   * the first time it was seen — the most the stream can honestly support.
+   *
+   * The interval trick the flasks above use is deliberately NOT repeated here.
+   * A flask lasts the night, so joining an apply to a removal describes it; a
+   * scroll lasts thirty minutes and is re-applied between pulls where nothing is
+   * logged, so the same join would report one span covering pulls the pet spent
+   * unbuffed.
+   */
+  for (const rawEvent of events.buffs ?? []) {
+    const parsed = rawAuraEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    const abilityId = event.abilityGameID ?? event.ability?.guid;
+    // Matched by id in both cases. The aura is not named after the item that
+    // applies it — a scroll's is the bare stat, pet food's is "Pet Treat" — so
+    // the name can neither name the consumable nor its rank.
+    const label =
+      abilityId === undefined
+        ? undefined
+        : (SCROLL_BUFF_IDS.get(abilityId) ?? PET_BUFF_IDS.get(abilityId));
+    if (!label || event.targetID === undefined) continue;
+
+    /*
+     * Pets only, and the credit goes to the owner. A raider's own scroll is the
+     * pull snapshot's business — reading it here as well would state it twice,
+     * in two shapes, with only one of them ranked.
+     */
+    const ownerId = anyActorById.get(event.targetID)?.petOwner;
+    if (ownerId === null || ownerId === undefined) continue;
+    const owner = actorById.get(ownerId);
+    if (!owner) continue;
+    const held = offPullFor(owner.name, owner.subType).petBuffsSeen;
+    const seen = held.find((s) => s.name === label);
+    if (seen === undefined) held.push({ name: label, atMs: event.timestamp });
+    else seen.atMs = Math.min(seen.atMs, event.timestamp);
+  }
+  for (const entry of offPullByActor.values()) {
+    entry.petBuffsSeen.sort((a, b) => a.atMs - b.atMs || compareText(a.name, b.name));
+  }
+
   // Close intervals still open at the fight end, then group each player's
+
   // accumulators per track. The headline pct stays the best single target
   // (≈ the boss — adds with brief uptime never win); every target the track
   // touched (boss, adds, buffed friendlies) goes into the per-victim
@@ -1330,7 +1417,11 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     offPull: [...offPullByActor.values()]
       .filter(
         (o) =>
-          o.potions.length > 0 || o.otherCasts.length > 0 || o.petConsumables.length > 0,
+          o.potions.length > 0 ||
+          o.otherCasts.length > 0 ||
+          o.petConsumables.length > 0 ||
+          o.petBuffsSeen.length > 0,
+
       )
       .sort((a, b) => compareText(a.actorName, b.actorName)),
     warnings,

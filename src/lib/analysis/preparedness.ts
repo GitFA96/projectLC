@@ -199,9 +199,21 @@ function pullOf(row: WclPlayerFight, policy: GuildPolicy): PreparednessPull {
  * Returns undefined rather than empty lists: "nothing was logged for a pet" is
  * a different statement from "the pet went unfed", and only the first is one
  * this app can make — see `PreparednessRow.pet`.
+ *
+ * Two kinds of evidence arrive here and they are kept apart all the way to the
+ * screen. A **cast** is somebody doing something, so it counts and it is
+ * priced. A **sighting** in the pet's aura stream only says the buff was on the
+ * pet; it is the only evidence a pet ever has for a scroll, and it cannot carry
+ * a number — see `petBuffsSeen`.
  */
 function petOf(offPull: WclPlayerOffPull | undefined): PreparednessPet | undefined {
-  if (offPull === undefined || offPull.petConsumables.length === 0) return undefined;
+  if (
+    offPull === undefined ||
+    (offPull.petConsumables.length === 0 && offPull.petBuffsSeen.length === 0)
+  ) {
+    return undefined;
+  }
+
   const food = new Map<string, number>();
   const scrolls = new Map<string, number>();
   for (const applied of offPull.petConsumables) {
@@ -217,8 +229,13 @@ function petOf(offPull: WclPlayerOffPull | undefined): PreparednessPet | undefin
   const applications = [...offPull.petConsumables].sort(
     (a, b) => (a.atMs ?? 0) - (b.atMs ?? 0),
   );
-  return { food: rank(food), scrolls: rank(scrolls), applications };
+  // Anything a cast already counted above is the same consumable, not a second
+  // one — checked against food and scrolls both, since a sighting can be either.
+  const held = offPull.petBuffsSeen.filter((s) => !scrolls.has(s.name) && !food.has(s.name));
+
+  return { food: rank(food), scrolls: rank(scrolls), held, applications };
 }
+
 
 export interface PreparednessInput {
   /** Pulls in scope — the caller has already dropped the ones the officer switched off. */

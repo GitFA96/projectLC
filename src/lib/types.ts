@@ -1010,6 +1010,22 @@ export interface PreparednessPet {
   /** Scrolls read onto the pet, most-used first. */
   scrolls: [string, number][];
   /**
+   * Consumables the pet was seen carrying that no cast accounts for — scrolls
+   * and food both — earliest first.
+   *
+   * Deduped against `food` and `scrolls` rather than listed beside them: one
+   * applied during a pull produces a cast *and* an aura, and showing both would
+   * read as two. What survives is what only the aura stream saw — which, on
+   * this guild's logs, is most of it, because pets are scrolled and fed between
+   * pulls and a log holds no out-of-combat time.
+   *
+   * Carries no count, and must not be given one. A pet re-entering play
+   * republishes its whole aura set, so sightings count summons, not items.
+   */
+  held: { name: string; atMs: number }[];
+
+
+  /**
    * Each application in the order it happened.
    *
    * What makes a scoped view readable: the night's total against one pull
@@ -1141,8 +1157,63 @@ export interface RaidReportView {
    * left out entirely.
    */
   parseBoards: ParseBoard[];
+  /**
+   * What went on the pets, and what the cast stream missed. Its own view
+   * because it is the one consumable this app reports as a range — the gold
+   * ranking still charges the logged half and nothing else.
+   */
+  petSpend: PetSpendView;
 }
 
+
+/**
+ * One consumable a pet had this night, with the evidence behind each number.
+ *
+ * Two counts, because a pet has two kinds of witness and they are not
+ * interchangeable — see `analysis/pet-consumables.ts` for why the app reports a
+ * range here and a single number everywhere else.
+ */
+export interface PetSpendLine {
+  name: string;
+  /** Which re-buy window it is read against — the curated group decides. */
+  group: "food" | "scroll";
+  /** Applications the cast stream recorded. What the gold ranking charges. */
+  logged: number;
+  /**
+   * The aura was on the pet. True with `logged: 0` is the interesting case: a
+   * consumable nothing has ever been charged for. Carries no count and must
+   * never be given one (docs/change-chains.md §5e).
+   */
+  seen: boolean;
+  /** What keeping it up for the whole night takes. Never below `logged`. */
+  maintained: number;
+}
+
+/** One raider's pets for a night, worst gap first. */
+export interface PetSpendRow {
+  name: string;
+  slug?: string;
+  className?: string;
+  role: WclRole;
+  lines: PetSpendLine[];
+  loggedUses: number;
+  maintainedUses: number;
+}
+
+/**
+ * Pet consumables across a report — the raid page's own section, priced where
+ * every other consumable is priced and folded into nothing.
+ */
+export interface PetSpendView {
+  /** Raiders the log put something on a pet for. Empty on a night with none. */
+  rows: PetSpendRow[];
+  /** Report span in hours — the numerator of the maintained reading. */
+  spanHours: number;
+  /** The re-buy windows it was read against, so the page can state them. */
+  windowHours: { food: number; scroll: number };
+  loggedUses: number;
+  maintainedUses: number;
+}
 
 /* Cross-raid ("season") rankings — aggregate across selected reports */
 

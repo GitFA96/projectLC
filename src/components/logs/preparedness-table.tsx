@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import type {
+  PetSpendView,
   PreparednessPet,
   PreparednessPull,
   PreparednessRow,
@@ -83,6 +84,12 @@ export function PreparednessPanel(props: Omit<Props, "scope" | "onScopeChange">)
 
 interface Props {
   view: PreparednessView;
+  /**
+   * The night's pet consumables, logged and estimated — the same view the gold
+   * tab prices, so the two tabs can never quote different counts for the same
+   * hunter. Scope-independent on purpose: a pet is fed once for the night.
+   */
+  petSpend: PetSpendView;
   fights: RaidFight[];
   reportCode: string;
   itemsByName: Record<string, ItemRef>;
@@ -101,6 +108,7 @@ interface Props {
 
 export function PreparednessTable({
   view,
+  petSpend,
   fights,
   reportCode,
   /**
@@ -117,6 +125,19 @@ export function PreparednessTable({
   onScopeChange,
 }: Props) {
   const [sort, setSort] = React.useState<Sort>({ by: "name", dir: "asc" });
+  const textScale = React.useSyncExternalStore(subscribeScale, readScale, () => 1);
+
+  /* Raider → item → what keeping it up all night takes. See `PetTally`. */
+  const petEstimate = React.useMemo(
+    () =>
+      new Map(
+        petSpend.rows.map((row) => [
+          row.name.toLowerCase(),
+          new Map(row.lines.map((l) => [l.name, l.maintained] as const)),
+        ]),
+      ),
+    [petSpend.rows],
+  );
 
   /* Encounters in pull order, each with the pulls it took. */
   const encounters = React.useMemo(() => {
@@ -217,6 +238,7 @@ export function PreparednessTable({
           switched on — {inScope.length} of {fights.length}. <strong>Pet</strong> is the
           exception: it is logged once for the night, so it does not narrow with the scope.
         </p>
+        <PetTally view={petSpend} />
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <ScopePill active={scope === "all"} onClick={() => onScopeChange("all")}>
             All pulls
@@ -232,7 +254,9 @@ export function PreparednessTable({
               {encounter.fights.length > 1 && <Count n={encounter.fights.length} />}
             </ScopePill>
           ))}
+          <TextSize scale={textScale} />
         </div>
+
         {/* One boss, several attempts: the second row steps into a single pull,
             which is what turns the strips into named consumables. */}
         {selectedEncounter !== undefined && (
@@ -246,7 +270,23 @@ export function PreparednessTable({
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <div className="relative w-full overflow-x-auto">
-          <table className="w-full caption-bottom text-sm">
+          {/* `w-max min-w-full` fills the card when the night is narrow and
+              lets it grow when the names need the room — the wrapper scrolls.
+              Under plain `w-full` the columns squeeze until `truncate` ellipsises
+              a name, and half a consumable name is not a consumable name:
+              "Scroll of Agility …" drops the rank, which is the difference
+              between an 8g scroll and a 1g one.
+              `zoom` scales the whole table — text, icons, pips and padding
+              together — so shrinking it really does buy width back, which a
+              font-size alone would not: these cells are sized in rem. How much
+              sideways scroll is worth reading is then the reader's call.
+              For the same reason the multi-item cells stack one item per line
+              instead of wrapping: a flask beside an elixir reflows differently
+              in every row, and reading down a column of names beats hunting for
+              where the second one landed. Width is the thing we spend, and the
+              wrapper already scrolls. */}
+          <table className="w-max min-w-full caption-bottom text-sm" style={{ zoom: textScale }}>
+
             <thead className="[&_tr]:border-b">
               <tr>
                 <Th>
@@ -354,7 +394,13 @@ export function PreparednessTable({
                       )}
                     </Td>
                     <Td>
-                      <Pet pet={row.pet} scopeIds={scopeIds} all={scope === "all"} itemsByName={itemsByName} />
+                      <Pet
+                        pet={row.pet}
+                        scopeIds={scopeIds}
+                        all={scope === "all"}
+                        itemsByName={itemsByName}
+                        estimate={petEstimate.get(row.name.toLowerCase())}
+                      />
                     </Td>
                     <Td className="text-center">
                       <Enchants
@@ -527,7 +573,50 @@ function Key({ className, children }: { className?: string; children: React.Reac
 }
 
 /** Same pill language as the report picker above it. */
+function ScaleStep({ scale, by, label }: { scale: number; by: number; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => changeScale(by)}
+      // Disabled at the ends rather than hidden, so the control keeps its shape
+      // and the reader can see which way there is still room to go.
+      disabled={by < 0 ? scale <= SCALE_MIN : scale >= SCALE_MAX}
+      aria-label={by < 0 ? "Smaller text" : "Larger text"}
+      className="cursor-pointer px-1.5 py-1 text-xs leading-none transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-30"
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Shrink or grow the table, so the reader decides about the scrollbar.
+ *
+ * Sits with the scope pills because it belongs to the same question — how much
+ * of the night fits on the screen at once. The percentage is a button too: a
+ * control that can only step is one a reader has to click five times to undo.
+ */
+function TextSize({ scale }: { scale: number }) {
+  return (
+    <span
+      className="ml-auto inline-flex items-center rounded-full border"
+      title="Text size for this table. Smaller fits more on screen; larger needs the sideways scroll."
+    >
+      <ScaleStep scale={scale} by={-SCALE_STEP} label="−" />
+      <button
+        type="button"
+        onClick={() => changeScale()}
+        aria-label="Reset text size to 100%"
+        className="cursor-pointer border-x px-2 py-1 text-[11px] leading-none tabular-nums text-muted-foreground transition-colors hover:bg-accent"
+      >
+        {Math.round(scale * 100)}%
+      </button>
+      <ScaleStep scale={scale} by={SCALE_STEP} label="+" />
+    </span>
+  );
+}
 function ScopePill({
+
   active,
   onClick,
   children,
@@ -689,7 +778,63 @@ function Strip({
 const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /**
+ * The reader's own text size for this table, remembered per browser.
+ *
+ * A raid night is as wide as its longest consumable name, and how much of that
+ * is worth trading for a horizontal scrollbar is a preference, not something
+ * this component can decide: a 34" ultrawide and a laptop want opposite things
+ * from the same report. So the table is allowed to be wide and the reader
+ * shrinks it until it fits — or doesn't, and scrolls.
+ */
+const TEXT_SCALE_KEY = "projectlc.preparedness.textScale";
+const SCALE_MIN = 0.6;
+const SCALE_MAX = 1.3;
+const SCALE_STEP = 0.1;
+const clampScale = (n: number) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, n));
+
+/*
+ * Kept outside React and read through `useSyncExternalStore`, because the
+ * server has no localStorage: it renders 100% and React swaps the reader's own
+ * size in after hydration, instead of the two disagreeing about the first
+ * paint. The feedback list reads its "last seen" stamp the same way.
+ *
+ * The module-level mirror is also the whole store when storage is blocked — the
+ * control still works for the visit, it just isn't remembered for the next one.
+ */
+const scaleListeners = new Set<() => void>();
+let currentScale: number | undefined;
+
+function subscribeScale(onStoreChange: () => void) {
+  scaleListeners.add(onStoreChange);
+  return () => void scaleListeners.delete(onStoreChange);
+}
+
+function readScale(): number {
+  if (currentScale === undefined) {
+    try {
+      const saved = Number(localStorage.getItem(TEXT_SCALE_KEY));
+      currentScale = Number.isFinite(saved) && saved > 0 ? clampScale(saved) : 1;
+    } catch {
+      currentScale = 1;
+    }
+  }
+  return currentScale;
+}
+
+/** `by` undefined resets to 100%. Steps are relative to the stored value. */
+function changeScale(by?: number) {
+  currentScale = by === undefined ? 1 : clampScale(Math.round((readScale() + by) * 100) / 100);
+  try {
+    localStorage.setItem(TEXT_SCALE_KEY, String(currentScale));
+  } catch {
+    // Not remembered for next time; still applied to this one.
+  }
+  for (const notify of scaleListeners) notify();
+}
+
+/**
  * A consumable as an item where possible, and as its plain name otherwise.
+
  *
  * The fallback is the point: an icon and a Wowhead tooltip need an item id,
  * the log only ever gave us a name, and a name nobody has resolved is still
@@ -705,6 +850,7 @@ function Consumable({ name, itemsByName }: { name: string; itemsByName: Record<s
     );
   }
   return <ItemLink item={item} size="sm" />;
+
 }
 
 function Consumables({
@@ -717,12 +863,13 @@ function Consumables({
   if (names === undefined) return <Absent />;
   if (names.length === 0) return <Nothing>none</Nothing>;
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+    <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
       {names.map((name) => (
         <Consumable key={name} name={name} itemsByName={itemsByName} />
       ))}
     </span>
   );
+
 }
 
 /** The elixir budget on one pull — a flask, or whatever filled the two slots. */
@@ -739,8 +886,9 @@ function Coverage({
   }
   if (pull.elixirs.length === 0) return <Nothing>nothing</Nothing>;
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+    <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
       {pull.elixirs.map((name) => (
+
         <Consumable key={name} name={name} itemsByName={itemsByName} />
       ))}
       {/* Half a set passes a lenient coverage bar, so say which half is empty
@@ -787,8 +935,10 @@ function WeaponBuff({
     return pull.weaponBuff ? <Badge variant="secondary">applied</Badge> : <Nothing>none</Nothing>;
   }
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+    <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+
       {worn.map(({ hand, id }) => (
+
         <WeaponEnchant
           key={hand}
           id={id}
@@ -819,11 +969,20 @@ function Pet({
   scopeIds,
   all,
   itemsByName,
+  estimate,
 }: {
   pet?: PreparednessPet;
   scopeIds: Set<number>;
   all: boolean;
   itemsByName: Record<string, ItemRef>;
+  /**
+   * Item → what keeping it up for the whole night takes.
+   *
+   * Only drawn in the night view. Under a pull scope the cell answers "what
+   * landed on this pull", and a night's estimate beside that would read as a
+   * per-pull count — the same confusion the scoped view exists to avoid.
+   */
+  estimate?: Map<string, number>;
 }) {
   if (pet === undefined) {
     return (
@@ -835,18 +994,31 @@ function Pet({
 
   if (all) {
     const entries = [...pet.food, ...pet.scrolls];
+    // Counted and seen sit in one container as siblings, so they read as one
+    // list of what the pet had rather than two groups that happen to be adjacent.
+
     return (
-      <span
-        className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5"
-        title="Applied across the whole night"
-      >
+      <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
         {entries.map(([name, times]) => (
-          <span key={name} className="inline-flex items-center gap-1">
+          <span
+            key={name}
+            className="inline-flex items-center gap-1"
+            title="Applied across the whole night"
+          >
             <Consumable name={name} itemsByName={itemsByName} />
             {times > 1 && (
               <span className="text-[11px] tabular-nums text-muted-foreground">×{times}</span>
             )}
+            <KeptUp times={times} maintained={estimate?.get(name)} />
           </span>
+        ))}
+        {pet.held.map((s) => (
+          <SeenChip
+            key={s.name}
+            name={s.name}
+            itemsByName={itemsByName}
+            maintained={estimate?.get(s.name)}
+          />
         ))}
       </span>
     );
@@ -869,14 +1041,26 @@ function Pet({
   }).length - inScope.filter((a) => a.fightId === undefined).length;
 
   if (inScope.length === 0) {
-    return earlier > 0 ? (
-      <span
-        className="text-xs text-muted-foreground"
-        title={`Nothing applied during this pull. ${earlier} earlier tonight: ${pet.applications.map((a) => a.name).join(", ")}`}
-      >
-        fed {earlier}× earlier
-      </span>
-    ) : (
+    // A sighting belongs to the night, not to a pull, so it survives the scope
+    // — and an empty cell beside it would say "nothing logged" over evidence.
+    if (earlier > 0 || pet.held.length > 0) {
+      return (
+        <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+          {earlier > 0 && (
+            <span
+              className="text-xs text-muted-foreground"
+              title={`Nothing applied during this pull. ${earlier} earlier tonight: ${pet.applications.map((a) => a.name).join(", ")}`}
+            >
+              fed {earlier}× earlier
+            </span>
+          )}
+          {pet.held.map((s) => (
+            <SeenChip key={s.name} name={s.name} itemsByName={itemsByName} />
+          ))}
+        </span>
+      );
+    }
+    return (
       <span className="text-muted-foreground/50" title="Nothing logged for a pet this night">
         –
       </span>
@@ -886,19 +1070,133 @@ function Pet({
   const counts = new Map<string, number>();
   for (const a of inScope) counts.set(a.name, (counts.get(a.name) ?? 0) + 1);
   return (
-    <span
-      className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5"
-      title={earlier > 0 ? `Applied during this pull. ${earlier} more earlier tonight.` : "Applied during this pull"}
-    >
+    <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
       {[...counts].map(([name, times]) => (
-        <span key={name} className="inline-flex items-center gap-1">
+        <span
+          key={name}
+          className="inline-flex items-center gap-1"
+          title={
+            earlier > 0
+              ? `Applied during this pull. ${earlier} more earlier tonight.`
+              : "Applied during this pull"
+          }
+        >
           <Consumable name={name} itemsByName={itemsByName} />
           {times > 1 && (
             <span className="text-[11px] tabular-nums text-muted-foreground">×{times}</span>
           )}
         </span>
       ))}
+      {pet.held.map((s) => (
+        <SeenChip key={s.name} name={s.name} itemsByName={itemsByName} />
+      ))}
     </span>
+  );
+}
+
+/**
+ * One consumable the pet was seen carrying, with no cast behind it.
+ *
+ * Rendered without a count, and never as a failure. The aura stream can say the
+ * pet held a scroll or was fed, but not how many were applied — a pet
+ * re-entering play republishes its whole aura set at once — so a number here
+ * would be invented. It is a fact about the night rather than about a pull, so
+ * it reads the same under a pull scope as it does across the whole report.
+ *
+ * One chip rather than its own block: it sits as a sibling of the counted ones
+ * inside the cell's stack, so seen and applied read as one list down the
+ * column instead of two groups that happen to be adjacent.
+ */
+function SeenChip({
+  name,
+  itemsByName,
+  maintained,
+}: {
+  name: string;
+  itemsByName: Record<string, ItemRef>;
+  maintained?: number;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      title="Seen on the pet tonight. Pets are scrolled and fed between pulls, which a log does not record, so this says the pet was carrying it — not how many were bought."
+    >
+      <Consumable name={name} itemsByName={itemsByName} />
+      <span className="text-[11px] text-muted-foreground/70">seen</span>
+      <KeptUp times={0} maintained={maintained} />
+    </span>
+  );
+}
+
+/**
+ * What keeping one consumable up all night would take, beside what was logged.
+ *
+ * Drawn only when it says something the count doesn't — a hunter who re-fed
+ * more often than the window expects gets no arrow, because there is nothing to
+ * estimate about a night they already told us about. The number comes from the
+ * same view the gold tab prices (`analysis/pet-consumables.ts`), so the two
+ * tabs cannot quote different figures for the same pet.
+ */
+function KeptUp({ times, maintained }: { times: number; maintained?: number }) {
+  if (maintained === undefined || maintained <= times) return null;
+  return (
+    <span
+      className="text-[11px] tabular-nums text-warn-ink"
+      title={`Kept up all night that is ${maintained} — the log caught ${times === 0 ? "none of them" : `${times}`}. Nobody is charged for the difference.`}
+    >
+      → ×{maintained}
+    </span>
+  );
+}
+
+/**
+ * The night's pet total, above a table that reads per pull.
+ *
+ * Here rather than only on the gold tab because it is a preparation fact before
+ * it is a gold one: it says how much of what went on the pets this app can
+ * actually see. Both halves are stated — what the cast stream caught, and what
+ * keeping the same consumables up all night would take — because the gap
+ * between them is the answer, and a single number would have to invent which
+ * end is true. Scope-independent, like the column it describes.
+ */
+function PetTally({ view }: { view: PetSpendView }) {
+  if (view.rows.length === 0) return null;
+  const kinds = (["food", "scroll"] as const).map((group) => {
+    const lines = view.rows.flatMap((r) => r.lines.filter((l) => l.group === group));
+    return {
+      group,
+      logged: lines.reduce((s, l) => s + l.logged, 0),
+      maintained: lines.reduce((s, l) => s + l.maintained, 0),
+      unseen: lines.filter((l) => l.logged === 0).length,
+    };
+  });
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">Pets tonight</span>
+      {kinds.map(({ group, logged, maintained, unseen }) => (
+        <span key={group} className="inline-flex items-center gap-1">
+          {group === "food" ? "food" : "scrolls"}
+          <span className="tabular-nums">×{logged}</span>
+          {maintained > logged && (
+            <span
+              className="tabular-nums text-warn-ink"
+              title={`Keeping them up for the whole ${view.spanHours.toFixed(1)}-hour night takes ${maintained}. The log caught ${logged}: pets are fed and scrolled between pulls, where nothing is recorded.`}
+            >
+              → ×{maintained}
+            </span>
+          )}
+          {unseen > 0 && (
+            <span
+              className="text-warn-ink"
+              title="Seen on a pet with no cast to explain it — real spend nothing has ever been charged for"
+            >
+              ({unseen} seen only)
+            </span>
+          )}
+        </span>
+      ))}
+      <span className="text-muted-foreground/70">— priced on the Gold spent tab</span>
+    </p>
   );
 }
 

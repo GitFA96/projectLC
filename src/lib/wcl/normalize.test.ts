@@ -724,7 +724,160 @@ describe("normalizeWclReport — off-pull consumables and pets", () => {
   });
 });
 
+/**
+ * The pet half of the consumable question, which the cast stream cannot answer.
+ *
+ * A pet has no `combatantinfo` — Warcraft Logs writes one per player per pull
+ * and none for pets — and pets are scrolled and fed between pulls, which a log
+ * does not contain. Probed on mbwNGRaxhPHMTpKB, a full SSC/TK clear: one scroll
+ * cast in 73,837 and none on a pet, on a night whose aura stream shows a pet
+ * holding two; and twenty pet-food auras across three hunters against three
+ * casts, one of those hunters having fed a pet no cast recorded.
+ */
+describe("normalizeWclReport — consumables seen on a pet", () => {
+
+  const report = {
+    title: "Pet scrolls",
+    startTime: REPORT_START,
+    endTime: REPORT_START + 900_000,
+    zone: { name: "Serpentshrine Cavern" },
+    masterData: {
+      actors: [
+        { id: 1, name: "Sylvaria", type: "Player", subType: "Hunter" },
+        { id: 2, name: "Kazrak", type: "Player", subType: "Warrior" },
+        { id: 9, name: "Wolfie", type: "Pet", subType: "Pet", petOwner: 1 },
+      ],
+    },
+    fights: [{ id: 1, encounterID: 623, name: "Hydross", kill: true, startTime: 300_000, endTime: 600_000 }],
+    dps: {
+      data: [
+        {
+          fightID: 1,
+          roles: {
+            dps: {
+              characters: [
+                { name: "Sylvaria", class: "Hunter", spec: "Beast Mastery", amount: 800, rankPercent: 70 },
+                { name: "Kazrak", class: "Warrior", spec: "Fury", amount: 700, rankPercent: 60 },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+  const run = (buffs: unknown[], casts: unknown[] = []) =>
+    normalizeWclReport(report, {
+      combatantInfo: [{ timestamp: 299_000, type: "combatantinfo", sourceID: 1, auras: [], gear: [] }],
+      deaths: [],
+      casts,
+      debuffs: [],
+      buffs,
+    });
+  const held = (r: ReturnType<typeof run>, name: string) =>
+    r.offPull.find((o) => o.actorName === name)?.petBuffsSeen ?? [];
+
+  it("records a scroll seen on the pet against its owner", () => {
+    const r = run([
+      { timestamp: 120_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+    ]);
+    expect(held(r, "Sylvaria")).toEqual([{ name: "Scroll of Agility V", atMs: 120_000 }]);
+  });
+
+  it("reads an orphan removal as evidence, which is how most of them arrive", () => {
+    /*
+     * The application happens out of combat, where nothing is logged; what
+     * lands in the log is the thirty-minute expiry, or the pet leaving play.
+     * On the probed night 24 of 30 scroll aura events were removals.
+     */
+    const r = run([
+      { timestamp: 400_000, type: "removebuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+    ]);
+    expect(held(r, "Sylvaria").map((s) => s.name)).toEqual(["Scroll of Agility V"]);
+  });
+
+  it("counts a summon snapshot once, however many auras it republishes", () => {
+    /*
+     * `Call Pet` puts the pet's whole aura set into the log in one millisecond
+     * — eleven auras from eight sources on the probed report — and the pet
+     * leaving play drops all of them the same way. One entry per scroll, or
+     * every resummon would invent scrolls nobody bought.
+     */
+    const r = run([
+      { timestamp: 100_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+      { timestamp: 100_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33082 },
+      { timestamp: 250_000, type: "removebuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+      { timestamp: 400_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+      { timestamp: 500_000, type: "refreshbuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+    ]);
+    expect(held(r, "Sylvaria")).toEqual([
+      { name: "Scroll of Agility V", atMs: 100_000 },
+      { name: "Scroll of Strength V", atMs: 100_000 },
+    ]);
+  });
+
+  it("never turns a sighting into a use — that is what the gold is built from", () => {
+    const r = run([
+      { timestamp: 100_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+      { timestamp: 400_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+    ]);
+    expect(r.offPull.find((o) => o.actorName === "Sylvaria")!.petConsumables).toEqual([]);
+  });
+
+  it("leaves a raider's own scroll to the pull snapshot", () => {
+    // Sylvaria scrolled herself, not the pet. Reading it here as well would
+    // state the same scroll twice, in two shapes.
+    const r = run([
+      { timestamp: 120_000, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 33077 },
+    ]);
+    expect(r.offPull).toEqual([]);
+  });
+
+  it("sees pet food too, which the log does not call Well Fed", () => {
+    /*
+     * 43771 is Kibler's Bits. Its aura is named "Pet Treat", which is why a
+     * probe for "Well Fed" on pets found none and concluded a pet's fed-ness
+     * was unknowable — the buff is not named after the item, so only the id
+     * answers. Same trap as Skullfish Soup applying "Enlightened".
+     */
+    const r = run([
+      { timestamp: 110_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 43771 },
+    ]);
+    expect(held(r, "Sylvaria")).toEqual([{ name: "Kibler's Bits", atMs: 110_000 }]);
+  });
+
+  it("does not repeat a food the cast stream already counted", () => {
+    const r = run(
+      [{ timestamp: 110_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 43771 }],
+      [
+        {
+          timestamp: 90_000,
+          type: "cast",
+          sourceID: 1,
+          targetID: 9,
+          ability: { name: "Pet Treat", guid: 43771 },
+        },
+      ],
+    );
+    const off = r.offPull.find((o) => o.actorName === "Sylvaria")!;
+    // The cast is the countable one and stays; the aura it also produced is the
+    // same feeding, and `petOf` drops it so the cell shows one meal, not two.
+    expect(off.petConsumables.map((p) => p.name)).toEqual(["Kibler's Bits"]);
+    expect(off.petBuffsSeen.map((s) => s.name)).toEqual(["Kibler's Bits"]);
+  });
+
+  it("keeps a record for a raider whose only evidence is a sighting", () => {
+
+    // The off-pull record is dropped when it holds nothing; a sighting is
+    // something, and dropping it would lose the one fact the night carries.
+    const r = run([
+      { timestamp: 120_000, type: "applybuff", sourceID: 1, targetID: 9, abilityGameID: 33077 },
+    ]);
+    expect(r.offPull.map((o) => o.actorName)).toEqual(["Sylvaria"]);
+  });
+});
+
 describe("named foods", () => {
+
   it("counts a dish that names its own buff as food", () => {
     // Skullfish Soup applies "Enlightened", not "Well Fed". Filed as an
     // off-slot curiosity it left 84 pulls on this guild's data reading as

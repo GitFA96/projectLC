@@ -1,6 +1,7 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { PREP_HOURS, prepApplications } from "@/lib/analysis/raid-report";
 import { costPerUseMap } from "@/lib/wcl/consumable-prices";
+import { petConsumableLabel } from "@/lib/wcl/consumables";
 import { adjustmentsFor, applyAdjustments } from "@/lib/analysis/consumable-adjustments";
 import { potionsUsed } from "@/lib/analysis/potions";
 import { hasConsumableCoverage, hasFood, isPrepared } from "@/lib/analysis/preparation";
@@ -175,8 +176,10 @@ export function goldPerRaid(
     for (const name of [
       ...(off?.potions ?? []),
       ...(off?.otherCasts ?? []),
-      // Pet consumables carry their timing now; gold only wants the name.
-      ...(off?.petConsumables ?? []).map((p) => p.name),
+      // Pet consumables carry their timing now; gold only wants the name —
+      // labelled apart from the raider's own copy of the same scroll, exactly
+      // as `summarizeRaidReport` does, or the two pages count differently (§5).
+      ...(off?.petConsumables ?? []).map((p) => petConsumableLabel(p.name)),
     ]) {
       itemCounts.set(name, (itemCounts.get(name) ?? 0) + 1);
     }

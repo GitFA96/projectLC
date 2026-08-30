@@ -96,4 +96,16 @@ describe("consumable pricing", () => {
     expect(map["Haste Potion"]).toBe(40);
     expect(map["Drums of Battle"]).toBeCloseTo(0.24);
   });
+
+  it("prices a pet's copy of a consumable as the item it is", () => {
+    // The pet suffix is a line label, so the breakdown can count and correct a
+    // hunter's own scroll apart from their pet's. It is the same scroll off the
+    // same auction house — and a label the catalog does not know falls through
+    // to 0 gold in silence, which is how this goes wrong.
+    const overrides = { "Scroll of Agility V": { gold: 12, charges: 1 } };
+    expect(effectivePrice("Scroll of Agility V (pet)", overrides).gold).toBe(12);
+    expect(effectivePrice("Kibler's Bits (pet)", {}).gold).toBe(
+      effectivePrice("Kibler's Bits", {}).gold,
+    );
+  });
 });

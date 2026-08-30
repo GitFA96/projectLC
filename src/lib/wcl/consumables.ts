@@ -332,9 +332,15 @@ export const SCROLL_LABELS: readonly string[] = Object.values(SCROLL_IDS);
 /**
  * Reading a scroll casts the same spell that shows up as the aura, so these
  * ids serve twice: as a buff at the pull (the raider scrolled themselves) and
- * as a CAST, which is the only way to see a hunter scrolling their pet. A
- * self-cast is already covered by the pull aura, so only the pet-targeted ones
- * are recorded from the cast stream.
+ * as a CAST, which is how a hunter scrolling their pet *during* a pull is seen.
+ * A self-cast is already covered by the pull aura, so only the pet-targeted
+ * ones are recorded from the cast stream.
+ *
+ * **The cast stream is a poor witness for pets, and cannot be fixed.** Scrolls
+ * are read between pulls, and a log contains no out-of-combat time at all —
+ * probed on mbwNGRaxhPHMTpKB, a full SSC/TK clear: one scroll cast in 73,837
+ * casts, none of them on a pet, on a night whose aura stream shows a pet
+ * holding two scrolls. `SCROLL_BUFF_IDS` is the other half of the answer.
  *
  * This list is part of what the *fetch* asks Warcraft Logs for, so widening it
  * from six ids to thirty is a §1 change: **already-imported reports have to be
@@ -342,10 +348,28 @@ export const SCROLL_LABELS: readonly string[] = Object.values(SCROLL_IDS);
  */
 export const SCROLL_CAST_IDS = Object.keys(SCROLL_IDS).map(Number);
 
+/**
+ * The same ids, as a buff lookup — a pet's only evidence that it was scrolled.
+ *
+ * Warcraft Logs writes one `combatantinfo` per **player** per pull and none at
+ * all for pets, so the snapshot that carries every raider's own scroll cannot
+ * carry their pet's. What a pet does have is its aura stream, and that is what
+ * this reads: not "a scroll was used" — see `petBuffsSeen` in `normalize.ts`
+ * for why the difference matters — but "the pet was holding one".
+ *
+ * Rides in the *Buffs* fetch filter alongside `FLASK_BUFF_IDS`, for the same
+ * reason those are there: the pull snapshot does not carry it. Same §1 rule —
+ * a report fetched before this list existed does not contain the events.
+ */
+export const SCROLL_BUFF_IDS: ReadonlyMap<number, string> = new Map(
+  Object.entries(SCROLL_IDS).map(([id, label]) => [Number(id), label] as const),
+);
+
 /** The scroll a cast id names, when it is one. */
 export function scrollCastName(abilityId: number | undefined): string | undefined {
   return abilityId === undefined ? undefined : SCROLL_IDS[abilityId];
 }
+
 
 /**
  * Bare-stat buff name → a scroll with **no rank**, for rows that reach us
@@ -644,6 +668,27 @@ const TRACKED_CASTS: TrackedCast[] = [
 ];
 
 export const TRACKED_CAST_IDS = TRACKED_CASTS.map((c) => c.id);
+
+/**
+ * Pet food, as a buff lookup — the same answer `SCROLL_BUFF_IDS` gives, for the
+ * same reason: a pet has no `combatantinfo`, and feeding happens between pulls
+ * where nothing is logged.
+ *
+ * **WCL does not call this aura "Well Fed".** Feeding a pet applies *"Pet
+ * Treat"*, which is why an earlier probe for "Well Fed" on pets found 138
+ * events and none on a pet, and concluded a pet's fed-ness was unknowable. It
+ * is the Skullfish Soup trap one level down — the buff is simply not named
+ * after the thing that applies it — so this matches on **id**, never the name.
+ *
+ * The ids are the ones already curated as `category: "pet"` casts above, so the
+ * food a sighting names is the food the cast would have named. Probed on
+ * mbwNGRaxhPHMTpKB: 20 `43771` aura events across three hunters' pets against
+ * three casts, and one of those hunters had no cast at all.
+ */
+export const PET_BUFF_IDS: ReadonlyMap<number, string> = new Map(
+  TRACKED_CASTS.filter((c) => c.category === "pet").map((c) => [c.id, c.name] as const),
+);
+
 /**
  * Sapper names for the casts filter: engineering explosives have several
  * near-identical spell ranks, so matching the throw by NAME as well as id keeps
@@ -759,6 +804,43 @@ export const CONSUMABLE_GROUP_LABELS: Record<ConsumableGroup, string> = {
 };
 
 /**
+ * How a pet's consumable is labelled once it leaves the pet record.
+ *
+ * **A hunter buys two Scrolls of Agility V and reads one to themselves and one
+ * to the pet.** Both arrive as the same string, from two different places — the
+ * pull's own aura snapshot and the off-pull pet record — and folded into one
+ * breakdown they became one line that was really two: the gold read right by
+ * accident, and an officer's ±1 against that name moved *both*, because a
+ * correction is keyed by the name it corrects. Probed on this guild's logs: 14
+ * of the 18 raider-nights that put a scroll on a pet ran the same scroll on the
+ * raider too.
+ *
+ * So the pet's copy carries the suffix from the moment it enters a breakdown.
+ * It is a **label**, not a new consumable: `effectivePrice` strips it before
+ * looking anything up, so the pet's scroll costs exactly what the raid says a
+ * scroll costs, and an officer setting this week's price sets one price (§5f —
+ * a label with no price key silently costs nothing).
+ *
+ * Nothing stored carries the suffix. It is applied where a breakdown is built
+ * and nowhere else, so the item cache, the icon lookup and the preparedness
+ * table all go on seeing the item's real name.
+ */
+export const PET_LABEL_SUFFIX = " (pet)";
+
+/** The name a pet's consumable is listed under in a breakdown. */
+export function petConsumableLabel(name: string): string {
+  return `${name.trim()}${PET_LABEL_SUFFIX}`;
+}
+
+/** The item behind a breakdown label — the pet suffix removed, if it is there. */
+export function baseConsumableName(label: string): string {
+  const trimmed = label.trim();
+  return trimmed.toLowerCase().endsWith(PET_LABEL_SUFFIX)
+    ? trimmed.slice(0, -PET_LABEL_SUFFIX.length).trim()
+    : trimmed;
+}
+
+/**
  * Which family a consumable label belongs to.
  *
  * `Food` and `Weapon oil/stone` are matched by name because they are names this
@@ -767,6 +849,10 @@ export const CONSUMABLE_GROUP_LABELS: Record<ConsumableGroup, string> = {
  */
 export function consumableGroupOf(label: string): ConsumableGroup {
   const lower = label.trim().toLowerCase();
+
+  // A pet's scroll is filed under Pet, never under Scrolls — the whole point of
+  // labelling it apart is that it stops sitting in the raider's own line.
+  if (lower.endsWith(PET_LABEL_SUFFIX)) return "pet";
 
   const aura = AURA_BY_NAME.get(lower);
   if (aura) {

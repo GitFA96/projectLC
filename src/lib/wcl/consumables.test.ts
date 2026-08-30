@@ -3,6 +3,8 @@ import {
   CONSUMABLE_GROUP_ORDER,
   POTION_PURPOSE_ORDER,
   consumableGroupOf,
+  petConsumableLabel,
+  baseConsumableName,
   isRestrictedRestore,
   potionPurposeOf,
   type ConsumableGroup,
@@ -113,5 +115,21 @@ describe("isRestrictedRestore", () => {
     expect(potionPurposeOf("Bottled Nethergon Energy")).toBe("mana");
     expect(potionPurposeOf("Cenarion Healing Salve")).toBe("healing");
     expect(potionPurposeOf("Bottled Nethergon Vapor")).toBe("healing");
+  });
+});
+
+describe("a pet's copy of a consumable", () => {
+  it("files under Pet, not under the family it came from", () => {
+    // The point of the label: a hunter's own Scroll of Agility V and the one
+    // they read to the pet stop sharing a line, so a correction to one leaves
+    // the other alone.
+    expect(consumableGroupOf(petConsumableLabel("Scroll of Agility V"))).toBe("pet");
+    expect(consumableGroupOf("Scroll of Agility V")).toBe("scroll");
+  });
+
+  it("names the item underneath, which is what gets priced", () => {
+    expect(baseConsumableName(petConsumableLabel("Kibler's Bits"))).toBe("Kibler's Bits");
+    // Anything without the suffix is already the item.
+    expect(baseConsumableName("Kibler's Bits")).toBe("Kibler's Bits");
   });
 });

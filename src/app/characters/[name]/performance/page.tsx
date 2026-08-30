@@ -839,12 +839,30 @@ function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
     for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
     return [...counts].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]));
   };
-  const groups: { label: string; entries: [string, number][] }[] = [
+  // A scroll with a cast behind it is counted below; the sighting it also
+  // produced is the same scroll, not a second one.
+  const counted = new Set(offPull.petConsumables.map((p) => p.name));
+  const groups: { label: string; entries: [string, number][]; countless?: boolean }[] = [
+
     { label: "Off-pull potions", entries: tally(offPull.potions) },
     { label: "Off-pull items", entries: tally(offPull.otherCasts) },
     // Names only here — this panel counts what was used, not when.
     { label: "Pet", entries: tally(offPull.petConsumables.map((p) => p.name)) },
+    /*
+     * Seen on the pet with nothing logged applying it, which for a pet is the
+     * usual case — no combatantinfo, and scrolls read between pulls. The count
+     * column is blanked rather than filled: a pet re-entering play republishes
+     * every aura it holds, so a number here would count summons.
+     */
+    {
+      label: "Seen on pet",
+      entries: offPull.petBuffsSeen
+        .filter((s) => !counted.has(s.name))
+        .map((s) => [s.name, 0] as [string, number]),
+      countless: true,
+    },
   ].filter((g) => g.entries.length > 0);
+
   if (groups.length === 0) return null;
 
   return (
@@ -856,7 +874,19 @@ function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
               {i === 0 ? group.label : ""}
             </TableCell>
             <TableCell className="text-sm">{name}</TableCell>
-            <TableCell className="text-right text-sm tabular-nums">×{count}</TableCell>
+            <TableCell className="text-right text-sm tabular-nums">
+              {group.countless ? (
+                <span
+                  className="text-xs text-muted-foreground"
+                  title="Seen on the pet — the log cannot say how many were read"
+                >
+                  seen
+                </span>
+              ) : (
+                `×${count}`
+              )}
+            </TableCell>
+
           </TableRow>
         )),
       )}

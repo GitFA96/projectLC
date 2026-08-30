@@ -1,4 +1,5 @@
 import type { ConsumablePrice } from "@/lib/types";
+import { baseConsumableName } from "@/lib/wcl/consumables";
 
 /**
  * Default gold prices + charges for in-fight consumables — the FALLBACK a raid
@@ -189,12 +190,22 @@ export function costPerUse(price: ConsumablePrice): number {
   return price.gold / Math.max(1, price.charges);
 }
 
-/** The price in force for a consumable: the raid's logged override, else the default. */
+/**
+ * The price in force for a consumable: the raid's logged override, else the
+ * default.
+ *
+ * **Read against the item, not the label.** A pet's copy of a scroll is listed
+ * apart so it can be counted and corrected apart, but it is the same scroll off
+ * the same auction house — so the suffix comes off before either lookup. Price
+ * it by its label instead and it misses the catalog, misses the officer's
+ * override for the week, and lands at 0 gold in silence (§5f).
+ */
 export function effectivePrice(
   name: string,
   overrides: Record<string, ConsumablePrice>,
 ): ConsumablePrice {
-  return overrides[name] ?? defaultPriceFor(name);
+  const item = baseConsumableName(name);
+  return overrides[item] ?? overrides[name] ?? defaultPriceFor(item);
 }
 
 /** Cost-per-use for each named consumable, applying the raid's overrides. */

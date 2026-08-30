@@ -1,8 +1,10 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
+import { petConsumableLabel } from "@/lib/wcl/consumables";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
 import { buildPreparedness } from "@/lib/analysis/preparedness";
+import { summarizePetSpend } from "@/lib/analysis/pet-consumables";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import type {
   ConsumableTypeRow,
@@ -12,6 +14,7 @@ import type {
   ParseBoardColumn,
   ParseBoardRow,
   PlayerBuffSource,
+  PetSpendView,
   PlayerImprovements,
   RaidCooldownRow,
   RaidFight,
@@ -198,8 +201,16 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
    * Pet food and pet scrolls ride along: the hunter bought them for this raid,
    * and `goldPerRaid` has always priced them — leaving them out here would make
    * the raid page and the career page disagree about the same night (§5).
+   *
+   * **Labelled apart from the raider's own.** A hunter reads one Scroll of
+   * Agility V to themselves and one to the pet; under one name those became a
+   * single line that an officer's correction then moved twice. `goldPerRaid`
+   * labels them the same way, and it has to — see `petConsumableLabel`.
    */
-  const offPullItems = (o: WclPlayerOffPull) => [...o.otherCasts, ...o.petConsumables.map((p) => p.name)];
+  const offPullItems = (o: WclPlayerOffPull) => [
+    ...o.otherCasts,
+    ...o.petConsumables.map((p) => petConsumableLabel(p.name)),
+  ];
 
   /* ---- Preparation + in-fight totals ---- */
   // Each consumable type tracks who used it (actor → count) for the per-type
@@ -712,6 +723,33 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     policy,
   });
 
+  /* ---- What the pets cost, logged and kept up ---- */
+  // Its own view rather than more rows in `usage`: a pet is fed between pulls
+  // where the log records nothing, so its cast count is a floor and the gold
+  // ranking beside it is charging that floor. The section shows the gap; it
+  // deliberately changes no number in the ranking. See `pet-consumables.ts`.
+  const petSpend: PetSpendView = summarizePetSpend({
+    offPull: input.offPull ?? [],
+    spanHours,
+    // The windows a raider's own food and scrolls are already re-bought on —
+    // a pet's Scroll of Agility V is the raider's Scroll of Agility V.
+    windowHours: { food: PREP_HOURS.food, scroll: PREP_HOURS.scroll },
+    actors: new Map(
+      [...byActor].map(([actorName, playerRows]) => {
+        const latest = playerRows[playerRows.length - 1];
+        return [
+          actorName.toLowerCase(),
+          {
+            name: actorName,
+            ...(slugOf(actorName) === undefined ? {} : { slug: slugOf(actorName) as string }),
+            ...(latest?.className === undefined ? {} : { className: latest.className }),
+            role: latest?.role ?? ("dps" as const),
+          },
+        ] as const;
+      }),
+    ),
+  });
+
   /* ---- Why we struggle on a boss ---- */
   const deathProfiles = buildDeathProfiles(rows);
 
@@ -721,6 +759,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   return {
     report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
     preparedness,
+    petSpend,
     deathProfiles,
     parseBoards,
   };

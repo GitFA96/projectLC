@@ -324,8 +324,17 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   record.
 - **Gold spent** — the night priced, with editable per-raid consumable prices and
   **manual adjustments**: add or remove uses the log got wrong, each logged with
-  a reason and undoable, flowing through to every other gold figure.
-- **Preparedness** — what everyone brought, one row per raider. A raid night is
+  a reason and undoable, flowing through to every other gold figure. **Pet
+  consumables get their own section**, because they are the one thing the log
+  cannot count: a pet is fed and scrolled between pulls, where no events are
+  recorded, so the card reads what was charged against what keeping it up all
+  night would cost and leaves the gap visible for the officer to ask about.
+  Nothing in it moves the ranking. A hunter's own scroll and the one they read
+  to the pet are separate lines throughout, so correcting one leaves the other
+  alone — they are two purchases with one name.
+- **Preparedness** — what everyone brought, one row per raider, with the
+  night's pet tally above it: how many pet foods and scrolls the log caught, and
+  how many keeping them up all night would take. A raid night is
   not one state — half a roster is typically fed on some pulls and not others —
   so a cell is a strip of one pip per pull rather than a tick that would have to
   pick which truth to tell. Scope to a boss, then to a single attempt, and the

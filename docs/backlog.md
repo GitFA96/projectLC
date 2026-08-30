@@ -69,6 +69,20 @@ Also needed:
 
 ---
 
+## Pet gold is reported, not charged
+
+The gold tab's pet card puts what the log recorded beside what keeping the same
+pet consumables up all night would cost, and stops there — the ranking, the
+career page and the season page all still charge the logged half only.
+
+Folding the estimate in is a §5 change: all three pricing sites in one edit, or
+the same hunter's night reads two ways. It is deliberately not started, because
+**which end of the range a guild bills is policy, not modelling** — it would
+belong in `analysis/policy.ts` and on the guild page (§4b), defaulting to
+today's behaviour so adopting it changes no number until an officer says so.
+What would actually settle it is asking the hunters what a night costs them; the
+card exists to make that conversation possible.
+
 ## Smaller things, already decided
 
 - **Handing a guild over is two steps, on purpose.** `transferGuildOwnership`
