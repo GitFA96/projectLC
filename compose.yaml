@@ -1,0 +1,55 @@
+# Run the real image locally, the way a host would run it.
+#
+#   docker compose up -d --build     start it (builds if needed)
+#   docker compose logs -f           watch it — the claim code prints here
+#   docker compose down              stop it, keeping the data volume
+#   docker compose down -v           stop it and DELETE the data volume
+#
+# Then open http://localhost:3000
+#
+# **One replica, always.** The read model and Next's route cache are per
+# process, so a second container serves pages that pre-date the first one's
+# writes, silently. Do not add `--scale`.
+
+services:
+  projectlc:
+    build: .
+    image: projectlc:test
+    ports:
+      # Must stay 3000 on the host: DISCORD_REDIRECT_URI is registered against
+      # localhost:3000 on the Discord application, and Discord matches it
+      # exactly. Change this and sign-in fails at Discord's consent screen.
+      - "3000:3000"
+
+    # Reuses the secrets already on this machine rather than copying them
+    # anywhere. .env.local is gitignored and excluded from the build context —
+    # this reads it from the host at run time, which is a different thing.
+    env_file:
+      - .env.local
+
+    environment:
+      # Explicit rather than inherited: the server refuses to boot without it,
+      # and this file is the place someone reads to find out why.
+      PROJECTLC_AUTH: "on"
+      # Inside the container, on the mounted volume — not wherever the host
+      # happens to keep its copy.
+      PROJECTLC_DB: /data/projectlc.db
+      # Warcraft Logs instants are stored as UTC and rendered in process-local
+      # time. On a UTC container a 19:30 pull shows as 17:30.
+      TZ: Europe/Oslo
+      # .env.local points this at a Windows path that does not exist in the
+      # container. Cleared so the sim pages say "not configured" rather than
+      # failing to exec something.
+      WOWSIMCLI_PATH: ""
+
+    volumes:
+      # Named volume, not a bind mount to ./data — that directory holds the
+      # live guild database and migrations run automatically on first
+      # connection, with no down path. To test against real data, load a
+      # *snapshot* into this volume instead (see local/deployment-spec.md).
+      - projectlc-data:/data
+
+    restart: unless-stopped
+
+volumes:
+  projectlc-data:

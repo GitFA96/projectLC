@@ -2,14 +2,23 @@
   "name": "projectlc",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/check-dynamic-routes.mjs && node scripts/prune-standalone.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "build:profile": "next build --profile",
-    "start:profile": "next build --profile && next start"
+    "start:profile": "next build --profile && next start",
+    "doctor": "node scripts/doctor.mjs",
+    "image": "docker build -t projectlc:test . && bash scripts/smoke-image.sh projectlc:test",
+    "image:clean": "docker image prune -f && docker builder prune -f",
+    "app": "docker compose up -d --build",
+    "app:logs": "docker compose logs -f",
+    "app:stop": "docker compose down"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.9",

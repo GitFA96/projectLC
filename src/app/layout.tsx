@@ -19,6 +19,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/**
+ * Nothing in this app is static, and saying so here is a security control.
+ *
+ * `resolveViewer()` short-circuits to `unrestrictedViewer()` when
+ * `PROJECTLC_AUTH` is off, and that path never touches `cookies()`. No dynamic
+ * API means Next happily prerenders the page **at build time, as a viewer with
+ * every capability**, and then serves that HTML to everyone — the request-time
+ * check never runs because there is no request.
+ *
+ * It stayed invisible because `.env.local` sets the flag, so a workstation
+ * build marks every route `ƒ` and looks correct. A container build excludes
+ * `.env.local` — correctly — and 14 capability-gated routes turned static,
+ * `/roster` among them, serving the whole roster to anonymous callers.
+ * Reproduced 30 Aug 2026 with `PROJECTLC_AUTH= npm run build`.
+ *
+ * Forcing it at the root makes the property structural rather than a thing each
+ * page has to remember, and it costs nothing: every route reads the database,
+ * so there was never a static shell to lose. `scripts/check-dynamic-routes.mjs`
+ * fails the build if one comes back.
+ */
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: {
     default: "projectLC — TBC Loot Council",

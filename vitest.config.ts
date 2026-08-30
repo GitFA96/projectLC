@@ -7,6 +7,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    // scripts/ holds the build and deploy guards. They fail the build and gate
+    // a release, so they are tested like anything else that can be wrong.
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.{ts,mts}"],
   },
 });

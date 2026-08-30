@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # The app's own dependencies. Grouped so a week of patch bumps is one PR to
+  # review rather than fifteen — a solo maintainer ignores fifteen.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        update-types: [minor, patch]
+
+  # The Dockerfile's base image. With this watching it, pinning a digest becomes
+  # a reasonable option — see the note at the top of the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The workflow actions above. Unwatched pinned actions rot quietly.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

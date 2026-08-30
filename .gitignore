@@ -46,3 +46,6 @@ next-env.d.ts
 
 # local working notes (deployment specs, host details) — never pushed
 /local/
+
+# MSYS crash artifacts (git-bash writes these on SIGPIPE)
+*.stackdump

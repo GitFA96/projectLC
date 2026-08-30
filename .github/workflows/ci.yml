@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run tells you nothing you still need.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Unit tests, lint and a production build. Fast, and the first thing to go red
+  # for an ordinary mistake.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Reads .nvmrc, so the floor lives in one place. It is a real floor:
+          # below 22.13 the app crashes on node:sqlite rather than degrading.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run lint
+
+      # `npm run build`, never `next build` — the npm script also runs
+      # check-dynamic-routes.mjs and prune-standalone.mjs, which are the two
+      # guards standing between a mistake and a shipped artifact.
+      #
+      # Deliberately no secrets and no .env file. This job builds the way a
+      # container build does, which is the *only* way the prerender bug is
+      # visible: with PROJECTLC_AUTH set, every route renders dynamic and the
+      # build looks perfectly healthy.
+      - run: npm run build
+
+  # Build the real artifact and probe it. This job exists because on
+  # 30 Aug 2026 two security bugs passed the whole suite above and were only
+  # visible in a running container.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: projectlc:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: bash scripts/smoke-image.sh projectlc:ci

@@ -153,6 +153,30 @@ typed string is not one. Belongs with the game-state stamp above — "who says
 this, describing what, as of when" is one record, and doing it as three separate
 retrofits after the rows have been distributed is the expensive version.
 
+## CSP allows inline script, and only a nonce fixes it
+
+`next.config.ts` serves a Content-Security-Policy in production, and its
+`script-src` carries `'unsafe-inline'`. Next injects its own inline bootstrap
+scripts — the RSC flight payload — whose content differs per page, so neither a
+hash list nor any static header can enumerate them. The real fix is a
+per-request nonce generated in `middleware.ts`, which this app deliberately does
+not have.
+
+**Not urgent, and the reason is worth keeping.** The whole app contains exactly
+one `dangerouslySetInnerHTML`, and it is our own static theme script in
+`layout.tsx`. Every piece of text a person writes — character and item comments,
+boss comments, guides, feedback — reaches the page through React, which escapes
+it. So the directive that `'unsafe-inline'` weakens is guarding against an
+injection route that does not currently exist.
+
+It stops being true the moment anything renders user-supplied markup — a
+rich-text guide editor is the obvious way it happens. **That change and the
+nonce are one piece of work**, not two, and doing the markup half alone is how
+this becomes a real hole.
+
+Adding middleware has its own cost worth weighing first: it puts an Edge-runtime
+layer in front of every request in an app that currently has none.
+
 ## Smaller things, already decided
 
 - **Handing a guild over is two steps, on purpose.** `transferGuildOwnership`

@@ -23,28 +23,46 @@ import { createSession, readOAuthState, safeReturnTo, STATE_COOKIE } from "@/lib
  * Three ways in, in order of how rare they are: the one-time deployment claim,
  * an invitation, and an ordinary sign-in by somebody who already belongs here.
  */
-function redirect(request: NextRequest, to: URL | string): NextResponse {
-  const response = NextResponse.redirect(new URL(to, request.nextUrl.origin), 302);
+/**
+ * **The Location header is relative, deliberately.**
+ *
+ * `NextResponse.redirect()` demands an absolute URL, and the obvious origin to
+ * build one from — `request.nextUrl.origin` — is the address the server *bound*
+ * to, not the one the browser asked for. In a container that is
+ * `HOSTNAME=0.0.0.0`, which the Dockerfile must set or nothing outside could
+ * reach the process at all. The result was a working sign-in that ended on
+ * `http://0.0.0.0:3000/signin`, a URL no browser can open, on every
+ * containerised deployment.
+ *
+ * Taking the origin from the `Host` header instead would fix the symptom and
+ * introduce a worse bug: `Host` is attacker-controlled, and this redirect
+ * happens *after* a session cookie is set. A relative Location has neither
+ * problem — the browser resolves it against whatever host it actually reached,
+ * and there is no origin to spoof.
+ *
+ * Every target here is same-origin by construction: `safeReturnTo()` refuses
+ * anything that does not start with a single `/`.
+ */
+function redirect(to: string): NextResponse {
+  const response = new NextResponse(null, { status: 302, headers: { Location: to } });
   response.cookies.delete(STATE_COOKIE);
   return response;
 }
 
-function fail(request: NextRequest, reason: string): NextResponse {
-  const url = new URL("/signin", request.nextUrl.origin);
-  url.searchParams.set("error", reason);
-  return redirect(request, url);
+function fail(reason: string): NextResponse {
+  return redirect(`/signin?error=${encodeURIComponent(reason)}`);
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  if (!discordConfigured()) return fail(request, "not-configured");
+  if (!discordConfigured()) return fail("not-configured");
 
   const params = request.nextUrl.searchParams;
   // The user pressed Cancel on Discord's consent screen, or Discord refused.
-  if (params.get("error")) return fail(request, "declined");
+  if (params.get("error")) return fail("declined");
 
   const code = params.get("code");
   const state = await readOAuthState(params.get("state"));
-  if (!code || !state) return fail(request, "expired");
+  if (!code || !state) return fail("expired");
 
   /*
    * Check the invitation before spending a Discord round trip on it.
@@ -59,14 +77,14 @@ export async function GET(request: NextRequest): Promise<Response> {
    */
   if (state.inviteCode) {
     const preview = checkInvite(state.inviteCode);
-    if (!preview.ok) return fail(request, `invite-${preview.reason}`);
+    if (!preview.ok) return fail(`invite-${preview.reason}`);
   }
 
   let identity;
   try {
     identity = await exchangeCodeForIdentity(code, state.codeVerifier);
   } catch (e) {
-    return fail(request, e instanceof DiscordAuthError ? "discord" : "unknown");
+    return fail(e instanceof DiscordAuthError ? "discord" : "unknown");
   }
 
   const now = new Date().toISOString();
@@ -77,20 +95,20 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (state.claimCode) {
     // Checked against the live count rather than against what the browser told
     // us, so a stale claim link cannot re-open a deployment somebody owns.
-    if (deploymentClaimed()) return fail(request, "already-claimed");
-    if (!claimCodeMatches(state.claimCode)) return fail(request, "bad-code");
+    if (deploymentClaimed()) return fail("already-claimed");
+    if (!claimCodeMatches(state.claimCode)) return fail("bad-code");
     try {
       accountId = claimDeployment({ ...identity, now }).accountId;
     } catch {
-      return fail(request, "claim-failed");
+      return fail("claim-failed");
     }
   } else {
     // Nothing to sign in to yet. Without this, an ordinary sign-in before the
     // claim would mint an account that owns nothing — and used to close the
     // claim page permanently, bricking the deployment from its own front door.
-    if (!deploymentClaimed()) return fail(request, "unclaimed");
+    if (!deploymentClaimed()) return fail("unclaimed");
     const account = upsertAccount(getDb(), { ...identity, now });
-    if (account.disabled) return fail(request, "disabled");
+    if (account.disabled) return fail("disabled");
     accountId = account.id;
 
     if (state.inviteCode) {
@@ -103,12 +121,12 @@ export async function GET(request: NextRequest): Promise<Response> {
         displayName: identity.discordUsername ?? "Member",
         now,
       });
-      if (!redeemed.ok) return fail(request, `invite-${redeemed.reason}`);
+      if (!redeemed.ok) return fail(`invite-${redeemed.reason}`);
     }
   }
 
   const session = createSession(accountId, userAgent);
-  const response = redirect(request, returnTo);
+  const response = redirect(returnTo);
   response.cookies.set(session.name, session.value, session.options);
   return response;
 }

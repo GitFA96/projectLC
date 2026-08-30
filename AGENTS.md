@@ -109,7 +109,21 @@ npm run dev     # the user usually has :3000 running already — don't kill it
 npm test        # vitest
 npm run lint
 NEXT_DIST_DIR=.next-build npm run build
+
+npm run doctor      # every deployment footgun as a check that exits 1
+npm run image       # build the container image, then smoke-test a live one
+npm run image:clean # reclaim dangling images and build cache
 ```
+
+`npm run build` is `next build` **plus two guards** — one fails if any page is
+prerendered, the other if a database survives into the artifact. Both exist
+because the mistake they catch is silent and shipped once. Never substitute a
+bare `next build`.
+
+**A workstation build is not the build that ships.** `.env.local` sets
+`PROJECTLC_AUTH`, which makes every route render dynamically, which makes the
+build look correct. Reproduce a real one with `PROJECTLC_AUTH= npm run build`,
+or just use `npm run image`.
 
 **Build into `.next-build`, not `.next`, whenever the dev server is up.** They
 share `.next` by default and a build takes the running dev server down with it.

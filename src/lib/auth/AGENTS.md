@@ -34,7 +34,11 @@ starts being guessed at.
 now refuses a real person rather than passing silently. `unrestrictedViewer()`
 still exists for a deployment that has not switched it on, and reports itself as
 unrestricted so it can never be mistaken in an audit log for a grant somebody
-made. **It covers reads too.** A write is refused by `requireCapability()` at the
+made. The flag still fails **open** per request — that default belongs to the
+pre-accounts history — so `boot.ts` refuses to start the server at all when
+`NODE_ENV=production` and the flag is not exactly `on`. Deliberately no
+override: claiming works with enforcement on, so wanting one means wanting the
+wrong thing. **It covers reads too.** A write is refused by `requireCapability()` at the
 action; a page is refused by `pageView()` in its first two lines, and
 `pages.test.ts` fails if a page declares nothing — which is what stops the next
 page anybody adds from being open by default. Design and rollout:

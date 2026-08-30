@@ -1,0 +1,28 @@
+# The live guild database. Never build input — it belongs on the mounted
+# volume. Without this line `COPY . .` carries real characters, awards and raid
+# nights into the image, and Next's file tracer copies it again on top.
+data/
+
+# Secrets. `.env*` is gitignored for the same reason it is ignored here.
+.env
+.env.*
+
+# Untracked working notes: host details, assessments, checklists.
+local/
+
+# Build output and dependencies — recreated inside the image.
+node_modules/
+.next/
+.next-build/
+.next-preview/
+*.tsbuildinfo
+
+# Repository and editor state.
+.git/
+.gitignore
+.claude/
+
+# Backups, if anyone ever lands one here.
+*.db
+*.db-wal
+*.db-shm

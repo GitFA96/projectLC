@@ -21,6 +21,12 @@ export async function register(): Promise<void> {
   // Quietens one Node warning; see the file for which and why. Before the
   // claim log, so booting is not the first thing to trigger it.
   await import("./instrumentation-node");
+  // Deliberately NOT in a try/catch, unlike the claim log below: a production
+  // deployment with authorization off is the one misconfiguration that must
+  // stop the server rather than be survived. See the file for why there is no
+  // override.
+  const { assertAuthConfigured } = await import("@/lib/auth/boot");
+  assertAuthConfigured();
   try {
     const { announceClaimCode } = await import("@/lib/auth/claim");
     announceClaimCode();

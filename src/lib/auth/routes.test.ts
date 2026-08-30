@@ -69,3 +69,35 @@ describe("every route handler decides who is asking", () => {
     ]);
   });
 });
+
+/**
+ * A redirect must not be built from the address the server bound to.
+ *
+ * `request.nextUrl.origin` is that address, not the one the browser asked for.
+ * The Dockerfile sets `HOSTNAME=0.0.0.0` because nothing outside the container
+ * could reach the process otherwise — so on 30 Aug 2026 the Discord callback
+ * completed a sign-in and then sent the browser to `http://0.0.0.0:3000/signin`,
+ * which cannot be opened. Every containerised deployment had a broken sign-in
+ * and nothing said so; the flow works right up to the last hop.
+ *
+ * A relative `Location` is the fix. Taking the origin from the `Host` header
+ * instead would swap this for an open redirect on an attacker-controlled header,
+ * immediately after a session cookie is set.
+ */
+describe("route handlers never redirect to the address they bound to", () => {
+  const handlers = walk(root).map(rel).sort();
+
+  it("finds handlers, so an empty walk cannot pass", () => {
+    expect(handlers.length).toBeGreaterThan(0);
+  });
+
+  it("has no handler building a URL from nextUrl.origin", () => {
+    const offenders = handlers.filter((f) =>
+      /nextUrl\.origin/.test(stripComments(readFileSync(path.join(root, f), "utf8"))),
+    );
+    expect(
+      offenders,
+      "Redirect to a relative path instead. See the comment above this test.",
+    ).toEqual([]);
+  });
+});

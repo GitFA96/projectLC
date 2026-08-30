@@ -239,6 +239,56 @@ already written down as its own pitfall for the award dialog, and it turned out
 to be the same bug wearing a different hat.
 
 
+## Your workstation build is not the build that ships
+
+`resolveViewer()` returns `unrestrictedViewer()` when `PROJECTLC_AUTH` is off,
+and that branch never touches `cookies()`. No dynamic API means Next is free to
+**prerender the page at build time, as a viewer holding every capability**, and
+serve that HTML to everyone afterwards. A capability check cannot refuse a
+request that never happens.
+
+Locally this is invisible, and invisible in the most convincing way: `.env.local`
+sets the flag, so `resolveViewer()` reads a cookie, so every route builds as `ƒ`,
+so the build output *looks like proof that enforcement works*. A container build
+excludes `.env.local` — correctly, it holds secrets — and fourteen gated routes
+turn static. `/roster` served the whole roster to an anonymous request.
+
+> The general shape: **a security property that depends on an environment
+> variable being present at build time is not a property, it is a coincidence.**
+
+Two guards now exist, and they answer different questions.
+`export const dynamic = "force-dynamic"` in the root layout makes it true;
+`scripts/check-dynamic-routes.mjs` fails the build if it stops being true. The
+test suite could not have caught this — `pages.test.ts` checks that a page
+*declares* `pageView()`, which every one of those fourteen still did. Declaring a
+check and running it are different facts, and only one of them is greppable.
+
+## The server's own address is not the address anybody typed
+
+`request.nextUrl.origin` is where the process **bound**, not where the browser
+went. In a container those differ by necessity: `HOSTNAME=0.0.0.0` is what makes
+the port reachable from outside at all, so a redirect built from that origin
+sends the browser to `http://0.0.0.0:3000/...`, which cannot be opened.
+
+The Discord callback did exactly this. Sign-in worked — state checked, code
+exchanged, session cookie set — and then the last hop landed nowhere. Every
+containerised deployment had a broken sign-in and nothing anywhere said so,
+because every step before the final redirect succeeded.
+
+> The general shape: **anything derived from how the server sees itself is wrong
+> the moment there is a container, a proxy, or a port mapping in front of it.**
+
+The fix is a **relative** `Location`, and the near-miss is worth knowing. Taking
+the origin from the `Host` header instead looks equally correct and is worse:
+`Host` is attacker-controlled, and this particular redirect happens immediately
+after a session cookie is set, which turns a cosmetic bug into an open redirect.
+A relative Location has no origin to spoof and needs no trust decision at all.
+
+Guarded twice, because the two guards catch different things:
+`routes.test.ts` fails any handler mentioning `nextUrl.origin`, and
+`scripts/smoke-image.sh` checks a real container's `Location` header — the only
+place the bug was ever visible.
+
 ## A log nobody can read is not accountability
 
 `guild_audit` was written to by every governance path in the app — the claim,
