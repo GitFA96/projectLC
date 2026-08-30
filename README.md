@@ -762,4 +762,9 @@ and what we deliberately don't.
 
 ## License
 
-See [License.md](License.md) — all rights reserved.
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Use it, host
+it, fork it; keep the notice and say what you changed.
+
+Built with heavy AI assistance. The judgement it encodes — what to measure, what
+to stay silent about, and which numbers are a guild's call rather than a
+default — is the author's.

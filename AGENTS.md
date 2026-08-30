@@ -50,8 +50,14 @@ code.
 
 **[`docs/backlog.md`](docs/backlog.md)** — work that is understood but not
 started, and why. Read it before beginning anything large; multi-guild in
-particular is blocked on a schema decision that should land before a second
-guild exists, not after.
+particular is still blocked on a schema decision that should land before a
+second guild exists, not after — though the drop table's half of it is done.
+
+**[`docs/shared-and-guild-data.md`](docs/shared-and-guild-data.md)** — which
+data is shared across the deployment and which belongs to one council, and the
+rule that verdict paths read the merged guild view rather than the shared table
+underneath. Read it before adding a table that anybody might want to disagree
+with.
 
 **[`docs/pitfalls.md`](docs/pitfalls.md)** — how this codebase and these docs
 will mislead you. Read it before a refactor that crosses layers. In particular:

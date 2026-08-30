@@ -1,0 +1,27 @@
+projectLC
+Copyright 2026 Fredrik Aspelien
+
+This product includes software developed by Fredrik Aspelien.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. You may obtain a copy of
+the License in the LICENSE file distributed with this work, or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+Third-party notices
+
+wowsims — optional, invoked as an external binary and not vendored here. Its
+licence asks for a visible link back to the project wherever simulation results
+are shown; that obligation sits with any deployment that enables sims, and is
+not discharged by this file.
+
+Warcraft Logs, Wowhead, SixtyUpgrades, Gargul and Discord are used through their
+public APIs or exports. They are not affiliated with this project and their
+names are their owners'.
+
+World of Warcraft and The Burning Crusade are trademarks of Blizzard
+Entertainment, Inc. This project is unaffiliated, unofficial, and not endorsed
+by Blizzard.
