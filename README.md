@@ -312,8 +312,29 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
 - **Overview** — preparation coverage (with the full-set / half-set split),
   uptime **by boss** (bands across the pull,
   gaps are exactly the downtime) and **by player** (who actually *had* Battle
-  Shout or Innervate, and who put it on them), totem drops, cooldown and potion
-  usage, and a worst-first improvements list.
+  Shout or Innervate, and who put it on them), totem drops, **deployables**,
+  **dispels**, cooldown and potion usage, and a worst-first improvements list.
+- **Deployables** — land mines, snake traps, thornlings, dog whistles and flame
+  turrets, laid on the pull in the order they went down. On a fight that wants
+  the kit the count is the smaller half: whether it was down at 0:05 or trickled
+  in over two minutes, and how many people laid one, is the difference between
+  a wipe and a kill. Boss pulls only — one thrown on trash has no pull to sit on
+  and is counted as a consumable in the gold tab instead. The four items are
+  priced like any other consumable — land mines and turrets carry the council's
+  5g baseline, while the seed and the whistle sit at 0 until somebody quotes a
+  price, since a guess there would move a real gold ranking. Snake Trap is a
+  hunter ability and is never priced at all.
+- **Dispels** sit in three shapes because there are three questions. Night
+  totals per raider, split into what they cleansed off our own and what they
+  stripped off the enemy; trash counted **per instance**, since a night that
+  clears Mount Hyjal and Black Temple is two different jobs and most decursing
+  happens between the bosses; and a per-pull timeline, so "who was covering Grip
+  of the Legion on Archimonde" reads like the totem and Innervate lanes rather
+  than as a number. Nothing here is scored — what a raid *should* dispel is an
+  assignment the council makes. Two silences are stated on the page rather than
+  papered over: a shaman's Poison Cleansing Totem produces no dispel events at
+  all, and a spell that can remove two schools is shown with neither, because
+  the log never says which one a press caught.
 - **Rankings** — the whole raid as parse boards, one table per role, a column per
   boss kill, switchable between all-damage and boss-only.
 - **Groups** — which groups *this* night was run in, seeded with everyone the
@@ -332,6 +353,20 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   Nothing in it moves the ranking. A hunter's own scroll and the one they read
   to the pet are separate lines throughout, so correcting one leaves the other
   alone — they are two purchases with one name.
+- **Payback** — the night's Marks of Illidari shared back out to the people who
+  bought the consumables. Officers record what the raid banked and what a mark
+  is worth this week; the ranking gains a column with each raider's share, in
+  gold and in whole marks, and a night total that always adds up to exactly the
+  pot — it is a split of what the guild has, never a percentage that could
+  promise more. **Nobody is paid back more than they spent**: a share that would
+  go over is held at that raider's outlay and the difference goes back into the
+  pot for everyone else, so the column still adds up rather than losing the
+  remainder. Marks the ceiling leaves unplaceable stay in the bank and are
+  counted as such. The top spenders' spend counts double by default, which is a
+  guild-policy knob and a deliberately hard boundary: set the multiplier to 1
+  for a flat proportional split. Officers also write down what has actually been
+  handed over, so "what we owe" and "what we've settled" stay separate facts.
+  None of it touches the loot score or the standing board.
 - **Preparedness** — what everyone brought, one row per raider, with the
   night's pet tally above it: how many pet foods and scrolls the log caught, and
   how many keeping them up all night would take. A raid night is
@@ -352,7 +387,7 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
 
 ### All raids
 
-Pick the nights to include, then read the season two ways.
+Pick the nights to include, then read the season three ways.
 
 **Consumable spend** ranks people. It splits **guild characters** from **all
 players** because a pug is somebody else's raider — real spend, and on this
@@ -360,6 +395,18 @@ guild's own season a quarter of the total — so leaving them in answers a
 different question from the one an officer asks. The guild side filters to mains
 or alts, and the total above the table is the sum of whatever is on screen, not
 a season-wide figure that happens to sit there.
+
+**The payback ledger** is the running account of the Marks of Illidari. Every
+night that recorded a pot joins it, and it sums what each raider spent, what
+their split said they were owed, and what officers actually handed over — sorted
+by **who is furthest behind**, because that is the column that answers "who
+should the next payday favour". The biggest spender is often not the answer: on
+this guild's own data the top spender was owed the most and still ranked tenth,
+because he had already been paid, while a smaller spender who had never been
+covered sat first. Nights with no pot recorded are counted and named rather than
+folded in as nights where nobody was owed anything. Nothing here feeds a split
+automatically — evening out is the council's call, and the ledger only makes it
+possible to see.
 
 **Consumable usage** ranks consumables. Pick one — or a family, or a potion
 sub-family like mana potions — and see everyone who used it with their own

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { BossDeathProfile } from "@/lib/analysis/deaths";
+import type { RaidDeployableView } from "@/lib/analysis/deployables";
+import type { RaidDispelView } from "@/lib/analysis/dispels";
 import type { CoverageGrade } from "@/lib/analysis/preparation";
 import type { ElixirSlot } from "@/lib/wcl/consumables";
 import type {
@@ -882,6 +884,28 @@ export interface RaiderUsage {
 }
 
 /**
+ * What one raid night banked to hand back, and what has gone out so far.
+ *
+ * The raid's Marks of Illidari are the pot: a real, countable number of tokens
+ * that buy potions and flasks, banked fresh each week. Both halves are recorded
+ * per night rather than fixed anywhere, because both move — the raid banks a
+ * different number every week, and the mark's gold value drifts with the
+ * server economy the same way a flask's does.
+ *
+ * `paid` is the officers' record of what has actually been handed over, kept
+ * beside the recommendation rather than replacing it: "what we owe" and "what
+ * we've settled" are different facts and the card shows both.
+ */
+export interface ReportPayback {
+  /** Marks of Illidari the raid banked that night. */
+  marks: number;
+  /** What one mark is worth in gold, as the officers price it today. */
+  markGold: number;
+  /** Gold already handed over, by logged raider name. */
+  paid: Record<string, number>;
+}
+
+/**
  * An officer's correction to one raider's consumable count for one raid.
  *
  * The log is evidence, not gospel: it can't see a flask drunk before the pull
@@ -1163,6 +1187,24 @@ export interface RaidReportView {
    * ranking still charges the logged half and nothing else.
    */
   petSpend: PetSpendView;
+  /**
+   * Who cleansed what off whom — a timeline per boss pull, and counts per
+   * instance for the trash.
+   *
+   * Empty on every report imported before dispels were fetched, which is not
+   * the same statement as a night nobody dispelled on. The view carries a
+   * `total` so the page can say which it cannot tell.
+   */
+  dispels: RaidDispelView;
+  /**
+   * What the raid put on the ground, pull by pull — land mines, snake traps,
+   * thornlings, dog whistles, flame turrets.
+   *
+   * Empty on reports imported before those five were curated, which is not the
+   * same as a night nobody laid one on; the view carries a `total` so the page
+   * can say which it cannot tell.
+   */
+  deployables: RaidDeployableView;
 }
 
 
@@ -1229,6 +1271,14 @@ export interface SeasonReportInput {
   overrides: Record<string, ConsumablePrice>;
   /** This raid's hand corrections to consumable counts. */
   adjustments?: ConsumableAdjustment[];
+  /**
+   * What this night banked in Marks of Illidari and what went back out.
+   *
+   * Absent, or all zeroes, for a night nobody recorded a pot against — which
+   * keeps that raid out of the payback ledger entirely rather than entering it
+   * as a night where everyone was owed nothing.
+   */
+  payback?: ReportPayback;
 }
 
 /**
@@ -1343,6 +1393,71 @@ export interface SeasonConsumableStat {
   users: SeasonConsumableUser[];
 }
 
+/** One raider's standing in the payback ledger, across every raid with a pot. */
+export interface SeasonPaybackRaider {
+  name: string;
+  slug?: string;
+  className?: string;
+  /**
+   * Raids with a recorded pot that this raider spent in.
+   *
+   * Only those: a night with no pot is not a night they went unpaid, and
+   * counting it would make every raider who missed a payday look shorted.
+   */
+  raids: number;
+  /** Their spend across those raids — the basis every split was worked out on. */
+  spend: number;
+  /** What the splits said they were owed, summed. */
+  recommended: number;
+  /** What the officers recorded actually handing over, summed. */
+  paid: number;
+  /** Marks the splits allocated them, summed. */
+  marks: number;
+  /**
+   * `recommended − paid`. Positive means still owed; negative means they have
+   * had more than the splits called for.
+   *
+   * This is the number the ledger exists to show, and the one an officer reads
+   * when deciding who to favour next. It is **not** fed back into any split —
+   * evening out is a judgement, and the app does not make it (see
+   * `AGENTS.md` invariant 5).
+   */
+  balance: number;
+}
+
+/** One night in the ledger. Raids with no pot recorded never appear. */
+export interface SeasonPaybackRaid {
+  code: string;
+  title: string;
+  startTime: string;
+  zone?: string;
+  marks: number;
+  markGold: number;
+  potGold: number;
+  recommended: number;
+  paid: number;
+  marksAllocated: number;
+  /** Marks the spend ceiling left in the bank. */
+  marksLeft: number;
+}
+
+/** The payback ledger across the selected raids. */
+export interface SeasonPaybackView {
+  /** Furthest behind first — who the next payday should favour. */
+  raiders: SeasonPaybackRaider[];
+  /** Newest night first. */
+  raids: SeasonPaybackRaid[];
+  potGold: number;
+  recommendedTotal: number;
+  paidTotal: number;
+  marksTotal: number;
+  /**
+   * Selected raids with no pot recorded. Named rather than ignored: a ledger
+   * that silently covers 3 of 12 nights is worse than one that says so.
+   */
+  raidsWithoutPot: number;
+}
+
 export interface SeasonRankingsView {
   reportCount: number;
   /** Sorted by total gold spent, descending. */
@@ -1352,6 +1467,11 @@ export interface SeasonRankingsView {
   /** Boss debuffs first, then by best average uptime. */
   uptime: SeasonUptimeRow[];
   notables: SeasonNotable[];
+  /**
+   * Payback across every selected raid that recorded a pot — the running
+   * account of who has had their consumables covered and who has not.
+   */
+  payback: SeasonPaybackView;
 }
 
 /* Character-vs-character comparison (up to 4, the contribution side-by-side) */

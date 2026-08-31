@@ -39,6 +39,10 @@ describe("resolvePolicy", () => {
       // Equal because the app has no opinion — the council sets these.
       roster: { weights: { attendance: 34, performance: 33, preparation: 33 }, minRaids: 3 },
       improvementSeverity: { high: 100, medium: 40, low: 12 },
+      // The council's own numbers: a 10-deep top tier out of a 25-raider
+      // roster, whose spend counts double when the marks are split. Inert
+      // until a raid night has a pot recorded against it.
+      payback: { topTier: 10, topWeight: 2 },
     });
   });
 });

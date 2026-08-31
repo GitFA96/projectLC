@@ -167,6 +167,46 @@ export interface GuildPolicy {
    * list worst-first. Ordering only — nothing here feeds a loot score.
    */
   improvementSeverity: { high: number; medium: number; low: number };
+  /**
+   * How a night's Marks of Illidari get split back out to the people who
+   * bought the consumables.
+   *
+   * The pot is not here — it is recorded per raid night, because the raid banks
+   * a different number of marks each week and the mark's gold value moves. This
+   * is only the *shape* of the split, which is a standing decision.
+   *
+   * **Inert until a night has a pot.** Adopting these fields changes no number
+   * anywhere: with nothing recorded there is nothing to apportion, which is the
+   * §4b rule about defaults reproducing today's behaviour, honoured the only
+   * way a brand-new feature can honour it.
+   *
+   * Neither field can produce a refund larger than what somebody spent — that
+   * ceiling lives in `analysis/payback.ts` and is deliberately not a knob, so
+   * no combination of tier and weight set here can breach it.
+   *
+   * And nothing here is scored. Being owed marks is neither a merit nor a
+   * demerit; it must never reach the loot score or the standing board, on the
+   * same reasoning that keeps loot debt off the standing board.
+   */
+  payback: {
+    /**
+     * How many of the night's biggest spenders get the boosted share.
+     *
+     * 10 because the council asked for 10 out of a 25-raider roster. It is a
+     * hard boundary by design, and a hard boundary has a cost worth knowing:
+     * on the night this was built against, ranks 10 and 11 were 69g apart in
+     * spend, so any boost puts a visible step between two nearly identical
+     * raiders. Lower `topWeight` toward 1 to soften it; 1 is a plain
+     * proportional split.
+     */
+    topTier: number;
+    /**
+     * How many times over the top tier's spend counts when shares are worked
+     * out. 2 means a top-tier raider's gold is worth double everyone else's in
+     * the split — not that they get double the gold.
+     */
+    topWeight: number;
+  };
 }
 
 export const DEFAULT_POLICY: GuildPolicy = {
@@ -179,6 +219,7 @@ export const DEFAULT_POLICY: GuildPolicy = {
   preparation: { coverage: "any", excusedEncounters: [] },
   roster: { weights: { attendance: 34, performance: 33, preparation: 33 }, minRaids: 3 },
   improvementSeverity: { high: 100, medium: 40, low: 12 },
+  payback: { topTier: 10, topWeight: 2 },
 };
 
 /** A stored policy is always partial — anything unset falls back to the default. */
@@ -211,5 +252,6 @@ export function resolvePolicy(overrides?: PolicyOverrides): GuildPolicy {
       ...DEFAULT_POLICY.improvementSeverity,
       ...overrides.improvementSeverity,
     },
+    payback: { ...DEFAULT_POLICY.payback, ...overrides.payback },
   };
 }

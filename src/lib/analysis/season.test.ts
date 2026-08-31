@@ -230,3 +230,76 @@ describe("isGuildCharacter", () => {
     expect(isGuildCharacter(undefined)).toBe(false);
   });
 });
+
+/**
+ * The payback ledger — the running account of who has had their consumables
+ * covered across the season, and who keeps missing out.
+ *
+ * Built inside `summarizeSeason` rather than in a module of its own, because it
+ * needs each raider's priced, corrected spend per night — which is exactly what
+ * that function already computes and what change-chains §5 warns against
+ * computing a second time.
+ */
+describe("summarizeSeason — payback ledger", () => {
+  // Kaz spends 112g on night 1 (2 Haste Potions + a flask) and 142g on night 2;
+  // Morg spends 15g on night 1 only.
+  const withPot = (over: Partial<SeasonReportInput>[]): SeasonReportInput[] =>
+    reports.map((r, i) => ({ ...r, ...over[i] }));
+
+  it("counts only the raids that recorded a pot", () => {
+    // A night with no marks banked is not a night anybody went unpaid, and
+    // counting it would make every raider who missed a payday look shorted.
+    const view = summarizeSeason(
+      withPot([{ payback: { marks: 1, markGold: 100, paid: {} } }, {}]),
+    );
+    expect(view.payback.raids.map((r) => r.code)).toEqual(["R1"]);
+    expect(view.payback.raidsWithoutPot).toBe(1);
+    expect(view.payback.raiders.find((r) => r.name === "Kaz")!.raids).toBe(1);
+  });
+
+  it("adds a raider's owed and paid up across nights", () => {
+    const view = summarizeSeason(
+      withPot([
+        { payback: { marks: 1, markGold: 100, paid: { Kaz: 40 } } },
+        { payback: { marks: 1, markGold: 100, paid: { Kaz: 10 } } },
+      ]),
+    );
+    const kaz = view.payback.raiders.find((r) => r.name === "Kaz")!;
+    expect(kaz.raids).toBe(2);
+    // Night 1: 112 of 127 spend → 88g. Night 2: alone, so the whole 100g.
+    expect(Math.round(kaz.recommended)).toBe(188);
+    expect(kaz.paid).toBe(50);
+    expect(Math.round(kaz.balance)).toBe(138);
+    expect(Math.round(view.payback.paidTotal)).toBe(50);
+  });
+
+  it("sorts by who is furthest behind, not by who spent most", () => {
+    // The whole reason the ledger exists: over a season the split pays the same
+    // few raiders every week, and this is the only view that says who never got
+    // covered. Kaz spends far more than Morg and is paid in full; Morg is not.
+    const view = summarizeSeason(
+      withPot([{ payback: { marks: 1, markGold: 100, paid: { Kaz: 500 } } }, {}]),
+    );
+    expect(view.payback.raiders[0].name).toBe("Morg");
+    expect(view.payback.raiders[0].balance).toBeGreaterThan(0);
+    // Kaz has had more than the split called for, which reads as negative.
+    expect(view.payback.raiders.find((r) => r.name === "Kaz")!.balance).toBeLessThan(0);
+  });
+
+  it("records each night's pot and what the ceiling left behind", () => {
+    // A pot far bigger than the night's spend cannot all be handed out.
+    const view = summarizeSeason(withPot([{ payback: { marks: 30, markGold: 100, paid: {} } }, {}]));
+    const [night] = view.payback.raids;
+    expect(night.potGold).toBe(3000);
+    // Night 1's whole spend is 127g, so that is the most anyone can be paid.
+    expect(Math.round(night.recommended)).toBe(127);
+    expect(night.marksLeft).toBeGreaterThan(0);
+  });
+
+  it("is empty, not wrong, when nobody has recorded a pot", () => {
+    const view = summarizeSeason(reports);
+    expect(view.payback.raids).toEqual([]);
+    expect(view.payback.raiders).toEqual([]);
+    expect(view.payback.raidsWithoutPot).toBe(2);
+  });
+});

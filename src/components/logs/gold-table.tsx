@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { ChevronRight, Coins, Loader2, TriangleAlert } from "lucide-react";
-import type { ConsumableAdjustment } from "@/lib/types";
+import type { ConsumableAdjustment, ReportPayback } from "@/lib/types";
+import { buildPayback, type PaybackRow } from "@/lib/analysis/payback";
+import type { GuildPolicy } from "@/lib/analysis/policy";
 import {
   adjustmentGold,
   adjustmentsFor,
@@ -53,6 +55,50 @@ export interface GoldRow {
 
 const gold = (n: number) => `${Math.round(n).toLocaleString("en-US")}g`;
 const signedGold = (n: number) => `${n > 0 ? "+" : "−"}${gold(Math.abs(n))}`;
+const marksLabel = (n: number) => `${n} mark${n === 1 ? "" : "s"}`;
+
+/**
+ * One raider's share of the night's marks.
+ *
+ * Gold on top because it is the figure that compares to the spend beside it,
+ * marks underneath because marks are what actually change hands — you cannot
+ * give somebody 2.7 of one, so the whole-mark number is the actionable half.
+ */
+function PaybackCell({ entry }: { entry?: PaybackRow }) {
+  if (!entry) return <span className="text-muted-foreground/40">—</span>;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <span className="font-medium">{gold(entry.recommended)}</span>
+      <span className="text-[10px] text-muted-foreground">
+        {marksLabel(entry.marks)}
+        {/* Capped beats boosted, because it is the more surprising fact: a
+            capped row has stopped tracking the weighting entirely, and an
+            officer reading the column deserves to know why before they are
+            told the raider was boosted into it. */}
+        {entry.capped ? (
+          <span
+            className="ml-1 rounded-full bg-info-fill px-1 py-px font-medium text-info-ink"
+            title="Held at what this raider spent — nobody is paid back more than their outlay, and the difference went back into the pot for everyone else"
+          >
+            at cap
+          </span>
+        ) : (
+          entry.top && (
+            <span
+              className="ml-1 rounded-full bg-warn-fill px-1 py-px font-medium text-warn-ink"
+              title="In the boosted tier — this raider's spend counts more when the pot is split"
+            >
+              boosted
+            </span>
+          )
+        )}
+      </span>
+      {entry.paid > 0 && (
+        <span className="text-[10px] text-success-ink">{gold(entry.paid)} paid</span>
+      )}
+    </span>
+  );
+}
 
 /**
  * The gold-spent ranking, with its ± corrections buffered into one save.
@@ -88,6 +134,8 @@ export function GoldTable({
   costPerUse,
   adjustments,
   usingDefault,
+  payback,
+  policy,
 }: {
   code: string;
   rows: GoldRow[];
@@ -95,6 +143,16 @@ export function GoldTable({
   /** The saved list. Seeds the buffer, and re-seeds it once a save lands. */
   adjustments: ConsumableAdjustment[];
   usingDefault: boolean;
+  /**
+   * This night's marks and what has been handed back. Edited in its own panel
+   * below the table — the same arrangement the prices use, and for the same
+   * reason: this card's ± presses are a buffered batch, and a second kind of
+   * pending edit inside it would have to share that buffer's save, its dirty
+   * flag and its unsaved-work guard.
+   */
+  payback: ReportPayback;
+  /** The council's split, from guild policy. */
+  policy: GuildPolicy;
 }) {
   const [pending, setPending] = React.useState(adjustments);
   const [saved, setSaved] = React.useState(adjustments);
@@ -220,6 +278,29 @@ export function GoldTable({
   // for something that already has one.
   const known = React.useMemo(() => Object.keys(costPerUse).sort(), [costPerUse]);
 
+  /*
+   * Recomputed from the LIVE totals, not the server's.
+   *
+   * The ranking is frozen against the saved adjustments while a batch is open
+   * (see the note above), and the payback split rides on that same frozen
+   * order — but its numbers move with every press, which is the rule this card
+   * already follows everywhere else: values follow the presses, sorts wait.
+   * A payback column that sat still while the gold beside it moved would be
+   * the one number on screen contradicting its own row.
+   */
+  const split = buildPayback({
+    spenders: view.map((v) => ({
+      name: v.row.name,
+      slug: v.row.slug,
+      className: v.row.className,
+      gold: v.total,
+    })),
+    pot: { marks: payback.marks, markGold: payback.markGold },
+    paid: payback.paid,
+    policy,
+  });
+  const paybackByName = new Map(split.rows.map((r) => [r.name, r]));
+
   const raidTotal = view.reduce((sum, v) => sum + v.total, 0);
   const adjustmentTotal = view.reduce((sum, v) => sum + v.delta, 0);
   const unsaved = dirty ? countChanges(saved, pending) : 0;
@@ -305,6 +386,14 @@ export function GoldTable({
                   Adjusted
                 </TableHead>
                 <TableHead className="w-20 text-right">Total</TableHead>
+                {split.potRecorded && (
+                  <TableHead
+                    className="w-24 text-right"
+                    title="Recommended share of this night's Marks of Illidari, and what has been handed back"
+                  >
+                    Payback
+                  </TableHead>
+                )}
                 <TableHead>Consumables</TableHead>
               </TableRow>
             </TableHeader>
@@ -339,6 +428,11 @@ export function GoldTable({
                     <TableCell className="text-right text-sm font-semibold tabular-nums">
                       {gold(total)}
                     </TableCell>
+                    {split.potRecorded && (
+                      <TableCell className="text-right text-sm tabular-nums">
+                        <PaybackCell entry={paybackByName.get(row.name)} />
+                      </TableCell>
+                    )}
                     <TableCell>
                       {/* The breakdown lives in the panel this opens, not in the
                           row. Spelling out ~8 consumables per raider turned the
@@ -367,7 +461,7 @@ export function GoldTable({
                   </TableRow>
                   {expanded === row.name && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="p-2">
+                      <TableCell colSpan={split.potRecorded ? 8 : 7} className="p-2">
                         <BreakdownAdjuster
                           actorName={row.name}
                           groups={groups}
@@ -382,6 +476,46 @@ export function GoldTable({
                   )}
                 </React.Fragment>
               ))}
+              {split.potRecorded && (
+                <TableRow className="border-t-2 hover:bg-transparent">
+                  <TableCell />
+                  <TableCell className="text-xs font-medium text-muted-foreground">
+                    Night total
+                  </TableCell>
+                  <TableCell colSpan={3} />
+                  <TableCell className="text-right text-sm font-semibold tabular-nums">
+                    {gold(raidTotal)}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    <span className="inline-flex flex-col items-end leading-tight">
+                      <span className="font-semibold">{gold(split.recommendedTotal)}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {marksLabel(split.marksAllocated)}
+                      </span>
+                      {split.paidTotal > 0 && (
+                        <span className="text-[10px] text-success-ink">
+                          {gold(split.paidTotal)} paid
+                        </span>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {/* The sum IS the pot — that is what makes it a split rather
+                        than a rebate — so saying so here is the check an officer
+                        would otherwise do with a calculator. Unless the spend
+                        ceiling bit, in which case saying which is the point. */}
+                    {split.marksUndistributed > 0 ? (
+                      <span className="text-info-ink">
+                        {marksLabel(split.marksUndistributed)} left in the bank — nobody can take
+                        more without being paid back over what they spent
+                      </span>
+                    ) : (
+                      split.recommendedTotal > 0 &&
+                      `${Math.round((split.recommendedTotal / raidTotal) * 100)}% of the night's spend, back`
+                    )}
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         )}

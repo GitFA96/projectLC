@@ -61,6 +61,21 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
      priced at 0 rather than guessed at, on the same reasoning as the Unstable
      Flasks. If this guild does buy them, a per-raid override is the answer. */
   "Thistle Tea": { gold: 0, charges: 1 },
+  /* The Mother Shahraz deployables. The two engineering devices carry the
+     council's own baseline of 5g; the seed and the whistle stay at 0 on the
+     same reasoning as Thistle Tea and the Unstable Flasks — this app has never
+     observed a going rate for them, and a plausible number would move a real
+     gold ranking. All four are still overridable per raid in the price panel,
+     which remains the source of truth when the economy moves.
+
+     Snake Trap is the fifth thing thrown down beside these and is deliberately
+     absent: it is a hunter ability, curated in `class-tracks.ts` rather than as
+     a consumable, so it never reaches this catalog at all. Adding it here would
+     charge a hunter gold for pressing a button. */
+  "Goblin Land Mine": { gold: 5, charges: 1 },
+  "Gnomish Flame Turret": { gold: 5, charges: 1 },
+  "Thornling Seed": { gold: 0, charges: 1 },
+  "Dog Whistle": { gold: 0, charges: 1 },
   /* Pet consumables — a hunter's pet is part of their damage. */
   "Kibler's Bits": { gold: 1, charges: 1 },
   "Pet Biscuit": { gold: 1, charges: 1 },

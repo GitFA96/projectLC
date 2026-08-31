@@ -88,6 +88,7 @@ function row(over: Partial<WclPlayerFight> & { actorName: string }): WclPlayerFi
     extras: [],
     cooldowns: [],
     castTimes: [],
+    dispels: [],
     upkeep: [],
     gear: [],
     drums: 0,

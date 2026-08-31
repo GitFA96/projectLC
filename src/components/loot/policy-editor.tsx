@@ -326,6 +326,47 @@ export function PolicyEditor({
 
       <section className="space-y-2">
         <div>
+          <h3 className="text-sm font-semibold">Consumable payback</h3>
+          <p className="text-xs text-muted-foreground">
+            How a raid night&apos;s Marks of Illidari are shared back out to the people who bought
+            the consumables. The pot itself is <strong>not</strong> here — the marks banked and
+            this week&apos;s mark price are recorded per night on the{" "}
+            <Link
+              href="/logs"
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              raid page
+            </Link>
+            . These two decide only the <em>shape</em> of the split, and neither touches the loot
+            score or the standing board: being owed marks is neither a merit nor a demerit.
+          </p>
+        </div>
+        <NumberField
+          spec={{
+            label: "Boosted tier size",
+            help: "How many of the night's biggest spenders get the boosted share. This is a hard boundary — two raiders a few gold apart in spend can land either side of it, so read it beside the weight below.",
+            min: 0,
+            max: 100,
+            step: 1,
+          }}
+          value={draft.payback.topTier}
+          onChange={(n) => setDraft((d) => ({ ...d, payback: { ...d.payback, topTier: n } }))}
+        />
+        <NumberField
+          spec={{
+            label: "Boosted tier multiplier",
+            help: "How many times over the top tier's spend counts when shares are worked out — 2 means their gold is worth double everyone else's in the split, not that they receive double. Set it to 1 for a plain proportional split with no tier at all.",
+            min: 1,
+            max: 10,
+            step: 0.1,
+          }}
+          value={draft.payback.topWeight}
+          onChange={(n) => setDraft((d) => ({ ...d, payback: { ...d.payback, topWeight: n } }))}
+        />
+      </section>
+
+      <section className="space-y-2">
+        <div>
           <h3 className="text-sm font-semibold">Attendance windows</h3>
           <p className="text-xs text-muted-foreground">
             <strong>Attendance only</strong> — neither of these touches loot. Loot owed is already

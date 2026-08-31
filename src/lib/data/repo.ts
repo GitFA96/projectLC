@@ -32,6 +32,7 @@ import type {
   CharacterSummary,
   ConsumableAdjustment,
   ConsumablePrice,
+  ReportPayback,
   CurrentGearOverride,
   DashboardData,
   FeedbackKind,
@@ -134,6 +135,12 @@ export interface Repo {
    * view. Empty means the raid hasn't set prices and the code defaults apply.
    */
   getReportConsumablePrices(code: string): Promise<Record<string, ConsumablePrice>>;
+  /**
+   * What a raid night banked in Marks of Illidari, what a mark is worth, and
+   * what has been handed back so far. All zeroes means nobody has recorded a
+   * pot — which the page must report as "not recorded", never as "nothing owed".
+   */
+  getReportPayback(code: string): Promise<ReportPayback>;
   /**
    * The groups an officer laid a raid night out in. An empty board means nobody
    * has recorded them — it is never derived, because Warcraft Logs doesn't
@@ -845,6 +852,12 @@ export interface WriteRepo extends Repo {
    * whole set for the report; an empty map clears it back to code defaults.
    */
   setReportConsumablePrices(code: string, prices: Record<string, ConsumablePrice>): Promise<void>;
+  /**
+   * Record a raid night's payback: the marks banked, this week's mark value,
+   * and what each raider has actually been handed. Replaces the whole record
+   * for that report, the same way the prices do.
+   */
+  setReportPayback(code: string, payback: ReportPayback): Promise<void>;
   /**
    * Record which groups a raid night was run in. Replaces the whole board; a
    * board with nobody on it clears the record entirely.

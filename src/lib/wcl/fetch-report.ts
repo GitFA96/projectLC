@@ -29,7 +29,8 @@ import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
  *   4. consumable + class-cooldown casts (tracked spell ids)  — paginated
  *   5. tracked debuffs on enemies (upkeep uptime)             — paginated, soft
  *   6. tracked buffs on friendlies (shouts, totems, Innervate) — paginated, soft
- *   7. damage taken near each death, one call per pull with one — paginated, soft
+ *   7. every dispel in the report, boss pulls and trash alike — paginated, soft
+ *   8. damage taken near each death, one call per pull with one — paginated, soft
  * "Soft" fetches degrade to a warning instead of failing the import.
  */
 
@@ -44,6 +45,17 @@ query ReportOverview($code: String!) {
       masterData { actors { id name type subType petOwner } }
       fights(killType: Encounters) {
         id encounterID name kill fightPercentage startTime endTime
+      }
+      # Every fight, trash included — the boss list above deliberately isn't.
+      # Trash is where most dispelling happens (432 of 492 in the probed MH+BT
+      # night), and it can only be placed with the zone and the enemy list:
+      # gameZone separates Hyjal trash from Black Temple trash on a night that
+      # ran both, and a segment with no enemy NPC is world PvP the raid walked
+      # past, not raid work. Same request, no extra call.
+      allFights: fights {
+        id encounterID startTime endTime
+        gameZone { id name }
+        enemyNPCs { id }
       }
       dps: rankings(playerMetric: dps, compare: Parses)
       hps: rankings(playerMetric: hps, compare: Parses)
@@ -84,7 +96,7 @@ interface EventsResponse {
 
 async function fetchAllEvents(
   code: string,
-  dataType: "CombatantInfo" | "Deaths" | "Casts" | "Debuffs" | "Buffs" | "DamageTaken",
+  dataType: "CombatantInfo" | "Deaths" | "Casts" | "Debuffs" | "Buffs" | "DamageTaken" | "Dispels",
   endTime: number,
   filter?: string,
   hostility: "Friendlies" | "Enemies" = "Friendlies",
@@ -133,7 +145,7 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       return [];
     });
 
-  const [combatantInfo, deaths, casts, debuffs, buffs] = await Promise.all([
+  const [combatantInfo, deaths, casts, debuffs, buffs, dispels] = await Promise.all([
     fetchAllEvents(code, "CombatantInfo", reportDuration),
     fetchAllEvents(code, "Deaths", reportDuration),
     fetchAllEvents(
@@ -169,7 +181,21 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       ),
 
     ),
-
+    soft(
+      "Dispel tracking (decurses, cleanses, purges)",
+      // Unfiltered on purpose, and the only fetch in this file that is. WCL's
+      // `Dispels` stream is already narrow (492 events across a full MH+BT
+      // night), and every event names the spell that did the removing — so
+      // storing the id lets `dispelAbilityOf` classify at READ time and a
+      // newly curated dispel re-grades old reports without a refetch. A filter
+      // here would trade that away for nothing.
+      //
+      // Friendlies is a source-side filter for this data type: it returned the
+      // Spellsteals and Purges our raiders landed on bosses as well as the
+      // cleanses they put on each other, and the eight events it left out were
+      // all world PvP outside the instance.
+      fetchAllEvents(code, "Dispels", reportDuration),
+    ),
   ]);
 
   const damageTaken = await soft(
@@ -183,6 +209,7 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
     casts,
     debuffs,
     buffs,
+    dispels,
     damageTaken,
   });
   normalized.warnings.push(...softWarnings);

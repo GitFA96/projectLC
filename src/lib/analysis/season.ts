@@ -1,4 +1,6 @@
 import { costPerUseMap } from "@/lib/wcl/consumable-prices";
+import { buildPayback, type PaybackSpender } from "@/lib/analysis/payback";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import {
   adjustmentsFor,
   applyAdjustments,
@@ -14,6 +16,7 @@ import type {
   SeasonNotable,
   SeasonRaiderStat,
   SeasonRankingsView,
+  SeasonPaybackRaid,
   SeasonReportInput,
   SeasonRosterEntry,
   SeasonUptimeRow,
@@ -97,6 +100,8 @@ export function summarizeSeason(
   reports: SeasonReportInput[],
   /** Roster lookup by slug. Absent for callers that don't need the guild/pug split. */
   roster: Record<string, SeasonRosterEntry> = {},
+  /** The council's payback split, for the ledger. Nothing else here reads it. */
+  policy: GuildPolicy = DEFAULT_POLICY,
 ): SeasonRankingsView {
   const byRaider = new Map<string, RaiderAcc>();
   const byConsumable = new Map<string, ConsumableAcc>();
@@ -110,6 +115,32 @@ export function summarizeSeason(
     }
   >();
 
+  /*
+   * The payback ledger, accumulated in this same loop rather than in a module
+   * of its own.
+   *
+   * It needs each raider's spend for each night, priced and corrected — which
+   * is exactly what this loop already computes and what change-chains §5 warns
+   * against computing a second time. A ledger built elsewhere would quietly
+   * disagree with the gold ranking beside it the first time a pricing rule
+   * moved.
+   */
+  const ledger = new Map<
+    string,
+    {
+      name: string;
+      slug?: string;
+      className?: string;
+      raids: number;
+      spend: number;
+      recommended: number;
+      paid: number;
+      marks: number;
+    }
+  >();
+  const ledgerRaids: SeasonPaybackRaid[] = [];
+  let raidsWithoutPot = 0;
+
   for (const report of reports) {
     const names = new Set<string>();
     for (const u of report.usage) {
@@ -120,6 +151,8 @@ export function summarizeSeason(
     const adjustments = report.adjustments ?? [];
     for (const a of adjustments) names.add(a.name);
     const costPerUse = costPerUseMap(names, report.overrides);
+    /** This night's spend per raider, in the shape the split takes. */
+    const spendersThisRaid: PaybackSpender[] = [];
 
     for (const u of report.usage) {
       const key = u.name.toLowerCase();
@@ -129,7 +162,9 @@ export function summarizeSeason(
       acc.slug = u.slug ?? acc.slug;
       acc.className = u.className ?? acc.className;
       const lines = reportLines(u, adjustments);
-      acc.golds.push(Math.max(0, goldOfLines(lines, costPerUse)));
+      const spend = Math.max(0, goldOfLines(lines, costPerUse));
+      spendersThisRaid.push({ name: u.name, slug: u.slug, className: u.className, gold: spend });
+      acc.golds.push(spend);
       acc.consumes.push(u.consumablesTotal);
       acc.deaths.push(u.deaths);
       byRaider.set(key, acc);
@@ -148,6 +183,59 @@ export function summarizeSeason(
         c.users.set(key, user);
         byConsumable.set(line.name, c);
       }
+    }
+
+    /*
+     * The night's split, run through the same function the raid page uses so
+     * the ledger can never disagree with the column an officer read on the
+     * night — the ceiling, the boost and the mark apportionment included.
+     */
+    const pot = report.payback;
+    if (pot && pot.marks > 0 && pot.markGold > 0) {
+      const split = buildPayback({
+        spenders: spendersThisRaid,
+        pot: { marks: pot.marks, markGold: pot.markGold },
+        paid: pot.paid,
+        policy,
+      });
+      for (const r of split.rows) {
+        const key = r.name.toLowerCase();
+        const entry =
+          ledger.get(key) ??
+          {
+            name: r.name,
+            slug: r.slug,
+            className: r.className,
+            raids: 0,
+            spend: 0,
+            recommended: 0,
+            paid: 0,
+            marks: 0,
+          };
+        entry.slug = r.slug ?? entry.slug;
+        entry.className = r.className ?? entry.className;
+        entry.raids += 1;
+        entry.spend += r.gold;
+        entry.recommended += r.recommended;
+        entry.paid += r.paid;
+        entry.marks += r.marks;
+        ledger.set(key, entry);
+      }
+      ledgerRaids.push({
+        code: report.code,
+        title: report.title,
+        startTime: report.startTime,
+        ...(report.zone ? { zone: report.zone } : {}),
+        marks: pot.marks,
+        markGold: pot.markGold,
+        potGold: split.pot.gold,
+        recommended: split.recommendedTotal,
+        paid: split.paidTotal,
+        marksAllocated: split.marksAllocated,
+        marksLeft: split.marksUndistributed,
+      });
+    } else {
+      raidsWithoutPot += 1;
     }
 
     for (const t of report.upkeep) {
@@ -222,12 +310,28 @@ export function summarizeSeason(
     }))
     .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (b.providers[0]?.pct ?? 0) - (a.providers[0]?.pct ?? 0) || compareText(a.name, b.name));
 
+  const ledgerRows = [...ledger.values()]
+    .map((e) => ({ ...e, balance: e.recommended - e.paid }))
+    // Furthest behind first: the ledger's whole job is to say who the next
+    // payday should favour, and that is a question about the balance, not
+    // about who spent the most.
+    .sort((a, b) => b.balance - a.balance || b.recommended - a.recommended || compareText(a.name, b.name));
+
   return {
     reportCount: reports.length,
     raiders,
     consumables,
     uptime,
     notables: buildNotables(raiders, uptime, reports.length),
+    payback: {
+      raiders: ledgerRows,
+      raids: [...ledgerRaids].sort((a, b) => compareText(b.startTime, a.startTime)),
+      potGold: ledgerRaids.reduce((sum, r) => sum + r.potGold, 0),
+      recommendedTotal: ledgerRows.reduce((sum, r) => sum + r.recommended, 0),
+      paidTotal: ledgerRows.reduce((sum, r) => sum + r.paid, 0),
+      marksTotal: ledgerRaids.reduce((sum, r) => sum + r.marks, 0),
+      raidsWithoutPot,
+    },
   };
 }
 

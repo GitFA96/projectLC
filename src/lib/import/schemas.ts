@@ -447,6 +447,49 @@ export const wclPlayerFightSchema = z.object({
         target: z.string().optional(),
         /** A shaman totem drop rather than a class cooldown. */
         totem: z.boolean().optional(),
+        /**
+         * Something put on the ground — land mine, snake trap, turret, thornling.
+         *
+         * Absent on every report imported before those were tracked, which the
+         * page reports as "not recorded" rather than "nobody laid one". Four of
+         * the five are also consumables and are counted as such in `otherCasts`;
+         * this flag exists so the pull-by-pull view can ask its own question
+         * without moving either the gold or the cooldown figures.
+         */
+        deployable: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /**
+   * Dispels this raider landed during the pull — a cleanse or decurse off a
+   * teammate, or a buff stripped off an enemy.
+   *
+   * Filed against the raider who *cast* it, with the recipient in `target`, so
+   * "who was decursing on Archimonde" is one column and the receiving end is a
+   * derivation. Empty on every report imported before dispels were fetched at
+   * all, which is a different statement from a night with none — see
+   * `wcl/dispels.ts`, and re-import to fill it in.
+   */
+  dispels: z
+    .array(
+      z.object({
+        atMs: z.number().nonnegative(),
+        /**
+         * WCL spell id of the dispel. Stored beside the name because it is the
+         * match key: Warcraft Logs resolves some TBC ids against a *modern*
+         * spell database, so the same press is spelled two ways across game
+         * versions, and `dispelAbilityOf` classifies on the id at read time.
+         */
+        spellId: z.number().int().optional(),
+        /** The dispel as the log named it. */
+        spell: z.string().min(1),
+        /** Who it landed on — a raider, a pet, or an enemy for a strip. */
+        target: z.string().min(1),
+        /** The aura that came off, as the log named it. */
+        removed: z.string().min(1),
+        removedId: z.number().int().optional(),
+        /** It was a BUFF on an enemy (Purge, Spellsteal, Tranquilizing Shot). */
+        offensive: z.boolean().optional(),
       }),
     )
     .default([]),
@@ -655,6 +698,35 @@ export const wclPlayerOffPullSchema = z.object({
         name: z.string().min(1),
         /** Ms from the report start — the first time it was seen. */
         atMs: z.number().nonnegative(),
+      }),
+    )
+    .default([]),
+  /**
+   * Dispels landed away from the boss pulls — trash, almost entirely, which is
+   * where most of a decurser's night goes.
+   *
+   * **Counted, not timed.** A raid night is over a hundred trash segments and a
+   * timestamp against one of them answers nothing, so these collapse to a count
+   * per (zone, spell, target, aura). The zone is the part that matters: a night
+   * that clears Hyjal and Black Temple asks two different questions of the
+   * raid, and one number for the night answers neither.
+   *
+   * Defaults empty, which is also how every report imported before dispels were
+   * fetched reads. A re-import fills it in.
+   */
+  trashDispels: z
+    .array(
+      z.object({
+        /** The instance the trash belonged to ("Hyjal Summit", "Black Temple"). */
+        zone: z.string().min(1),
+        spellId: z.number().int().optional(),
+        spell: z.string().min(1),
+        target: z.string().min(1),
+        removed: z.string().min(1),
+        removedId: z.number().int().optional(),
+        offensive: z.boolean().optional(),
+        /** How many times this exact removal happened. */
+        count: z.number().int().positive(),
       }),
     )
     .default([]),

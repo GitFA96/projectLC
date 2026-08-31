@@ -49,6 +49,16 @@ export const CLASS_COOLDOWNS: ClassCooldown[] = [
   { ids: [19574], name: "Bestial Wrath", wowClass: "Hunter" },
   { ids: [34477], name: "Misdirection", wowClass: "Hunter" },
   { ids: [23989], name: "Readiness", wowClass: "Hunter" },
+  /*
+   * Snake Trap — a hunter ABILITY, which is why it sits here and not beside the
+   * four items in `consumables.ts` that get thrown down with it on Mother
+   * Shahraz. Nobody buys it, so nothing should price it.
+   *
+   * Probed on the 30 Aug MH+BT report: 34600, 17 casts across the four Shahraz
+   * pulls from three hunters, and one on Black Temple trash. Only the one rank
+   * appears; a rank this list misses under-counts silently rather than breaking.
+   */
+  { ids: [34600], name: "Snake Trap", wowClass: "Hunter" },
   /* Rogue */
   { ids: [13750], name: "Adrenaline Rush", wowClass: "Rogue" },
   { ids: [13877], name: "Blade Flurry", wowClass: "Rogue" },

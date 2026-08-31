@@ -15,6 +15,7 @@ import {
 import type {
   ConsumableAdjustment,
   ConsumablePrice,
+  ReportPayback,
   ImprovementSeverity,
   RaidReportView,
   SeasonReportInput,
@@ -43,12 +44,16 @@ import { ConsumableLeaderboard } from "@/components/logs/consumable-leaderboard"
 import { ParseBoards } from "@/components/logs/parse-boards";
 import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { GoldTable } from "@/components/logs/gold-table";
+import { PaybackPanel } from "@/components/logs/payback-panel";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { PetSpendCard } from "@/components/logs/pet-spend-card";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
 import { FightFilter } from "@/components/logs/fight-filter";
 import { TotemTimeline } from "@/components/logs/totem-timeline";
+import { DispelBoard } from "@/components/logs/dispel-board";
+import { DeployableTimeline } from "@/components/logs/deployable-timeline";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
 import { Badge } from "@/components/ui/badge";
@@ -122,15 +127,19 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   let consumableItems: Record<string, ItemRef> = {};
   /** Temporary weapon-enchant id → name, for the preparedness table's oils and stones. */
   let enchantNames: Record<number, string> = {};
+  /** This night's marks, and what has gone back out. All zeroes = never recorded. */
+  let payback: ReportPayback = EMPTY_PAYBACK;
+  let policy: GuildPolicy = DEFAULT_POLICY;
 
   if (seasonMode) {
     const built = await Promise.all(
       reports.map(async ({ report }): Promise<SeasonReportInput | null> => {
         const view = await repo.getRaidReport(report.code);
         if (!view) return null;
-        const [overrides, reportAdjustments] = await Promise.all([
+        const [overrides, reportAdjustments, reportPayback] = await Promise.all([
           repo.getReportConsumablePrices(report.code),
           repo.getReportConsumableAdjustments(report.code),
+          repo.getReportPayback(report.code),
         ]);
         return {
           code: report.code,
@@ -143,10 +152,14 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           upkeep: view.upkeep.map((u) => ({ ...u, perFight: undefined })),
           overrides,
           adjustments: reportAdjustments,
+          payback: reportPayback,
         };
       }),
     );
     seasonInputs = built.filter((x): x is SeasonReportInput => x !== null);
+    // The ledger re-runs each night's split, so it needs the same policy the
+    // raid page used. Loaded here rather than inside the loop: it is guild-wide.
+    policy = await repo.getGuildPolicy();
     // Keyed by slug, which is the character name lowercased — the same key the
     // usage rows carry, so a rename moves both together or neither.
     seasonRoster = Object.fromEntries(
@@ -162,6 +175,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
     raid = await repo.getRaidReport(requested);
     priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
     adjustments = raid ? await repo.getReportConsumableAdjustments(raid.report.code) : [];
+    payback = raid ? await repo.getReportPayback(raid.report.code) : EMPTY_PAYBACK;
+    // The split's shape is guild policy; the pot is this night's. Both are
+    // needed to draw the column, and neither belongs to the other.
+    policy = await repo.getGuildPolicy();
     if (raid) {
       const code = raid.report.code;
       /*
@@ -222,7 +239,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           <ReportPicker reports={reports} activeCode={seasonMode ? "all" : raid?.report.code} />
           {seasonMode ? (
             seasonInputs.length > 0 ? (
-              <SeasonDashboard reports={seasonInputs} roster={seasonRoster} />
+              <SeasonDashboard reports={seasonInputs} roster={seasonRoster} policy={policy} />
             ) : (
               <EmptyState
                 title="Nothing to rank yet"
@@ -239,6 +256,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
               recovered={recovered}
               consumableItems={consumableItems}
               enchantNames={enchantNames}
+              payback={payback}
+              policy={policy}
               prepScope={prepScope}
             />
           ) : (
@@ -284,6 +303,8 @@ function RaidDashboard({
   recovered,
   consumableItems,
   enchantNames,
+  payback,
+  policy,
   prepScope,
 }: {
   raid: RaidReportView;
@@ -294,6 +315,10 @@ function RaidDashboard({
   recovered: RecoveredParty[];
   consumableItems: Record<string, ItemRef>;
   enchantNames: Record<number, string>;
+  /** This night's marks and what has gone back out; all zeroes = never recorded. */
+  payback: ReportPayback;
+  /** The council's split shape, for the payback column and its panel. */
+  policy: GuildPolicy;
   prepScope?: string;
 }) {
   const { report, session, prep, fights } = raid;
@@ -379,7 +404,15 @@ function RaidDashboard({
             recovered={recovered}
           />
         }
-        gold={<GoldPanel raid={raid} overrides={priceOverrides} adjustments={adjustments} />}
+        gold={
+          <GoldPanel
+            raid={raid}
+            overrides={priceOverrides}
+            adjustments={adjustments}
+            payback={payback}
+            policy={policy}
+          />
+        }
         preparedness={
           <PreparednessPanel
             view={raid.preparedness}
@@ -474,6 +507,13 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
       <UptimeByBoss fights={counted} upkeep={upkeep} reportStartTime={raid.report.startTime} />
       <UptimeByPlayer fights={counted} playerBuffs={playerBuffs} reportStartTime={raid.report.startTime} />
       <TotemTimeline fights={counted} totems={totems} />
+      {/*
+        Dispels come after the totems deliberately: a shaman's poison work is
+        the totem drops plus whatever they cured by hand, and the dispel board
+        says so where the drops are still on screen.
+      */}
+      <DeployableTimeline fights={counted} deployables={raid.deployables} />
+      <DispelBoard fights={counted} dispels={raid.dispels} />
       {upkeep.length === 0 ? (
         <Card>
           <CardHeader>
@@ -766,14 +806,21 @@ function RankingsPanel({
   );
 }
 
+/** Unset: no marks banked, nothing paid. Distinguished from a pot of zero. */
+const EMPTY_PAYBACK: ReportPayback = { marks: 0, markGold: 0, paid: {} };
+
 function GoldPanel({
   raid,
   overrides,
   adjustments,
+  payback,
+  policy,
 }: {
   raid: RaidReportView;
   overrides: Record<string, ConsumablePrice>;
   adjustments: ConsumableAdjustment[];
+  payback: ReportPayback;
+  policy: GuildPolicy;
 }) {
   const { usage, petSpend } = raid;
   // Union of every consumable this raid touched — casts (boss and trash) + prep buffs.
@@ -833,6 +880,25 @@ function GoldPanel({
         costPerUse={costPerUse}
         adjustments={adjustments}
         usingDefault={usingDefault}
+        payback={payback}
+        policy={policy}
+      />
+
+      {/* The pot is edited here and read above, the same split the prices use:
+          the ranking's ± presses are one buffered batch and must stay that. */}
+      <PaybackPanel
+        key={`payback-${raid.report.code}`}
+        code={raid.report.code}
+        spenders={ranked.map((x) => ({
+          name: x.row.name,
+          slug: x.row.slug,
+          className: x.row.className,
+          // The SAVED adjusted total, matching the order the ranking was built
+          // in — the panel is not inside the ± batch and must not guess at it.
+          gold: x.total,
+        }))}
+        payback={payback}
+        policy={policy}
       />
 
       {/* Below the ranking, and outside it: pet gold is a range, not a number,

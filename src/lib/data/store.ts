@@ -66,6 +66,7 @@ import type {
   CharacterSummary,
   ConsumableAdjustment,
   ConsumablePrice,
+  ReportPayback,
   CurrentGearOverride,
   FairnessGroup,
   GearSet,
@@ -2034,6 +2035,13 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     // SQLite backend overrides this to read the raid's logged prices.
     async getReportConsumablePrices(): Promise<Record<string, ConsumablePrice>> {
       return {};
+    },
+
+    // And the same again for the payback record: what a night banked in marks
+    // is something an officer wrote down. No pot recorded reads as "not
+    // recorded" on the page, which is the honest answer for a demo backend.
+    async getReportPayback(): Promise<ReportPayback> {
+      return { marks: 0, markGold: 0, paid: {} };
     },
 
     // Same: a board is something an officer wrote down, not something the

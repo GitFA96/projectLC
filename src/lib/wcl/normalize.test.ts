@@ -63,6 +63,18 @@ const rawReport = {
     { id: 8, encounterID: 0, name: "Trash", kill: null, startTime: 450000, endTime: 500000 },
     { id: 9, encounterID: 654, name: "Moroes", kill: false, fightPercentage: 38.6, startTime: 600000, endTime: 850000 },
   ],
+  /*
+   * The unfiltered fight list, which only the dispel step reads. Fight 20 has
+   * no enemy NPC (a duel on the way in) and 21 is in a zone the raid pulled no
+   * boss in — both are the noise the placement rule exists to drop.
+   */
+  allFights: [
+    { id: 7, encounterID: 653, startTime: 100000, endTime: 400000, gameZone: { id: 532, name: "Karazhan" }, enemyNPCs: [{ id: 50 }] },
+    { id: 8, encounterID: 0, startTime: 450000, endTime: 500000, gameZone: { id: 532, name: "Karazhan" }, enemyNPCs: [{ id: 51 }] },
+    { id: 9, encounterID: 654, startTime: 600000, endTime: 850000, gameZone: { id: 532, name: "Karazhan" }, enemyNPCs: [{ id: 60 }] },
+    { id: 20, encounterID: 0, startTime: 520000, endTime: 530000, gameZone: { id: 532, name: "Karazhan" }, enemyNPCs: [] },
+    { id: 21, encounterID: 0, startTime: 540000, endTime: 550000, gameZone: { id: 1944, name: "Hellfire Peninsula" }, enemyNPCs: [{ id: 51 }] },
+  ],
   dps: {
     data: [
       {
@@ -959,10 +971,46 @@ describe("consumable classification", () => {
     expect(classifyAura("Supreme Power")?.label).toBe("Flask of Supreme Power");
   });
 
+  it("recognizes the Shattrath vendor flasks, whose buff inverts the item name", () => {
+    // From this guild's own dump: the aura is "Fortification of Shattrath" and
+    // the item is "Shattrath Flask of Fortification". The generic "…flask of…"
+    // pattern needs the word "flask", which the buff name does not carry, so all
+    // four graded as no flask at all.
+    expect(classifyAura("Pure Death of Shattrath", 46838)).toEqual({
+      category: "flask",
+      label: "Shattrath Flask of Pure Death",
+    });
+    expect(classifyAura("Blinding Light of Shattrath", 46840)?.label).toBe(
+      "Shattrath Flask of Blinding Light",
+    );
+    expect(classifyAura("Fortification of Shattrath", 41607)?.label).toBe(
+      "Shattrath Flask of Fortification",
+    );
+    expect(classifyAura("Relentless Assault of Shattrath", 41606)?.label).toBe(
+      "Shattrath Flask of Relentless Assault",
+    );
+    // The third vanilla flask, found the same way (`17627 Distilled Wisdom ×8`).
+    expect(classifyAura("Distilled Wisdom", 17627)).toEqual({
+      category: "flask",
+      label: "Flask of Distilled Wisdom",
+    });
+    // By name alone too, since an id can be missing or aliased.
+    expect(classifyAura("Relentless Assault of Shattrath")?.label).toBe(
+      "Shattrath Flask of Relentless Assault",
+    );
+  });
+
   it("prices those flasks as flasks rather than as free", () => {
     // The label has to contain "flask": defaultPriceFor gives anything it can't
     // place a gold value of 0, so the bare buff name would have been free.
     expect(defaultPriceFor(classifyAura("Supreme Power", 17628)!.label).gold).toBeGreaterThan(0);
+    // Same trap for the Shattrath flasks: "Pure Death of Shattrath" carries no
+    // "flask", so the buff name would have priced at 0 while the item name
+    // lands on the flask family fallback.
+    expect(defaultPriceFor(classifyAura("Pure Death of Shattrath", 46838)!.label).gold)
+      .toBeGreaterThan(0);
+    expect(defaultPriceFor(classifyAura("Distilled Wisdom", 17627)!.label).gold)
+      .toBeGreaterThan(0);
   });
 
   it("recognizes buff-style elixir names and normalizes them to item names", () => {
@@ -1702,5 +1750,204 @@ describe("ids Warcraft Logs serves under retail names", () => {
     expect(classifyAura("Fire Protection", 28511)?.category).toBe("potion");
     expect(classifyAura("Frost Protection", 28512)?.category).toBe("potion");
     expect(classifyAura("Nature Protection", 28513)?.category).toBe("potion");
+  });
+});
+
+/**
+ * Dispels — the one stream fetched unfiltered, so the tests here are about
+ * *placement*: which segment a removal belongs to, and which segments are not
+ * raid work at all.
+ */
+describe("normalizeWclReport — dispels", () => {
+  const dispel = (
+    over: Partial<{
+      timestamp: number;
+      fight: number;
+      sourceID: number;
+      targetID: number;
+      ability: { name: string; guid: number };
+      extraAbility: { name: string; guid: number };
+      isBuff: boolean;
+    }> = {},
+  ) => ({
+    timestamp: 150000,
+    type: "dispel",
+    fight: 7,
+    sourceID: 2,
+    targetID: 1,
+    ability: { name: "Remove Curse", guid: 475 },
+    extraAbility: { name: "Grip of the Legion", guid: 31972 },
+    isBuff: false,
+    ...over,
+  });
+
+  const run = (dispels: unknown[]) =>
+    normalizeWclReport(rawReport, { combatantInfo: [], deaths: [], casts: [], dispels });
+
+  it("files a dispel on the caster's pull row, with who it came off and when", () => {
+    const result = run([dispel()]);
+    const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+    expect(pyrelia.dispels).toEqual([
+      {
+        // 150000 in report time, on a pull that started at 100000.
+        atMs: 50000,
+        spellId: 475,
+        spell: "Remove Curse",
+        target: "Thrainn",
+        removed: "Grip of the Legion",
+        removedId: 31972,
+      },
+    ]);
+    // The recipient's own row stays empty — this is the caster's record.
+    expect(result.rows.find((r) => r.fightId === 7 && r.actorName === "Thrainn")!.dispels).toEqual([]);
+  });
+
+  it("marks a buff stripped off an enemy as offensive", () => {
+    const result = run([
+      dispel({
+        timestamp: 200000,
+        targetID: 50,
+        ability: { name: "Spellsteal", guid: 30449 },
+        extraAbility: { name: "Rune Shield", guid: 41431 },
+        isBuff: true,
+      }),
+    ]);
+    expect(result.rows.find((r) => r.actorName === "Pyrelia" && r.fightId === 7)!.dispels[0]).toMatchObject({
+      target: "Attumen the Huntsman",
+      offensive: true,
+    });
+  });
+
+  it("counts trash dispels per zone instead of timing them", () => {
+    const result = run([
+      dispel({ timestamp: 460000, fight: 8 }),
+      dispel({ timestamp: 470000, fight: 8 }),
+      dispel({ timestamp: 480000, fight: 8, extraAbility: { name: "Banshee Curse", guid: 31651 } }),
+    ]);
+    const off = result.offPull.find((o) => o.actorName === "Pyrelia")!;
+    expect(off.trashDispels).toEqual([
+      {
+        zone: "Karazhan",
+        count: 2,
+        spellId: 475,
+        spell: "Remove Curse",
+        target: "Thrainn",
+        removed: "Grip of the Legion",
+        removedId: 31972,
+      },
+      {
+        zone: "Karazhan",
+        count: 1,
+        spellId: 475,
+        spell: "Remove Curse",
+        target: "Thrainn",
+        removed: "Banshee Curse",
+        removedId: 31651,
+      },
+    ]);
+  });
+
+  it("drops a segment with no enemy NPC — that is world PvP, not raid work", () => {
+    // The probed MH+BT night opened with a duel and a skirmish outside Hyjal;
+    // twelve purges between players would otherwise have read as cleansing.
+    const result = run([dispel({ timestamp: 525000, fight: 20, ability: { name: "Purge", guid: 8012 }, isBuff: true })]);
+    expect(result.offPull.find((o) => o.actorName === "Pyrelia")?.trashDispels ?? []).toEqual([]);
+  });
+
+  it("drops trash in a zone the raid pulled no boss in", () => {
+    const result = run([dispel({ timestamp: 545000, fight: 21 })]);
+    expect(result.offPull.find((o) => o.actorName === "Pyrelia")?.trashDispels ?? []).toEqual([]);
+  });
+
+  it("ignores a dispel sourced by anything but a player", () => {
+    // An enemy stripping our buffs is a fact about the encounter, not about a
+    // raider — and a totem is never a source at all (see dispels.ts).
+    const result = run([dispel({ sourceID: 50 })]);
+    expect(result.rows.every((r) => r.dispels.length === 0)).toBe(true);
+  });
+
+  it("records nothing when the fetch carried no dispels", () => {
+    const result = normalizeWclReport(rawReport, { combatantInfo: [], deaths: [], casts: [] });
+    expect(result.rows.every((r) => r.dispels.length === 0)).toBe(true);
+    expect(result.offPull.every((o) => o.trashDispels.length === 0)).toBe(true);
+  });
+});
+
+/**
+ * Deployables — four items and one ability that all end up on the ground.
+ * The point of these tests is that one press lands in two shapes without
+ * either double-counting or crowding out the other.
+ */
+describe("normalizeWclReport — deployables", () => {
+  const cast = (
+    over: Partial<{
+      timestamp: number;
+      type: string;
+      fight: number;
+      sourceID: number;
+      ability: { name: string; guid: number };
+    }> = {},
+  ) => ({
+    timestamp: 150000,
+    type: "cast",
+    fight: 7,
+    sourceID: 1,
+    ability: { name: "Goblin Land Mine", guid: 4100 },
+    ...over,
+  });
+
+  const run = (casts: unknown[]) =>
+    normalizeWclReport(rawReport, { combatantInfo: [], deaths: [], casts });
+
+  it("counts an item deployable as a consumable AND places it on the pull", () => {
+    const row = run([cast()]).rows.find((r) => r.fightId === 7 && r.actorName === "Thrainn")!;
+    // The consumable half — what the gold table prices and the usage board ranks.
+    expect(row.otherCasts).toEqual(["Goblin Land Mine"]);
+    // The timing half — the only form that answers "was the kit down".
+    expect(row.castTimes).toEqual([{ name: "Goblin Land Mine", atMs: 50000, deployable: true }]);
+    // And it is neither a cooldown nor a totem.
+    expect(row.cooldowns).toEqual([]);
+  });
+
+  it("flags Snake Trap on the cooldown moment rather than duplicating it", () => {
+    // A hunter ability: pressed, not bought. It must stay out of otherCasts or
+    // the gold table would charge for it.
+    const row = run([
+      cast({ ability: { name: "Snake Trap", guid: 34600 }, timestamp: 200000 }),
+    ]).rows.find((r) => r.fightId === 7 && r.actorName === "Thrainn")!;
+    expect(row.otherCasts).toEqual([]);
+    expect(row.cooldowns).toEqual(["Snake Trap"]);
+    expect(row.castTimes).toEqual([{ name: "Snake Trap", atMs: 100000, deployable: true }]);
+  });
+
+  it("does not count a turret twice for its begincast", () => {
+    // Flame Turret is the only one of the five with a cast time, so it emits
+    // both events. Three turrets read as six the moment begincast is kept.
+    const row = run([
+      cast({ type: "begincast", ability: { name: "Flame Turret", guid: 30526 } }),
+      cast({ type: "cast", ability: { name: "Flame Turret", guid: 30526 }, timestamp: 150500 }),
+    ]).rows.find((r) => r.fightId === 7 && r.actorName === "Thrainn")!;
+    expect(row.otherCasts).toEqual(["Gnomish Flame Turret"]);
+    expect(row.castTimes).toHaveLength(1);
+  });
+
+  it("labels the item, not the spell the log names", () => {
+    // WCL calls these after the thing they summon. An officer counting stock is
+    // holding a Dog Whistle and a Thornling Seed.
+    const row = run([
+      cast({ ability: { name: "Summon Tracking Hound", guid: 9515 } }),
+      cast({ ability: { name: "Plant Thornling", guid: 22792 }, timestamp: 160000 }),
+    ]).rows.find((r) => r.fightId === 7 && r.actorName === "Thrainn")!;
+    expect(row.otherCasts).toEqual(["Dog Whistle", "Thornling Seed"]);
+    expect(row.castTimes.map((c) => c.name)).toEqual(["Dog Whistle", "Thornling Seed"]);
+  });
+
+  it("leaves a deployable used off-pull as a consumable with no moment", () => {
+    // Trash has no pull to hang a timeline on; the gold table still counts it.
+    const result = run([cast({ fight: 8, timestamp: 460000 })]);
+    expect(result.offPull.find((o) => o.actorName === "Thrainn")!.otherCasts).toEqual([
+      "Goblin Land Mine",
+    ]);
+    expect(result.rows.every((r) => r.castTimes.length === 0)).toBe(true);
   });
 });

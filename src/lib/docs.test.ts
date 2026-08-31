@@ -152,6 +152,22 @@ describe("the WCL event filter is built from the curated lists", () => {
       expect(src, `${list} no longer feeds the server-side event filter`).toContain(list);
     }
   });
+
+  // The inverse claim, and it is load-bearing the other way: docs/change-chains.md
+  // §1 and wcl/AGENTS.md both promise that curating a dispel re-grades reports
+  // imported months ago. That only holds while the Dispels fetch asks for the
+  // whole stream and classification happens at read time. A filterExpression
+  // here would make the promise false with nothing else failing.
+  it("asks for every dispel, so the curated list can classify at read time", () => {
+    const src = readFileSync(path.join(root, "src/lib/wcl/fetch-report.ts"), "utf8");
+    // The whole call, verbatim: three arguments and no filter. Matching loosely
+    // would also match the parameter list of `fetchAllEvents` itself, which
+    // names every data type including this one.
+    expect(
+      src,
+      "the Dispels fetch changed shape — a filter here breaks read-time classification",
+    ).toContain('fetchAllEvents(code, "Dispels", reportDuration)');
+  });
 });
 
 describe("per-report settings use the meta-key convention", () => {
@@ -163,6 +179,7 @@ describe("per-report settings use the meta-key convention", () => {
       "consumable_prices",
       "excluded_fights",
       "consumable_adjustments",
+      "gold_payback",
       "raid_board",
       "guild_roster",
     ]) {

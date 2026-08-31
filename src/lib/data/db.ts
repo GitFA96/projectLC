@@ -52,6 +52,7 @@ import type {
   BossDrop,
   GuildBossDrop,
   ConsumablePrice,
+  ReportPayback,
   CurrentGearOverride,
   FeedbackReport,
   Account,
@@ -206,7 +207,12 @@ CREATE TABLE IF NOT EXISTS wcl_player_offpull (
   -- What the pet was seen HOLDING, which is not what anyone was seen doing:
   -- a pet has no combatantinfo, so its aura stream is the only evidence it was
   -- scrolled. Never counted or priced — see normalize.ts.
-  pet_buffs_seen_json TEXT NOT NULL DEFAULT '[]'
+  pet_buffs_seen_json TEXT NOT NULL DEFAULT '[]',
+  -- Dispels landed off the boss pulls, counted per (zone, spell, target, aura)
+  -- rather than timed: trash is a hundred-odd segments a night and a timestamp
+  -- against one of them answers nothing. The zone is what keeps a night that
+  -- ran two instances readable.
+  trash_dispels_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS wcl_player_offpull_report ON wcl_player_offpull(report_code);
@@ -439,6 +445,11 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   extras_json           TEXT NOT NULL DEFAULT '[]',
   cooldowns_json        TEXT NOT NULL DEFAULT '[]',
   cast_times_json       TEXT NOT NULL DEFAULT '[]',
+  -- Who this raider took what off, and when — the source's side of a dispel.
+  -- Unlike the cast and aura streams this one is fetched unfiltered, so a
+  -- newly curated dispel spell renames old rows without a refetch; what needs
+  -- a re-import is the fetch itself, which older reports predate.
+  dispels_json          TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
   talents_json          TEXT NOT NULL DEFAULT '[]',
@@ -835,6 +846,12 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "death_times_json", "death_times_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
+  addColumn("wcl_player_fights", "dispels_json", "dispels_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn(
+    "wcl_player_offpull",
+    "trash_dispels_json",
+    "trash_dispels_json TEXT NOT NULL DEFAULT '[]'",
+  );
   addColumn(
     "wcl_player_offpull",
     "pet_buffs_seen_json",
@@ -1229,6 +1246,66 @@ export function getReportConsumablePrices(db: DatabaseSync, code: string): Recor
   } catch {
     return {};
   }
+}
+
+/* Per-report payback: the marks the raid banked, what a mark is worth this
+   week, and what has actually been handed back. Same meta-key shape as the
+   prices above — see change-chains §3 — because it is the same kind of thing:
+   an officer's record about one night, that no derived model reads. */
+
+const paybackKey = (code: string) => `gold_payback:${code}`;
+
+/** Unset, and the value every night starts at: no pot, nothing paid. */
+const EMPTY_PAYBACK: ReportPayback = { marks: 0, markGold: 0, paid: {} };
+
+/**
+ * Keep only well-formed numbers so a hand-edited blob can never crash a read.
+ *
+ * The caps are deliberate rather than defensive: a raid banks tens of marks,
+ * not millions, and a paid figure larger than a guild bank is a typo somebody
+ * should see rejected rather than saved.
+ */
+function sanitizePayback(raw: unknown): ReportPayback {
+  if (raw === null || typeof raw !== "object") return EMPTY_PAYBACK;
+  const r = raw as Record<string, unknown>;
+  const bounded = (v: unknown, max: number) =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : 0;
+  const paid: Record<string, number> = {};
+  if (r.paid !== null && typeof r.paid === "object") {
+    for (const [name, value] of Object.entries(r.paid as Record<string, unknown>)) {
+      const gold = bounded(value, 1_000_000);
+      // A zero is the same statement as an absent name, and storing it would
+      // grow the blob by a row every time somebody typed into a box and
+      // cleared it again.
+      if (gold > 0 && name.trim().length > 0 && name.length <= 80) paid[name] = gold;
+    }
+  }
+  return {
+    marks: Math.floor(bounded(r.marks, 10_000)),
+    markGold: bounded(r.markGold, 100_000),
+    paid,
+  };
+}
+
+/** A report's payback record (all zeroes when the officers haven't set one). */
+export function getReportPayback(db: DatabaseSync, code: string): ReportPayback {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(paybackKey(code)) as
+    | { value: string }
+    | undefined;
+  if (!row) return EMPTY_PAYBACK;
+  try {
+    return sanitizePayback(JSON.parse(row.value));
+  } catch {
+    return EMPTY_PAYBACK;
+  }
+}
+
+/** Persist a report's payback record (replaces the whole blob for that report). */
+export function setReportPayback(db: DatabaseSync, code: string, payback: ReportPayback): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(paybackKey(code), JSON.stringify(sanitizePayback(payback)));
 }
 
 /** Persist a report's consumable prices (replaces the whole blob for that report). */
@@ -1918,6 +1995,16 @@ function sanitizePolicy(raw: unknown): Record<string, unknown> {
   const severity = group(r.improvementSeverity, ["high", "medium", "low"] as const,
     (v) => num(v, 0, 1000, "int"));
   if (severity) out.improvementSeverity = severity;
+
+  // Two shapes again: the tier is a count of raiders, the weight a multiplier.
+  // 1 is the floor on the weight because it means "no boost" — below it the
+  // top tier would be paid LESS than everyone else, which is not a setting
+  // anybody means to save.
+  const payback: Record<string, unknown> = {
+    ...group(r.payback, ["topTier"] as const, (v) => num(v, 0, 100, "int")),
+    ...group(r.payback, ["topWeight"] as const, (v) => num(v, 1, 10)),
+  };
+  if (Object.keys(payback).length > 0) out.payback = payback;
 
   return out;
 }
@@ -3491,9 +3578,9 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, prepot_label, death_times_json, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
-       upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
+       dispels_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -3503,6 +3590,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     JSON.stringify(f.deathTimes),
     JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
+    JSON.stringify(f.dispels),
     JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), JSON.stringify(f.talents),
     f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
@@ -3514,13 +3602,15 @@ export function insertWclPlayerOffPull(db: DatabaseSync, o: WclPlayerOffPull): v
   db.prepare(
     `INSERT OR REPLACE INTO wcl_player_offpull (
        id, report_code, actor_name, character_id, potions_json, other_casts_json,
-       drums, runes, healthstones, sappers, pet_consumables_json, pet_buffs_seen_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       drums, runes, healthstones, sappers, pet_consumables_json, pet_buffs_seen_json,
+       trash_dispels_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     o.id, o.reportCode, o.actorName, o.characterId,
     JSON.stringify(o.potions), JSON.stringify(o.otherCasts),
     o.drums, o.runes, o.healthstones, o.sappers, JSON.stringify(o.petConsumables),
     JSON.stringify(o.petBuffsSeen),
+    JSON.stringify(o.trashDispels),
   );
 
 }
@@ -3541,6 +3631,7 @@ function rowToWclPlayerOffPull(r: Row): unknown {
     // Null on a database written before the column existed; the schema default
     // turns that into "nothing seen", which a re-import fills in.
     petBuffsSeen: JSON.parse((r.pet_buffs_seen_json as string | null) ?? "[]"),
+    trashDispels: JSON.parse((r.trash_dispels_json as string | null) ?? "[]"),
   };
 }
 
@@ -3755,6 +3846,9 @@ function rowToWclPlayerFight(r: Row): unknown {
     extras: JSON.parse((r.extras_json as string | null) ?? "[]"),
     cooldowns: JSON.parse((r.cooldowns_json as string | null) ?? "[]"),
     castTimes: JSON.parse((r.cast_times_json as string | null) ?? "[]"),
+    // Null before the column existed, which the schema default reads as "no
+    // dispels recorded" — not "nobody dispelled". A re-import is the fix.
+    dispels: JSON.parse((r.dispels_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     talents: JSON.parse((r.talents_json as string | null) ?? "[]"),

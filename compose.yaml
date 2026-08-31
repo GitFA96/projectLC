@@ -41,6 +41,15 @@ services:
       # container. Cleared so the sim pages say "not configured" rather than
       # failing to exec something.
       WOWSIMCLI_PATH: ""
+      # Discord matches this string exactly, and it has to name the origin the
+      # *browser* used — which is not localhost once a tunnel is in front.
+      # Overriding it here rather than in .env.local keeps `npm run dev` working:
+      #
+      #   PUBLIC_ORIGIN=https://<machine>.<tailnet>.ts.net npm run app
+      #
+      # Register that exact callback URL in the Discord developer portal too;
+      # both can be registered at once, so switching back costs nothing.
+      DISCORD_REDIRECT_URI: ${PUBLIC_ORIGIN:-http://localhost:3000}/api/auth/discord/callback
 
     volumes:
       # Named volume, not a bind mount to ./data — that directory holds the

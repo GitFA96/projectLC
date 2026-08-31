@@ -2,9 +2,15 @@
 
 import * as React from "react";
 import { format, parseISO } from "date-fns";
-import { Coins, Trophy, TriangleAlert } from "lucide-react";
-import type { SeasonRaiderStat, SeasonReportInput, SeasonRosterEntry } from "@/lib/types";
+import { Coins, HandCoins, Trophy, TriangleAlert } from "lucide-react";
+import type {
+  SeasonPaybackView,
+  SeasonRaiderStat,
+  SeasonReportInput,
+  SeasonRosterEntry,
+} from "@/lib/types";
 import { isGuildCharacter, summarizeSeason } from "@/lib/analysis/season";
+import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { STATUS_LABELS, type CharacterStatus } from "@/lib/constants/wow";
 import { RankBadge, Raider } from "@/components/logs/rank-bits";
 import { SeasonConsumableBoard } from "@/components/logs/season-consumable-board";
@@ -38,10 +44,13 @@ const NO_ROSTER: Record<string, SeasonRosterEntry> = {};
 export function SeasonDashboard({
   reports,
   roster = NO_ROSTER,
+  policy = DEFAULT_POLICY,
 }: {
   reports: SeasonReportInput[];
   /** Slug → what the roster says, for the guild/pug split. Empty is legal. */
   roster?: Record<string, SeasonRosterEntry>;
+  /** The council's payback split — only the ledger reads it. */
+  policy?: GuildPolicy;
 }) {
   const sorted = React.useMemo(
     () => [...reports].sort((a, b) => compareText(b.startTime, a.startTime)),
@@ -50,7 +59,10 @@ export function SeasonDashboard({
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set(sorted.map((r) => r.code)));
 
   const chosen = sorted.filter((r) => selected.has(r.code));
-  const view = React.useMemo(() => summarizeSeason(chosen, roster), [chosen, roster]);
+  const view = React.useMemo(
+    () => summarizeSeason(chosen, roster, policy),
+    [chosen, roster, policy],
+  );
 
   const toggle = (code: string) =>
     setSelected((prev) => {
@@ -140,6 +152,8 @@ export function SeasonDashboard({
           )}
 
           <SpendCard raiders={view.raiders} raidCount={chosen.length} />
+
+          <PaybackLedger view={view.payback} />
 
           <SeasonConsumableBoard consumables={view.consumables} raidCount={chosen.length} />
 
@@ -388,5 +402,158 @@ function SpendTable({ rows }: { rows: SeasonRaiderStat[] }) {
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+const gold = (n: number) => `${Math.round(n).toLocaleString("en-US")}g`;
+
+/**
+ * The running payback account across every raid that banked marks.
+ *
+ * The point of it is the **balance** column, which is why the table is sorted
+ * on that and not on spend: over a season the split hands the biggest payouts
+ * to the same handful of raiders every week, and this is the only view that
+ * says who has quietly never been covered. Reading it is how the council evens
+ * things out.
+ *
+ * It does not even them out by itself. Feeding a running balance back into the
+ * next night's split would change who gets marks, which is a judgement about
+ * fairness rather than a fact in a log — see AGENTS.md invariant 5. The ledger
+ * reports; the officers decide.
+ */
+function PaybackLedger({ view }: { view: SeasonPaybackView }) {
+  if (view.raids.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HandCoins className="h-4 w-4 text-success-ink" />
+            Payback ledger
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            None of the selected raids has a pot recorded. Enter the Marks of Illidari a night
+            banked on that raid&apos;s gold tab and it joins the ledger from then on.
+          </p>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const outstanding = view.recommendedTotal - view.paidTotal;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          <HandCoins className="h-4 w-4 text-success-ink" />
+          Payback ledger
+          <span className="text-sm font-normal text-muted-foreground">
+            {view.marksTotal} marks over {view.raids.length} raid
+            {view.raids.length === 1 ? "" : "s"} · {gold(view.paidTotal)} of{" "}
+            {gold(view.recommendedTotal)} handed back
+          </span>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Who has had their consumables covered and who has not, added up across every selected
+          raid that banked marks. <strong>Sorted by who is furthest behind</strong> — that is the
+          column to read when deciding who the next payday should favour. Nothing here feeds a
+          split automatically: evening out is the council&apos;s call, not the app&apos;s.
+          {view.raidsWithoutPot > 0 && (
+            <span className="ml-1 text-warn-ink">
+              {view.raidsWithoutPot} selected raid{view.raidsWithoutPot === 1 ? "" : "s"} recorded
+              no pot and {view.raidsWithoutPot === 1 ? "is" : "are"} not counted here.
+            </span>
+          )}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8" />
+              <TableHead>Raider</TableHead>
+              <TableHead className="w-16 text-right">Raids</TableHead>
+              <TableHead className="w-24 text-right">Spent</TableHead>
+              <TableHead className="w-24 text-right">Owed</TableHead>
+              <TableHead className="w-24 text-right">Paid</TableHead>
+              <TableHead className="w-16 text-right">Marks</TableHead>
+              <TableHead className="w-24 text-right">Balance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {view.raiders.map((r, i) => (
+              <TableRow key={r.name}>
+                <TableCell>{r.balance > 0 && <RankBadge rank={i + 1} />}</TableCell>
+                <TableCell>
+                  <Raider name={r.name} slug={r.slug} className={r.className} />
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                  {r.raids}
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                  {gold(r.spend)}
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums">
+                  {gold(r.recommended)}
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                  {r.paid > 0 ? gold(r.paid) : "—"}
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                  {r.marks}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "text-right text-sm font-semibold tabular-nums",
+                    r.balance > 0.5 ? "text-warn-ink" : r.balance < -0.5 ? "text-success-ink" : "",
+                  )}
+                >
+                  {gold(r.balance)}
+                </TableCell>
+              </TableRow>
+            ))}
+            <TableRow className="border-t-2 hover:bg-transparent">
+              <TableCell />
+              <TableCell className="text-xs font-medium text-muted-foreground">Ledger</TableCell>
+              <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                {view.raids.length}
+              </TableCell>
+              <TableCell />
+              <TableCell className="text-right text-sm font-semibold tabular-nums">
+                {gold(view.recommendedTotal)}
+              </TableCell>
+              <TableCell className="text-right text-sm font-semibold tabular-nums">
+                {gold(view.paidTotal)}
+              </TableCell>
+              <TableCell className="text-right text-sm font-semibold tabular-nums">
+                {view.marksTotal}
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "text-right text-sm font-semibold tabular-nums",
+                  outstanding > 0.5 ? "text-warn-ink" : "text-success-ink",
+                )}
+              >
+                {gold(outstanding)}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+
+        <div>
+          <h4 className="mb-1 text-xs font-medium text-muted-foreground">Nights in the ledger</h4>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            {view.raids.map((r) => (
+              <span key={r.code} className="whitespace-nowrap">
+                {format(parseISO(r.startTime), "d MMM")} · {r.marks} marks ×{" "}
+                {gold(r.markGold)} · {gold(r.paid)}/{gold(r.recommended)} back
+                {r.marksLeft > 0 && (
+                  <span className="text-info-ink"> · {r.marksLeft} left in bank</span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

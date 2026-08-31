@@ -32,6 +32,7 @@ import {
   getGuildRoster,
   getRaidBoard,
   getReportConsumablePrices,
+  getReportPayback,
   getTemplateBoard,
   listGuildRosters,
   getSimProfile,
@@ -72,6 +73,7 @@ import {
   deleteGuildRoster,
   setRaidBoard,
   setReportConsumablePrices,
+  setReportPayback,
   setTemplateBoard,
   setSimProfile,
   addAbilities,
@@ -1751,6 +1753,14 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     });
   },
 
+  async setReportPayback(code, payback) {
+    const db = getDb();
+    withTx(db, () => {
+      setReportPayback(db, code, payback);
+      bumpDataVersion(db);
+    });
+  },
+
   /*
    * The board writes are the only ones here that deliberately do NOT call
    * bumpDataVersion, and the reason is worth stating because every neighbour
@@ -1875,6 +1885,7 @@ export function getSqliteRepo(): WriteRepo {
     listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),
     // Prices live in the meta table, not the derived model — read them directly.
     getReportConsumablePrices: async (code) => getReportConsumablePrices(getDb(), code),
+    getReportPayback: async (code) => getReportPayback(getDb(), code),
     getRaidBoard: async (code) => getRaidBoard(getDb(), code),
     getTemplateBoard: async () => getTemplateBoard(getDb()),
     listGuildRosters: async () => listGuildRosters(getDb()),

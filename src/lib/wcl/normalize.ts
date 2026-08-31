@@ -14,6 +14,7 @@ import {
 
 import { normalizeIcon, qualityFromId } from "@/lib/items/item-data";
 import type { Quality } from "@/lib/types";
+import { deployableOf } from "@/lib/wcl/deployables";
 import {
   COOLDOWN_BY_ID,
   TOTEM_CAST_BY_NAME,
@@ -83,6 +84,23 @@ const rawRankingsSchema = z.looseObject({
   data: z.array(rawRankingFightSchema).optional(),
 });
 
+/**
+ * A fight as the *unfiltered* list reports it — trash included.
+ *
+ * Only what placing a trash segment needs: which instance it happened in, and
+ * whether there was an enemy NPC in it at all. A segment with none is world
+ * PvP or an empty window the raid walked through, and the dispels inside it are
+ * not raid work.
+ */
+const rawAllFightSchema = z.looseObject({
+  id: z.number(),
+  encounterID: z.number().optional(),
+  startTime: z.number(),
+  endTime: z.number(),
+  gameZone: z.looseObject({ id: z.number().optional(), name: z.string().optional() }).nullish(),
+  enemyNPCs: z.array(z.looseObject({ id: z.number().optional() })).nullish(),
+});
+
 const rawReportSchema = z.looseObject({
   title: z.string().optional(),
   startTime: z.number(),
@@ -92,6 +110,8 @@ const rawReportSchema = z.looseObject({
     .looseObject({ actors: z.array(rawActorSchema).nullish() })
     .nullish(),
   fights: z.array(rawFightSchema).nullish(),
+  /** Every fight, trash included. Absent on a report fetched before dispels. */
+  allFights: z.array(rawAllFightSchema).nullish(),
   dps: rawRankingsSchema.nullish(),
   hps: rawRankingsSchema.nullish(),
   bossdps: rawRankingsSchema.nullish(),
@@ -207,6 +227,26 @@ const rawAuraEventSchema = z.looseObject({
   ability: rawAbilitySchema.nullish(),
 });
 
+/**
+ * One aura removed by another spell.
+ *
+ * `ability` is what did the removing and `extraAbility` is what came off —
+ * both arrive named, because the events fetch asks with `useAbilityIDs: false`.
+ * `isBuff` separates the two jobs that share this event type: false is a debuff
+ * cleansed off a friendly, true is a buff stripped off an enemy (Purge,
+ * Spellsteal, Tranquilizing Shot).
+ */
+const rawDispelEventSchema = z.looseObject({
+  timestamp: z.number(),
+  type: z.string().optional(),
+  fight: z.number().optional(),
+  sourceID: z.number().optional(),
+  targetID: z.number().optional(),
+  ability: rawAbilitySchema.nullish(),
+  extraAbility: rawAbilitySchema.nullish(),
+  isBuff: z.boolean().nullish(),
+});
+
 /* Normalized output */
 
 export type WclRole = "tank" | "healer" | "dps";
@@ -261,6 +301,15 @@ export interface NormalizedPlayerFight {
    * "Innervate ×3" into a timeline.
    */
   castTimes: NormalizedCastMoment[];
+  /**
+   * Dispels this player landed during the pull — who they took it off and what
+   * came off — in cast order.
+   *
+   * On the source's row rather than the recipient's, because the question the
+   * council asks is "who was decursing on Archimonde". The recipient side is
+   * derived in analysis from these same records.
+   */
+  dispels: NormalizedDispel[];
   /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
   upkeep: {
     name: string;
@@ -296,6 +345,63 @@ export interface NormalizedCastMoment {
   target?: string;
   /** A shaman totem drop rather than a class cooldown. */
   totem?: boolean;
+  /**
+   * Something put on the ground — a land mine, a snake trap, a turret.
+   *
+   * A third label on the same moment rather than a category, because these are
+   * already one of the other two: four of the five are items and are counted
+   * and priced as consumables, and the fifth is a hunter cooldown. The flag is
+   * what lets one view ask "was the kit down on this pull" without either of
+   * those two answers moving. See `wcl/deployables.ts`.
+   */
+  deployable?: boolean;
+}
+
+/**
+ * One aura taken off somebody — a cleanse, a decurse, or an enemy buff stripped.
+ *
+ * The spell **id** is stored beside the name because the name is not the match
+ * key: Warcraft Logs resolves some TBC ids against a modern spell database, so
+ * the same press can be spelled two ways across game versions. `dispelAbilityOf`
+ * reads the id at display time, which is what lets a newly curated dispel
+ * re-grade reports imported months ago.
+ */
+export interface NormalizedDispel {
+  /** ms from the pull start. */
+  atMs: number;
+  /** WCL spell id of the dispel itself. */
+  spellId?: number;
+  /** The dispel as the log named it. */
+  spell: string;
+  /** Who it landed on — a raider or pet, or an enemy for an offensive strip. */
+  target: string;
+  /** The aura that came off, as the log named it. */
+  removed: string;
+  removedId?: number;
+  /** The aura was a BUFF on an enemy (Purge, Spellsteal, Tranquilizing Shot). */
+  offensive?: boolean;
+}
+
+/**
+ * The same removal away from the boss pulls, **counted** rather than timed.
+ *
+ * A raid night's trash is 136 segments of it, and a timestamp against one of
+ * them answers nothing — so these collapse to a count per (zone, spell, target,
+ * aura). The zone is what keeps a night that ran two instances readable: "who
+ * decursed on Hyjal trash" is a different question from the same one about
+ * Black Temple, and one figure for the night answers neither.
+ */
+export interface NormalizedTrashDispel {
+  /** The instance the trash belonged to ("Hyjal Summit", "Black Temple"). */
+  zone: string;
+  spellId?: number;
+  spell: string;
+  target: string;
+  removed: string;
+  removedId?: number;
+  offensive?: boolean;
+  /** How many times this exact removal happened. */
+  count: number;
 }
 
 /** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
@@ -413,6 +519,16 @@ export interface NormalizedPlayerOffPull {
    * and `PET_BUFF_IDS`.
    */
   petBuffsSeen: { name: string; atMs: number }[];
+  /**
+   * Dispels landed outside the boss pulls — overwhelmingly trash, which is
+   * where most of a decurser's night goes (432 of 492 on the probed MH+BT
+   * report).
+   *
+   * Per player per report like everything else here, but keyed by zone inside,
+   * because one night runs two instances and their trash asks different
+   * questions of the raid.
+   */
+  trashDispels: NormalizedTrashDispel[];
 
 }
 
@@ -446,6 +562,8 @@ export interface RawEventInputs {
   debuffs?: unknown[];
   /** Tracked buffs on friendlies (shouts, Earth Shield). Absent on older fetches. */
   buffs?: unknown[];
+  /** Every dispel in the report. Absent on fetches older than the dispel view. */
+  dispels?: unknown[];
   /** Damage taken near each death, for the recap. Absent on older fetches. */
   damageTaken?: unknown[];
 }
@@ -525,6 +643,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         extras: [],
         cooldowns: [],
         castTimes: [],
+        dispels: [],
         upkeep: [],
         gear: [],
         talents: [],
@@ -884,6 +1003,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         sappers: 0,
         petConsumables: [],
         petBuffsSeen: [],
+        trashDispels: [],
       };
       offPullByActor.set(actorName, entry);
 
@@ -977,6 +1097,8 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         ...(targetActor ? { target: targetActor.name } : {}),
         // Mana Tide is both a cooldown and a totem — it belongs in both views.
         ...(totem ? { totem: true } : {}),
+        // …and Snake Trap is both a cooldown and a thing on the ground.
+        ...(deployableOf(abilityId) ? { deployable: true } : {}),
       });
       continue;
     }
@@ -985,10 +1107,121 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       continue;
     }
     row.otherCasts.push(hit.name);
+    /*
+     * An item deployable is counted twice on purpose, in two shapes. The
+     * `otherCasts` entry is the consumable — it is what the gold table prices
+     * and the usage board ranks. The cast moment is *when it went down*, which
+     * is the only form that answers "was the kit up on this pull". Neither
+     * replaces the other, and nothing sums them: every reader picks one.
+     */
+    if (deployableOf(abilityId)) {
+      row.castTimes.push({
+        name: hit.name,
+        atMs: Math.max(0, Math.min(event.timestamp, fight.endTime) - fight.startTime),
+        deployable: true,
+      });
+    }
     if (hit.category === "drums") row.drums++;
     else if (hit.category === "rune") row.runes++;
     else if (hit.category === "healthstone") row.healthstones++;
     else if (hit.category === "sapper") row.sappers++;
+  }
+
+  /*
+   * 4b. Dispels — what came off our raiders, and what we stripped off theirs.
+   *
+   * Unlike every other stream here this one is fetched unfiltered, so the
+   * curated list in `dispels.ts` never decides what is *counted* — only what is
+   * named. Both ids are stored beside both names for that reason: classifying
+   * at read time is what lets a spell curated next month re-grade tonight.
+   *
+   * Placement is the whole difficulty. Most dispelling happens on trash, which
+   * has no pull to hang it on, and a raid night runs two instances — so a
+   * dispel outside a boss pull is filed against the trash's own **zone**, and
+   * only when that zone is one the raid actually pulled a boss in. The rest is
+   * world PvP on the way there: the probed night opened with a duel and a
+   * skirmish outside Hyjal, twelve purges between players that would otherwise
+   * have read as somebody's cleansing record.
+   *
+   * A segment with no enemy NPC is exactly that case, and is the discriminator
+   * — not "does the fight have hostile players in it", which would also throw
+   * away real Black Temple trash that a stray enemy player wandered into.
+   */
+  const allFights = (raw.allFights ?? []).map((f) => rawAllFightSchema.parse(f));
+  const encounterZoneIds = new Set(
+    allFights.filter((f) => (f.encounterID ?? 0) > 0).map((f) => f.gameZone?.id),
+  );
+  /** fightId → the instance it belongs to, for every fight worth counting. */
+  const dispelZoneOf = new Map<number, string>();
+  for (const f of allFights) {
+    const zoneId = f.gameZone?.id;
+    if (zoneId === undefined || !encounterZoneIds.has(zoneId)) continue;
+    if ((f.encounterID ?? 0) === 0 && (f.enemyNPCs?.length ?? 0) === 0) continue;
+    dispelZoneOf.set(f.id, f.gameZone?.name ?? `Zone ${zoneId}`);
+  }
+  /** actorName → dedupe key → the counted removal, so trash collapses. */
+  const trashDispelsByActor = new Map<string, Map<string, NormalizedTrashDispel>>();
+
+  for (const rawEvent of events.dispels ?? []) {
+    const parsed = rawDispelEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    // Players only: a dispel sourced from anything else is an enemy stripping
+    // our buffs, which is a fact about the encounter and not about a raider.
+    const actor = event.sourceID === undefined ? undefined : actorById.get(event.sourceID);
+    const spell = event.ability?.name;
+    const removed = event.extraAbility?.name;
+    const target = event.targetID === undefined ? undefined : anyActorById.get(event.targetID);
+    if (!actor || !spell || !removed || !target) continue;
+    const offensive = event.isBuff === true;
+    const parts = {
+      spell,
+      target: target.name,
+      removed,
+      ...(event.ability?.guid !== undefined ? { spellId: event.ability.guid } : {}),
+      ...(event.extraAbility?.guid !== undefined ? { removedId: event.extraAbility.guid } : {}),
+      ...(offensive ? { offensive: true } : {}),
+    };
+
+    const fight = bossFightOf(event);
+    const row = fight ? rows.get(keyOf(fight.id, actor.name)) : undefined;
+    if (fight && row) {
+      row.dispels.push({
+        atMs: Math.max(0, Math.min(event.timestamp, fight.endTime) - fight.startTime),
+        ...parts,
+      });
+      continue;
+    }
+
+    /*
+     * No pull, or a pull this player has no ranked row for — the same fallback
+     * consumables take, and for the same reason: dropping it would make the
+     * raider who spends the trash decursing read as one who never dispels.
+     */
+    const zone = event.fight === undefined ? undefined : dispelZoneOf.get(event.fight);
+    if (!zone) continue;
+    offPullFor(actor.name, actor.subType);
+    const byKey = trashDispelsByActor.get(actor.name) ?? new Map<string, NormalizedTrashDispel>();
+    const key = [zone, parts.spellId ?? spell, target.name, parts.removedId ?? removed, offensive].join("|");
+    const existing = byKey.get(key);
+    if (existing) existing.count++;
+    else byKey.set(key, { zone, count: 1, ...parts });
+    trashDispelsByActor.set(actor.name, byKey);
+  }
+
+  for (const row of rows.values()) {
+    row.dispels.sort((a, b) => a.atMs - b.atMs || compareText(a.target, b.target));
+  }
+  for (const [actorName, byKey] of trashDispelsByActor) {
+    const entry = offPullByActor.get(actorName);
+    if (!entry) continue;
+    entry.trashDispels = [...byKey.values()].sort(
+      (a, b) =>
+        compareText(a.zone, b.zone) ||
+        b.count - a.count ||
+        compareText(a.spell, b.spell) ||
+        compareText(a.target, b.target),
+    );
   }
 
   /*
@@ -1420,7 +1653,11 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           o.potions.length > 0 ||
           o.otherCasts.length > 0 ||
           o.petConsumables.length > 0 ||
-          o.petBuffsSeen.length > 0,
+          o.petBuffsSeen.length > 0 ||
+          // A raider who spent the trash decursing and drank nothing has an
+          // off-pull record made entirely of dispels. Leaving this clause out
+          // dropped it on the floor with no error anywhere.
+          o.trashDispels.length > 0,
 
       )
       .sort((a, b) => compareText(a.actorName, b.actorName)),

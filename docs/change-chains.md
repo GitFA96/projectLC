@@ -159,6 +159,40 @@ this report", and it can only do so because the record exists. Nothing else is
 self-describing this way: cast ids, consumables and totems still need the rule
 above.
 
+**A deployable is curated twice and fetched once.** The Mother Shahraz kit —
+Goblin Land Mine, Thornling Seed, Dog Whistle, Gnomish Flame Turret, Snake Trap
+— is four items and one hunter ability doing one job, so it lives in
+`consumables.ts` and `class-tracks.ts` respectively, and `wcl/deployables.ts`
+only *flags* the cast moment those two already produce. Two consequences.
+An id in `deployables.ts` and in neither filter list is curated, reviewed,
+merged and silently never seen, which `analysis/deployables.test.ts` pins. And
+an item deployable is deliberately recorded **twice in two shapes** — once in
+`otherCasts`, where the gold table prices it, and once as a `castTimes` moment,
+where the timeline reads it — so nothing may ever sum the two. Adding a sixth
+means: pick the right list for what it is, add it there, and re-import.
+
+**Dispels invert this chain, and the inversion is the point.** `Dispels` is the
+one events fetch with no `filterExpression`: the whole stream is 492 events on a
+full MH+BT night, so the import stores the dispel's spell **id** beside its name
+and `dispelAbilityOf` classifies at *read* time — same shape as `elixirCategoryOf`
+above, and curating a spell in `wcl/dispels.ts` renames it on nights imported
+months ago. Adding a filter there would silently trade that away. The fetch
+itself is still §1: a report older than it holds no dispel rows at all, so the
+raid page has to say "not recorded" rather than "nobody dispelled", because
+nothing can tell those apart but a re-import.
+
+Two more things travel with it. **Trash is where the dispelling is** — 432 of
+those 492 — and trash belongs to no pull, so it is counted per *instance* off
+the unfiltered `allFights` list rather than timed; a night that clears Mount
+Hyjal and Black Temple asks two different questions and one figure answers
+neither. And **a report contains world PvP**: the probed night opened with a duel
+and a skirmish outside Hyjal, twelve purges between players that read exactly
+like cleansing. The discriminator is a segment with **no enemy NPC**, not one
+with hostile players in it — that second rule would also drop real Black Temple
+trash a stray enemy player wandered into. `normalize.ts` and
+`analysis/dispels.ts` both have to agree the excluded-pull switch does *not*
+reach trash (§5), or excusing a farm wipe erases the hour of decursing before it.
+
 **Facts keep turning up that were fetched all along and thrown away at
 normalize.** The pre-potted potion's name, the timestamp on every death, the
 label of a food whose buff isn't called "Well Fed", and the *killing blow* — WCL
@@ -268,6 +302,7 @@ namespaced key. The ones that exist:
 | `consumable_prices:<code>` | `setReportConsumablePrices` |
 | `excluded_fights:<code>` | `setReportExcludedFights` |
 | `consumable_adjustments:<code>` | `setReportConsumableAdjustments` |
+| `gold_payback:<code>` | `setReportPayback` |
 | `raid_board:<code>` | `setRaidBoard` |
 | `template_board` | `setTemplateBoard` (guild-wide, no suffix) |
 | `guild_roster:<id>` | `setGuildRoster` / `updateGuildRoster` (one row per named roster) |
@@ -364,6 +399,60 @@ Deriving `dirty` by comparison rather than a flag is what keeps these honest: an
 edit typed back to its saved value is not a change, and the price panel has to
 compare through the same rounding `save` applies or a charges box left at 0
 reads as dirty forever against the 1 that was written.
+
+**`gold_payback:<code>` holds a pot, and the pot is two numbers on purpose.**
+The raid banks Marks of Illidari and turns them into potions and flasks, so the
+payback is an **apportionment of something the guild actually has** — never a
+percentage of spend, which could recommend more than was banked. The record
+stores the marks *and* this week's gold-per-mark separately because they move
+independently: collapsing them to one gold figure freezes last month's mark
+price into this month's record, and nothing on screen would say so. Three
+consequences:
+
+- **The split's shape is policy, the pot is not.** `policy.payback` (§4b) holds
+  the boosted-tier size and its multiplier — standing decisions — while the
+  marks and their price are per night. Putting either in the other's place makes
+  one of them wrong every week.
+- **Nobody is paid back more than they spent, and that cannot be done by
+  clamping.** A refund larger than the outlay is a payment for nothing, so it is
+  a hard ceiling rather than a policy knob. Truncating an over-large share would
+  make the column quietly add up to less than the raid banked — the overflow has
+  to go **back into the pot** and be re-split among everyone still under their
+  own ceiling, which can push a second row over its, which is why
+  `apportionCapped` iterates. When the pot is larger than the night's spend
+  nothing can absorb the rest, and the leftover is reported rather than hidden.
+- **Marks are apportioned by largest remainder, gold is not.** A mark is a token
+  and 2.7 of one cannot change hands, so the mark column is rounded as a set and
+  always sums to exactly what was banked. Rounding each share on its own would
+  over- or under-spend the pot with nothing on screen to show which. **The
+  ceiling applies here too**, or the gold column obeys a cap the marks beside it
+  break: a raider owed 150g against a 100g mark takes one, never a rounded-up
+  two. Which makes leftover *marks* a different number from leftover *gold* —
+  683g of entitlement buys six marks and leaves 83g on the table — so both are
+  reported and the physical one leads.
+- **The ledger rides inside `summarizeSeason`, and that is deliberate.** The
+  cross-raid payback account on the *All raids* view needs each raider's priced,
+  corrected spend for each night — which is exactly what §5's third call site
+  already computes. Building it anywhere else would make a **fourth** place that
+  prices consumables, and the first pricing rule to move would leave the ledger
+  disagreeing with the gold ranking printed beside it. It re-runs each night's
+  split through the same `buildPayback`, so the ledger can never disagree with
+  the column an officer read on the night either.
+- **A night with no pot is not a night nobody was paid.** Only raids with marks
+  *and* a mark price recorded enter the ledger; the rest are counted and named
+  (`raidsWithoutPot`) rather than folded in as nights where everyone was owed
+  zero, which would make every raider who missed a payday read as shorted.
+- **The balance is reported, never fed back.** `recommended − paid` across the
+  season is what an officer reads to decide who the next payday should favour.
+  Wiring it into the next night's split would change who gets marks, which is a
+  judgement about fairness rather than a fact in a log — §4b territory, and the
+  council's call, not a modelling improvement.
+- **The panel writes it; the ranking reads it.** The gold table's ± presses are
+  one buffered batch with its own dirty flag and unsaved-work guard (below), so
+  the payback inputs live in their own card — the same split the price panel
+  uses. The ranking recomputes the column from its *live* totals, because
+  "values follow the presses, sorts wait" has to hold for every number in that
+  table or one of them contradicts its own row.
 
 **`raid_board:<code>` is the one per-report setting that is not a correction to
 something derived.** Warcraft Logs records no group assignments at all, so a

@@ -3,6 +3,8 @@ import { petConsumableLabel } from "@/lib/wcl/consumables";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
+import { buildDeployableView } from "@/lib/analysis/deployables";
+import { buildDispelView } from "@/lib/analysis/dispels";
 import { buildPreparedness } from "@/lib/analysis/preparedness";
 import { summarizePetSpend } from "@/lib/analysis/pet-consumables";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
@@ -750,6 +752,22 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     ),
   });
 
+  /* ---- What went on the ground ---- */
+  // Reads the same `castTimes` the totem lanes do, filtered by its own flag.
+  // Four of these five are also consumables and are already counted in `usage`
+  // and priced in the gold table; this view is about *when*, and adds to
+  // neither.
+  const deployables = buildDeployableView({ rows, slugByActor });
+
+  /* ---- Who cleansed what off whom ---- */
+  // The trash side reads `input.offPull` unfiltered on purpose: excusing a farm
+  // wipe must not excuse the hour of decursing before it (change-chains §5).
+  const dispels = buildDispelView({
+    rows,
+    offPull: input.offPull ?? [],
+    slugByActor,
+  });
+
   /* ---- Why we struggle on a boss ---- */
   const deathProfiles = buildDeathProfiles(rows);
 
@@ -760,6 +778,8 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     report, session, fights, reportPulls, prep, upkeep, playerBuffs, totems, cooldowns, improvements, usage,
     preparedness,
     petSpend,
+    dispels,
+    deployables,
     deathProfiles,
     parseBoards,
   };

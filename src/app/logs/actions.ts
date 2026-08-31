@@ -36,6 +36,42 @@ export async function saveReportConsumablePrices(input: SavePricesInput): Promis
   }
 }
 
+const paybackSchema = z.object({
+  code: z.string().min(1),
+  /** Marks of Illidari the raid banked. Whole tokens — you cannot bank half. */
+  marks: z.number().int().min(0).max(10_000),
+  /** This week's gold value of one mark. */
+  markGold: z.number().min(0).max(100_000),
+  /** Gold already handed over, by logged raider name. */
+  paid: z.record(z.string().min(1).max(80), z.number().min(0).max(1_000_000)),
+});
+
+export type SavePaybackInput = z.infer<typeof paybackSchema>;
+export type SavePaybackResult = { ok: boolean; message: string };
+
+/**
+ * Record what a raid night banked to hand back, and what has gone out.
+ *
+ * The whole record is sent and replaces the stored one, the same way the prices
+ * do — two officers editing one night at once means the later save wins outright
+ * rather than merging. If that ever matters the fix is a targeted upsert per
+ * raider, not more client state (change-chains §3).
+ */
+export async function saveReportPayback(input: SavePaybackInput): Promise<SavePaybackResult> {
+  const parsed = paybackSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "That payback record doesn't look valid." };
+  try {
+    requireCapability(await resolveViewer(), "logs.edit");
+    const repo = await getWriteRepo();
+    const { code, ...payback } = parsed.data;
+    await repo.setReportPayback(code, payback);
+    refreshAfterWrite("/logs");
+    return { ok: true, message: "Saved this raid's payback." };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Could not save the payback." };
+  }
+}
+
 const fightFilterSchema = z.object({
   code: z.string().min(1),
   excludedFightIds: z.array(z.number().int().nonnegative()).max(200),

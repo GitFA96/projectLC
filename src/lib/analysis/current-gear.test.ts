@@ -116,6 +116,7 @@ function pull(
     extras: [],
     cooldowns: [],
     castTimes: [],
+    dispels: [],
     drums: 0,
     runes: 0,
     healthstones: 0,

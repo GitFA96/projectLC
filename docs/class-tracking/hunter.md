@@ -22,6 +22,7 @@ crits) — the reason a raid slots one SV hunter.
 | Expose Weakness | debuff | The SV hunter's whole raid contribution |
 | Serpent Sting | debuff | Situational DoT upkeep — read with spec context; low uptime for BM is normal |
 | Rapid Fire, Bestial Wrath, Misdirection, Readiness | cooldowns | Pressed or wasted; Misdirection on pull is a job |
+| Snake Trap | cooldown, and a deployable | The one *ability* in the Mother Shahraz kit — it shows in the cooldown counts and on the deployables timeline, and is never priced, because nobody buys it |
 
 ## What we deliberately show little of
 

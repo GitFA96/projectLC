@@ -39,6 +39,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     extras: [],
     cooldowns: [],
     castTimes: [],
+    dispels: [],
     upkeep: [],
     drums: 0,
     runes: 0,

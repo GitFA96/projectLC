@@ -69,8 +69,8 @@ const AURA_DEFS: AuraDef[] = [
    * only the BARE buff name and nothing matched it.
    *
    * Probed, not remembered: an import of this guild's own report listed
-   * `17628 Supreme Power ×11` and `17629 Chromatic Resistance ×1` in the
-   * unrecognized-aura dump. `classifyAura` matches "Flask of Supreme Power" via
+   * `17628 Supreme Power ×11`, `17629 Chromatic Resistance ×1` and later
+   * `17627 Distilled Wisdom ×8` in the unrecognized-aura dump. `classifyAura` matches "Flask of Supreme Power" via
    * the generic "…flask of…" pattern, but the log never says that — so eleven
    * pulls of a real flask graded as no flask at all, on the preparation column
    * that feeds the loot score.
@@ -88,12 +88,67 @@ const AURA_DEFS: AuraDef[] = [
     ids: [17629],
     buffNames: ["Chromatic Resistance"],
   },
+  {
+    label: "Flask of Distilled Wisdom",
+    category: "flask",
+    ids: [17627],
+    buffNames: ["Distilled Wisdom"],
+  },
   { label: "Unstable Flask of the Beast", category: "flask", ids: [40572] },
   { label: "Unstable Flask of the Bandit", category: "flask", ids: [40567] },
   { label: "Unstable Flask of the Elder", category: "flask", ids: [40568] },
   { label: "Unstable Flask of the Physician", category: "flask", ids: [40573] },
   { label: "Unstable Flask of the Soldier", category: "flask", ids: [40575] },
   { label: "Unstable Flask of the Sorcerer", category: "flask", ids: [40576] },
+  /*
+   * Shattrath flasks — the raid-only vendor flasks sold by the Aldor and Scryer
+   * apothecaries, whose tooltips read "Only active in Tempest Keep,
+   * Serpentshrine Cavern, Caverns of Time: Mount Hyjal, Black Temple and the
+   * Sunwell Plateau".
+   *
+   * **The buff inverts the item's name**, which is why nothing caught them: the
+   * item is "Shattrath Flask of Fortification" and the aura is "Fortification of
+   * Shattrath". The generic "…flask of…" pattern needs the word *flask*, and
+   * the log never says it — so these graded as no flask at all on the
+   * preparation column, the same failure as the vanilla flasks above.
+   *
+   * Each item's Use casts one spell that applies a second aura of the same name;
+   * the id the log carries is the **aura's**, which is what is curated here.
+   * Item → use spell → aura, from Wowhead's TBC data:
+   *
+   *   35716 Shattrath Flask of Pure Death          → 46837 → 46838
+   *   35717 Shattrath Flask of Blinding Light      → 46839 → 46840
+   *   32898 Shattrath Flask of Fortification       → 41609 → 41607
+   *   32901 Shattrath Flask of Relentless Assault  → 41608 → 41606
+   *
+   * Unlike the Unstable Flasks these DO appear in the pull's `combatantinfo`
+   * snapshot — that dump is built from it — so the ids buy the buff-stream path
+   * as a fallback rather than as the only reading.
+   */
+  {
+    label: "Shattrath Flask of Pure Death",
+    category: "flask",
+    ids: [46838],
+    buffNames: ["Pure Death of Shattrath"],
+  },
+  {
+    label: "Shattrath Flask of Blinding Light",
+    category: "flask",
+    ids: [46840],
+    buffNames: ["Blinding Light of Shattrath"],
+  },
+  {
+    label: "Shattrath Flask of Fortification",
+    category: "flask",
+    ids: [41607],
+    buffNames: ["Fortification of Shattrath"],
+  },
+  {
+    label: "Shattrath Flask of Relentless Assault",
+    category: "flask",
+    ids: [41606],
+    buffNames: ["Relentless Assault of Shattrath"],
+  },
   /* Battle elixirs */
   { label: "Elixir of Major Agility", category: "battleElixir", ids: [28497], buffNames: ["Major Agility"] },
   { label: "Elixir of Major Strength", category: "battleElixir", buffNames: ["Major Strength"] },
@@ -638,6 +693,37 @@ const TRACKED_CASTS: TrackedCast[] = [
   { id: 10052, name: "Mana Jade", category: "gem" },
   { id: 5405, name: "Mana Agate", category: "gem" },
   { id: 28726, name: "Nightmare Seed", category: "other" },
+  /*
+   * The Mother Shahraz kit — four items raiders deploy on a pull rather than
+   * drink. Grouped here because the log treats them like any other item cast,
+   * and named for the ITEM rather than the spell, which is the rule the elixirs
+   * live by: WCL spells three of these four after the thing they *create*, and
+   * an officer counting stock is holding the item.
+   *
+   * Every id was read off this guild's 30 Aug MH+BT report, on the four Mother
+   * Shahraz pulls, not remembered:
+   *
+   *   4100  "Goblin Land Mine"        16 casts — warriors, rogues, shamans, hunters
+   *   22792 "Plant Thornling"         10 casts — six classes; the item is Thornling Seed
+   *   9515  "Summon Tracking Hound"   12 casts — seven classes; the item is Dog Whistle
+   *   30526 "Flame Turret"             3 casts — one hunter (plus 3 `begincast`)
+   *
+   * Two of those names come from the council rather than a lookup: the log
+   * never says "Dog Whistle" or "Thornling Seed", it says what got summoned.
+   * The ids and the log's own spelling are above so anybody can check the
+   * mapping against the report — and a class spread that wide is itself the
+   * evidence these are items and not class abilities. Snake Trap, the fifth
+   * thing used alongside them, is a hunter ability and lives in
+   * `class-tracks.ts` instead: it is pressed, not bought.
+   *
+   * **Flame Turret emits `begincast` as well as `cast`** — it has a cast time,
+   * unlike the other three. normalize already drops `begincast`, which is what
+   * keeps three turrets from reading as six.
+   */
+  { id: 4100, name: "Goblin Land Mine", category: "other" },
+  { id: 22792, name: "Thornling Seed", category: "other" },
+  { id: 9515, name: "Dog Whistle", category: "other" },
+  { id: 30526, name: "Gnomish Flame Turret", category: "other" },
   /*
    * Thistle Tea — a rogue's in-fight energy burst, spent to fund an Expose
    * Armor or an extra finisher. The log calls it "Restore Energy", not the item

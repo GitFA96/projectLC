@@ -1468,7 +1468,8 @@ describe("sqlite repo", () => {
           {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
             actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
-            prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [], upkeep: [],
+            prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [],
+ dispels: [], upkeep: [],
             deaths: 0, deathTimes: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
           },
         ],
@@ -1593,7 +1594,8 @@ describe("sqlite repo", () => {
           fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
           actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
-          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          castTimes: [],
+          dispels: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], gear: [], talents: [33, 28, 0],
         },
       ],
@@ -2643,7 +2645,8 @@ describe("sqlite repo", () => {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
           actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
-          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          castTimes: [],
+          dispels: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [],
           // The snapshot spells icons with an extension; the cache stores them bare.
           gear: [{ slot: 0, id: 99953, icon: "inv_helmet_15.jpg", gems: [] }],
@@ -2673,7 +2676,8 @@ describe("sqlite repo", () => {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
           actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
-          castTimes: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          castTimes: [],
+          dispels: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [], gear: [],
         },
       ],
@@ -2708,6 +2712,7 @@ describe("sqlite repo", () => {
         extras: [],
         cooldowns: [],
         castTimes: [],
+        dispels: [],
         upkeep: [],
         gear: [],
         drums: 0,
@@ -2868,7 +2873,7 @@ describe("sqlite repo", () => {
             healthstones: 0,
             sappers: 0,
             petConsumables: [],
-            petBuffsSeen: [],
+            petBuffsSeen: [], trashDispels: [],
           },
           // A name nobody on the roster answers to still gets stored — it just
           // hangs off no character, exactly like an unmatched pull.
@@ -2881,7 +2886,7 @@ describe("sqlite repo", () => {
             healthstones: 0,
             sappers: 0,
             petConsumables: [{ name: "Kibler's Bits", atMs: 1000, fightId: 3 }],
-            petBuffsSeen: [],
+            petBuffsSeen: [], trashDispels: [],
           },
         ],
       );
@@ -2899,7 +2904,7 @@ describe("sqlite repo", () => {
       await repo.saveWclReport(
         { code: "OFFPULL1", title: "Trash night", zone: "Serpentshrine Cavern", startTime: "2026-07-01T18:00:00.000Z", endTime: "2026-07-01T22:00:00.000Z" },
         [fightDraft({ fightId: 1, actorName: "Thrainn" })],
-        [{ actorName: "Thrainn", potions: ["Haste Potion"], otherCasts: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, petConsumables: [], petBuffsSeen: [] }],
+        [{ actorName: "Thrainn", potions: ["Haste Potion"], otherCasts: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, petConsumables: [], petBuffsSeen: [], trashDispels: [] }],
       );
       const after = (await repo.getCharacterPerformance("thrainn"))!;
       expect(after.offPull.filter((o) => o.reportCode === "OFFPULL1")).toHaveLength(1);

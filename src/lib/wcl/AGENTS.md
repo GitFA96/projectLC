@@ -6,6 +6,8 @@ fetch-report.ts  the queries — and the server-side event filter
 normalize.ts     raw JSON → the rows we persist (pure)
 consumables.ts   curated consumable knowledge (ids, aura names, categories)
 class-tracks.ts  curated cooldowns / uptime auras / totem casts
+dispels.ts       curated dispel spells — labels only, never a filter
+deployables.ts   the five things laid on the ground; flags casts already fetched
 consumable-prices.ts, enchants.ts, fight-graph.ts
 ```
 
@@ -26,7 +28,7 @@ of the change, not a footnote.
 
 You will not always be the one who notices. An import stores the auras it could
 not place on the report and files a feedback report for anything that shows up at
-several pulls, so the curation queue arrives on its own — that is how the two
+several pulls, so the curation queue arrives on its own — that is how the
 vanilla flasks below were found, after eleven pulls of one had already graded as
 "no flask".
 
@@ -64,6 +66,50 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   food on 84 pulls. `isFoodLabel` recovers those at read time from `extras`, the
   same trick as `elixirCategoryOf`, so curating one fixes the past too. When you
   add a food, check the buff name against the item rather than assuming.
+- **A deployable is one press in two shapes, and neither may swallow the other.**
+  `deployables.ts` names the Mother Shahraz kit: four items (Goblin Land Mine,
+  Thornling Seed, Dog Whistle, Gnomish Flame Turret) curated as consumables and
+  one hunter ability (Snake Trap) curated as a cooldown. The list adds **no
+  fetch** — it only marks the cast moment, so the item stays priced as spend,
+  the ability stays unpriced, and a third view can ask "was the kit down at
+  0:05 or at 1:50". Which means every id in it has to already be in
+  `TRACKED_CAST_IDS` or `COOLDOWN_CAST_IDS`; one in neither would be curated,
+  reviewed, merged and never seen. `analysis/deployables.test.ts` pins it.
+- **Three of the four deployable items are named after what they summon.** WCL
+  logs the Dog Whistle as `Summon Tracking Hound`, the Thornling Seed as `Plant
+  Thornling` and the Gnomish Flame Turret as `Flame Turret` — the same trap as
+  Adept's Elixir applying "Spellpower Elixir", so the label is the item and
+  `loggedAs` keeps the log's spelling for anyone probing the report. A press
+  turning up on six or seven different classes is itself the evidence it is an
+  item and not a class ability.
+- **Gnomish Flame Turret has a cast time and the other four don't.** It emits
+  `begincast` as well as `cast` — 3 real casts against 6 events on the probed
+  night. normalize drops `begincast`, which is the only thing keeping three
+  turrets from reading as six.
+- **Dispels are the one stream fetched unfiltered, and the inversion matters.**
+  Every other fetch here is narrowed server-side by a curated list, so a spell
+  added later is missing from old reports forever. `Dispels` is small enough
+  (492 events across a full MH+BT night) to ask for whole, and normalize stores
+  the spell **id** beside the name — so `dispelAbilityOf` classifies when the
+  page is drawn and curating a dispel re-grades nights imported months ago. Put
+  a `filterExpression` on that fetch and you quietly trade that away. What still
+  needs a re-import is the fetch itself: a report older than it has no dispel
+  rows at all, and the raid page says so rather than reading as a quiet night.
+- **A dispel outside a boss pull needs a zone, and some segments are not raid
+  work.** Most dispelling happens on trash — 432 of 492 on the probed night —
+  which belongs to no pull, so it is counted per instance from the unfiltered
+  `allFights` list. Two traps: a night that ran Hyjal *and* Black Temple answers
+  two different questions, so one figure for the night answers neither; and a
+  report contains world PvP on the way in. The probed night opened with a duel
+  and a skirmish outside Hyjal — twelve purges between players that read exactly
+  like cleansing. The discriminator is **a segment with no enemy NPC**, not "a
+  segment with hostile players in it", which would also throw away real Black
+  Temple trash a stray enemy player wandered into.
+- **A totem's cleanse is not in the dispel stream.** Poison Cleansing Totem was
+  dropped 51 times in the probed report and produced zero dispel events; no
+  source in the whole stream is anything but a Player actor. Same silence as the
+  totem *buffs* (see `SHAMAN_TOTEM_CASTS`), so a shaman's cleansing work is the
+  drop timeline plus their own casts, and never a number that adds the two.
 - **Raw JSON is parsed with loose zod schemas.** WCL's blobs (rankings, events)
   aren't covered by its GraphQL schema. Unknown fields must never break an
   import; missing expected fields degrade to "metric unavailable". Keep new
