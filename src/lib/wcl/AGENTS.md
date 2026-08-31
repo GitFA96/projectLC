@@ -7,6 +7,7 @@ normalize.ts     raw JSON → the rows we persist (pure)
 consumables.ts   curated consumable knowledge (ids, aura names, categories)
 class-tracks.ts  curated cooldowns / uptime auras / totem casts
 dispels.ts       curated dispel spells — labels only, never a filter
+interrupts.ts    curated interrupts + which stopped casts heal; labels only too
 deployables.ts   the five things laid on the ground; flags casts already fetched
 consumable-prices.ts, enchants.ts, fight-graph.ts
 ```
@@ -105,6 +106,60 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   like cleansing. The discriminator is **a segment with no enemy NPC**, not "a
   segment with hostile players in it", which would also throw away real Black
   Temple trash a stray enemy player wandered into.
+- **The Interrupts stream carries more than interrupts, and the extras are not a
+  rounding error.** 23 of 262 events on the probed MH+BT night were
+  `applydebuff` — Polymorph, Cheap Shot, Garrote - Silence, Intimidation, Charge
+  Stun. They stop no cast, carry no `extraAbility`, and counting them inflates a
+  night by a tenth while crediting a rogue for sapping. Only
+  `type === "interrupt"` is an interrupt. Same class of trap as `begincast` on
+  the Flame Turret.
+- **Interrupts are the second unfiltered fetch**, for the same reason as dispels:
+  262 events across a full MH+BT night is small enough to ask for whole, so ids
+  are stored beside names and `interruptAbilityOf` / `isHealingCast` classify at
+  read time. Curating a spell re-grades nights imported months ago; a report
+  older than the fetch has no interrupt rows at all and the board says so rather
+  than reading as a night nobody kicked on. A `filterExpression` here would also
+  hide the interrupts nobody thought to curate, which are the ones worth seeing.
+- **A phase id is not the phase number a raider says out loud.** WCL counts
+  intermissions as phases: on Reliquary of Souls the ids run 1 "P1: Essence of
+  Suffering", 2 "Intermission One", 3 "P2: Essence of Desire" — so the phase the
+  guild calls two is id **3**, and anything keyed on the number reads the
+  intermission and reports a confident zero. `normalize.ts` stores WCL's own
+  phase *name*, which already carries the guild's numbering. The boundaries live
+  on the fight (`phaseTransitions`) and the names on the report (`phases`) — two
+  different keys, joined by `phaseNameOf`. A moment before the first transition
+  belongs to no phase rather than to phase one.
+- **For an interrupt, the event beats the segment on "was this raid work".** The
+  shared placement rule drops a segment that lists no enemy NPC, because that is
+  how the duel on the way in reads. It is a proxy, and it cost one real interrupt
+  on the probed night — a 19-second Hyjal pull whose `enemyNPCs` came back empty
+  while a shaman shocked a Shadowy Necromancer inside it. An interrupt names *who
+  was interrupted*, so an empty segment is admitted when its target is not a
+  `Player`. Test for `Player`, never for `NPC`: WCL types a summoned mob as
+  `Pet`, and 93 of 239 interrupts that night landed on one.
+- **What a raid *should* interrupt is not in the log.** `HEALING_CAST_IDS` labels
+  the stopped casts that heal so an officer can find them; it ranks nobody and
+  grades no pull (invariant 5).
+- **The denominator is a third fetch, and it is scoped by PULL, not by ability.**
+  "What got through" needs the enemy's own casts: `begincast` is a bar started,
+  `cast` is one that finished. Narrowing that fetch by a curated ability list —
+  or by the abilities already interrupted — would report a clean sheet for
+  exactly the caster nobody ever kicked. So it asks for everything on the boss
+  pulls and aggregates in normalize: 1,084 events across all 23 pulls of the
+  probed night, one page. Trash is out, and so a trash interrupt has no
+  denominator and must never be shown with one.
+- **The arithmetic is three-way, and the residual is real.** `started = landed +
+  stopped-by-us + unresolved`. A cast the mob died in the middle of is none of
+  the first two; folding it into "landed" overstates what got through, folding
+  it into "stopped" credits the raid for nothing. Probed across all 41 (pull,
+  caster, ability) rows: no row negative, 12 unresolved in total.
+- **An ability is only "interruptible" once the log shows it interrupted.**
+  Most of what a boss casts cannot be interrupted, so a bare "0 stopped" column
+  would invent a miss against Archimonde's Fear, Doom, Death & Decay and twenty
+  more. The mark is report-wide rather than per-pull: Empowered Smite was kicked
+  on the second Illidari Council pull and untouched on the third, and scoping it
+  per pull would let the pull where nobody pressed anything excuse itself. Same
+  epistemics as a dispel's `removes` — observed, never tooltip.
 - **A totem's cleanse is not in the dispel stream.** Poison Cleansing Totem was
   dropped 51 times in the probed report and produced zero dispel events; no
   source in the whole stream is anything but a Player actor. Same silence as the

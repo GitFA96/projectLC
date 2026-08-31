@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS wcl_player_offpull (
   -- rather than timed: trash is a hundred-odd segments a night and a timestamp
   -- against one of them answers nothing. The zone is what keeps a night that
   -- ran two instances readable.
-  trash_dispels_json TEXT NOT NULL DEFAULT '[]'
+  trash_dispels_json TEXT NOT NULL DEFAULT '[]',
+  trash_interrupts_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS wcl_player_offpull_report ON wcl_player_offpull(report_code);
@@ -405,6 +406,7 @@ CREATE TABLE IF NOT EXISTS wcl_reports (
   fetched_at         TEXT NOT NULL,
   -- Aura names requested at fetch time; see TRACKED_AURA_NAMES.
   upkeep_tracks_json TEXT NOT NULL DEFAULT '[]',
+  enemy_casts_json TEXT NOT NULL DEFAULT '[]',
   -- Auras seen at boss pulls that the consumable tables couldn't place, as
   -- {name, abilityId, count}. Kept rather than shown once and lost: it is the
   -- only record of what this app failed to understand about a night, and it is
@@ -450,6 +452,7 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   -- newly curated dispel spell renames old rows without a refetch; what needs
   -- a re-import is the fetch itself, which older reports predate.
   dispels_json          TEXT NOT NULL DEFAULT '[]',
+  interrupts_json       TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
   talents_json          TEXT NOT NULL DEFAULT '[]',
@@ -847,6 +850,12 @@ function migrate(db: DatabaseSync): void {
   addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
   addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
   addColumn("wcl_player_fights", "dispels_json", "dispels_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("wcl_player_fights", "interrupts_json", "interrupts_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn(
+    "wcl_player_offpull",
+    "trash_interrupts_json",
+    "trash_interrupts_json TEXT NOT NULL DEFAULT '[]'",
+  );
   addColumn(
     "wcl_player_offpull",
     "trash_dispels_json",
@@ -859,6 +868,7 @@ function migrate(db: DatabaseSync): void {
   );
 
   addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
+  addColumn("wcl_reports", "enemy_casts_json", "enemy_casts_json TEXT NOT NULL DEFAULT '[]'");
   // Reports imported before this get an empty list, which is honest: the dump
   // was computed and shown at the time, and nothing kept it. It is not the same
   // as "this night had no unknown auras", so readers say "not recorded" rather
@@ -3556,8 +3566,8 @@ export function insertWclReport(db: DatabaseSync, r: WclReport): void {
     // back to its default on each update rather than on insert. See §2.
     `INSERT OR REPLACE INTO wcl_reports
        (code, title, zone, start_time, end_time, fetched_at, upkeep_tracks_json,
-        unclassified_auras_json, raid_session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        enemy_casts_json, unclassified_auras_json, raid_session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     r.code,
     r.title,
@@ -3566,6 +3576,7 @@ export function insertWclReport(db: DatabaseSync, r: WclReport): void {
     r.endTime,
     r.fetchedAt,
     JSON.stringify(r.upkeepTracks ?? []),
+    JSON.stringify(r.enemyCasts ?? []),
     JSON.stringify(r.unclassifiedAuras ?? []),
     r.raidSessionId,
   );
@@ -3578,9 +3589,9 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
        prepot, prepot_label, death_times_json, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
-       dispels_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
+       dispels_json, interrupts_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -3591,6 +3602,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
     JSON.stringify(f.dispels),
+    JSON.stringify(f.interrupts),
     JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), JSON.stringify(f.talents),
     f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),
@@ -3603,14 +3615,15 @@ export function insertWclPlayerOffPull(db: DatabaseSync, o: WclPlayerOffPull): v
     `INSERT OR REPLACE INTO wcl_player_offpull (
        id, report_code, actor_name, character_id, potions_json, other_casts_json,
        drums, runes, healthstones, sappers, pet_consumables_json, pet_buffs_seen_json,
-       trash_dispels_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       trash_dispels_json, trash_interrupts_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     o.id, o.reportCode, o.actorName, o.characterId,
     JSON.stringify(o.potions), JSON.stringify(o.otherCasts),
     o.drums, o.runes, o.healthstones, o.sappers, JSON.stringify(o.petConsumables),
     JSON.stringify(o.petBuffsSeen),
     JSON.stringify(o.trashDispels),
+    JSON.stringify(o.trashInterrupts),
   );
 
 }
@@ -3632,6 +3645,7 @@ function rowToWclPlayerOffPull(r: Row): unknown {
     // turns that into "nothing seen", which a re-import fills in.
     petBuffsSeen: JSON.parse((r.pet_buffs_seen_json as string | null) ?? "[]"),
     trashDispels: JSON.parse((r.trash_dispels_json as string | null) ?? "[]"),
+    trashInterrupts: JSON.parse((r.trash_interrupts_json as string | null) ?? "[]"),
   };
 }
 
@@ -3821,6 +3835,9 @@ function rowToWclReport(r: Row): unknown {
     code: r.code, title: r.title, zone: opt(r.zone), startTime: r.start_time,
     endTime: r.end_time, fetchedAt: r.fetched_at,
     upkeepTracks: JSON.parse((r.upkeep_tracks_json as string | null) ?? "[]"),
+    // Null before the column existed, which reads as "no enemy casts recorded"
+    // — not "the boss cast nothing". Only a re-import tells the two apart.
+    enemyCasts: JSON.parse((r.enemy_casts_json as string | null) ?? "[]"),
     unclassifiedAuras: JSON.parse((r.unclassified_auras_json as string | null) ?? "[]"),
     raidSessionId: (r.raid_session_id as string | null) ?? null,
   };
@@ -3849,6 +3866,9 @@ function rowToWclPlayerFight(r: Row): unknown {
     // Null before the column existed, which the schema default reads as "no
     // dispels recorded" — not "nobody dispelled". A re-import is the fix.
     dispels: JSON.parse((r.dispels_json as string | null) ?? "[]"),
+    // Same reading as dispels above: null is "no interrupts recorded", which is
+    // not "nobody interrupted". Only a re-import tells the two apart.
+    interrupts: JSON.parse((r.interrupts_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     talents: JSON.parse((r.talents_json as string | null) ?? "[]"),

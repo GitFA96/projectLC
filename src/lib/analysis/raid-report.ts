@@ -5,6 +5,7 @@ import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
 import { buildDeployableView } from "@/lib/analysis/deployables";
 import { buildDispelView } from "@/lib/analysis/dispels";
+import { buildInterruptView } from "@/lib/analysis/interrupts";
 import { buildPreparedness } from "@/lib/analysis/preparedness";
 import { summarizePetSpend } from "@/lib/analysis/pet-consumables";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
@@ -768,6 +769,19 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     slugByActor,
   });
 
+  /* ---- Who stopped which cast ---- */
+  // Same unfiltered off-pull read as the dispels above, and for the same
+  // reason: most of this raid’s interrupting happens on trash, which belongs
+  // to no pull and survives a pull being excluded.
+  const interrupts = buildInterruptView({
+    rows,
+    offPull: input.offPull ?? [],
+    slugByActor,
+    // The denominator rides on the REPORT, not the rows: it is a fact about the
+    // pull rather than about any raider in it.
+    enemyCasts: input.report.enemyCasts ?? [],
+  });
+
   /* ---- Why we struggle on a boss ---- */
   const deathProfiles = buildDeathProfiles(rows);
 
@@ -779,6 +793,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     preparedness,
     petSpend,
     dispels,
+    interrupts,
     deployables,
     deathProfiles,
     parseBoards,

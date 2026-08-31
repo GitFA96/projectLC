@@ -313,7 +313,8 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   uptime **by boss** (bands across the pull,
   gaps are exactly the downtime) and **by player** (who actually *had* Battle
   Shout or Innervate, and who put it on them), totem drops, **deployables**,
-  **dispels**, cooldown and potion usage, and a worst-first improvements list.
+  **dispels**, **interrupts**, cooldown and potion usage, and a worst-first
+  improvements list.
 - **Deployables** — land mines, snake traps, thornlings, dog whistles and flame
   turrets, laid on the pull in the order they went down. On a fight that wants
   the kit the count is the smaller half: whether it was down at 0:05 or trickled
@@ -324,6 +325,14 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   5g baseline, while the seed and the whistle sit at 0 until somebody quotes a
   price, since a guess there would move a real gold ranking. Snake Trap is a
   hunter ability and is never priced at all.
+- **Dispels & interrupts** share one card with a tab each — they are the two
+  halves of answering somebody else's casting, and a shaman's night is Cure
+  Toxins *and* Earth Shock. The tab labels carry the night's totals so the card
+  can be judged folded. Each half keeps its own "not recorded" message rather
+  than sharing one, because a report imported after dispels shipped and before
+  interrupts did genuinely has one and not the other. Nothing is merged across
+  the two: a dispel is an aura removed and an interrupt is a cast stopped, and
+  only one of them has a denominator.
 - **Dispels** sit in three shapes because there are three questions. Night
   totals per raider, split into what they cleansed off our own and what they
   stripped off the enemy; trash counted **per instance**, since a night that
@@ -335,6 +344,28 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   papered over: a shaman's Poison Cleansing Totem produces no dispel events at
   all, and a spell that can remove two schools is shown with neither, because
   the log never says which one a press caught.
+- **Interrupts** answer "who was on kick duty", in the same three shapes as the
+  dispels and for the same reasons — night totals per raider, trash counted per
+  instance, and the boss pulls that actually had one, listed with the cast that
+  died rather than a bare count. Every boss pull carries its own per-raider
+  table, phases or not: the Illidari Council has four casters and no phases at
+  all, and without it that pull would be a timeline with nothing to read off.
+  A boss nobody interrupted on gets no tab at all: usually it had nothing to interrupt, and a row reading zero would invent
+  a miss. A phased encounter is split by phase first, under Warcraft Logs' own
+  phase names — which count intermissions, so "P2: Essence of Desire" is the
+  phase the raid calls phase two, and Reliquary of Souls reads as one block
+  rather than as nineteen events scattered across five minutes. Casts that
+  **heal** are labelled so they can be found, and that is all the labelling
+  does: what a raid *should* interrupt is an assignment the council makes.
+- **What got through** sits on each boss tab, built from the enemy's own cast
+  stream: what each caster started, what finished, and what we stopped. It is
+  fetched whole for the boss pulls rather than narrowed to the casts we happened
+  to interrupt — narrowing it would have scored a clean sheet for exactly the
+  caster nobody ever kicked. Three columns rather than two, because a cast the
+  mob died in the middle of is neither a landing nor a stop. And an ability is
+  only marked interruptible once the night shows it interrupted at least once,
+  so a boss's twenty uninterruptible casts don't read as twenty failures. Trash
+  has no denominator and stays a plain count.
 - **Rankings** — the whole raid as parse boards, one table per role, a column per
   boss kill, switchable between all-damage and boss-only.
 - **Groups** — which groups *this* night was run in, seeded with everyone the

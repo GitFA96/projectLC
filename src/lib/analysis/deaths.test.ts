@@ -28,6 +28,7 @@ function row(
     cooldowns: [],
     castTimes: [],
     dispels: [],
+    interrupts: [],
     upkeep: [],
     drums: 0,
     runes: 0,

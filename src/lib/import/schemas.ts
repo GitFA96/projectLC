@@ -356,6 +356,30 @@ export const wclReportSchema = z.object({
    */
   upkeepTracks: z.array(z.string()).default([]),
   /**
+   * What each enemy caster tried on each boss pull — the denominator behind
+   * the interrupt counts.
+   *
+   * Only abilities with a cast bar, aggregated per (pull, caster, ability).
+   * Defaults empty, which is how every report imported before it existed reads;
+   * the board says "not recorded" rather than claiming the boss cast nothing.
+   * A re-import fills it in.
+   */
+  enemyCasts: z
+    .array(
+      z.object({
+        fightId: z.number().int(),
+        /** The enemy, as the log named it. Several adds of one name merge. */
+        caster: z.string().min(1),
+        ability: z.string().min(1),
+        abilityId: z.number().int().optional(),
+        /** Cast bars started. Always at least 1 — instants are not stored. */
+        started: z.number().int().positive(),
+        /** Cast bars that finished. */
+        landed: z.number().int().nonnegative(),
+      }),
+    )
+    .default([]),
+  /**
    * Auras present at this report's boss pulls that the consumable tables
    * couldn't place, most frequent first.
    *
@@ -490,6 +514,43 @@ export const wclPlayerFightSchema = z.object({
         removedId: z.number().int().optional(),
         /** It was a BUFF on an enemy (Purge, Spellsteal, Tranquilizing Shot). */
         offensive: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /**
+   * Casts this raider cut off during the pull — a kick, a pummel, a shock, a
+   * counterspell.
+   *
+   * Filed against the raider who *pressed* it, with the mob in `target` and the
+   * cast that died in `stopped`, because "who was on kick duty in Essence of
+   * Desire" is the question and the victim side is a derivation. Empty on every
+   * report imported before interrupts were fetched at all, which is a different
+   * statement from a night nobody interrupted on — see `wcl/interrupts.ts`, and
+   * re-import to fill it in.
+   */
+  interrupts: z
+    .array(
+      z.object({
+        atMs: z.number().nonnegative(),
+        /**
+         * WCL spell id of the interrupt. Stored beside the name because it is
+         * the match key: Earth Shock arrived under two ids in a single night,
+         * and `interruptAbilityOf` classifies on the id at read time.
+         */
+        spellId: z.number().int().optional(),
+        /** The interrupt as the log named it. */
+        spell: z.string().min(1),
+        /** The enemy it was pressed on. */
+        target: z.string().min(1),
+        /** The cast that was stopped, as the log named it. */
+        stopped: z.string().min(1),
+        stoppedId: z.number().int().optional(),
+        /**
+         * The phase it landed in, as Warcraft Logs names it — "P2: Essence of
+         * Desire". Absent on an unphased encounter, and on any report fetched
+         * before phases were asked for.
+         */
+        phase: z.string().min(1).optional(),
       }),
     )
     .default([]),
@@ -726,6 +787,30 @@ export const wclPlayerOffPullSchema = z.object({
         removedId: z.number().int().optional(),
         offensive: z.boolean().optional(),
         /** How many times this exact removal happened. */
+        count: z.number().int().positive(),
+      }),
+    )
+    .default([]),
+  /**
+   * Interrupts landed away from the boss pulls — trash, overwhelmingly, which
+   * is where most of this raid’s kicking happens (201 of 239 on the probed
+   * MH+BT night, 173 of them in Hyjal).
+   *
+   * **Counted, not timed**, and per zone, for exactly the reasons `trashDispels`
+   * gives above. Defaults empty, which is also how every report imported before
+   * interrupts were fetched reads; a re-import fills it in.
+   */
+  trashInterrupts: z
+    .array(
+      z.object({
+        /** The instance the trash belonged to ("Hyjal Summit", "Black Temple"). */
+        zone: z.string().min(1),
+        spellId: z.number().int().optional(),
+        spell: z.string().min(1),
+        target: z.string().min(1),
+        stopped: z.string().min(1),
+        stoppedId: z.number().int().optional(),
+        /** How many times this exact interrupt happened. */
         count: z.number().int().positive(),
       }),
     )

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BossDeathProfile } from "@/lib/analysis/deaths";
 import type { RaidDeployableView } from "@/lib/analysis/deployables";
 import type { RaidDispelView } from "@/lib/analysis/dispels";
+import type { RaidInterruptView } from "@/lib/analysis/interrupts";
 import type { CoverageGrade } from "@/lib/analysis/preparation";
 import type { ElixirSlot } from "@/lib/wcl/consumables";
 import type {
@@ -63,6 +64,8 @@ export type WclReport = z.infer<typeof wclReportSchema>;
 export type WclPlayerFight = z.infer<typeof wclPlayerFightSchema>;
 export type WclPlayerOffPull = z.infer<typeof wclPlayerOffPullSchema>;
 export type WclGearItem = WclPlayerFight["gear"][number];
+/** One enemy ability's cast tally on one boss pull — the interrupt denominator. */
+export type WclEnemyCast = WclReport["enemyCasts"][number];
 /** One victim of a maintained debuff/buff during a pull, with its up-intervals. */
 export type WclUpkeepTarget = NonNullable<WclPlayerFight["upkeep"][number]["targets"]>[number];
 export type WclRole = z.infer<typeof wclRoleSchema>;
@@ -1196,6 +1199,14 @@ export interface RaidReportView {
    * `total` so the page can say which it cannot tell.
    */
   dispels: RaidDispelView;
+  /**
+   * Who stopped which cast, and where.
+   *
+   * Empty on every report imported before interrupts were fetched, which is not
+   * the same statement as a night nobody interrupted on. The view carries a
+   * total so the board can say which of the two it is looking at.
+   */
+  interrupts: RaidInterruptView;
   /**
    * What the raid put on the ground, pull by pull — land mines, snake traps,
    * thornlings, dog whistles, flame turrets.

@@ -15,7 +15,7 @@ function offPull(over: Partial<WclPlayerOffPull> & { actorName: string }): WclPl
     healthstones: 0,
     sappers: 0,
     petConsumables: [],
-    petBuffsSeen: [], trashDispels: [],
+    petBuffsSeen: [], trashDispels: [], trashInterrupts: [],
     ...over,
   };
 }

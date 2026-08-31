@@ -278,6 +278,7 @@ export async function importWclReport(input: WclImportInput): Promise<WclImportA
         endTime: normalized.endTime,
         raidSessionId: parsed.data.raidSessionId || null,
         unclassifiedAuras: normalized.unclassifiedAuras,
+        enemyCasts: normalized.enemyCasts,
       },
       normalized.rows,
       normalized.offPull,

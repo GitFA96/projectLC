@@ -54,6 +54,14 @@ const rawFightSchema = z.looseObject({
   fightPercentage: z.number().nullish(),
   startTime: z.number(),
   endTime: z.number(),
+  /**
+   * Where each phase started, absolute report-relative ms, ascending.
+   *
+   * Nullish because most encounters have none and because every report fetched
+   * before interrupts existed carries none either — the two are indistinguishable
+   * here and both correctly produce an unphased pull.
+   */
+  phaseTransitions: z.array(z.looseObject({ id: z.number(), startTime: z.number() })).nullish(),
 });
 
 const rawRankingCharacterSchema = z.looseObject({
@@ -101,6 +109,20 @@ const rawAllFightSchema = z.looseObject({
   enemyNPCs: z.array(z.looseObject({ id: z.number().optional() })).nullish(),
 });
 
+/**
+ * What an encounter calls its phases.
+ *
+ * Keyed by encounter, while the boundaries are keyed by pull — joining the two
+ * is `phaseNameOf`, and the join has a trap in it worth reading before you
+ * touch either.
+ */
+const rawEncounterPhasesSchema = z.looseObject({
+  encounterID: z.number(),
+  phases: z
+    .array(z.looseObject({ id: z.number(), name: z.string().optional(), isIntermission: z.boolean().nullish() }))
+    .nullish(),
+});
+
 const rawReportSchema = z.looseObject({
   title: z.string().optional(),
   startTime: z.number(),
@@ -112,6 +134,8 @@ const rawReportSchema = z.looseObject({
   fights: z.array(rawFightSchema).nullish(),
   /** Every fight, trash included. Absent on a report fetched before dispels. */
   allFights: z.array(rawAllFightSchema).nullish(),
+  /** Phase names per encounter. Absent on a report fetched before interrupts. */
+  phases: z.array(rawEncounterPhasesSchema).nullish(),
   dps: rawRankingsSchema.nullish(),
   hps: rawRankingsSchema.nullish(),
   bossdps: rawRankingsSchema.nullish(),
@@ -247,6 +271,47 @@ const rawDispelEventSchema = z.looseObject({
   isBuff: z.boolean().nullish(),
 });
 
+/**
+ * One cast cut off.
+ *
+ * `ability` is what did the interrupting and `extraAbility` is the cast that
+ * was stopped — both arrive named, because the events fetch asks with
+ * `useAbilityIDs: false`.
+ *
+ * `type` is load-bearing and the reason it is parsed at all. Warcraft Logs
+ * files more than interrupts under this data type: 23 of the 262 events on the
+ * probed MH+BT night were `applydebuff` — Polymorph, Cheap Shot, Garrote -
+ * Silence, Intimidation, Charge Stun — which are crowd control, carry no
+ * `extraAbility`, and stopped no cast. Counting them would have inflated the
+ * night by a tenth and credited a rogue for sapping. Only `type === "interrupt"`
+ * is an interrupt. Same class of trap as `begincast` on the Flame Turret.
+ */
+const rawInterruptEventSchema = z.looseObject({
+  timestamp: z.number(),
+  type: z.string().optional(),
+  fight: z.number().optional(),
+  sourceID: z.number().optional(),
+  targetID: z.number().optional(),
+  ability: rawAbilitySchema.nullish(),
+  extraAbility: rawAbilitySchema.nullish(),
+});
+
+/**
+ * One cast bar an enemy started or finished.
+ *
+ * The two `type`s are the whole point and mean opposite things: `begincast` is
+ * a bar that STARTED, `cast` is one that FINISHED. An interrupted cast leaves a
+ * begincast with no cast beside it, which is what makes "what got through" a
+ * number rather than a guess.
+ */
+const rawEnemyCastEventSchema = z.looseObject({
+  timestamp: z.number(),
+  type: z.string().optional(),
+  fight: z.number().optional(),
+  sourceID: z.number().optional(),
+  ability: rawAbilitySchema.nullish(),
+});
+
 /* Normalized output */
 
 export type WclRole = "tank" | "healer" | "dps";
@@ -310,6 +375,14 @@ export interface NormalizedPlayerFight {
    * derived in analysis from these same records.
    */
   dispels: NormalizedDispel[];
+  /**
+   * Casts this player cut off during the pull, in press order.
+   *
+   * On the interrupter’s row, same as dispels and for the same reason: the
+   * council asks "who was on kick duty in Essence of Desire", not "which mob
+   * got interrupted". The victim side is derived in analysis from these.
+   */
+  interrupts: NormalizedInterrupt[];
   /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
   upkeep: {
     name: string;
@@ -380,6 +453,62 @@ export interface NormalizedDispel {
   removedId?: number;
   /** The aura was a BUFF on an enemy (Purge, Spellsteal, Tranquilizing Shot). */
   offensive?: boolean;
+}
+
+/**
+ * One cast stopped, placed inside a pull.
+ *
+ * Both spell **ids** are stored beside both names for the same reason dispels
+ * store theirs: the name is not the match key. Warcraft Logs resolves some TBC
+ * ids against a modern spell database, and Earth Shock alone arrived under two
+ * ids in one night. `interruptAbilityOf` and `isHealingCast` read the ids at
+ * display time, which is what lets a spell curated next month re-grade a report
+ * imported tonight.
+ */
+export interface NormalizedInterrupt {
+  /** ms from the pull start. */
+  atMs: number;
+  /** WCL spell id of the interrupt itself. */
+  spellId?: number;
+  /** The interrupt as the log named it ("Kick", "Feral Charge Effect"). */
+  spell: string;
+  /** The enemy it was pressed on, as the log named it. */
+  target: string;
+  /** The cast that was cut off, as the log named it. */
+  stopped: string;
+  stoppedId?: number;
+  /**
+   * The phase this landed in, as Warcraft Logs names it — "P2: Essence of
+   * Desire". Absent on an encounter with no phases, and on every report fetched
+   * before phases were asked for.
+   *
+   * Stored rather than derived at read time because the boundaries live on the
+   * *fight* and nothing else persists them: recomputing this later would need a
+   * refetch, which is precisely what the id-at-read-time rule above exists to
+   * avoid needing.
+   */
+  phase?: string;
+}
+
+/**
+ * The same interrupt away from the boss pulls, **counted** rather than timed —
+ * and on this guild’s logs that is most of them: 201 of 239 on the probed
+ * night were trash, 173 of those in Hyjal.
+ *
+ * Collapsed per (zone, spell, target, stopped cast) for the same reason trash
+ * dispels are: a night is over a hundred segments and a timestamp against one
+ * of them answers nothing, while the instance is the part that matters.
+ */
+export interface NormalizedTrashInterrupt {
+  /** The instance the trash belonged to ("Hyjal Summit", "Black Temple"). */
+  zone: string;
+  spellId?: number;
+  spell: string;
+  target: string;
+  stopped: string;
+  stoppedId?: number;
+  /** How many times this exact interrupt happened. */
+  count: number;
 }
 
 /**
@@ -529,9 +658,46 @@ export interface NormalizedPlayerOffPull {
    * questions of the raid.
    */
   trashDispels: NormalizedTrashDispel[];
-
+  /**
+   * Interrupts landed outside the boss pulls — trash, overwhelmingly, which is
+   * where most of this raid’s kicking happens (201 of 239 on the probed night).
+   *
+   * Kept beside `trashDispels` and counted the same way, per zone.
+   */
+  trashInterrupts: NormalizedTrashInterrupt[];
 }
 
+
+/**
+ * What one enemy caster tried and what landed, per boss pull.
+ *
+ * The denominator the interrupt counts need. Without it "seven Circle of
+ * Healings interrupted" cannot say whether that was all of them or half, and
+ * the half that got through is the half an officer is asking about.
+ *
+ * **Aggregated, and only cast-bar abilities.** An ability with no `begincast`
+ * in the pull is an instant — there was no bar to interrupt, so listing it
+ * would pad the table with Seals, Consecration and aura refreshes and bury the
+ * casts that could actually have been stopped. `started` is therefore always
+ * at least 1.
+ *
+ * **Keyed by caster NAME, so several adds of one name merge.** That is wanted
+ * here: four Ashtongue Spiritbinders are one question about Chain Heal, not
+ * four. It is the opposite choice from the upkeep accumulators, which key on
+ * name + instance because there the instances are the point.
+ */
+export interface NormalizedEnemyCast {
+  fightId: number;
+  /** The enemy, as the log named it. */
+  caster: string;
+  /** The ability, as the log named it. */
+  ability: string;
+  abilityId?: number;
+  /** Cast bars started (`begincast`). */
+  started: number;
+  /** Cast bars that finished (`cast`). */
+  landed: number;
+}
 
 export interface NormalizedReport {
   title: string;
@@ -542,6 +708,13 @@ export interface NormalizedReport {
   rows: NormalizedPlayerFight[];
   /** Per-player consumable use away from the boss pulls. */
   offPull: NormalizedPlayerOffPull[];
+  /**
+   * Per-pull enemy cast tallies — the interrupt denominator.
+   *
+   * Empty on every report fetched before this existed, which the board reports
+   * as "not recorded" rather than as a boss that cast nothing.
+   */
+  enemyCasts: NormalizedEnemyCast[];
   /** Diagnostics for the import result panel. */
   warnings: string[];
   /** Combatant-info events outside boss pulls (trash combat), inspectable. */
@@ -564,6 +737,10 @@ export interface RawEventInputs {
   buffs?: unknown[];
   /** Every dispel in the report. Absent on fetches older than the dispel view. */
   dispels?: unknown[];
+  /** Every interrupt in the report. Absent on fetches older than the interrupt board. */
+  interrupts?: unknown[];
+  /** Enemy casts on boss pulls. Absent on fetches older than the denominator. */
+  enemyCasts?: unknown[];
   /** Damage taken near each death, for the recap. Absent on older fetches. */
   damageTaken?: unknown[];
 }
@@ -613,6 +790,53 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   const bossFightOf = (event: { timestamp: number; fight?: number }) =>
     event.fight !== undefined ? fightsById.get(event.fight) : fightOf(event.timestamp);
 
+  /**
+   * encounterID → phase id → the name Warcraft Logs gives that phase.
+   *
+   * **The ids are not the phase numbers a raider says out loud, and this is the
+   * whole reason the name is stored rather than the number.** WCL counts
+   * intermissions as phases, so on Reliquary of Souls the list reads
+   * 1 "P1: Essence of Suffering", 2 "Intermission One", 3 "P2: Essence of
+   * Desire", 4 "Intermission Two", 5 "P3: Essence of Anger" — and the phase the
+   * guild calls "phase 2" is id **3**. Anything keyed on `id === 2` reads the
+   * intermission instead, reports zero interrupts for it, and looks right.
+   *
+   * WCL’s own label already carries the guild’s numbering inside it, so
+   * carrying the name through is both simpler and the only version that cannot
+   * be off by an intermission.
+   */
+  const phaseNames = new Map<number, Map<number, string>>();
+  for (const enc of raw.phases ?? []) {
+    const byId = new Map<number, string>();
+    for (const ph of enc.phases ?? []) if (ph.name) byId.set(ph.id, ph.name);
+    if (byId.size > 0) phaseNames.set(enc.encounterID, byId);
+  }
+
+  /**
+   * Which phase a moment inside a pull belongs to, or undefined for an
+   * encounter that has none.
+   *
+   * The transitions are ascending and each names the phase that STARTS there,
+   * so the answer is the last one at or before the timestamp. An event before
+   * the first transition belongs to no phase rather than to phase one — that
+   * gap is the pull’s own pre-combat lead-in, and claiming it would be
+   * inventing a boundary the log did not give.
+   */
+  const phaseNameOf = (
+    fight: { encounterID?: number; phaseTransitions?: { id: number; startTime: number }[] | null },
+    timestamp: number,
+  ): string | undefined => {
+    const byId = phaseNames.get(fight.encounterID ?? 0);
+    const transitions = fight.phaseTransitions;
+    if (!byId || !transitions || transitions.length === 0) return undefined;
+    let current: number | undefined;
+    for (const t of transitions) {
+      if (t.startTime > timestamp) break;
+      current = t.id;
+    }
+    return current === undefined ? undefined : byId.get(current);
+  };
+
   /* 1. Rows from rankings — they define who was in each pull and their role. */
   const rows = new Map<string, NormalizedPlayerFight>();
   const keyOf = (fightId: number, actorName: string) => `${fightId}|${actorName.toLowerCase()}`;
@@ -644,6 +868,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         cooldowns: [],
         castTimes: [],
         dispels: [],
+        interrupts: [],
         upkeep: [],
         gear: [],
         talents: [],
@@ -1004,6 +1229,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         petConsumables: [],
         petBuffsSeen: [],
         trashDispels: [],
+        trashInterrupts: [],
       };
       offPullByActor.set(actorName, entry);
 
@@ -1151,13 +1377,30 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
   const encounterZoneIds = new Set(
     allFights.filter((f) => (f.encounterID ?? 0) > 0).map((f) => f.gameZone?.id),
   );
-  /** fightId → the instance it belongs to, for every fight worth counting. */
-  const dispelZoneOf = new Map<number, string>();
+  /**
+   * fightId → the instance it belongs to, for every fight worth counting.
+   *
+   * Read by the dispel block below AND by the interrupt block after it — both
+   * place their off-pull work per instance, and both must throw away the same
+   * world-PvP segments on the way in.
+   */
+  const trashZoneOf = new Map<number, string>();
+  /**
+   * The same segments WITHOUT the enemy-NPC test — every fight in an instance
+   * the raid pulled a boss in.
+   *
+   * Only the interrupt block reads this, and only alongside a sharper test of
+   * its own. See there for why an empty `enemyNPCs` is not the last word on a
+   * segment when the event itself names who was interrupted.
+   */
+  const zoneOfSegment = new Map<number, string>();
   for (const f of allFights) {
     const zoneId = f.gameZone?.id;
     if (zoneId === undefined || !encounterZoneIds.has(zoneId)) continue;
+    const zoneName = f.gameZone?.name ?? `Zone ${zoneId}`;
+    zoneOfSegment.set(f.id, zoneName);
     if ((f.encounterID ?? 0) === 0 && (f.enemyNPCs?.length ?? 0) === 0) continue;
-    dispelZoneOf.set(f.id, f.gameZone?.name ?? `Zone ${zoneId}`);
+    trashZoneOf.set(f.id, zoneName);
   }
   /** actorName → dedupe key → the counted removal, so trash collapses. */
   const trashDispelsByActor = new Map<string, Map<string, NormalizedTrashDispel>>();
@@ -1198,7 +1441,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
      * consumables take, and for the same reason: dropping it would make the
      * raider who spends the trash decursing read as one who never dispels.
      */
-    const zone = event.fight === undefined ? undefined : dispelZoneOf.get(event.fight);
+    const zone = event.fight === undefined ? undefined : trashZoneOf.get(event.fight);
     if (!zone) continue;
     offPullFor(actor.name, actor.subType);
     const byKey = trashDispelsByActor.get(actor.name) ?? new Map<string, NormalizedTrashDispel>();
@@ -1223,6 +1466,178 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         compareText(a.target, b.target),
     );
   }
+
+  /*
+   * 4c. Interrupts — which casts this raid stopped, and where.
+   *
+   * Shaped exactly like the dispel block above and for the same reasons: the
+   * stream is fetched unfiltered so `interrupts.ts` names rather than filters,
+   * both ids ride along so classification happens at read time, and work
+   * outside a pull is filed per instance because most of it is trash (201 of
+   * 239 on the probed night).
+   *
+   * Two things are NOT like dispels.
+   *
+   * First, `type` has to be checked. Warcraft Logs files crowd control under
+   * this data type too — 23 of 262 events on the probed night were
+   * `applydebuff` Polymorphs, Cheap Shots, Garrote - Silences, Intimidations
+   * and Charge Stuns. They carry no `extraAbility`, they stopped no cast, and
+   * counting them would have inflated the night by a tenth.
+   *
+   * Second, an interrupt is worth placing inside its **phase**. "Nineteen
+   * interrupts on Reliquary of Souls" and "every Spirit Shock and Deaden in
+   * Essence of Desire stopped" are the same nineteen events and only one of
+   * them is an answer.
+   */
+  const interruptsByActor = new Map<string, Map<string, NormalizedTrashInterrupt>>();
+
+  for (const rawEvent of events.interrupts ?? []) {
+    const parsed = rawInterruptEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    // Crowd control shares this data type and is not an interrupt. See above.
+    if (event.type !== "interrupt") continue;
+    // Players only: an interrupt sourced from anything else is the boss
+    // stopping US, which is a fact about the encounter and not about a raider.
+    const actor = event.sourceID === undefined ? undefined : actorById.get(event.sourceID);
+    const spell = event.ability?.name;
+    const stopped = event.extraAbility?.name;
+    const target = event.targetID === undefined ? undefined : anyActorById.get(event.targetID);
+    if (!actor || !spell || !stopped || !target) continue;
+    const parts = {
+      spell,
+      target: target.name,
+      stopped,
+      ...(event.ability?.guid !== undefined ? { spellId: event.ability.guid } : {}),
+      ...(event.extraAbility?.guid !== undefined ? { stoppedId: event.extraAbility.guid } : {}),
+    };
+
+    const fight = bossFightOf(event);
+    const row = fight ? rows.get(keyOf(fight.id, actor.name)) : undefined;
+    if (fight && row) {
+      const phase = phaseNameOf(fight, event.timestamp);
+      row.interrupts.push({
+        atMs: Math.max(0, Math.min(event.timestamp, fight.endTime) - fight.startTime),
+        ...parts,
+        ...(phase ? { phase } : {}),
+      });
+      continue;
+    }
+
+    /*
+     * No pull, or a pull this raider has no ranked row for — the same fallback
+     * the dispels take, and for the same reason: dropping it would make the
+     * rogue who spends the trash on kick duty read as one who never interrupts.
+     */
+    /*
+     * Placement, with one refinement the dispels cannot make.
+     *
+     * The shared rule drops a segment that lists no enemy NPC, because that is
+     * how the world PvP on the way in reads. It is a proxy, and on the probed
+     * night it cost one real interrupt: fight 21 is a 19-second Hyjal Summit
+     * pull whose `enemyNPCs` came back empty even though a shaman shocked a
+     * Shadowy Necromancer inside it.
+     *
+     * An interrupt carries the answer the proxy was standing in for — WCL names
+     * who was interrupted. A cast belonging to anything but a Player is raid
+     * work whatever the segment list says, and world PvP is precisely the case
+     * where the target IS a Player. So an empty segment is admitted on the
+     * strength of its own target, and never on the strength of being empty.
+     *
+     * (`Player` is the test, not `NPC`: WCL types a summoned mob as `Pet` —
+     * 93 of 239 interrupts that night landed on one, the Shadowy Necromancer
+     * included — so a check for "NPC" would throw away more than it saved.)
+     */
+    const zone =
+      event.fight === undefined
+        ? undefined
+        : (trashZoneOf.get(event.fight) ??
+          (target.type !== "Player" ? zoneOfSegment.get(event.fight) : undefined));
+    if (!zone) continue;
+    offPullFor(actor.name, actor.subType);
+    const byKey = interruptsByActor.get(actor.name) ?? new Map<string, NormalizedTrashInterrupt>();
+    const key = [zone, parts.spellId ?? spell, target.name, parts.stoppedId ?? stopped].join("|");
+    const existing = byKey.get(key);
+    if (existing) existing.count++;
+    else byKey.set(key, { zone, count: 1, ...parts });
+    interruptsByActor.set(actor.name, byKey);
+  }
+
+  for (const row of rows.values()) {
+    row.interrupts.sort((a, b) => a.atMs - b.atMs || compareText(a.target, b.target));
+  }
+  for (const [actorName, byKey] of interruptsByActor) {
+    const entry = offPullByActor.get(actorName);
+    if (!entry) continue;
+    entry.trashInterrupts = [...byKey.values()].sort(
+      (a, b) =>
+        compareText(a.zone, b.zone) ||
+        b.count - a.count ||
+        compareText(a.spell, b.spell) ||
+        compareText(a.stopped, b.stopped),
+    );
+  }
+
+  /*
+   * 4d. What the enemy tried — the denominator for 4c.
+   *
+   * Two event types carrying opposite meanings: `begincast` is a cast bar
+   * started and `cast` is one that finished. Everything else in the stream
+   * (there is none on a Casts fetch, but the schema is loose) is ignored.
+   *
+   * Only pulls, because only pulls were fetched. Trash has no denominator and
+   * the board must not imply one — a trash interrupt is a count and stays one.
+   *
+   * The arithmetic this feeds is deliberately three-way, never two:
+   * `started = landed + stopped-by-us + unresolved`. The residual is real —
+   * a cast the mob died in the middle of, or one cancelled — and folding it
+   * into "landed" would overstate what got through while folding it into
+   * "stopped" would credit the raid for something it did not do. Probed across
+   * all 41 (pull, caster, ability) rows of the MH+BT night: no row goes
+   * negative, and the residual is 12 casts in total.
+   */
+  const enemyCastAcc = new Map<string, NormalizedEnemyCast>();
+  for (const rawEvent of events.enemyCasts ?? []) {
+    const parsed = rawEnemyCastEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    if (event.type !== "begincast" && event.type !== "cast") continue;
+    const fight = event.fight === undefined ? undefined : fightsById.get(event.fight);
+    // A source of -1 turns up for environment casts and belongs to no actor.
+    const caster = event.sourceID === undefined ? undefined : anyActorById.get(event.sourceID);
+    const ability = event.ability?.name;
+    if (!fight || !caster || !ability) continue;
+    const abilityId = event.ability?.guid;
+    const key = `${fight.id}|${caster.name}|${abilityId ?? ability}`;
+    const entry =
+      enemyCastAcc.get(key) ??
+      {
+        fightId: fight.id,
+        caster: caster.name,
+        ability,
+        ...(abilityId !== undefined ? { abilityId } : {}),
+        started: 0,
+        landed: 0,
+      };
+    if (event.type === "begincast") entry.started++;
+    else entry.landed++;
+    enemyCastAcc.set(key, entry);
+  }
+  /*
+   * Instants are dropped here rather than at the fetch, because only the whole
+   * pull's stream can tell an instant from a cast bar: one `cast` with no
+   * `begincast` anywhere in the pull is a spell with no bar, and there was
+   * never anything to interrupt.
+   */
+  const enemyCasts = [...enemyCastAcc.values()]
+    .filter((e) => e.started > 0)
+    .sort(
+      (a, b) =>
+        a.fightId - b.fightId ||
+        b.started - a.started ||
+        compareText(a.caster, b.caster) ||
+        compareText(a.ability, b.ability),
+    );
 
   /*
    * 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events.
@@ -1657,10 +2072,14 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           // A raider who spent the trash decursing and drank nothing has an
           // off-pull record made entirely of dispels. Leaving this clause out
           // dropped it on the floor with no error anywhere.
-          o.trashDispels.length > 0,
-
+          o.trashDispels.length > 0 ||
+          // And the same clause again for interrupts: a rogue whose whole night
+          // was kicking Hyjal trash and who drank nothing has an off-pull record
+          // made entirely of them. Leaving this out drops it with no error.
+          o.trashInterrupts.length > 0,
       )
       .sort((a, b) => compareText(a.actorName, b.actorName)),
+    enemyCasts,
     warnings,
     ignoredCombatantInfo: {
       total: orphanCombatantInfo,

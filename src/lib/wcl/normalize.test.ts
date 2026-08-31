@@ -1874,6 +1874,215 @@ describe("normalizeWclReport — dispels", () => {
 });
 
 /**
+ * Interrupts — the stream that carries more than interrupts, and the phase
+ * join that is off by an intermission if you read the number instead of the
+ * name.
+ */
+describe("normalizeWclReport — interrupts", () => {
+  const interrupt = (
+    over: Partial<{
+      timestamp: number;
+      type: string;
+      fight: number;
+      sourceID: number;
+      targetID: number;
+      ability: { name: string; guid: number };
+      extraAbility: { name: string; guid: number };
+    }> = {},
+  ) => ({
+    timestamp: 150000,
+    type: "interrupt",
+    fight: 7,
+    sourceID: 2,
+    targetID: 50,
+    ability: { name: "Counterspell", guid: 2139 },
+    extraAbility: { name: "Shadow Bolt", guid: 31627 },
+    ...over,
+  });
+
+  const run = (interrupts: unknown[], report: unknown = rawReport) =>
+    normalizeWclReport(report, { combatantInfo: [], deaths: [], casts: [], interrupts });
+
+  it("files an interrupt on the presser's pull row, with what it stopped and when", () => {
+    const result = run([interrupt()]);
+    const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+    expect(pyrelia.interrupts).toEqual([
+      {
+        // 150000 in report time, on a pull that started at 100000.
+        atMs: 50000,
+        spellId: 2139,
+        spell: "Counterspell",
+        target: "Attumen the Huntsman",
+        stopped: "Shadow Bolt",
+        stoppedId: 31627,
+      },
+    ]);
+  });
+
+  it("drops the crowd control Warcraft Logs files under the same data type", () => {
+    /*
+     * 23 of 262 events on the probed MH+BT night were `applydebuff` — Polymorph,
+     * Cheap Shot, Garrote - Silence, Intimidation, Charge Stun. They carry no
+     * extraAbility and stopped no cast; counting them inflated the night by a
+     * tenth and credited a rogue for sapping.
+     */
+    const result = run([
+      interrupt(),
+      interrupt({
+        type: "applydebuff",
+        ability: { name: "Polymorph", guid: 12826 },
+        extraAbility: undefined as never,
+      }),
+      interrupt({ type: "applydebuff", ability: { name: "Cheap Shot", guid: 1833 }, extraAbility: undefined as never }),
+    ]);
+
+    const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+    expect(pyrelia.interrupts).toHaveLength(1);
+    expect(pyrelia.interrupts[0].spell).toBe("Counterspell");
+  });
+
+  it("ignores an interrupt the boss landed on us", () => {
+    // Source 50 is the boss. That is a fact about the encounter, not a raider.
+    const result = run([interrupt({ sourceID: 50, targetID: 2 })]);
+    expect(result.rows.every((r) => r.interrupts.length === 0)).toBe(true);
+  });
+
+  it("counts trash per instance and keeps the raider's off-pull record alive", () => {
+    // Fight 8 is Karazhan trash. A raider whose whole night was kicking trash
+    // and who drank nothing still needs an off-pull record to land in.
+    const result = run([
+      interrupt({ fight: 8, timestamp: 460000, targetID: 51 }),
+      interrupt({ fight: 8, timestamp: 470000, targetID: 51 }),
+    ]);
+
+    const pyrelia = result.offPull.find((o) => o.actorName === "Pyrelia")!;
+    expect(pyrelia.trashInterrupts).toEqual([
+      {
+        zone: "Karazhan",
+        spellId: 2139,
+        spell: "Counterspell",
+        target: "Midnight",
+        stopped: "Shadow Bolt",
+        stoppedId: 31627,
+        count: 2,
+      },
+    ]);
+  });
+
+  it("drops an interrupt in an empty segment when the target was a PLAYER", () => {
+    /*
+     * Fight 20 lists no enemy NPC — the duel the raid walked past on the way
+     * in. An interrupt landed on another player there is PvP, not raid work.
+     */
+    const result = run([interrupt({ fight: 20, timestamp: 525000, targetID: 1 })]);
+    expect(result.offPull.every((o) => o.trashInterrupts.length === 0)).toBe(true);
+  });
+
+  it("keeps an interrupt in an empty segment when the target was not a player", () => {
+    /*
+     * The refinement the dispels cannot make. On the probed night, fight 21 was
+     * a 19-second Hyjal Summit pull whose enemyNPCs list came back empty even
+     * though a shaman shocked a Shadowy Necromancer inside it — one real
+     * interrupt the segment-level proxy threw away. The event names who was
+     * interrupted, so it answers for itself.
+     */
+    const result = run([interrupt({ fight: 20, timestamp: 525000, targetID: 51 })]);
+    const pyrelia = result.offPull.find((o) => o.actorName === "Pyrelia")!;
+    expect(pyrelia.trashInterrupts).toEqual([
+      {
+        zone: "Karazhan",
+        spellId: 2139,
+        spell: "Counterspell",
+        target: "Midnight",
+        stopped: "Shadow Bolt",
+        stoppedId: 31627,
+        count: 1,
+      },
+    ]);
+  });
+
+  it("still drops an interrupt in a zone the raid pulled no boss in", () => {
+    // Fight 21 in the fixture is Hellfire Peninsula — the way to the instance,
+    // not the instance. The target-side test must not rescue that.
+    const result = run([interrupt({ fight: 21, timestamp: 545000, targetID: 51 })]);
+    expect(result.offPull.every((o) => o.trashInterrupts.length === 0)).toBe(true);
+  });
+
+  it("records no interrupts at all when the report was fetched before they existed", () => {
+    // Indistinguishable from a night nobody interrupted on — which is why the
+    // board says so rather than reading it as a quiet night.
+    const result = normalizeWclReport(rawReport, { combatantInfo: [], deaths: [], casts: [] });
+    expect(result.rows.every((r) => r.interrupts.length === 0)).toBe(true);
+    expect(result.offPull.every((o) => o.trashInterrupts.length === 0)).toBe(true);
+  });
+
+  describe("phases", () => {
+    /*
+     * Moroes stands in for Reliquary of Souls here, with the shape that matters
+     * copied off the real report: Warcraft Logs counts intermissions as phases,
+     * so the phase the raid calls "phase 2" arrives as id 3.
+     */
+    const phasedReport = {
+      ...rawReport,
+      fights: rawReport.fights.map((f) =>
+        f.id === 9
+          ? {
+              ...f,
+              phaseTransitions: [
+                { id: 1, startTime: 600000 },
+                { id: 2, startTime: 650000 },
+                { id: 3, startTime: 700000 },
+              ],
+            }
+          : f,
+      ),
+      phases: [
+        {
+          encounterID: 654,
+          phases: [
+            { id: 1, name: "P1: Essence of Suffering", isIntermission: false },
+            { id: 2, name: "Intermission One", isIntermission: true },
+            { id: 3, name: "P2: Essence of Desire", isIntermission: false },
+          ],
+        },
+      ],
+    };
+
+    const onMoroes = (timestamp: number) => interrupt({ fight: 9, timestamp, targetID: 60 });
+
+    it("names the phase an interrupt landed in, intermissions included", () => {
+      const result = run([onMoroes(620000), onMoroes(660000), onMoroes(720000)], phasedReport);
+      const pyrelia = result.rows.find((r) => r.fightId === 9 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts.map((i) => i.phase)).toEqual([
+        "P1: Essence of Suffering",
+        "Intermission One",
+        // The one an officer means by "phase 2" — id 3, not id 2.
+        "P2: Essence of Desire",
+      ]);
+    });
+
+    it("leaves a moment before the first transition unphased", () => {
+      // The log gave no boundary there, so claiming P1 would invent one.
+      const result = run([onMoroes(605000)], {
+        ...phasedReport,
+        fights: phasedReport.fights.map((f) =>
+          f.id === 9 ? { ...f, phaseTransitions: [{ id: 3, startTime: 700000 }] } : f,
+        ),
+      });
+      const pyrelia = result.rows.find((r) => r.fightId === 9 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts[0].phase).toBeUndefined();
+    });
+
+    it("leaves an encounter with no phase list unphased", () => {
+      // Fight 7 (Attumen) has neither transitions nor names.
+      const result = run([interrupt()], phasedReport);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts[0].phase).toBeUndefined();
+    });
+  });
+});
+
+/**
  * Deployables — four items and one ability that all end up on the ground.
  * The point of these tests is that one press lands in two shapes without
  * either double-counting or crowding out the other.

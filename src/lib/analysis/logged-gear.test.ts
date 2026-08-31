@@ -31,6 +31,7 @@ function pull(fightId: number, encounterName: string, gear: Partial<WclGearItem>
     cooldowns: [],
     castTimes: [],
     dispels: [],
+    interrupts: [],
     drums: 0,
     runes: 0,
     healthstones: 0,

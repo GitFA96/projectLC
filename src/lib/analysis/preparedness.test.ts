@@ -42,6 +42,7 @@ const row = (over: Partial<WclPlayerFight> = {}): WclPlayerFight => ({
   cooldowns: [],
   castTimes: [],
   dispels: [],
+  interrupts: [],
   upkeep: [],
   drums: 0,
   runes: 0,
@@ -77,6 +78,7 @@ const offPullFor = (
   petConsumables,
   petBuffsSeen,
   trashDispels: [],
+  trashInterrupts: [],
 });
 
 describe("averageItemLevel", () => {

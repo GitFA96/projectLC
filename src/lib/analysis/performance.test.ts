@@ -163,6 +163,7 @@ describe("summarizePerformance — content the council excused", () => {
     cooldowns: [],
     castTimes: [],
     dispels: [],
+    interrupts: [],
     upkeep: [],
     drums: 0,
     runes: 0,

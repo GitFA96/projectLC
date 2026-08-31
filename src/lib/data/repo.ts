@@ -535,9 +535,19 @@ export type DeleteSessionResult =
  */
 export type WclReportDraft = Omit<
   WclReport,
-  "fetchedAt" | "raidSessionId" | "upkeepTracks" | "unclassifiedAuras"
+  "fetchedAt" | "raidSessionId" | "upkeepTracks" | "unclassifiedAuras" | "enemyCasts"
 > & {
   raidSessionId?: string | null;
+  /**
+   * What each enemy caster tried on each boss pull — the interrupt denominator.
+   *
+   * Optional and caller-supplied for the same reason `unclassifiedAuras` is,
+   * and NOT stamped centrally like `upkeepTracks`: it is a fact about the
+   * events this particular fetch came back with, so only the caller holding the
+   * normalized report can supply it. Absent stores an empty list, which reads
+   * as "not recorded" rather than as a boss that cast nothing.
+   */
+  enemyCasts?: WclReport["enemyCasts"];
   /**
    * The fetch's unrecognized-aura dump. Optional and NOT stamped centrally like
    * `upkeepTracks`: it is a fact about this particular fetch's events, so only

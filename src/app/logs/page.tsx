@@ -52,7 +52,7 @@ import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
 import { UptimeByPlayer } from "@/components/logs/uptime-by-player";
 import { FightFilter } from "@/components/logs/fight-filter";
 import { TotemTimeline } from "@/components/logs/totem-timeline";
-import { DispelBoard } from "@/components/logs/dispel-board";
+import { DispelInterruptBoard } from "@/components/logs/dispel-interrupt-board";
 import { DeployableTimeline } from "@/components/logs/deployable-timeline";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { BreakdownBadges, RankBadge, Raider } from "@/components/logs/rank-bits";
@@ -507,13 +507,20 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
       <UptimeByBoss fights={counted} upkeep={upkeep} reportStartTime={raid.report.startTime} />
       <UptimeByPlayer fights={counted} playerBuffs={playerBuffs} reportStartTime={raid.report.startTime} />
       <TotemTimeline fights={counted} totems={totems} />
-      {/*
-        Dispels come after the totems deliberately: a shaman's poison work is
-        the totem drops plus whatever they cured by hand, and the dispel board
-        says so where the drops are still on screen.
-      */}
       <DeployableTimeline fights={counted} deployables={raid.deployables} />
-      <DispelBoard fights={counted} dispels={raid.dispels} />
+      {/*
+        One card, two tabs, and it comes after the totems deliberately: a
+        shaman's poison work is the totem drops plus whatever they cured by
+        hand, and this says so while the drops are still on screen. Dispels and
+        interrupts share it because they are the same kind of answer — a press
+        against somebody else's spell — and the officer asking "who was covering
+        the casters" wants both without hunting through six folds.
+      */}
+      <DispelInterruptBoard
+        fights={counted}
+        dispels={raid.dispels}
+        interrupts={raid.interrupts}
+      />
       {upkeep.length === 0 ? (
         <Card>
           <CardHeader>

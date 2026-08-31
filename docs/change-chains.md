@@ -193,6 +193,51 @@ trash a stray enemy player wandered into. `normalize.ts` and
 `analysis/dispels.ts` both have to agree the excluded-pull switch does *not*
 reach trash (§5), or excusing a farm wipe erases the hour of decursing before it.
 
+**Interrupts invert it the same way, and add a phase.** `Interrupts` is the
+second unfiltered fetch — 262 events on that same MH+BT night — so everything
+the paragraphs above say about dispels holds: ids stored beside names,
+`interruptAbilityOf` and `isHealingCast` classifying at read time so curating
+`wcl/interrupts.ts` re-grades old nights, the fetch itself still §1, trash
+counted per instance (201 of 239), and the excluded-pull switch not reaching it.
+Three things are its own.
+
+**The stream carries more than interrupts.** 23 of those 262 events were
+`applydebuff` — Polymorph, Cheap Shot, Garrote - Silence, Intimidation, Charge
+Stun. They stop no cast and carry no `extraAbility`; only `type === "interrupt"`
+is one. Counting them inflates a night by a tenth and credits a rogue for
+sapping.
+
+**A phase id is not the phase number anybody says out loud.** Warcraft Logs
+counts intermissions as phases, so on Reliquary of Souls the ids run 1 "P1:
+Essence of Suffering", 2 "Intermission One", 3 "P2: Essence of Desire" — the
+phase the guild calls two is id **3**. Anything keyed on the number reads the
+intermission, reports zero, and looks right. `normalize.ts` stores WCL's own
+phase *name*, which already carries the guild's numbering, and the boundaries
+come from `phaseTransitions` on the fight while the names come from `phases` on
+the report — two different keys that `phaseNameOf` joins.
+
+**And the world-PvP discriminator is sharper here than it can be for dispels.**
+A segment with no enemy NPC is a proxy for "not raid work", and it cost one real
+interrupt on the probed night: a 19-second Hyjal pull whose `enemyNPCs` came
+back empty while a shaman shocked a Shadowy Necromancer inside it. An interrupt
+names *who was interrupted*, so it answers for itself — an empty segment is
+admitted when its target is not a `Player`, which is precisely the case world
+PvP is not. The test is `Player`, never `NPC`: WCL types a summoned mob as
+`Pet`, and 93 of 239 interrupts that night landed on one.
+
+**The interrupt denominator is a third unfiltered fetch, scoped by pull.** "How
+many got through" needs the enemy's own casts — `begincast` is a bar started,
+`cast` is one that finished — and the temptation is to filter it by the
+abilities we curated or the ones we already interrupted. Both report a clean
+sheet for exactly the caster nobody ever kicked, which is the case worth
+catching. It is affordable because it is narrowed by **fightIDs** instead:
+1,084 events across all 23 boss pulls of the probed night, one page, where the
+same fetch with trash in it is not. Consequences: trash interrupts have no
+denominator and the board must not imply one; the arithmetic is three-way
+(`started = landed + stopped + unresolved`) because a cast the mob died inside
+is neither; and an ability counts as *interruptible* only once the report shows
+it interrupted, report-wide, or every uninterruptible boss cast reads as a miss.
+
 **Facts keep turning up that were fetched all along and thrown away at
 normalize.** The pre-potted potion's name, the timestamp on every death, the
 label of a food whose buff isn't called "Well Fed", and the *killing blow* — WCL

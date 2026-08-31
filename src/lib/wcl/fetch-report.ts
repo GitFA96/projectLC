@@ -30,7 +30,9 @@ import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
  *   5. tracked debuffs on enemies (upkeep uptime)             — paginated, soft
  *   6. tracked buffs on friendlies (shouts, totems, Innervate) — paginated, soft
  *   7. every dispel in the report, boss pulls and trash alike — paginated, soft
- *   8. damage taken near each death, one call per pull with one — paginated, soft
+ *   8. every interrupt in the report, ditto                     — paginated, soft
+ *   9. every enemy cast on a BOSS pull — the interrupt denominator — soft
+ *  10. damage taken near each death, one call per pull with one — paginated, soft
  * "Soft" fetches degrade to a warning instead of failing the import.
  */
 
@@ -45,7 +47,17 @@ query ReportOverview($code: String!) {
       masterData { actors { id name type subType petOwner } }
       fights(killType: Encounters) {
         id encounterID name kill fightPercentage startTime endTime
+        # Where each phase began, on the pulls that have phases. Asked here
+        # rather than in a second call because it is three numbers on a fight
+        # already being fetched — and without it "did we hold Essence of
+        # Desire" is unanswerable, since every interrupt on a Reliquary pull
+        # looks the same from outside the phase it landed in.
+        phaseTransitions { id startTime }
       }
+      # What those phase ids are CALLED, per encounter. Separate from the
+      # transitions because WCL keys the names by encounter and the boundaries
+      # by pull — see phaseNameOf() in normalize.ts for the trap in joining them.
+      phases { encounterID phases { id name isIntermission } }
       # Every fight, trash included — the boss list above deliberately isn't.
       # Trash is where most dispelling happens (432 of 492 in the probed MH+BT
       # night), and it can only be placed with the zone and the enemy list:
@@ -65,7 +77,7 @@ query ReportOverview($code: String!) {
 }`;
 
 const EVENTS_QUERY = `
-query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $filter: String, $hostility: HostilityType) {
+query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $filter: String, $hostility: HostilityType, $fightIDs: [Int]) {
   reportData {
     report(code: $code) {
       events(
@@ -74,6 +86,10 @@ query ReportEvents($code: String!, $dataType: EventDataType!, $startTime: Float!
         endTime: $endTime
         filterExpression: $filter
         hostilityType: $hostility
+        # Scopes a fetch to particular pulls WITHOUT narrowing which abilities
+        # come back. The enemy-cast fetch needs exactly that: a filter on
+        # ability there would destroy the denominator it exists to provide.
+        fightIDs: $fightIDs
         useAbilityIDs: false
         limit: 10000
       ) {
@@ -96,12 +112,22 @@ interface EventsResponse {
 
 async function fetchAllEvents(
   code: string,
-  dataType: "CombatantInfo" | "Deaths" | "Casts" | "Debuffs" | "Buffs" | "DamageTaken" | "Dispels",
+  dataType:
+    | "CombatantInfo"
+    | "Deaths"
+    | "Casts"
+    | "Debuffs"
+    | "Buffs"
+    | "DamageTaken"
+    | "Dispels"
+    | "Interrupts",
   endTime: number,
   filter?: string,
   hostility: "Friendlies" | "Enemies" = "Friendlies",
   /** Report-relative start, for a fetch scoped to one pull rather than the night. */
   startTime = 0,
+  /** Restrict to these fights. Null asks for the whole report. */
+  fightIDs: number[] | null = null,
 ): Promise<unknown[]> {
   const all: unknown[] = [];
   let cursor = startTime;
@@ -113,6 +139,7 @@ async function fetchAllEvents(
       endTime,
       filter: filter ?? null,
       hostility,
+      fightIDs,
     });
     const events = res.reportData?.report?.events;
     all.push(...(events?.data ?? []));
@@ -136,6 +163,14 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
   }
   const reportDuration = endTime - startTime;
 
+  /*
+   * Boss pulls only, for the enemy-cast fetch below. Trash is deliberately out:
+   * it is ~200 segments, and "which of this caster's casts got through" is a
+   * question an officer asks about a boss, not about the ninth pack of the
+   * night. It is also what keeps that fetch to a single page.
+   */
+  const bossFightIds = ((rawReport as { fights?: { id: number }[] }).fights ?? []).map((f) => f.id);
+
   // Upkeep tracks match by ability NAME so one entry covers every spell rank.
   const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
   const softWarnings: string[] = [];
@@ -145,7 +180,8 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       return [];
     });
 
-  const [combatantInfo, deaths, casts, debuffs, buffs, dispels] = await Promise.all([
+  const [combatantInfo, deaths, casts, debuffs, buffs, dispels, interrupts, enemyCasts] =
+    await Promise.all([
     fetchAllEvents(code, "CombatantInfo", reportDuration),
     fetchAllEvents(code, "Deaths", reportDuration),
     fetchAllEvents(
@@ -196,6 +232,40 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       // all world PvP outside the instance.
       fetchAllEvents(code, "Dispels", reportDuration),
     ),
+    soft(
+      "Interrupt tracking (kicks, pummels, shocks, counterspells)",
+      // Unfiltered for the same reason Dispels is, and it earns it the same
+      // way: 262 events across a full MH+BT night, of which 239 were actual
+      // interrupts. Storing the ids lets interruptAbilityOf and isHealingCast
+      // classify when the page is drawn, so a spell curated next month
+      // re-grades tonight. A filterExpression would trade that away and, worse,
+      // would hide the interrupts nobody thought to curate — which are exactly
+      // the ones worth seeing.
+      //
+      // Friendlies is a SOURCE-side filter: it keeps our raiders' presses and
+      // drops the boss interrupting us, which is a fact about the encounter
+      // rather than about a raider.
+      fetchAllEvents(code, "Interrupts", reportDuration, undefined, "Friendlies"),
+    ),
+    soft(
+      "Enemy casts on boss pulls (what got through)",
+      // Unfiltered by ability, and that is the entire point.
+      //
+      // An interrupt count with no denominator cannot answer "what did we let
+      // through". The denominator is the enemy's own cast stream: a begincast
+      // is a cast bar started, a cast is one that finished. Narrowing this by a
+      // curated ability list — or worse, by the abilities we already
+      // interrupted — would report a clean sheet for exactly the caster nobody
+      // ever kicked, which is the case worth catching. So it asks for
+      // everything on the pull and lets normalize aggregate.
+      //
+      // It is affordable because it is scoped by PULL rather than by ability:
+      // 1,084 events across all 23 boss pulls of the probed night, in one page.
+      // The same fetch with trash included is not.
+      bossFightIds.length === 0
+        ? Promise.resolve([])
+        : fetchAllEvents(code, "Casts", reportDuration, undefined, "Enemies", 0, bossFightIds),
+    ),
   ]);
 
   const damageTaken = await soft(
@@ -210,6 +280,8 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
     debuffs,
     buffs,
     dispels,
+    interrupts,
+    enemyCasts,
     damageTaken,
   });
   normalized.warnings.push(...softWarnings);

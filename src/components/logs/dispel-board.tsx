@@ -5,7 +5,7 @@ import type { RaidFight } from "@/lib/types";
 import type { DispelKind } from "@/lib/wcl/dispels";
 import type { DispelTally, RaidDispelView } from "@/lib/analysis/dispels";
 import { Raider } from "@/components/logs/rank-bits";
-import { CollapsibleCard } from "@/components/logs/collapsible-card";
+import { BoardSection, plural } from "@/components/logs/board-section";
 import { LANE_GRID, mmss, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -134,29 +134,41 @@ function DispellerTable({
   );
 }
 
-export function DispelBoard({ fights, dispels }: { fights: RaidFight[]; dispels: RaidDispelView }) {
+/**
+ * The dispel half of the counterplay card — sections, not cards.
+ *
+ * Wrapped by `DispelInterruptBoard`, which supplies the one card and the tab
+ * this lives in. It keeps its own empty state: a report can hold real dispels
+ * and no interrupts, or the reverse, and one shared message would be wrong
+ * about a half.
+ */
+export function DispelSections({ fights, dispels }: { fights: RaidFight[]; dispels: RaidDispelView }) {
   const withDispels = fights.filter((f) => dispels.fights.some((d) => d.fightId === f.fightId));
 
   if (dispels.total === 0) {
     return (
-      <CollapsibleCard
-        title="Dispels & cleansing"
-        description="Who took what off whom — decurses, cleanses, poison removal, and buffs stripped off the enemy."
-      >
-        <p className="py-1 text-sm text-muted-foreground">
-          No dispels recorded for this night. That is <em>not</em> the same as nobody dispelling:
-          reports imported before dispel tracking existed carry none at all. Re-import this report
-          to fill it in.
-        </p>
-      </CollapsibleCard>
+      <p className="py-1 text-sm text-muted-foreground">
+        No dispels recorded for this night. That is <em>not</em> the same as nobody dispelling:
+        reports imported before dispel tracking existed carry none at all. Re-import this report
+        to fill it in.
+      </p>
     );
   }
 
+  const trashTotal = dispels.zones.reduce((sum, z) => sum + z.total, 0);
+
   return (
-    <>
-      <CollapsibleCard
-        title="Dispels & cleansing"
-        description="Who took what off whom, across the whole night — boss pulls and trash together. Cleansed is what came off our own raiders; stripped is a buff pulled off an enemy (Purge, Spellsteal, Tranquilizing Shot), which is a different job under the same event."
+    <div className="space-y-3">
+      {/*
+        The summary opens; the two long ones stay folded. Somebody opening this
+        card wants "who dispelled tonight" far more often than a per-pull
+        timeline of every boss, and the timeline is what made the card long.
+      */}
+      <BoardSection
+        title="Across the night"
+        meta={`${plural(dispels.night.length, "raider", "raiders")} · ${plural(dispels.total, "dispel", "dispels")}`}
+        defaultOpen
+        description="Who took what off whom, boss pulls and trash together. Cleansed is what came off our own raiders; stripped is a buff pulled off an enemy (Purge, Spellsteal, Tranquilizing Shot), which is a different job under the same event."
       >
         <div className="space-y-3">
           <DispellerTable rows={dispels.night} showSplit />
@@ -183,11 +195,12 @@ export function DispelBoard({ fights, dispels }: { fights: RaidFight[]; dispels:
             poison work reads as the totem timeline above plus whatever they cured by hand.
           </p>
         </div>
-      </CollapsibleCard>
+      </BoardSection>
 
       {dispels.zones.length > 0 && (
-        <CollapsibleCard
-          title="Dispels on trash"
+        <BoardSection
+          title="On trash"
+          meta={`${plural(dispels.zones.length, "instance", "instances")} · ${plural(trashTotal, "dispel", "dispels")}`}
           description="Trash is where most of a decurser's night goes, and it belongs to no pull — so it is counted per instance instead of timed. Excluding a boss pull does not remove it: the hour of clearing before a farm wipe still happened."
         >
           <div className="space-y-5">
@@ -209,12 +222,13 @@ export function DispelBoard({ fights, dispels }: { fights: RaidFight[]; dispels:
               </div>
             ))}
           </div>
-        </CollapsibleCard>
+        </BoardSection>
       )}
 
       {withDispels.length > 0 && (
-        <CollapsibleCard
-          title="Dispels, pull by pull"
+        <BoardSection
+          title="Pull by pull"
+          meta={plural(withDispels.length, "pull", "pulls")}
           description="Every dispel inside a boss pull, on the caster's own lane — who they took it off and when. A gap is time somebody spent under whatever landed on them."
         >
           <Tabs defaultValue={String(withDispels[0].fightId)}>
@@ -283,8 +297,8 @@ export function DispelBoard({ fights, dispels }: { fights: RaidFight[]; dispels:
               );
             })}
           </Tabs>
-        </CollapsibleCard>
+        </BoardSection>
       )}
-    </>
+    </div>
   );
 }
