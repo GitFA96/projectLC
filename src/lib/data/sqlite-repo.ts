@@ -765,6 +765,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     const parsed = characterSchema.safeParse({
       ...draft,
       mainCharacterId: draft.mainCharacterId ?? null,
+      professions: draft.professions ?? [],
       id: `chr_${randomUUID()}`,
       guildId: guild.id,
       // A character is created unclaimed. An account claims one by redeeming an
@@ -788,6 +789,7 @@ const writeMethods: Omit<WriteRepo, keyof Repo> = {
     const parsed = characterSchema.safeParse({
       ...draft,
       mainCharacterId: draft.mainCharacterId ?? null,
+      professions: draft.professions ?? [],
       id,
       guildId: current.guildId,
       // Carried across, never read off the draft. insertCharacter is INSERT OR

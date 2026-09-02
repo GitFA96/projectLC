@@ -119,6 +119,10 @@ CREATE TABLE IF NOT EXISTS characters (
   status            TEXT NOT NULL,
   main_character_id TEXT,
   note              TEXT,
+  /* Primary professions, as a JSON array of names. An owned list, same as a
+     gear set's slots — '[]' is "nobody has said", not "they have none".
+     Added after release — see migrate(). */
+  professions_json  TEXT NOT NULL DEFAULT '[]',
   /* The membership that has claimed this character, if any. NULL is the normal
      state and stays supported: most characters are never claimed — raiders who
      never sign up, pugs who came once, and years of history belonging to people
@@ -436,6 +440,9 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   deaths                INTEGER NOT NULL DEFAULT 0,
   flask                 TEXT,
   elixirs_json          TEXT NOT NULL DEFAULT '[]',
+  -- Flasks/elixirs applied after the pull started. Empty also means "imported
+  -- before this was fetched" — nothing may read it as "nobody was late".
+  late_consumables_json TEXT NOT NULL DEFAULT '[]',
   scrolls_json          TEXT NOT NULL DEFAULT '[]',
   food                  INTEGER NOT NULL DEFAULT 0,
   weapon_buff           INTEGER NOT NULL DEFAULT 0,
@@ -843,7 +850,15 @@ function migrate(db: DatabaseSync): void {
   db.exec("DROP INDEX IF EXISTS memberships_one_guild_master");
   addColumn("characters", "off_spec", "off_spec TEXT");
   addColumn("characters", "off_spec_role", "off_spec_role TEXT");
+  // Existing characters backfill to "unknown", which is what an empty list
+  // means everywhere it is read — the roster never recorded this before.
+  addColumn("characters", "professions_json", "professions_json TEXT NOT NULL DEFAULT '[]'");
   addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
+  addColumn(
+    "wcl_player_fights",
+    "late_consumables_json",
+    "late_consumables_json TEXT NOT NULL DEFAULT '[]'",
+  );
   addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
   addColumn("wcl_player_fights", "prepot_label", "prepot_label TEXT");
   addColumn("wcl_player_fights", "death_times_json", "death_times_json TEXT NOT NULL DEFAULT '[]'");
@@ -2571,11 +2586,12 @@ export function setGuildVisibility(db: DatabaseSync, visibility: string): void {
 
 export function insertCharacter(db: DatabaseSync, c: Character): void {
   db.prepare(
-    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, off_spec, off_spec_role, race, status, main_character_id, note, membership_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO characters (id, guild_id, name, class, spec, role, off_spec, off_spec_role, race, professions_json, status, main_character_id, note, membership_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     c.id, c.guildId, c.name, c.class, c.spec, c.role, c.offSpec ?? null, c.offSpecRole ?? null,
-    c.race ?? null, c.status, c.mainCharacterId ?? null, c.note ?? null, c.membershipId ?? null,
+    c.race ?? null, JSON.stringify(c.professions ?? []), c.status, c.mainCharacterId ?? null,
+    c.note ?? null, c.membershipId ?? null,
   );
 }
 
@@ -3587,16 +3603,17 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     `INSERT INTO wcl_player_fights (
        id, report_code, fight_id, encounter_id, encounter_name, kill, fight_percentage,
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
-       bracket_percent, amount, deaths, flask, elixirs_json, scrolls_json, food, weapon_buff,
+       bracket_percent, amount, deaths, flask, elixirs_json, late_consumables_json, scrolls_json, food, weapon_buff,
        prepot, prepot_label, death_times_json, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
        dispels_json, interrupts_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
     f.spec ?? null, f.role, f.parsePercent ?? null, f.bracketPercent ?? null, f.amount ?? null,
-    f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.scrolls), f.food ? 1 : 0,
+    f.deaths, f.flask ?? null, JSON.stringify(f.elixirs), JSON.stringify(f.lateConsumables),
+    JSON.stringify(f.scrolls), f.food ? 1 : 0,
     f.weaponBuff ? 1 : 0, f.prepot ? 1 : 0, f.prepotLabel ?? null,
     JSON.stringify(f.deathTimes),
     JSON.stringify(f.potions), JSON.stringify(f.otherCasts),
@@ -3665,7 +3682,9 @@ function rowToCharacter(r: Row): unknown {
   return {
     id: r.id, guildId: r.guild_id, name: r.name, class: r.class, spec: r.spec,
     role: r.role, offSpec: opt(r.off_spec), offSpecRole: opt(r.off_spec_role),
-    race: opt(r.race), status: r.status,
+    race: opt(r.race),
+    professions: JSON.parse((r.professions_json as string | null) ?? "[]"),
+    status: r.status,
     mainCharacterId: (r.main_character_id as string | null) ?? null, note: opt(r.note),
     membershipId: (r.membership_id as string | null) ?? null,
   };
@@ -3854,6 +3873,7 @@ function rowToWclPlayerFight(r: Row): unknown {
     bossParsePercent: opt(r.boss_parse_percent), bossAmount: opt(r.boss_amount),
     amount: opt(r.amount), deaths: r.deaths, flask: opt(r.flask),
     elixirs: JSON.parse(r.elixirs_json as string),
+    lateConsumables: JSON.parse((r.late_consumables_json as string | null) ?? "[]"),
     scrolls: JSON.parse((r.scrolls_json as string | null) ?? "[]"), food: r.food === 1,
     weaponBuff: r.weapon_buff === 1, prepot: r.prepot === 1,
     prepotLabel: opt(r.prepot_label),

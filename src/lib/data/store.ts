@@ -26,6 +26,7 @@ import { buildEnchantReference, type EnchantReference } from "@/lib/analysis/enc
 import { computeFairness } from "@/lib/analysis/fairness";
 import { dayOf, inLootWindow, lootWindowRange } from "@/lib/analysis/loot-recency";
 import { resetWeekStart, summarizePerformance } from "@/lib/analysis/performance";
+import { explosiveThrows, professionGap } from "@/lib/analysis/professions";
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { goldPerRaid, summarizeComparison, type ComparisonInput } from "@/lib/analysis/comparison";
 import { LOOT_PRIORITY_SHEET_MD, LOOT_PRIORITY_SHEET_PHASE } from "@/data/seed/loot-priority-p3";
@@ -79,6 +80,7 @@ import type {
   PerformanceReportView,
   Phase,
   PhaseWishlistView,
+  Profession,
   RaidReportView,
   RaidSession,
   RaiderMetrics,
@@ -577,6 +579,9 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       loggedSpec: loggedSpecOf(character.id),
       mainCharacterName: character.status === "alt" ? main?.name : undefined,
       altNames: altNames && altNames.length > 0 ? [...altNames].sort() : undefined,
+      professionGap: professionGap(character.professions, {
+        explosives: explosiveThrowsOf(character.id),
+      }),
     };
   }
 
@@ -989,6 +994,46 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
     return config.excludedFightsByCode?.[row.reportCode]?.includes(row.fightId) ?? false;
   }
 
+  /**
+   * Engineering explosives thrown per character — the only profession evidence
+   * a log carries.
+   *
+   * One pass over every pull and every off-pull record, built on first use and
+   * kept for the life of the read model, because `summarize()` asks this for
+   * the whole roster at once and a per-character scan of the fight table would
+   * make the roster page quadratic in the raid's log history.
+   *
+   * Counted off the cast NAMES rather than the stored `sappers` column, because
+   * that column is sapper charges alone and an Arcane Bomb is equally proof
+   * (`analysis/professions.ts`). It also means a newly curated explosive
+   * re-grades reports already imported.
+   *
+   * Excused pulls are excluded, like everything else derived from a pull
+   * (`isExcusedPull`). It can in principle silence the hint — the one throw was
+   * on the pull the officer took out — and that is the safe direction: this
+   * only ever makes a positive claim, so losing evidence loses the prompt, and
+   * never invents a wrong one.
+   */
+  let explosivesByCharacter: Map<string, number> | undefined;
+  function explosiveThrowsOf(characterId: string): number {
+    if (!explosivesByCharacter) {
+      const tally = new Map<string, number>();
+      const add = (id: string | null | undefined, n: number) => {
+        if (!id || n <= 0) return;
+        tally.set(id, (tally.get(id) ?? 0) + n);
+      };
+      for (const row of wclPlayerFights) {
+        if (isExcusedPull(row)) continue;
+        add(wclRowCharacterId(row), explosiveThrows([row]));
+      }
+      for (const character of roster) {
+        add(character.id, explosiveThrows([], offPullOf(character.id)));
+      }
+      explosivesByCharacter = tally;
+    }
+    return explosivesByCharacter.get(characterId) ?? 0;
+  }
+
   function careerRowsOf(characterId: string): WclPlayerFight[] {
     const chronologicalReports = [...wclReports].sort((a, b) => compareText(a.startTime, b.startTime));
     const mine = wclPlayerFights.filter(
@@ -1264,10 +1309,18 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
       if (rows.length === 0) return null;
       // Resolve logged names to roster slugs (read-time match included).
       const slugByActor = new Map<string, string>();
+      // ...and, off the same match, what the roster records them as knowing.
+      // The log never says; only a matched character can answer it, so an
+      // unmatched raider is simply absent rather than an engineer of no
+      // professions.
+      const professionsByActor = new Map<string, readonly Profession[]>();
       for (const row of rows) {
         const id = wclRowCharacterId(row);
         const character = id ? charactersById.get(id) : undefined;
-        if (character) slugByActor.set(row.actorName.toLowerCase(), character.name.toLowerCase());
+        if (character) {
+          slugByActor.set(row.actorName.toLowerCase(), character.name.toLowerCase());
+          professionsByActor.set(row.actorName.toLowerCase(), character.professions);
+        }
       }
       return summarizeRaidReport({
         report,
@@ -1277,6 +1330,7 @@ export function createRepoFromStore(store: EntityStore, config: StoreConfig = {}
         rows,
         reportPulls: pullsByReport().get(report.code) ?? new Set(rows.map((r) => r.fightId)).size,
         slugByActor,
+        professionsByActor,
         excludedFightIds: config.excludedFightsByCode?.[report.code],
         policy,
       });

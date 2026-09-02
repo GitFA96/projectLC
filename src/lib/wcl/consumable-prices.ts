@@ -47,7 +47,12 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   /* Mana runes (single use) */
   "Dark Rune": { gold: 6, charges: 1 },
   "Demonic Rune": { gold: 10, charges: 1 },
-  /* Engineering explosives (single use) */
+  /*
+   * Engineering explosives (single use). The Arcane Bomb is deliberately absent
+   * and so prices at 0: nobody has quoted the council one, and a guess here
+   * would move a real gold ranking — the same rule the thornling seed and the
+   * dog whistle sit under. The per-raid price panel is where it gets corrected.
+   */
   "Super Sapper Charge": { gold: 15, charges: 1 },
   "Goblin Sapper Charge": { gold: 11, charges: 1 },
   /* Herb/seed & off-slot situational consumables */

@@ -69,7 +69,11 @@ function PaybackCell({ entry }: { entry?: PaybackRow }) {
   return (
     <span className="inline-flex flex-col items-end leading-tight">
       <span className="font-medium">{gold(entry.recommended)}</span>
-      <span className="text-[10px] text-muted-foreground">
+      {/* nowrap on each line, not the container: the three lines are meant to
+          stack, but "2" breaking away from "marks" is not a line break anyone
+          chose — and a badge that wraps under its own count reads as a second
+          fact rather than a qualifier on the first. */}
+      <span className="whitespace-nowrap text-[10px] text-muted-foreground">
         {marksLabel(entry.marks)}
         {/* Capped beats boosted, because it is the more surprising fact: a
             capped row has stopped tracking the weighting entirely, and an
@@ -94,7 +98,9 @@ function PaybackCell({ entry }: { entry?: PaybackRow }) {
         )}
       </span>
       {entry.paid > 0 && (
-        <span className="text-[10px] text-success-ink">{gold(entry.paid)} paid</span>
+        <span className="whitespace-nowrap text-[10px] text-success-ink">
+          {gold(entry.paid)} paid
+        </span>
       )}
     </span>
   );
@@ -388,7 +394,11 @@ export function GoldTable({
                 <TableHead className="w-20 text-right">Total</TableHead>
                 {split.potRecorded && (
                   <TableHead
-                    className="w-24 text-right"
+                    /* Wide enough for "2 marks" and its pill on ONE line: at
+                       w-24 the count wrapped off its own noun, so a two-mark
+                       row read as four stacked lines. The space comes out of
+                       Consumables, which is a single button and has it spare. */
+                    className="w-36 text-right"
                     title="Recommended share of this night's Marks of Illidari, and what has been handed back"
                   >
                     Payback
@@ -489,11 +499,11 @@ export function GoldTable({
                   <TableCell className="text-right text-sm tabular-nums">
                     <span className="inline-flex flex-col items-end leading-tight">
                       <span className="font-semibold">{gold(split.recommendedTotal)}</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="whitespace-nowrap text-[10px] text-muted-foreground">
                         {marksLabel(split.marksAllocated)}
                       </span>
                       {split.paidTotal > 0 && (
-                        <span className="text-[10px] text-success-ink">
+                        <span className="whitespace-nowrap text-[10px] text-success-ink">
                           {gold(split.paidTotal)} paid
                         </span>
                       )}
@@ -593,6 +603,23 @@ function groupLines(lines: AdjustLine[]): ConsumableGroupedLines[] {
  * pressing + then − again leaves nothing to save.
  */
 function countChanges(saved: ConsumableAdjustment[], pending: ConsumableAdjustment[]): number {
+  /*
+   * The separator between the three parts is a raw NUL, and it has to be
+   * something no one can type: a raider's name, a consumable's name and an
+   * officer's free-text note are all arbitrary strings, so any printable
+   * separator is one an officer can put in a note and fold two different
+   * corrections onto one key — which would silently undercount the batch.
+   *
+   * The cost is paid outside this file, and is worth knowing before it
+   * surprises somebody: two NUL bytes make **git classify this file as
+   * binary**. It will not diff or auto-merge it the way it does every other
+   * source file here, `grep` skips it as binary, and a line-ending change
+   * that git would normally absorb shows up as a whole-file rewrite.
+   *
+   * Writing these as the escape `\u0000` — or switching to `\u001f` —
+   * keeps the guarantee exactly and hands the file back to git. Worth doing
+   * next time this function is open for another reason.
+   */
   const key = (a: ConsumableAdjustment) =>
     `${a.actorName.trim().toLowerCase()} ${a.name.trim().toLowerCase()} ${a.note ?? ""}`;
   const before = new Map(saved.map((a) => [key(a), a.delta]));

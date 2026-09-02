@@ -76,6 +76,12 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   0:05 or at 1:50". Which means every id in it has to already be in
   `TRACKED_CAST_IDS` or `COOLDOWN_CAST_IDS`; one in neither would be curated,
   reviewed, merged and never seen. `analysis/deployables.test.ts` pins it.
+- **An engineering explosive is a read-time claim, not a category.** Sapper
+  charges live in `category: "sapper"` because that column counts them; the
+  Arcane Bomb (19821, `Requires Engineering (300)`) is curated `"other"` so it
+  stays out of that count, and `isEngineeringExplosive` is what both answer to.
+  Adding a name there says "this proves the profession" — nothing goes in
+  without that line on its own tooltip.
 - **Three of the four deployable items are named after what they summon.** WCL
   logs the Dog Whistle as `Summon Tracking Hound`, the Thornling Seed as `Plant
   Thornling` and the Gnomish Flame Turret as `Flame Turret` — the same trap as

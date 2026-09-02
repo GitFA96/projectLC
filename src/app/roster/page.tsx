@@ -55,6 +55,8 @@ export default async function RosterPage() {
     attendance: s.attendance,
     loggedSpec: s.loggedSpec,
     mainCharacterName: s.mainCharacterName,
+    professions: s.character.professions,
+    professionGap: s.professionGap,
   }));
 
   const puggers: PuggerRow[] = summaries

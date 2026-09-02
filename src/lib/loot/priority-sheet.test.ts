@@ -20,6 +20,7 @@ function character(wowClass: Character["class"], spec: string, role: Character["
     role,
     status: "main",
     mainCharacterId: null,
+    professions: [],
     membershipId: null,
   };
 }

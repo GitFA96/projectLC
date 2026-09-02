@@ -186,7 +186,11 @@ export default async function CharacterEditPage({ params }: { params: Promise<Pa
       />
       {/* Who they are and what's been imported for them, then a kit per column. */}
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        <CharacterForm character={bundle.character} mains={mains} />
+        <CharacterForm
+          character={bundle.character}
+          mains={mains}
+          professionGap={bundle.summary.professionGap}
+        />
         <div className="space-y-4">
           <GearSetManager sets={sets} characterName={bundle.character.name} />
           <OffSpecCard character={bundle.character} seenSpecs={seenSpecs} />

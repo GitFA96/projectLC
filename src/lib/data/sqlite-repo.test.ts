@@ -1152,6 +1152,67 @@ describe("sqlite repo", () => {
       expect(cleared.offSpecRole).toBeUndefined();
     });
 
+    it("records professions, and an unrelated edit doesn't wipe them", async () => {
+      const repo = getSqliteRepo();
+      const thrainn = (await repo.findCharacterByName("Thrainn"))!;
+      const base = {
+        name: thrainn.name,
+        class: thrainn.class,
+        spec: thrainn.spec,
+        role: thrainn.role,
+        status: thrainn.status,
+      };
+      // Nothing recorded is the starting state, and it means "unknown".
+      expect(thrainn.professions).toEqual([]);
+
+      await repo.updateCharacter(thrainn.id, {
+        ...base,
+        professions: ["Engineering", "Mining"],
+      });
+      expect((await repo.getCharacterBundle("thrainn"))!.character.professions).toEqual([
+        "Engineering",
+        "Mining",
+      ]);
+
+      // insertCharacter is INSERT OR REPLACE over a fixed column list, so a
+      // column missing from it empties on every update — see change-chains §2.
+      // The form always posts professions, which is what keeps this true.
+      await repo.updateCharacter(thrainn.id, {
+        ...base,
+        spec: "Fury",
+        professions: ["Engineering", "Mining"],
+      });
+      const after = (await repo.getCharacterBundle("thrainn"))!.character;
+      expect(after.spec).toBe("Fury");
+      expect(after.professions).toEqual(["Engineering", "Mining"]);
+
+      // Omitting them is how an officer un-records a profession.
+      await repo.updateCharacter(thrainn.id, base);
+      expect((await repo.getCharacterBundle("thrainn"))!.character.professions).toEqual([]);
+    });
+
+    it("flags a raider whose logs prove a profession the roster doesn't record", async () => {
+      const repo = getSqliteRepo();
+      // Kazrak throws engineering explosives in the seeded reports; that is
+      // proof of Engineering and nothing else can prove any profession.
+      const summaries = await repo.listCharacters();
+      const kazrak = summaries.find((s) => s.character.name === "Kazrak")!;
+      expect(kazrak.professionGap).toMatchObject({ profession: "Engineering" });
+      expect(kazrak.professionGap!.explosives).toBeGreaterThan(0);
+
+      // Recording it answers the question, and the prompt goes away.
+      await repo.updateCharacter(kazrak.character.id, {
+        name: kazrak.character.name,
+        class: kazrak.character.class,
+        spec: kazrak.character.spec,
+        role: kazrak.character.role,
+        status: kazrak.character.status,
+        professions: ["Engineering"],
+      });
+      const after = (await repo.listCharacters()).find((s) => s.character.name === "Kazrak")!;
+      expect(after.professionGap).toBeUndefined();
+    });
+
     it("updates a character; gear sets and awards follow the id through a rename", async () => {
       const repo = getSqliteRepo();
       const thrainn = (await repo.findCharacterByName("Thrainn"))!;
@@ -1467,7 +1528,8 @@ describe("sqlite repo", () => {
         [
           {
             fightId: 1, encounterId: 1, encounterName: "Prince", kill: true, durationMs: 1000,
-            actorName: "Thrainn", role: "dps", elixirs: [], scrolls: [], food: false, weaponBuff: false,
+            actorName: "Thrainn", role: "dps", elixirs: [],
+ lateConsumables: [], scrolls: [], food: false, weaponBuff: false,
             prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [],
  dispels: [], interrupts: [], upkeep: [],
             deaths: 0, deathTimes: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
@@ -1592,7 +1654,8 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
-          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [],
+ lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
           dispels: [], interrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
@@ -2643,7 +2706,8 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
-          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [],
+ lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
           dispels: [], interrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
@@ -2674,7 +2738,8 @@ describe("sqlite repo", () => {
       [
         {
           fightId: 1, encounterId: 601, encounterName: "Al'ar", kill: true, durationMs: 300000,
-          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [], scrolls: [], food: false,
+          actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [],
+ lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
           dispels: [], interrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
@@ -2703,6 +2768,7 @@ describe("sqlite repo", () => {
         deathTimes: [],
         talents: [],
         elixirs: [],
+        lateConsumables: [],
         scrolls: [],
         food: true,
         weaponBuff: true,

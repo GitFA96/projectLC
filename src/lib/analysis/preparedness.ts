@@ -174,6 +174,11 @@ function pullOf(row: WclPlayerFight, policy: GuildPolicy): PreparednessPull {
     ...(coverage.missing !== undefined ? { missingSlot: coverage.missing } : {}),
     ...(row.flask !== undefined ? { flask: row.flask } : {}),
     elixirs: row.elixirs,
+    // Passed through untouched and scored by nothing. A flask drunk at 0:12 is
+    // a fact about the pull that `grade` and `covered` above deliberately do
+    // not see — folding it in would mark an unprepared pull prepared, and that
+    // grade feeds the loot score (change-chains §5a).
+    lateConsumables: row.lateConsumables,
     // Read through `hasFood`, not `row.food`: a dish that applies its own buff
     // name (Skullfish Soup's "Enlightened") is recovered from `extras` at read
     // time, so curating one fixes reports imported before it was known.

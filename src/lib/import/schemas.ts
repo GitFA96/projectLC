@@ -6,7 +6,9 @@ import {
   GEAR_SET_KINDS,
   GEAR_SET_SOURCES,
   GEAR_SPECS,
+  MAX_PROFESSIONS,
   PHASE_IDS,
+  PROFESSIONS,
   QUALITIES,
   ROLES,
   SESSION_SOURCES,
@@ -75,6 +77,16 @@ export const characterSchema = z.object({
   /** What that second spec does in the raid; only meaningful with `offSpec`. */
   offSpecRole: z.enum(ROLES).optional(),
   race: z.string().optional(),
+  /**
+   * The primary professions they hold, in no meaningful order.
+   *
+   * A list rather than two slots because every reader asks "do they have
+   * Engineering", never "what is in their second slot" — two columns would make
+   * the same question two lookups that can disagree. Capped at the game's own
+   * limit; empty is the honest default and means *unknown*, never "none", which
+   * is why nothing derived may read an absence as evidence either way.
+   */
+  professions: z.array(z.enum(PROFESSIONS)).max(MAX_PROFESSIONS).default([]),
   status: z.enum(CHARACTER_STATUSES),
   /**
    * For an alt: the id of the character it belongs to (its main). Null for
@@ -438,6 +450,22 @@ export const wclPlayerFightSchema = z.object({
   deaths: z.number().int().nonnegative().default(0),
   flask: z.string().optional(),
   elixirs: z.array(z.string()).default([]),
+  /**
+   * Flasks/elixirs applied DURING the pull — see `LateConsumable`. Defaults to
+   * empty so a report imported before this existed parses unchanged, which
+   * means empty can never be read as "nobody was late".
+   */
+  lateConsumables: z
+    .array(
+      z.object({
+        name: z.string(),
+        category: z.enum(["flask", "battleElixir", "guardianElixir"]),
+        atMs: z.number().int().nonnegative(),
+        /** Already up at the pull — a second one, not a fix. */
+        refill: z.boolean().optional(),
+      }),
+    )
+    .default([]),
   /** Scroll buffs at pull, rank included ("Scroll of Agility V"). */
   scrolls: z.array(z.string()).default([]),
   food: z.boolean().default(false),

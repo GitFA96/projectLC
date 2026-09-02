@@ -382,7 +382,11 @@ function RaidDashboard({
         <KpiCard label="Weapon buff" value={`${prep.weaponBuffPct}%`} sub="oil / stone / poison" />
         <KpiCard label="Pre-pots" value={`${prep.prepotPct}%`} sub={`${prep.prepots} pulls opened potted`} />
         <KpiCard label="Potions used" value={prep.potionsTotal} sub="all raiders, bosses + trash" />
-        <KpiCard label="Sappers" value={prep.sappersTotal} sub="charges thrown, bosses + trash" />
+        <KpiCard
+          label="Explosives"
+          value={prep.explosivesTotal}
+          sub="sappers + arcane bombs, bosses + trash"
+        />
       </div>
 
       {prep.unplacedElixirs.length > 0 && (

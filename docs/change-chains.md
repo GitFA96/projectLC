@@ -171,6 +171,51 @@ an item deployable is deliberately recorded **twice in two shapes** — once in
 where the timeline reads it — so nothing may ever sum the two. Adding a sixth
 means: pick the right list for what it is, add it there, and re-import.
 
+**"Who laid nothing" reads two sources and one of them isn't the log.** The
+per-boss silence list under the deployable timeline needs presence (a pull row
+is a raider who was there) and, for its engineering half, the professions the
+**roster** records — Warcraft Logs never says what anyone knows, only what they
+did (`analysis/professions.ts`). So the map travels store → `summarizeRaidReport`
+→ `buildDeployableView` alongside `slugByActor`, and a caller that passes one
+without the other gets a list where nobody is ever an engineer, silently and
+with no type error. Which devices the profession gates is `profession` on
+`wcl/deployables.ts`, read through `deployableLabelsFor` rather than typed into
+the sentence twice; `analysis/deployables.test.ts` pins it. The list counts only
+the **pulls something was laid on** — the same pulls the timeline above it draws
+— so the two halves of the card can never disagree about how many chances a
+raider had. That scope is load-bearing three ways: it drops the 26-second reset
+nobody could deploy on, it drops the bosses the kit was never wanted on, and it
+is what stops §1 turning a report imported before this tracking into an
+accusation against the whole raid.
+
+**An engineering explosive is proof of a profession, and is not a category.**
+Sapper charges and the Arcane Bomb each carry `Requires Engineering` on their
+own tooltip, so either one settles what the roster failed to record. But the
+stored `sappers` column counts sapper *charges* — an Arcane Bomb is not one, and
+is curated `category: "other"` precisely to stay out of it. So the shared fact
+lives in `isEngineeringExplosive`, read off the cast **names** at read time:
+`professionGap`'s evidence, the raid page's explosives KPI and the
+`Engineering explosives` consumable group all ask it, and curating a seventh
+explosive re-grades reports imported months ago. Put one in the `sapper`
+category instead and the column starts lying with nothing to catch it; leave it
+out of `isEngineeringExplosive` and it silently stops proving anything. The
+Arcane Bomb's own §1 half: it was never in the casts filter, so **no report
+imported before it holds a single event** — on this guild's 30 Aug night it is
+47 throws by nine raiders, every one of them off-pull, which is also why the
+off-pull record has to be counted for this and not just the pulls.
+
+**Preparation is graded at the pull, and what happens after it is a separate
+fact.** `combatantinfo` is written when a pull starts, so a flask drunk at 0:12
+is in no snapshot; `lateConsumables` reads the buff stream for the same auras
+inside the pull window and stores them **beside** `flask`/`elixirs`, never in
+them. That separation is load-bearing: `grade` and `covered` feed the loot score
+(§5a), and folding a late flask in would quietly mark an unprepared pull
+prepared. Two opposite stories arrive as the same event and `refill` is what
+tells them apart — nothing up at the pull (a gap they closed) versus another one
+drunk on top (a second item). Reading the elixir auras at all widened the
+*Buffs* fetch, so this is §1 too: older reports hold nothing, and empty must
+never be shown as "nobody was late".
+
 **Dispels invert this chain, and the inversion is the point.** `Dispels` is the
 one events fetch with no `filterExpression`: the whole stream is 492 events on a
 full MH+BT night, so the import stores the dispel's spell **id** beside its name
@@ -336,6 +381,40 @@ if the value is not part of the caller's draft, read it **from the row**, not
 from the read model — `updateCharacter` uses `getCharacterMembershipId` because
 a read model that has not caught up yet would hand back a null and the preserve
 would preserve nothing.
+
+## 2a. Claim a fact about a raider that a log could also prove
+
+**Chain:** the curated cast/aura that proves it (§1) → `analysis/professions.ts`
+→ the tally in `store.ts` → `CharacterSummary` → wherever the prompt is shown.
+
+Professions are the worked example, and the shape generalises to anything the
+roster records that a log can independently confirm.
+
+- **A log records what people did, never what they knew.** Exactly one
+  profession leaves a trace: a thrown sapper charge takes Engineering, so a
+  throw proves it. An alchemist's flask looks the same bought as made and mining
+  leaves nothing at all — so nothing else here may be inferred, and
+  `professions.ts` says so at length rather than looking incomplete.
+- **Positive evidence only, and the asymmetry is the whole design.** No sapper
+  across a hundred pulls proves nothing: an engineer who never needed one, one
+  who ran out, and a report imported before sappers were tracked at all (§1) are
+  indistinguishable. So an absence must never contradict what an officer
+  recorded, and a raider recorded as an engineer who has thrown nothing is
+  deliberately not flagged — that is the normal state for most engineers, and
+  flagging it would teach officers to ignore the flag.
+- **The threshold is not a policy number.** One throw is proof, because that is
+  a fact about the game rather than a judgement about the raider. It stays a
+  `> 0` in the module and does not belong in `policy.ts` (invariant 5): nothing
+  about this changes a loot verdict.
+- **Old reports need a re-import before they can prove anything**, for the
+  reason §1 gives — the events fetch is filtered server-side, so a report
+  fetched before the id was curated never carried the event and never will.
+  A guild whose logs predate the sapper ids sees no prompts and nothing is
+  wrong.
+
+The prompt is shown wherever the character's name is, and again on the edit form
+where the answer goes. It links to the form rather than writing anything: the
+app found a question, and the officer answers it.
 
 ## 3. Add a per-report setting
 

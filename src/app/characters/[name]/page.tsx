@@ -20,6 +20,7 @@ import { PageHeader } from "@/components/page-header";
 import { ClassBadge } from "@/components/class-badge";
 import { RoleBadge } from "@/components/role-badge";
 import { SpecBadge } from "@/components/spec-badge";
+import { ProfessionBadges, ProfessionGapBadge } from "@/components/profession-badge";
 import { WeekDots } from "@/components/week-dots";
 import { PhasePills } from "@/components/phase-pills";
 import { SlotGrid, type SlotRowView } from "@/components/slot-grid";
@@ -30,22 +31,13 @@ import {
   type CurrentSlotOptionView,
 } from "@/components/current-slot-picker";
 import { CharacterPhaseTabs, type PhaseTabView } from "@/components/character-phase-tabs";
-import { ItemLink, type ItemRef } from "@/components/item-link";
+import type { ItemRef } from "@/components/item-link";
 import { CharacterComments } from "@/components/character-comments";
 import { AwardItemButton, type AwardContext } from "@/components/award-item-controls";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { OffSpecConflict } from "@/components/loot/offspec-conflict";
-import { AwardEditButton } from "@/components/loot/award-edit-button";
+import { LootHistoryTable, type LootHistoryRow } from "@/components/loot-history-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 
 import { pageView } from "@/lib/auth/view";
@@ -127,6 +119,46 @@ export default async function CharacterPage({
   const awardRoster = canEditAwards
     ? roster.map((c) => ({ id: c.character.id, name: c.character.name, wowClass: c.character.class }))
     : [];
+
+  /*
+   * The loot ledger for this character, flattened for the client.
+   *
+   * Every field is a join already done above — the item cache's name for the
+   * id, the night's zones, the edit dialog's target. The table itself only
+   * pages; building the rows here keeps that component free of the repo and
+   * ships one shape instead of five.
+   */
+  const lootHistory: LootHistoryRow[] = awards.map((a) => ({
+    id: a.award.id,
+    awardedAt: a.award.awardedAt,
+    item: {
+      itemId: a.award.itemId,
+      name: a.item?.name ?? a.award.itemName,
+      quality: a.item?.quality,
+      icon: a.item?.icon,
+    },
+    raid: a.session.zones.join(" + "),
+    offspec: a.award.offspec,
+    wishlist: a.wishlist,
+    note: a.award.note,
+    edit: {
+      mode: "edit",
+      raidSessionId: a.session.id,
+      sessionLabel: a.session.zones.join(" + "),
+      sessionDate: a.session.date,
+      award: {
+        awardedAt: a.award.awardedAt,
+        id: a.award.id,
+        itemId: a.award.itemId,
+        itemName: a.item?.name ?? a.award.itemName,
+        winnerName: a.character?.name ?? a.award.rawWinnerName,
+        winnerCharacterId: a.award.characterId ?? undefined,
+        external: a.award.external,
+        offspec: a.award.offspec,
+        note: a.award.note,
+      },
+    },
+  }));
 
   const itemsById = new Map(items.map((i) => [i.id, i] as const));
   const pinnedSlotIds = new Set(bundle.currentOverrides.map((o) => o.item.slot));
@@ -274,6 +306,12 @@ export default async function CharacterPage({
           <span className="flex flex-wrap items-center gap-2">
             {character.race && <span>{character.race}</span>}
             <ClassBadge wowClass={character.class} spec={character.spec} />
+            {/* Full names here — the header has the room the roster cell
+                doesn't, and this is where somebody comes to check. */}
+            <ProfessionBadges professions={character.professions} />
+            {summary.professionGap && (
+              <ProfessionGapBadge gap={summary.professionGap} characterName={character.name} />
+            )}
             <RoleBadge role={character.role} />
             {character.offSpec && (
               <Badge variant="muted" title="Second spec they raid in — recorded by an officer">
@@ -543,104 +581,12 @@ export default async function CharacterPage({
           <AwardItemButton ctx={award} label="Award an item" variant="default" />
         </CardHeader>
         <CardContent>
-          {awards.length === 0 ? (
-            <p className="py-2 text-sm text-muted-foreground">No items awarded yet.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-28">Date</TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Raid</TableHead>
-                  <TableHead className="w-24">Type</TableHead>
-                  <TableHead className="w-28">Wishlist</TableHead>
-                  <TableHead>Note</TableHead>
-                  {canEditAwards && <TableHead className="w-16" />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {awards.map((a) => (
-                  <TableRow key={a.award.id}>
-                    <TableCell className="tabular-nums text-muted-foreground">
-                      {format(parseISO(a.award.awardedAt), "d MMM yyyy")}
-                    </TableCell>
-                    <TableCell>
-                      <ItemLink
-                        item={{
-                          itemId: a.award.itemId,
-                          name: a.item?.name ?? a.award.itemName,
-                          quality: a.item?.quality,
-                          icon: a.item?.icon,
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {a.session.zones.join(" + ")}
-                    </TableCell>
-                    <TableCell>
-                      {a.award.offspec ? (
-                        <Badge variant="warning">Off-spec</Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Main spec</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {a.wishlist.matched ? (
-                        <div className="flex flex-col items-start gap-0.5">
-                          <Badge
-                            variant="success"
-                            title={
-                              a.wishlist.redeemsTo
-                                ? `Buys ${a.wishlist.redeemsTo.itemName}, which is on their wishlist`
-                                : undefined
-                            }
-                          >
-                            {a.wishlist.phases.map((p) => `P${p}`).join(", ")} wishlist
-                          </Badge>
-                          <OffSpecConflict
-                            offspec={a.award.offspec}
-                            matched={a.wishlist.matched}
-                            phases={a.wishlist.phases}
-                            redeemsTo={a.wishlist.redeemsTo}
-                          />
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/50">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {a.award.note ?? ""}
-                    </TableCell>
-                    {canEditAwards && (
-                      <TableCell className="text-right">
-                        <AwardEditButton
-                          roster={awardRoster}
-                          canAmend={canAmendAwards}
-                          target={{
-                            mode: "edit",
-                            raidSessionId: a.session.id,
-                            sessionLabel: a.session.zones.join(" + "),
-                            sessionDate: a.session.date,
-                            award: {
-                              awardedAt: a.award.awardedAt,
-                              id: a.award.id,
-                              itemId: a.award.itemId,
-                              itemName: a.item?.name ?? a.award.itemName,
-                              winnerName: a.character?.name ?? a.award.rawWinnerName,
-                              winnerCharacterId: a.award.characterId ?? undefined,
-                              external: a.award.external,
-                              offspec: a.award.offspec,
-                              note: a.award.note,
-                            },
-                          }}
-                        />
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <LootHistoryTable
+            rows={lootHistory}
+            roster={awardRoster}
+            canEdit={canEditAwards}
+            canAmend={canAmendAwards}
+          />
         </CardContent>
       </Card>
     </div>

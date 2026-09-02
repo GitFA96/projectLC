@@ -1227,6 +1227,95 @@ describe("flasks the pull snapshot cannot see", () => {
   });
 });
 
+describe("a flask or elixir drunk during the pull", () => {
+  /*
+   * The pull snapshot is taken when the pull STARTS, so a raider who forgets
+   * and fixes it thirty seconds in is recorded exactly like one who drank
+   * nothing. Probed on cWrNZY23Rx6V4faw: one such application across a full
+   * MH+BT night — Greymatter, Elixir of Major Agility, 12s into a Gurtogg wipe.
+   * Rare, and invisible in every other column, which is the argument for it.
+   */
+  const MIN = 60_000;
+  const base = {
+    code: "RPT2",
+    title: "BT",
+    startTime: 0,
+    endTime: 60 * MIN,
+    fights: [
+      { id: 3, name: "Gurtogg Bloodboil", startTime: 10 * MIN, endTime: 13 * MIN, kill: false, encounterID: 604, difficulty: 3 },
+    ],
+    masterData: { actors: [{ id: 1, name: "Greymatter", type: "Player", subType: "Paladin" }] },
+  };
+  const bare = [
+    { timestamp: 10 * MIN, type: "combatantinfo", fight: 3, sourceID: 1, auras: [{ ability: 33256, name: "Well Fed" }] },
+  ];
+  const run = (combatantInfo: unknown[], buffs: unknown[]) =>
+    normalizeWclReport(base, { combatantInfo, deaths: [], casts: [], debuffs: [], buffs });
+
+  it("records one that went up after the pull started, with the moment", () => {
+    const report = run(bare, [
+      { timestamp: 10 * MIN + 12_000, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+    ]);
+    // No `refill`: they had nothing at the pull, so this one closed a real gap.
+    expect(report.rows[0].lateConsumables).toEqual([
+      { name: "Elixir of Major Agility", category: "battleElixir", atMs: 12_000 },
+    ]);
+    // And it changes NOTHING about what the pull is graded on: the raider did
+    // not come ready, and this column feeds the loot score.
+    expect(report.rows[0].elixirs).toEqual([]);
+    expect(report.rows[0].flask).toBeUndefined();
+  });
+
+  it("marks a second one drunk mid-fight as a refill, not a gap", () => {
+    // The snapshot already has it, so this is a raider drinking ANOTHER during
+    // the pull — real gold, and the opposite story from turning up empty. This
+    // is the case the probed night actually contains, so collapsing the two
+    // into one flag would have shown nothing at all.
+    const withElixir = [
+      { timestamp: 10 * MIN, type: "combatantinfo", fight: 3, sourceID: 1, auras: [{ ability: 28497, name: "Major Agility" }] },
+    ];
+    const report = run(withElixir, [
+      { timestamp: 10 * MIN + 30_000, type: "refreshbuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+    ]);
+    expect(report.rows[0].lateConsumables).toEqual([
+      { name: "Elixir of Major Agility", category: "battleElixir", atMs: 30_000, refill: true },
+    ]);
+    // The pull still grades on what they brought to it, which was the elixir.
+    expect(report.rows[0].elixirs).toEqual(["Elixir of Major Agility"]);
+  });
+
+  it("ignores one drunk between pulls", () => {
+    // Drinking up after a wipe is preparation, not lateness — and it is already
+    // visible as the next pull grading covered.
+    const report = run(bare, [
+      { timestamp: 9 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+      { timestamp: 14 * MIN, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+    ]);
+    expect(report.rows[0].lateConsumables).toEqual([]);
+  });
+
+  it("records a flask the same way, and keeps the pull ungraded for it", () => {
+    const report = run(bare, [
+      { timestamp: 10 * MIN + 45_000, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 40575 },
+    ]);
+    expect(report.rows[0].lateConsumables).toEqual([
+      { name: "Unstable Flask of the Soldier", category: "flask", atMs: 45_000 },
+    ]);
+    // The span logic in step 5b stamps a flask onto a pull the flask was up
+    // *at the start of*. This one was drunk mid-pull, so it must not.
+    expect(report.rows[0].flask).toBeUndefined();
+  });
+
+  it("counts each consumable once, however many events it emits", () => {
+    const report = run(bare, [
+      { timestamp: 10 * MIN + 12_000, type: "applybuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+      { timestamp: 10 * MIN + 40_000, type: "refreshbuff", sourceID: 1, targetID: 1, abilityGameID: 28497 },
+    ]);
+    expect(report.rows[0].lateConsumables).toHaveLength(1);
+    expect(report.rows[0].lateConsumables[0].atMs).toBe(12_000);
+  });
+});
+
 /**
  * One mob, two actor ids: Warcraft Logs puts a different `targetID` on a
  * debuff's `applydebuff` than on its stacks and its removal.

@@ -347,6 +347,14 @@ export interface NormalizedPlayerFight {
   }[];
   flask?: string;
   elixirs: string[];
+  /** Flasks and elixirs that went up AFTER the pull started — see step 5c. */
+  lateConsumables: {
+    name: string;
+    category: "flask" | "battleElixir" | "guardianElixir";
+    atMs: number;
+    /** It was already up at the pull, so this is a second one, not a fix. */
+    refill?: boolean;
+  }[];
   scrolls: string[];
   food: boolean;
   weaponBuff: boolean;
@@ -858,6 +866,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         deaths: 0,
         deathTimes: [],
         elixirs: [],
+        lateConsumables: [],
         scrolls: [],
         food: false,
         weaponBuff: false,
@@ -1908,6 +1917,72 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
       if (span) row.flask = span.label;
     }
   }
+
+  /*
+   * 5c. Flasks and elixirs drunk **during** a pull.
+   *
+   * Everything the preparation columns grade comes from `combatantinfo`, which
+   * Warcraft Logs writes when the pull STARTS. That is the right moment to
+   * grade from — it is the question "did they come ready" — but it means a
+   * raider who forgets and fixes it at 0:12 is recorded identically to one who
+   * drank nothing all night, and the officer has no way to tell a habit from an
+   * accident.
+   *
+   * So this is the same evidence read one step later: any flask or elixir aura
+   * that went up inside the pull window. Two different things look like that
+   * and the row says which, because they are opposite stories about a raider:
+   *
+   * - **not up at the pull** — they turned up without it and fixed it at 0:12.
+   * - **`refill`** — it was up at the pull and they drank another during the
+   *   fight. Not a gap at all; a second item, and real gold.
+   *
+   * Probed on cWrNZY23Rx6V4faw: 11 applications, 10 of the first kind and one
+   * of the second (Greymatter re-drinking Major Agility 12s into a Gurtogg
+   * wipe) — collapsing the two would have hidden whichever kind you cared about.
+   *
+   * **And "not up at the pull" is not the same as careless.** Ten of those
+   * eleven are Elixir of Demonslaying, drunk in the first seconds of Anetheron,
+   * Kaz'rogal, Archimonde and Mother Shahraz — an elixir that does nothing
+   * except against demons, so drinking it as the pull lands is the correct play
+   * rather than a forgotten one. This records when a thing happened; it does
+   * not grade it, and nothing downstream may treat it as a fault.
+   *
+   * **Deliberately not graded.** It is stamped on the row as a fact and nothing
+   * scores it: folding a late flask into `flask` would silently mark an
+   * unprepared pull prepared, and that column feeds the loot score (invariant 5
+   * and change-chains §5a). The officer gets to see it and decide.
+   */
+  for (const rawEvent of events.buffs ?? []) {
+    const parsed = rawAuraEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    if (!event.type.startsWith("apply") && !event.type.startsWith("refresh")) continue;
+    if (event.targetID === undefined) continue;
+    const target = actorById.get(event.targetID);
+    if (!target) continue;
+    // Strictly INSIDE: an aura applied exactly at the pull start is what being
+    // ready looks like, and the snapshot already has it.
+    const fight = fights.find((f) => event.timestamp > f.startTime && event.timestamp <= f.endTime);
+    if (!fight) continue;
+    const row = rows.get(keyOf(fight.id, target.name));
+    if (!row) continue;
+    const hit = classifyAura(event.ability?.name ?? "", event.abilityGameID ?? event.ability?.guid);
+    if (!hit) continue;
+    if (hit.category !== "flask" && hit.category !== "battleElixir" && hit.category !== "guardianElixir") {
+      continue;
+    }
+    // One entry per consumable per pull: a single drink can emit more than one
+    // event, and three lines for one elixir would read as three elixirs.
+    if (row.lateConsumables.some((l) => l.name === hit.label)) continue;
+    const refill = row.flask === hit.label || row.elixirs.includes(hit.label);
+    row.lateConsumables.push({
+      name: hit.label,
+      category: hit.category,
+      atMs: Math.max(0, Math.min(event.timestamp, fight.endTime) - fight.startTime),
+      ...(refill ? { refill: true } : {}),
+    });
+  }
+  for (const row of rows.values()) row.lateConsumables.sort((a, b) => a.atMs - b.atMs);
 
   /*
    * What a PET was carrying — the other half of the pet-consumable question.

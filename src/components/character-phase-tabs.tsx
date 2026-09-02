@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,16 +160,32 @@ export function CharacterPhaseTabs({
               </CardContent>
             </Card>
 
+            {/*
+              Collapsed by default. The wishlist above it is what the page is
+              for; this is the answer to a follow-up question, and open it
+              pushed the loot history a screen further down on every visit.
+              A native <details> rather than React state so the open/shut of
+              one phase's panel survives switching tabs and needs no JS.
+            */}
             <Card>
-              <CardHeader>
-                <CardTitle>Upcoming stats</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Current gear vs this wishlist — straight diff of the SixtyUpgrades stat blocks.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <StatDeltaPanel deltas={tab.statDeltas} hasCurrent={hasCurrent} />
-              </CardContent>
+              <details className="group">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl p-4 pb-2 hover:bg-accent/40">
+                  <span className="flex flex-col gap-1">
+                    <CardTitle>Upcoming stats</CardTitle>
+                    <span className="text-xs text-muted-foreground">
+                      Current gear vs this wishlist — straight diff of the SixtyUpgrades stat
+                      blocks.
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+                    aria-hidden
+                  />
+                </summary>
+                <CardContent>
+                  <StatDeltaPanel deltas={tab.statDeltas} hasCurrent={hasCurrent} />
+                </CardContent>
+              </details>
             </Card>
           </TabsContent>
         );

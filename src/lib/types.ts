@@ -4,6 +4,7 @@ import type { RaidDeployableView } from "@/lib/analysis/deployables";
 import type { RaidDispelView } from "@/lib/analysis/dispels";
 import type { RaidInterruptView } from "@/lib/analysis/interrupts";
 import type { CoverageGrade } from "@/lib/analysis/preparation";
+import type { ProfessionGap } from "@/lib/analysis/professions";
 import type { ElixirSlot } from "@/lib/wcl/consumables";
 import type {
   attendanceExemptionSchema,
@@ -41,13 +42,14 @@ import type {
   GearOverrideSource,
   GearSpec,
   Phase,
+  Profession,
   Quality,
   Role,
   SlotId,
   WowClass,
 } from "@/lib/constants/wow";
 
-export type { CharacterStatus, GearOverrideSource, GearSpec, Phase, Quality, Role, SlotId, WowClass };
+export type { CharacterStatus, GearOverrideSource, GearSpec, Phase, Profession, Quality, Role, SlotId, WowClass };
 
 /* Core entities (inferred from the canonical zod schemas) */
 export type Guild = z.infer<typeof guildSchema>;
@@ -256,6 +258,12 @@ export interface CharacterSummary {
   mainCharacterName?: string;
   /** Names of characters that list this one as their main (this char is a main). */
   altNames?: string[];
+  /**
+   * A profession their logs prove and the roster doesn't record — the prompt to
+   * go and set it. Undefined nearly always, and means "nothing to say": the
+   * logs can only ever prove Engineering, and only from a thrown sapper.
+   */
+  professionGap?: ProfessionGap;
 }
 
 export interface PhaseWishlistView {
@@ -779,7 +787,8 @@ export interface RaidPrepStats {
   /** Non-potion consumables (gems, seeds, healthstones, runes, drums, sappers, pet food) — trash included. */
   inFightTypes: ConsumableTypeRow[];
   /** Total sapper charges thrown this night, boss pulls and trash. */
-  sappersTotal: number;
+  /** Sapper charges and Arcane Bombs — everything that took Engineering to set off. */
+  explosivesTotal: number;
 }
 
 /**
@@ -971,6 +980,28 @@ export interface PlayerImprovements {
  * raider has to pick one. Absent from a raider's `pulls` means they were not
  * on that pull at all, which is a third thing again.
  */
+/**
+ * A flask or elixir applied during a pull rather than before it.
+ *
+ * `category` is the curated slot the aura falls in, so a reader can tell a
+ * forgotten flask from a second battle elixir without matching on the name.
+ */
+export interface LateConsumable {
+  name: string;
+  category: "flask" | ElixirSlot;
+  /** ms from the pull start. */
+  atMs: number;
+  /**
+   * It was already up when the pull started, so this is a **second** one drunk
+   * during the fight rather than a raider fixing a gap.
+   *
+   * The distinction is the whole value of the field: without it "drank another
+   * Major Agility at 0:12" and "turned up with nothing and fixed it at 0:12"
+   * are one number, and they are opposite facts about a raider.
+   */
+  refill?: boolean;
+}
+
 export interface PreparednessPull {
   fightId: number;
   /** How much of the elixir budget was filled — the fact, not the standard. */
@@ -988,6 +1019,19 @@ export interface PreparednessPull {
   missingSlot?: ElixirSlot;
   flask?: string;
   elixirs: string[];
+  /**
+   * Flasks and elixirs that went up **after** the pull started.
+   *
+   * Empty on every report imported before this was fetched, and empty is also
+   * what "they came ready" looks like — the two are indistinguishable here, so
+   * a reader must never present an empty list as "nobody was late"
+   * (docs/change-chains.md §1).
+   *
+   * Never folded into `flask` or `elixirs`: those are what the raider brought
+   * to the pull, they are what the coverage grade and the loot score read, and
+   * a late one must not quietly turn an unprepared pull into a prepared one.
+   */
+  lateConsumables: LateConsumable[];
   food: boolean;
   /** Scroll buffs up at the pull, rank included. */
   scrolls: string[];

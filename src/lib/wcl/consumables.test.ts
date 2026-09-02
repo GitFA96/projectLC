@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   CONSUMABLE_GROUP_ORDER,
+  CURATED_ELIXIR_LABELS,
+  ELIXIR_BUFF_IDS,
+  ELIXIR_BUFF_NAMES,
   POTION_PURPOSE_ORDER,
+  TRACKED_CAST_IDS,
+  classifyCast,
   consumableGroupOf,
+  isEngineeringExplosive,
   petConsumableLabel,
   baseConsumableName,
   isRestrictedRestore,
@@ -19,7 +25,10 @@ import {
 describe("consumableGroupOf", () => {
   it("groups from the curated cast list", () => {
     expect(consumableGroupOf("Haste Potion")).toBe("potion");
-    expect(consumableGroupOf("Super Sapper Charge")).toBe("sapper");
+    // Sapper charges and the Arcane Bomb share one group: what they have in
+    // common is the `Requires Engineering` line, not the word "sapper".
+    expect(consumableGroupOf("Super Sapper Charge")).toBe("explosive");
+    expect(consumableGroupOf("Arcane Bomb")).toBe("explosive");
     expect(consumableGroupOf("Dark Rune")).toBe("rune");
     expect(consumableGroupOf("Drums of Battle")).toBe("drums");
     expect(consumableGroupOf("Kibler's Bits")).toBe("pet");
@@ -131,5 +140,64 @@ describe("a pet's copy of a consumable", () => {
     expect(baseConsumableName(petConsumableLabel("Kibler's Bits"))).toBe("Kibler's Bits");
     // Anything without the suffix is already the item.
     expect(baseConsumableName("Kibler's Bits")).toBe("Kibler's Bits");
+  });
+});
+
+/**
+ * The Arcane Bomb, end to end through this file.
+ *
+ * It is the case that breaks if anybody "tidies" its category: curated as
+ * `other` so it stays out of the stored sapper count, but grouped and read as
+ * an engineering explosive, which is what the profession hint and the
+ * explosives KPI are counting. The two facts pull in opposite directions and
+ * only both together are right.
+ */
+describe("the Arcane Bomb", () => {
+  it("is fetched, classified, grouped and counted as engineering", () => {
+    // In the server-side filter, or no report would ever contain one
+    // (docs/change-chains.md §1).
+    expect(TRACKED_CAST_IDS).toContain(19821);
+    // Curated as "other" ON PURPOSE — `sapper` is what increments the stored
+    // sappers column, and an Arcane Bomb is not a sapper charge.
+    expect(classifyCast(19821)).toMatchObject({ name: "Arcane Bomb", category: "other" });
+    // ...but it takes Engineering (300) to set off, so it proves the profession
+    // and shelves beside the charges.
+    expect(isEngineeringExplosive("Arcane Bomb")).toBe(true);
+    expect(consumableGroupOf("Arcane Bomb")).toBe("explosive");
+  });
+
+  it("does not drag other 'other' consumables in with it", () => {
+    // The negative that keeps the list honest: `other` is a big bucket and
+    // nothing else in it takes a profession.
+    expect(isEngineeringExplosive("Thistle Tea")).toBe(false);
+    expect(isEngineeringExplosive("Bogling Root")).toBe(false);
+    expect(consumableGroupOf("Thistle Tea")).toBe("other");
+  });
+});
+
+/**
+ * An elixir this codebase can classify must be one it can ask Warcraft Logs
+ * for.
+ *
+ * These two lists are the *fetch* filter; `AURA_BY_NAME` is the *classifier*,
+ * and it matches on a def's label as well as its `buffNames`. Deriving the
+ * filter from `buffNames` alone silently dropped the eight elixirs curated by
+ * label only — so a real Elixir of Demonslaying, drunk 5s into Kaz'rogal by
+ * four different raiders, was never fetched and read as if nobody drank
+ * anything. Nothing failed; the events simply never arrived.
+ */
+describe("every curated elixir is fetchable", () => {
+  it("can ask for each one by name", () => {
+    const askable = new Set(ELIXIR_BUFF_NAMES.map((n) => n.toLowerCase()));
+    for (const label of CURATED_ELIXIR_LABELS) {
+      expect(askable.has(label.toLowerCase()), `${label} is classified but never fetched`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("keeps the probed Demonslaying id, which is how it was found", () => {
+    // Aura 11406 on Greymatter, 5s into the Kaz'rogal kill on cWrNZY23Rx6V4faw.
+    expect(ELIXIR_BUFF_IDS.get(11406)).toBe("Elixir of Demonslaying");
   });
 });

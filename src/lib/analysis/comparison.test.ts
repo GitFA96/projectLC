@@ -30,6 +30,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     deaths: 0,
     deathTimes: [],
     elixirs: [],
+    lateConsumables: [],
     scrolls: [],
     food: true,
     weaponBuff: true,
@@ -92,7 +93,8 @@ describe("summarizeComparison", () => {
       availableReports: [],
       rows: [
         row({ fightId: 1, actorName: "Morgrave", className: "Warlock", amount: 1800, parsePercent: 95,
-          bracketPercent: 90, flask: undefined, elixirs: [], food: false,
+          bracketPercent: 90, flask: undefined, elixirs: [],
+ lateConsumables: [], food: false,
           upkeep: [{ name: "Curse of the Elements", pct: 96 }] }),
       ],
       comments: [],

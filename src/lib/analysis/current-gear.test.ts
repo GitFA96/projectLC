@@ -107,6 +107,7 @@ function pull(
     deaths: 0,
     deathTimes: [],
     elixirs: [],
+    lateConsumables: [],
     scrolls: [],
     food: false,
     weaponBuff: false,

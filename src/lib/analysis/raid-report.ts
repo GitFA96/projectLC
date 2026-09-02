@@ -1,5 +1,5 @@
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
-import { petConsumableLabel } from "@/lib/wcl/consumables";
+import { isEngineeringExplosive, petConsumableLabel } from "@/lib/wcl/consumables";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
 import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
@@ -18,6 +18,7 @@ import type {
   ParseBoardRow,
   PlayerBuffSource,
   PetSpendView,
+  Profession,
   PlayerImprovements,
   RaidCooldownRow,
   RaidFight,
@@ -111,6 +112,14 @@ export interface RaidReportInput {
   reportPulls: number;
   /** Lowercased actor name → roster slug, for deep-linking matched raiders. */
   slugByActor: Map<string, string>;
+  /**
+   * Lowercased actor name → the professions the roster records for them.
+   *
+   * The log cannot supply this — Warcraft Logs records what people did, never
+   * what they knew (`analysis/professions.ts`) — so it arrives from the roster
+   * or not at all, and a missing entry means "nobody filled it in".
+   */
+  professionsByActor?: Map<string, readonly Profession[]>;
   /**
    * Pulls the officers switched off for this report (a farm wipe, an off-night
    * gimmick fight). They stay in the fight list, flagged, but contribute
@@ -222,7 +231,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   const inFightTypes = new Map<string, Map<string, number>>();
   let potionsTotal = 0;
   let prepots = 0;
-  let sappersTotal = 0;
+  let explosivesTotal = 0;
   const bump = (m: Map<string, Map<string, number>>, name: string, actorName: string) => {
     const providers = m.get(name) ?? new Map<string, number>();
     providers.set(actorName, (providers.get(actorName) ?? 0) + 1);
@@ -237,7 +246,10 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     }
     for (const c of r.otherCasts) bump(inFightTypes, c, r.actorName);
     if (r.prepot) prepots++;
-    sappersTotal += r.sappers;
+    // Counted off the names, not the stored `sappers`: an Arcane Bomb is an
+    // engineering explosive and that column is sapper charges alone
+    // (`analysis/professions.ts` reads the same list, for the same reason).
+    explosivesTotal += r.otherCasts.filter(isEngineeringExplosive).length;
   }
   // The rest of the night. Pre-pots are per pull and have no off-pull analogue,
   // so `prepots` and its percentage stay a boss-pull figure.
@@ -247,7 +259,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
       potionsTotal++;
     }
     for (const c of offPullItems(off)) bump(inFightTypes, c, actorName);
-    sappersTotal += off.sappers;
+    explosivesTotal += off.otherCasts.filter(isEngineeringExplosive).length;
   }
   const toTypeRows = (m: Map<string, Map<string, number>>): ConsumableTypeRow[] =>
     [...m]
@@ -286,7 +298,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     prepots,
     potionTypes: toTypeRows(potionTypes),
     inFightTypes: toTypeRows(inFightTypes),
-    sappersTotal,
+    explosivesTotal,
   };
 
   /* ---- Per-raider usage tallies (rankings tab) ---- */
@@ -758,7 +770,13 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
   // Four of these five are also consumables and are already counted in `usage`
   // and priced in the gold table; this view is about *when*, and adds to
   // neither.
-  const deployables = buildDeployableView({ rows, slugByActor });
+  // Professions come off the ROSTER, not the log: the "engineer who laid no
+  // engineering device" list has no other source for who the engineers are.
+  const deployables = buildDeployableView({
+    rows,
+    slugByActor,
+    professionsByActor: input.professionsByActor,
+  });
 
   /* ---- Who cleansed what off whom ---- */
   // The trash side reads `input.offPull` unfiltered on purpose: excusing a farm

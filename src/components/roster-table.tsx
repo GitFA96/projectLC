@@ -31,8 +31,10 @@ import {
 import { deleteCharacters, equipRosterFromLogs, setCharactersStatus } from "@/app/roster/actions";
 import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { sameSpec } from "@/lib/utils";
+import { ProfessionBadges, ProfessionGapBadge } from "@/components/profession-badge";
 import { ROLES, WOW_CLASSES, type CharacterStatus } from "@/lib/constants/wow";
-import type { AttendanceSummary, Phase, Role, WowClass } from "@/lib/types";
+import type { AttendanceSummary, Phase, Profession, Role, WowClass } from "@/lib/types";
+import type { ProfessionGap } from "@/lib/analysis/professions";
 
 export interface RosterRow {
   id: string;
@@ -56,6 +58,10 @@ export interface RosterRow {
   loggedSpec?: string;
   /** Resolved main name when this row is an alt. */
   mainCharacterName?: string;
+  /** Primary professions an officer recorded. Empty means unknown, not none. */
+  professions: Profession[];
+  /** A profession their logs prove and nobody has recorded. */
+  professionGap?: ProfessionGap;
 }
 
 /** Membership filter → which roster statuses it shows. */
@@ -134,6 +140,16 @@ export function RosterTable({ rows, activePhase }: { rows: RosterRow[]; activePh
               <Badge variant="warning" title="No current gear imported">
                 no gear
               </Badge>
+            )}
+            {/* Who can do what on a pull, where the officer writing the strat
+                is already looking. Abbreviated: this cell carries four other
+                badges on a bad row. */}
+            <ProfessionBadges professions={row.original.professions} compact />
+            {row.original.professionGap && (
+              <ProfessionGapBadge
+                gap={row.original.professionGap}
+                characterName={row.original.name}
+              />
             )}
           </span>
         ),

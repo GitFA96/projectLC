@@ -21,6 +21,7 @@ function pull(fightId: number, encounterName: string, gear: Partial<WclGearItem>
     deaths: 0,
     deathTimes: [],
     elixirs: [],
+    lateConsumables: [],
     scrolls: [],
     food: false,
     weaponBuff: false,

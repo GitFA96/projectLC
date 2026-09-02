@@ -28,7 +28,11 @@
     "spec": "Restoration",
     "role": "Healer",
     "race": "Tauren",
-    "status": "main"
+    "status": "main",
+    "professions": [
+      "Alchemy",
+      "Herbalism"
+    ]
   },
   {
     "id": "c-bjornskar",
@@ -100,7 +104,11 @@
     "spec": "Combat",
     "role": "Melee DPS",
     "race": "Undead",
-    "status": "main"
+    "status": "main",
+    "professions": [
+      "Engineering",
+      "Mining"
+    ]
   },
   {
     "id": "c-tidemar",

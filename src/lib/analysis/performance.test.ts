@@ -153,6 +153,7 @@ describe("summarizePerformance — content the council excused", () => {
     deaths: 0,
     deathTimes: [],
     elixirs: [],
+    lateConsumables: [],
     scrolls: [],
     food: true,
     weaponBuff: true,

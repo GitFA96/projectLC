@@ -12,6 +12,7 @@ function character(name: string): Character {
     role: "Melee DPS",
     status: "main",
     mainCharacterId: null,
+    professions: [],
     membershipId: null,
   };
 }

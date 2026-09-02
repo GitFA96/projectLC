@@ -33,6 +33,7 @@ function row(over: Partial<WclPlayerFight> & { fightId: number; actorName: strin
     deaths: 0,
     deathTimes: [],
     elixirs: [],
+    lateConsumables: [],
     scrolls: [],
     food: true,
     weaponBuff: true,
@@ -69,7 +70,8 @@ describe("summarizeRaidReport", () => {
     row({ fightId: 1, actorName: "Morgrave", encounterName: "Hydross", className: "Warlock", role: "dps",
       flask: "Flask of Pure Death", upkeep: [{ name: "Curse of the Elements", pct: 95 }] }),
     row({ fightId: 2, actorName: "Morgrave", encounterName: "Leotheras", kill: false, fightPercentage: 12, className: "Warlock",
-      flask: undefined, elixirs: [], food: false, missingEnchants: ["Main hand", "Wrist"],
+      flask: undefined, elixirs: [],
+ lateConsumables: [], food: false, missingEnchants: ["Main hand", "Wrist"],
       upkeep: [{ name: "Curse of the Elements", pct: 88 }] }),
     // Tidemar: a shaman who never enchanted weapon and skipped a potion on a kill.
     row({ fightId: 1, actorName: "Tidemar", encounterName: "Hydross", className: "Shaman", role: "healer",
@@ -602,7 +604,7 @@ describe("off-pull consumables count toward the night", () => {
   ];
   const offPulls = [
     offPull({ actorName: "Delta", potions: ["Bottled Nethergon Energy", "Bottled Nethergon Energy"],
-      otherCasts: ["Super Sapper Charge", "Goblin Sapper Charge"], sappers: 2 }),
+      otherCasts: ["Super Sapper Charge", "Goblin Sapper Charge", "Arcane Bomb"], sappers: 2 }),
     // Nobody by this name held a pull — no row to fold into, and inventing one
     // would put a stranger in the rankings.
     offPull({ actorName: "Passerby", potions: ["Haste Potion"], otherCasts: [] }),
@@ -613,7 +615,10 @@ describe("off-pull consumables count toward the night", () => {
 
   it("adds trash use to the raid totals", () => {
     expect(view.prep.potionsTotal).toBe(3);
-    expect(view.prep.sappersTotal).toBe(3);
+    // One on the pull, three off it — and the stored `sappers` says 3, because
+    // an Arcane Bomb is not a sapper charge. Counted off the cast names for
+    // exactly that reason, so it lands in the figure without a column of its own.
+    expect(view.prep.explosivesTotal).toBe(4);
     expect(view.prep.potionTypes.find((t) => t.name === "Bottled Nethergon Energy")!.uses).toBe(3);
     expect(view.prep.inFightTypes.find((t) => t.name === "Goblin Sapper Charge")!.uses).toBe(1);
   });
@@ -621,9 +626,13 @@ describe("off-pull consumables count toward the night", () => {
   it("adds it to the raider's own tallies and breakdown", () => {
     const delta = view.usage.find((u) => u.name === "Delta")!;
     expect(delta.potions).toBe(3);
+    // Still 3: the raider tally counts sapper CHARGES, and the Arcane Bomb in
+    // their off-pull record is not one. It is a consumable like any other
+    // though, so it does count toward the total and gets its own breakdown line.
     expect(delta.sappers).toBe(3);
-    expect(delta.consumablesTotal).toBe(6);
+    expect(delta.consumablesTotal).toBe(7);
     expect(delta.itemBreakdown.find((b) => b.name === "Super Sapper Charge")!.count).toBe(2);
+    expect(delta.itemBreakdown.find((b) => b.name === "Arcane Bomb")!.count).toBe(1);
   });
 
   it("keeps the totals equal to the sum of the rows the page lists", () => {

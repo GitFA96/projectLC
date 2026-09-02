@@ -86,7 +86,9 @@
         "pct": 87
       }
     ],
-    "missingEnchants": []
+    "missingEnchants": [],
+    "otherCasts": ["Goblin Sapper Charge", "Goblin Sapper Charge"],
+    "sappers": 2
   },
   {
     "id": "SEEDsscProgress1:1:sylvaria",
@@ -1284,7 +1286,9 @@
     ],
     "missingEnchants": [
       "Wrist"
-    ]
+    ],
+    "otherCasts": ["Super Sapper Charge", "Arcane Bomb"],
+    "sappers": 1
   },
   {
     "id": "SEEDsscProgress1:5:sylvaria",

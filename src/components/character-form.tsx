@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CircleAlert, Loader2 } from "lucide-react";
+import { CircleAlert, CircleHelp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,11 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   CHARACTER_STATUSES,
+  PROFESSIONS,
   ROLES,
   STATUS_HELP,
   STATUS_LABELS,
   WOW_CLASSES,
 } from "@/lib/constants/wow";
+import type { ProfessionGap } from "@/lib/analysis/professions";
 import { saveCharacter, type CharacterFormState } from "@/app/characters/actions";
 import type { Character, CharacterStatus, Role } from "@/lib/types";
 
@@ -31,6 +33,24 @@ function FormSelect({
       )}
       {...props}
     />
+  );
+}
+
+/**
+ * One profession slot. Both slots offer every profession and neither knows
+ * about the other: the action dedupes, so picking Engineering twice records it
+ * once rather than being rejected mid-form over a slip with an obvious meaning.
+ */
+function ProfessionSelect({ name, defaultValue }: { name: string; defaultValue: string }) {
+  return (
+    <FormSelect name={name} defaultValue={defaultValue}>
+      <option value="">— not recorded —</option>
+      {PROFESSIONS.map((p) => (
+        <option key={p} value={p}>
+          {p}
+        </option>
+      ))}
+    </FormSelect>
   );
 }
 
@@ -71,10 +91,18 @@ const CHARACTER_FORM_ID = "character-form";
 export function CharacterForm({
   character,
   mains = [],
+  professionGap,
 }: {
   character?: Character;
   /** Guild characters this one could be an alt of (excludes self / pugs). */
   mains?: MainOption[];
+  /**
+   * A profession their logs prove that the form doesn't yet record. Shown next
+   * to the controls that fix it — the prompt is only useful where the answer
+   * goes, and an officer who arrived here from the badge should not have to
+   * hunt for what it was about.
+   */
+  professionGap?: ProfessionGap;
 }) {
   const [state, formAction, pending] = React.useActionState<CharacterFormState, FormData>(
     saveCharacter,
@@ -107,6 +135,18 @@ export function CharacterForm({
                 defaultValue={v("race", character?.race)}
                 placeholder="Orc, Blood Elf…"
                 className="h-8"
+              />
+            </Field>
+            <Field label="Profession 1 (optional)">
+              <ProfessionSelect
+                name="profession1"
+                defaultValue={v("profession1", character?.professions[0])}
+              />
+            </Field>
+            <Field label="Profession 2 (optional)">
+              <ProfessionSelect
+                name="profession2"
+                defaultValue={v("profession2", character?.professions[1])}
               />
             </Field>
             <Field label="Class">
@@ -179,6 +219,19 @@ export function CharacterForm({
               className="h-8"
             />
           </Field>
+
+          {professionGap && (
+            <p className="flex items-start gap-1.5 rounded-md border border-info-line bg-info-soft p-2 text-sm text-info-ink">
+              <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Their logs show {professionGap.explosives} engineering explosive
+                {professionGap.explosives === 1 ? "" : "s"} thrown — a sapper charge or an Arcane
+                Bomb, each of which takes {professionGap.profession} — but no profession here says
+                so. Set it above if it is right. Nothing else in the app changes either way; this is
+                a note for whoever writes the strat.
+              </span>
+            </p>
+          )}
 
           {state.error && (
             <p className="flex items-start gap-1.5 rounded-md border border-danger-line bg-danger-soft p-2 text-sm text-danger-ink">

@@ -537,3 +537,60 @@ export function iconUrl(icon: string, size: "small" | "medium" | "large" = "medi
 export function wowheadItemUrl(itemId: number): string {
   return `https://www.wowhead.com/tbc/item=${itemId}`;
 }
+
+/**
+ * The primary professions a TBC character can hold, two at a time.
+ *
+ * Tracked because a profession decides who can *do* something on a pull — the
+ * engineer who can throw a sapper or rocket-boot out of a wipe, the leatherworker
+ * with drums. The council needs to know who those people are before the strat is
+ * written, not while it is failing.
+ *
+ * Secondary professions (Cooking, First Aid, Fishing) are deliberately absent:
+ * everyone can take all three, so recording them separates nobody from anybody.
+ *
+ * Spelled the way wowsims spells them, so `professionsOfSettings` in
+ * `src/lib/sim/profile.ts` — which reads a pasted sim setup — names the same
+ * things this does. Nothing joins the two today; a mismatch would make it
+ * impossible to.
+ */
+export const PROFESSIONS = [
+  "Alchemy",
+  "Blacksmithing",
+  "Enchanting",
+  "Engineering",
+  "Herbalism",
+  "Jewelcrafting",
+  "Leatherworking",
+  "Mining",
+  "Skinning",
+  "Tailoring",
+] as const;
+export type Profession = (typeof PROFESSIONS)[number];
+
+/**
+ * How many primaries a character may hold. The game's rule, not a preference —
+ * a third one is a data-entry mistake rather than a roster somebody built.
+ */
+export const MAX_PROFESSIONS = 2;
+
+/**
+ * Profession names shortened for a table cell, where they sit beside a name and
+ * a handful of other badges and the row still has to be scannable.
+ *
+ * Display only — the full name is always the `title`, and nothing is ever
+ * stored or compared in this form. The abbreviations are the ones raiders
+ * already type in guild chat, so the column reads without a legend.
+ */
+export const PROFESSION_SHORT_LABELS: Record<Profession, string> = {
+  Alchemy: "Alch",
+  Blacksmithing: "BS",
+  Enchanting: "Ench",
+  Engineering: "Engi",
+  Herbalism: "Herb",
+  Jewelcrafting: "JC",
+  Leatherworking: "LW",
+  Mining: "Mining",
+  Skinning: "Skin",
+  Tailoring: "Tailor",
+};

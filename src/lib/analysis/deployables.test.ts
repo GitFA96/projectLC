@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDeployableView } from "@/lib/analysis/deployables";
-import { DEPLOYABLES } from "@/lib/wcl/deployables";
+import { DEPLOYABLES, deployableLabelsFor } from "@/lib/wcl/deployables";
 import { TRACKED_CAST_IDS, classifyCast } from "@/lib/wcl/consumables";
 import { defaultPriceFor } from "@/lib/wcl/consumable-prices";
 import { COOLDOWN_CAST_IDS } from "@/lib/wcl/class-tracks";
@@ -21,6 +21,7 @@ const row = (over: Partial<WclPlayerFight> = {}): WclPlayerFight => ({
   deaths: 0,
   deathTimes: [],
   elixirs: [],
+  lateConsumables: [],
   scrolls: [],
   food: false,
   weaponBuff: false,
@@ -76,6 +77,21 @@ describe("every deployable is actually fetched", () => {
         expect(classifyCast(d.id)).toBeUndefined();
       }
     }
+  });
+
+  it("gates exactly the engineering devices on the profession", () => {
+    // The "engineer who laid nothing of theirs" list is only as honest as this
+    // marker: a device gated here that anybody can use would name raiders for a
+    // profession they don't need, and one left ungated silently drops out of
+    // the question. The two are the ones this codebase already prices as
+    // engineering, and they are the two an engineering skill actually sets off.
+    expect([...deployableLabelsFor("Engineering")].sort()).toEqual([
+      "Gnomish Flame Turret",
+      "Goblin Land Mine",
+    ]);
+    // Nothing else claims a profession - a thornling seed and a dog whistle are
+    // bought and used by anyone, and a snake trap is a hunter's button.
+    expect(DEPLOYABLES.filter((d) => d.profession !== undefined && d.profession !== "Engineering")).toEqual([]);
   });
 
   it("carries the council's baseline for the two engineering devices", () => {
@@ -163,5 +179,155 @@ describe("buildDeployableView", () => {
     expect(view.total).toBe(0);
     expect(view.fights).toEqual([]);
     expect(view.night).toEqual([]);
+  });
+});
+
+/**
+ * The list an officer actually asks for after a night on Mother Shahraz. Every
+ * case here is about NOT accusing somebody: of being absent, of a cooldown they
+ * could not have had up, or of a profession nobody recorded.
+ */
+describe("who laid nothing", () => {
+  const shahraz = (fightId: number, actorName: string, over: Partial<WclPlayerFight> = {}) =>
+    row({ fightId, actorName, encounterId: 604, encounterName: "Mother Shahraz", ...over });
+
+  it("counts a raider silent across the boss, not per pull", () => {
+    // Two wipes and a kill. The mine's fifteen-minute cooldown means one lay on
+    // one of the three is the most anyone could do, so Aizaizbaby's two empty
+    // pulls must not read as two pulls of laying nothing — and Huntigo's three
+    // must.
+    const view = buildDeployableView({
+      rows: [
+        shahraz(137, "Aizaizbaby", { castTimes: [laid("Goblin Land Mine", 4_600)] }),
+        shahraz(138, "Aizaizbaby"),
+        shahraz(139, "Aizaizbaby"),
+        shahraz(137, "Huntigo"),
+        shahraz(138, "Huntigo", { castTimes: [laid("Snake Trap", 2_000)] }),
+        shahraz(139, "Huntigo"),
+        shahraz(137, "Melige"),
+        shahraz(138, "Melige"),
+        shahraz(139, "Melige", { castTimes: [laid("Dog Whistle", 8_000)] }),
+        shahraz(137, "Nenad"),
+        shahraz(138, "Nenad"),
+        shahraz(139, "Nenad"),
+      ],
+    });
+    expect(view.silence).toHaveLength(1);
+    const [boss] = view.silence;
+    expect(boss).toMatchObject({ encounterName: "Mother Shahraz", pulls: 3, raiders: 4, total: 3 });
+    expect(boss.silent.map((s) => s.name)).toEqual(["Nenad"]);
+    expect(boss.silent[0].pulls).toBe(3);
+    expect(boss.silent[0].laid).toEqual([]);
+  });
+
+  it("leaves out a pull the whole raid was silent on", () => {
+    // The probed night's second Shahraz pull was a 26-second reset at 99.98%
+    // nobody laid anything on. Counting it would give everybody a fourth pull
+    // in their denominator that nobody could have used — and would put the
+    // count out of step with the timeline above, which doesn't draw that pull.
+    const view = buildDeployableView({
+      rows: [
+        shahraz(136, "Aizaizbaby", { castTimes: [laid("Goblin Land Mine", 4_600)] }),
+        shahraz(136, "Nenad"),
+        shahraz(137, "Aizaizbaby"),
+        shahraz(137, "Nenad"),
+        shahraz(138, "Aizaizbaby", { castTimes: [laid("Snake Trap", 2_000)] }),
+        shahraz(138, "Nenad"),
+      ],
+    });
+    expect(view.silence[0].pulls).toBe(2);
+    expect(view.silence[0].silent).toEqual([
+      { name: "Nenad", className: "Hunter", pulls: 2, laid: [] },
+    ]);
+  });
+
+  it("does not call a raider silent on a pull they were not on", () => {
+    // Presence is the row. Somebody who came in for the kill has one chance,
+    // not three, and the list has to say so or the officer reads it as worse.
+    const view = buildDeployableView({
+      rows: [
+        shahraz(137, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+        shahraz(138, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+        shahraz(139, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+        shahraz(139, "Latecomer"),
+      ],
+    });
+    expect(view.silence[0].pulls).toBe(3);
+    expect(view.silence[0].silent).toEqual([
+      { name: "Latecomer", className: "Hunter", pulls: 1, laid: [] },
+    ]);
+  });
+
+  it("names an engineer who laid no engineering device, and what they laid instead", () => {
+    const view = buildDeployableView({
+      rows: [
+        shahraz(139, "Engie", { castTimes: [laid("Dog Whistle", 9_000)] }),
+        shahraz(139, "Sparky", { castTimes: [laid("Goblin Land Mine", 4_600)] }),
+      ],
+      professionsByActor: new Map([
+        ["engie", ["Engineering"]],
+        ["sparky", ["Engineering", "Mining"]],
+      ]),
+    });
+    const [boss] = view.silence;
+    // Sparky laid a mine, so the question does not arise for him.
+    expect(boss.engineers.map((e) => e.name)).toEqual(["Engie"]);
+    expect(boss.engineers[0].laid).toEqual([{ name: "Dog Whistle", count: 1 }]);
+    // ...and he laid something, so he is not on the silent list at all.
+    expect(boss.silent).toEqual([]);
+  });
+
+  it("puts an engineer who laid nothing on both lists", () => {
+    const view = buildDeployableView({
+      rows: [
+        shahraz(139, "Engie"),
+        shahraz(139, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+      ],
+      professionsByActor: new Map([["engie", ["Engineering"]]]),
+    });
+    const [boss] = view.silence;
+    expect(boss.silent.map((s) => s.name)).toEqual(["Engie"]);
+    expect(boss.engineers.map((e) => e.name)).toEqual(["Engie"]);
+    expect(boss.silent[0].engineer).toBe(true);
+  });
+
+  it("never names a raider whose professions nobody recorded", () => {
+    // The roster is hand-entered and usually blank. An unrecorded engineer is
+    // unknown, not innocent and not guilty - the same one-directional rule
+    // `analysis/professions.ts` holds to.
+    const view = buildDeployableView({
+      rows: [
+        shahraz(139, "Unrecorded"),
+        shahraz(139, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+      ],
+    });
+    expect(view.silence[0].engineers).toEqual([]);
+    expect(view.silence[0].silent.map((s) => s.name)).toEqual(["Unrecorded"]);
+  });
+
+  it("leaves out a boss nobody laid anything on", () => {
+    // Otherwise the list is the raid roster, on every farm boss the kit was
+    // never wanted on - and on every report imported before these were tracked.
+    const view = buildDeployableView({
+      rows: [
+        shahraz(139, "Aizaizbaby", { castTimes: [laid("Snake Trap", 4_600)] }),
+        row({ fightId: 150, encounterId: 601, encounterName: "Illidan Stormrage", actorName: "Aizaizbaby" }),
+        row({ fightId: 150, encounterId: 601, encounterName: "Illidan Stormrage", actorName: "Huntigo" }),
+      ],
+    });
+    expect(view.silence.map((s) => s.encounterName)).toEqual(["Mother Shahraz"]);
+  });
+
+  it("keeps the bosses in the order the raid met them", () => {
+    const view = buildDeployableView({
+      rows: [
+        row({ fightId: 150, encounterId: 601, encounterName: "Illidan Stormrage", castTimes: [laid("Snake Trap", 1)] }),
+        shahraz(139, "Aizaizbaby", { castTimes: [laid("Snake Trap", 1)] }),
+      ],
+    });
+    expect(view.silence.map((s) => s.encounterName)).toEqual([
+      "Mother Shahraz",
+      "Illidan Stormrage",
+    ]);
   });
 });

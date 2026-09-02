@@ -50,6 +50,7 @@ import type {
   LootAward,
   LootPriorityWeights,
   Phase,
+  Profession,
   RaidReportView,
   RaidSession,
   SimSpecDetail,
@@ -407,8 +408,13 @@ export type GearSetDraft = Omit<GearSet, "id" | "importedAt">;
  * an account. `updateCharacter` preserves the stored value; claiming has its
  * own writer.
  */
-export type CharacterDraft = Omit<Character, "id" | "guildId" | "mainCharacterId" | "membershipId"> & {
+export type CharacterDraft = Omit<
+  Character,
+  "id" | "guildId" | "mainCharacterId" | "membershipId" | "professions"
+> & {
   mainCharacterId?: string | null;
+  /** Omitted means "unknown", the same as an empty list — never "they have none". */
+  professions?: Profession[];
 };
 export type RaidSessionDraft = Omit<RaidSession, "id" | "guildId">;
 export interface AwardDraft {

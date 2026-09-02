@@ -172,14 +172,24 @@ Characters have a status — `main` / `alt` / `inactive` / `pug`. Puggers get fu
 profiles and history but stay out of roster KPIs and loot-fairness stats. An alt
 can be linked to its main, and both directions link through.
 
+**Professions** sit beside the name here and on the profile, because a strat is
+written around who can do what. Two primaries per character, edited on the
+character form. Empty means *nobody has said*, never *they have none* — and
+where the logs prove one the roster hasn't recorded, the name carries an
+"Engineering?" prompt linking to the form. Only Engineering can ever be proved,
+and only by a thrown sapper charge; never throwing one proves nothing, so the
+prompt only ever appears in that one direction.
+
 Deleting never destroys history: awards reopen in the ledger under the raw Gargul
 name and log pulls return to the untracked list.
 
 ## Character profile `/characters/[name]`
 
 **The centrepiece.** Gear per slot, wishlist tabs per phase (awarded / equipped /
-open), the stat difference between what they wear and what they want, loot
-history, and an officer comment log.
+open), the stat difference between what they wear and what they want (collapsed
+by default — it answers a follow-up question, and open it pushed everything
+below it off the screen), loot history in pages of twenty, and an officer
+comment log.
 
 Each open wishlist slot also carries **alternatives** — what the raider will take
 if their BiS doesn't drop, in their own order. The wishlist itself stays a whole
@@ -324,7 +334,31 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   priced like any other consumable — land mines and turrets carry the council's
   5g baseline, while the seed and the whistle sit at 0 until somebody quotes a
   price, since a guess there would move a real gold ranking. Snake Trap is a
-  hunter ability and is never priced at all.
+  hunter ability and is never priced at all. Underneath, **who laid nothing** —
+  a row per boss that opens onto the raiders who were on it and put nothing
+  down across any of its pulls, and separately the raiders the roster records
+  as engineers who laid neither land mine nor flame turret, with what they laid
+  instead beside each name. Per boss and not per pull, because those two run a
+  fifteen-minute cooldown and nobody could lay one on all three pulls of a boss
+  the raid wiped on twice. Counted over the same pulls the timeline draws —
+  a pull nobody at all laid on is a reset or a boss the kit wasn't wanted on,
+  and counting it would put a chance in everyone's denominator that nobody
+  had. A report imported before this was tracked looks exactly like that too,
+  and drops out for the same reason.
+- **Preparedness** — what every raider brought, pull by pull. The flask/elixir
+  cell shows everything that was up, not only the part that met the bar: a
+  raider running elixirs on top of a flask is marked as stacked rather than
+  hidden behind the flask that graded them. Two quieter marks sit under the
+  pip strip. **mid-pull** is a flask or elixir that went up *during* a pull on
+  somebody who started it without one. That is usually not carelessness: on
+  this guild's logs most of them are Elixir of Demonslaying drunk in the first
+  seconds of a demon boss, which is exactly when you would drink it. The grade
+  still reads the pull's opening snapshot, because "did they come ready" is the
+  question it answers — the mark just lets an officer see why a pull graded
+  empty. **second** is the same event on somebody who already had it and drank
+  another mid-fight: not a gap at all, but an item bought and used that nothing
+  else records. Neither scores anything, and neither can move a loot verdict. Both are empty on a report imported before they were tracked,
+  which is not the same as nobody being late — only a re-import tells them apart.
 - **Dispels & interrupts** share one card with a tab each — they are the two
   halves of answering somebody else's casting, and a shaman's night is Cure
   Toxins *and* Earth Shock. The tab labels carry the night's totals so the card

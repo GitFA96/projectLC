@@ -1,5 +1,6 @@
-import type { WclPlayerFight } from "@/lib/types";
+import type { Profession, WclPlayerFight } from "@/lib/types";
 import { compareText } from "@/lib/sort";
+import { deployableLabelsFor } from "@/lib/wcl/deployables";
 
 /**
  * What the raid put on the ground, pull by pull.
@@ -46,6 +47,64 @@ export interface DeployableFight {
   raiders: number;
 }
 
+/**
+ * Somebody who was on the boss and laid less than the kit asked for.
+ *
+ * Two different questions produce one of these, which is why `laid` is on it:
+ * "laid nothing at all" is an empty list, and "an engineer who laid no
+ * engineering device" is usually not — the row has to be able to say *what*
+ * they laid, or an officer reading the second list can't tell a raider who sat
+ * on their hands from one who threw a dog whistle instead.
+ */
+export interface DeployableAbstainer {
+  name: string;
+  slug?: string;
+  className?: string;
+  /** Counted pulls of this boss they were on. */
+  pulls: number;
+  /** What they did lay on this boss, across those pulls. */
+  laid: DeployableCount[];
+  /** The roster records the profession that gates a device on this list. */
+  engineer?: boolean;
+}
+
+/**
+ * One boss, and who didn't lay anything on it.
+ *
+ * **Per boss, not per pull, and that is the whole point.** A land mine and a
+ * dog whistle are on fifteen-minute cooldowns; on a night that wiped twice on
+ * Mother Shahraz before killing her, nobody could have laid one on all three
+ * pulls, and a per-pull list would name most of the raid on two of them for no
+ * reason. Across the boss, "laid nothing" means what it says.
+ *
+ * **And only across the pulls something went down on.** The probed night's
+ * second Shahraz pull was a 26-second reset at 99.98% that not one raider laid
+ * anything on; counting it would have put a fourth chance in everybody's
+ * denominator that nobody could have taken. A pull the whole raid was silent on
+ * is a reset, or a pull the kit wasn't wanted on, or (§1) a report imported
+ * before this was tracked — never evidence about any one raider. It is the same
+ * rule the boss list is scoped by, one level down, and it is also what keeps
+ * this count agreeing with the timeline above it, which shows those same pulls.
+ */
+export interface DeployableSilence {
+  encounterId: number;
+  encounterName: string;
+  /** Pulls of this boss something went down on — the chances being counted. */
+  pulls: number;
+  /** Raiders on at least one of them. */
+  raiders: number;
+  /** Everything laid on this boss. */
+  total: number;
+  /** Present on the boss and laid nothing on any pull of it. */
+  silent: DeployableAbstainer[];
+  /**
+   * Raiders the roster records as engineers who laid neither engineering
+   * device here. Overlaps `silent` on purpose — an engineer who laid nothing
+   * is both, and each list is a different question an officer asks.
+   */
+  engineers: DeployableAbstainer[];
+}
+
 export interface RaidDeployableView {
   /** Pulls that had at least one, in pull order. */
   fights: DeployableFight[];
@@ -59,6 +118,16 @@ export interface RaidDeployableView {
    * so does a night nobody laid one on. Only a re-import tells them apart.
    */
   total: number;
+  /**
+   * Who laid nothing, boss by boss.
+   *
+   * **Only the pulls something went down on, and so only the bosses.** Where
+   * not one raider laid anything the list is the raid roster, which says
+   * nothing about any raider in it — the kit wasn't wanted, or the pull was a
+   * reset, or (§1) this report predates the tracking. A pull somebody laid one
+   * on is a pull where the question "and why not you" has an answer.
+   */
+  silence: DeployableSilence[];
 }
 
 function countsOf(map: Map<string, number>): DeployableCount[] {
@@ -72,16 +141,84 @@ export interface DeployableInput {
   rows: WclPlayerFight[];
   /** Lowercased actor name → roster slug, for deep-linking matched raiders. */
   slugByActor?: Map<string, string>;
+  /**
+   * Lowercased actor name → the professions the ROSTER records, hand-entered.
+   *
+   * Absent for a raider nobody has filled in, which is the normal state and
+   * must read as "unknown", never as "no professions" — an unrecorded engineer
+   * simply doesn't appear on the engineering list.
+   */
+  professionsByActor?: Map<string, readonly Profession[]>;
+}
+
+/** The devices a raider can only lay by holding the profession. */
+const ENGINEERING_DEVICES = deployableLabelsFor("Engineering");
+
+interface EncounterActor {
+  name: string;
+  pulls: number;
+  className?: string;
+  laid: Map<string, number>;
+}
+
+interface EncounterTally {
+  encounterId: number;
+  encounterName: string;
+  /** First pull of it, so the boss list stays in the order the raid met them. */
+  firstFightId: number;
+  fightIds: Set<number>;
+  actors: Map<string, EncounterActor>;
+  total: number;
 }
 
 export function buildDeployableView(input: DeployableInput): RaidDeployableView {
   const slugOf = (name: string) => input.slugByActor?.get(name.toLowerCase());
+  const professionsOf = (name: string) => input.professionsByActor?.get(name.toLowerCase()) ?? [];
 
   const lanesByFight = new Map<number, Map<string, DeployableLane>>();
   const perFightTotals = new Map<number, Map<string, number>>();
   const nightByActor = new Map<string, DeployableLane & { count: number; items: Map<string, number> }>();
   const nightTotals = new Map<string, number>();
+  const byEncounter = new Map<number, EncounterTally>();
   let total = 0;
+
+  // Which pulls anybody laid anything on. The silence list counts only these,
+  // and it has to know before it starts counting presence — see the note on
+  // `DeployableSilence`.
+  const countedPulls = new Set(
+    input.rows.filter((r) => r.castTimes.some((c) => c.deployable)).map((r) => r.fightId),
+  );
+
+  for (const row of input.rows) {
+    if (!countedPulls.has(row.fightId)) continue;
+    // Presence is read from the row itself, BEFORE anything is filtered on what
+    // the raider laid — a row is a raider on a pull, and that is the only thing
+    // that can tell "laid nothing" from "wasn't there".
+    const enc = byEncounter.get(row.encounterId) ?? {
+      encounterId: row.encounterId,
+      encounterName: row.encounterName,
+      firstFightId: row.fightId,
+      fightIds: new Set<number>(),
+      actors: new Map<string, EncounterActor>(),
+      total: 0,
+    };
+    enc.firstFightId = Math.min(enc.firstFightId, row.fightId);
+    enc.fightIds.add(row.fightId);
+    const encActor = enc.actors.get(row.actorName) ?? {
+      name: row.actorName,
+      pulls: 0,
+      ...(row.className ? { className: row.className } : {}),
+      laid: new Map<string, number>(),
+    };
+    encActor.pulls++;
+    for (const d of row.castTimes) {
+      if (!d.deployable) continue;
+      encActor.laid.set(d.name, (encActor.laid.get(d.name) ?? 0) + 1);
+      enc.total++;
+    }
+    enc.actors.set(row.actorName, encActor);
+    byEncounter.set(row.encounterId, enc);
+  }
 
   for (const row of input.rows) {
     // The flag is what separates these from cooldowns and totems on the same
@@ -144,5 +281,41 @@ export function buildDeployableView(input: DeployableInput): RaidDeployableView 
     .map(({ items, ...rest }) => ({ ...rest, items: countsOf(items) }))
     .sort((a, b) => b.count - a.count || compareText(a.name, b.name));
 
-  return { fights, night, totals: countsOf(nightTotals), total };
+  const silence: DeployableSilence[] = [...byEncounter.values()]
+    // A boss with no counted pulls holds no entry by now; the guard stays
+    // because the list it protects is the one read as an accusation.
+    .filter((enc) => enc.total > 0)
+    .sort((a, b) => a.firstFightId - b.firstFightId)
+    .map((enc) => {
+      const abstainer = (a: EncounterActor): DeployableAbstainer => {
+        const slug = slugOf(a.name);
+        const engineer = professionsOf(a.name).includes("Engineering");
+        return {
+          name: a.name,
+          ...(slug ? { slug } : {}),
+          ...(a.className ? { className: a.className } : {}),
+          pulls: a.pulls,
+          laid: countsOf(a.laid),
+          ...(engineer ? { engineer: true } : {}),
+        };
+      };
+      const actors = [...enc.actors.values()];
+      const rank = (a: DeployableAbstainer, b: DeployableAbstainer) =>
+        b.pulls - a.pulls || compareText(a.name, b.name);
+      return {
+        encounterId: enc.encounterId,
+        encounterName: enc.encounterName,
+        pulls: enc.fightIds.size,
+        raiders: actors.length,
+        total: enc.total,
+        silent: actors.filter((a) => a.laid.size === 0).map(abstainer).sort(rank),
+        engineers: actors
+          .filter((a) => professionsOf(a.name).includes("Engineering"))
+          .filter((a) => ![...a.laid.keys()].some((name) => ENGINEERING_DEVICES.has(name)))
+          .map(abstainer)
+          .sort(rank),
+      };
+    });
+
+  return { fights, night, totals: countsOf(nightTotals), total, silence };
 }

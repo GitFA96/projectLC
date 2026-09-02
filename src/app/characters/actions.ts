@@ -6,7 +6,7 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
-import { CHARACTER_STATUSES, ROLES, WOW_CLASSES } from "@/lib/constants/wow";
+import { CHARACTER_STATUSES, PROFESSIONS, ROLES, WOW_CLASSES, type Profession } from "@/lib/constants/wow";
 
 /**
  * Roster edits: create + update characters, delete imported gear sets.
@@ -30,6 +30,17 @@ const characterFormSchema = z.object({
   offSpec: z.string().trim().optional(),
   offSpecRole: z.string().trim().optional(),
   race: z.string().trim().optional(),
+  /**
+   * Two slots on the form, one list in storage.
+   *
+   * The form asks the way the game does — a character has two primaries — while
+   * everything that reads a profession asks "do they have Engineering". Keeping
+   * the slots only in the form's field names means the echoed `values` a failed
+   * submit re-renders stays the flat `Record<string, string>` every other field
+   * uses, and no reader ever has to care which box a profession was picked in.
+   */
+  profession1: z.enum(PROFESSIONS).or(z.literal("")).optional(),
+  profession2: z.enum(PROFESSIONS).or(z.literal("")).optional(),
   status: z.enum(CHARACTER_STATUSES),
   /** Selected main when status is "alt" (a character id); empty otherwise. */
   mainCharacterId: z.string().trim().optional(),
@@ -48,15 +59,19 @@ export async function saveCharacter(
 ): Promise<CharacterFormState> {
   const raw = Object.fromEntries(
     [
-      "id", "name", "class", "spec", "role", "offSpec", "offSpecRole", "race", "status",
-      "mainCharacterId", "note",
+      "id", "name", "class", "spec", "role", "offSpec", "offSpecRole", "race",
+      "profession1", "profession2", "status", "mainCharacterId", "note",
     ].map((k) => [k, (formData.get(k) ?? "").toString()]),
   );
   const parsed = characterFormSchema.safeParse(raw);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid character.", values: raw };
   }
-  const { id, mainCharacterId, offSpec, offSpecRole, ...fields } = parsed.data;
+  const { id, mainCharacterId, offSpec, offSpecRole, profession1, profession2, ...fields } =
+    parsed.data;
+  // Deduped: the two selects are independent controls, and picking the same
+  // profession in both is a slip, not a character with it twice.
+  const professions = [...new Set([profession1, profession2].filter((p): p is Profession => !!p))];
   // An off-spec role without an off-spec means nothing, so they travel together.
   const secondSpec = offSpec || undefined;
   const secondRole = secondSpec
@@ -78,6 +93,7 @@ export async function saveCharacter(
     offSpec: secondSpec,
     offSpecRole: secondRole,
     race: fields.race || undefined,
+    professions,
     mainCharacterId: main,
     note: fields.note || undefined,
   };

@@ -19,6 +19,8 @@
  * probe against the report still finds them.
  */
 
+import type { Profession } from "@/lib/constants/wow";
+
 export interface Deployable {
   /** WCL spell id — the match key. */
   id: number;
@@ -36,11 +38,21 @@ export interface Deployable {
   kind: "item" | "ability";
   /** Set only on an ability. */
   wowClass?: string;
+  /**
+   * The profession it takes to set one off, when it takes one.
+   *
+   * The same claim `analysis/professions.ts` makes about a sapper charge, about
+   * two more engineering devices: an engineering explosive cannot be used by
+   * somebody without the skill. It runs in one direction only — it says who
+   * *could* have laid one, never that a raider without the profession recorded
+   * couldn't (the roster is hand-entered and routinely blank).
+   */
+  profession?: Profession;
 }
 
 export const DEPLOYABLES: Deployable[] = [
   /* 16 casts on the probed pulls, from warriors, rogues, shamans and hunters. */
-  { id: 4100, label: "Goblin Land Mine", kind: "item" },
+  { id: 4100, label: "Goblin Land Mine", kind: "item", profession: "Engineering" },
   /* 10 casts across six classes. The log names the plant, not the seed. */
   { id: 22792, label: "Thornling Seed", loggedAs: "Plant Thornling", kind: "item" },
   /* 12 casts across seven classes. The log names the hound, not the whistle. */
@@ -50,7 +62,7 @@ export const DEPLOYABLES: Deployable[] = [
    * 3 real casts against 6 events on the probed night. normalize drops
    * `begincast`, which is the whole reason those are not six turrets.
    */
-  { id: 30526, label: "Gnomish Flame Turret", loggedAs: "Flame Turret", kind: "item" },
+  { id: 30526, label: "Gnomish Flame Turret", loggedAs: "Flame Turret", kind: "item", profession: "Engineering" },
   /* 17 casts from three hunters. Pressed, not bought — see `kind`. */
   { id: 34600, label: "Snake Trap", kind: "ability", wowClass: "Hunter" },
 ];
@@ -62,4 +74,9 @@ export const DEPLOYABLE_LABELS = new Set(DEPLOYABLES.map((d) => d.label));
 
 export function deployableOf(spellId: number | undefined): Deployable | undefined {
   return spellId === undefined ? undefined : DEPLOYABLE_BY_ID.get(spellId);
+}
+
+/** Labels of the devices a given profession is what lets you lay. */
+export function deployableLabelsFor(profession: Profession): Set<string> {
+  return new Set(DEPLOYABLES.filter((d) => d.profession === profession).map((d) => d.label));
 }

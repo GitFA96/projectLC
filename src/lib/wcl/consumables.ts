@@ -163,7 +163,13 @@ const AURA_DEFS: AuraDef[] = [
   { label: "Elixir of Healing Power", category: "battleElixir", buffNames: ["Healing Power"] },
   { label: "Elixir of Mastery", category: "battleElixir", buffNames: ["Mastery"] },
   { label: "Fel Strength Elixir", category: "battleElixir", buffNames: ["Fel Strength"] },
-  { label: "Elixir of Demonslaying", category: "battleElixir" },
+  /*
+   * Probed on cWrNZY23Rx6V4faw: aura 11406 on Greymatter 5s into the Kaz'rogal
+   * kill, and Wowhead serves spell 11406 as "Elixir of Demonslaying". The id
+   * matters beyond tidiness — see ELIXIR_BUFF_NAMES: without one, an elixir is
+   * only fetchable by the name it happens to log under.
+   */
+  { label: "Elixir of Demonslaying", category: "battleElixir", ids: [11406] },
   /*
    * WCL serves 33721 as "Spellpower Elixir", which is the aura's name and not
    * an item — Wowhead's TBC data has item 28103 "Adept's Elixir" casting
@@ -320,6 +326,51 @@ export const FLASK_BUFF_IDS: ReadonlyMap<number, string> = new Map(
 export const CURATED_ELIXIR_LABELS: readonly string[] = AURA_DEFS.filter(
   (d) => d.category === "battleElixir" || d.category === "guardianElixir",
 ).map((d) => d.label);
+
+/**
+ * The elixir auras, as the buff stream names them.
+ *
+ * Fetched for one reason only: an elixir drunk **during** a pull is not in that
+ * pull's `combatantinfo`, because the snapshot is taken when the pull starts.
+ * Without these in the filter a raider who forgot and fixed it at 0:12 is
+ * indistinguishable from one who never drank anything, and both grade the same.
+ *
+ * Ids where the curation has them and aura names where it doesn't, exactly as
+ * the probe that justified this ran: 28 ids and 36 names over the 30 Aug
+ * report, 360 aura events, of which one landed inside a boss pull. It is a rare
+ * event, and that is the argument for reading it rather than against — a raider
+ * who does it twice a night is invisible in every other column.
+ *
+ * §1 applies: this changes what the *fetch* asks for, so a report imported
+ * before it holds no such event and must be re-imported before anything shows.
+ */
+export const ELIXIR_BUFF_IDS: ReadonlyMap<number, string> = new Map(
+  AURA_DEFS.filter((d) => d.category === "battleElixir" || d.category === "guardianElixir").flatMap(
+    (d) => (d.ids ?? []).map((id) => [id, d.label] as const),
+  ),
+);
+
+/**
+ * ...and the names to ask for, which is **every elixir label plus its
+ * variants**, not just the variants.
+ *
+ * `buffNames` exists for aura names that *differ* from the label, so a def
+ * without one is a def whose aura is named exactly like the item — and
+ * `AURA_BY_NAME` keys on the label for precisely that reason. Deriving this
+ * list from `buffNames` alone therefore dropped every elixir curated by label
+ * only: eight of them, including Elixir of Demonslaying, which is how a real
+ * one drunk 5s into Kaz'rogal came back as nothing at all.
+ *
+ * The rule to keep: this list must cover the same keys `AURA_BY_NAME` can match
+ * on, or an elixir this codebase can *classify* is one it never *asks for*.
+ */
+export const ELIXIR_BUFF_NAMES: readonly string[] = [
+  ...new Set(
+    AURA_DEFS.filter(
+      (d) => d.category === "battleElixir" || d.category === "guardianElixir",
+    ).flatMap((d) => [d.label, ...(d.buffNames ?? [])]),
+  ),
+];
 
 /**
  * Every scroll rank, by the spell id the buff and the cast both carry.
@@ -751,6 +802,23 @@ const TRACKED_CASTS: TrackedCast[] = [
   { id: 30486, name: "Super Sapper Charge", category: "sapper" },
   { id: 12760, name: "Goblin Sapper Charge", category: "sapper" },
   { id: 13241, name: "Goblin Sapper Charge", category: "sapper" },
+  /*
+   * Arcane Bomb — an engineering explosive that is not a sapper charge.
+   *
+   * `category: "other"` on purpose. The `sapper` category is what increments
+   * the stored `sappers` count, and a column named `sappers` holding arcane
+   * bombs would be a lie nothing could catch. As "other" it is still counted,
+   * listed and priced — Thistle Tea's precedent above — and the thing an
+   * officer actually asks it ("who is throwing engineering explosives") is
+   * answered by `isEngineeringExplosive` at read time instead.
+   *
+   * Probed on cWrNZY23Rx6V4faw: 96 events under ability id 19821, split
+   * `begincast`/`cast` because it has a 1.5s cast bar (the Flame Turret trap —
+   * normalize drops `begincast`, so those are ~48 throws, not 96), from nine
+   * raiders across six classes. That spread is what makes it an item rather
+   * than anybody's class button.
+   */
+  { id: 19821, name: "Arcane Bomb", category: "other" },
 ];
 
 export const TRACKED_CAST_IDS = TRACKED_CASTS.map((c) => c.id);
@@ -783,6 +851,40 @@ export const PET_BUFF_IDS: ReadonlyMap<number, string> = new Map(
 export const SAPPER_CAST_NAMES = [
   ...new Set(TRACKED_CASTS.filter((c) => c.category === "sapper").map((c) => c.name)),
 ];
+
+/**
+ * The consumables that **take Engineering to set off**.
+ *
+ * Not a category and not a stored count — a classification made at read time
+ * over a cast's name, the same shape as `elixirCategoryOf` and
+ * `dispelAbilityOf`. That is the whole point: curating a seventh explosive here
+ * re-grades every report already imported, where a stored flag would need all
+ * of them fetched again.
+ *
+ * Membership is one line off each item's own tooltip and nothing softer:
+ *
+ * - Goblin / Super Sapper Charge — `Requires Engineering`
+ * - Arcane Bomb (item 16040) — `Requires Engineering (300)`
+ *
+ * This is what `analysis/professions.ts` reads as proof of the profession, so a
+ * name added here without that line on its tooltip starts accusing raiders of
+ * a profession they may not have. Nothing else may go in.
+ */
+const ENGINEERING_EXPLOSIVE_NAMES = new Set(
+  [...SAPPER_CAST_NAMES, "Arcane Bomb"].map((n) => n.toLowerCase()),
+);
+
+/**
+ * Does setting this off take Engineering?
+ *
+ * Matches the curated names, and falls back to the same "sapper charge"
+ * substring `classifyCast` does — an aliased rank that arrives under a name
+ * this file hasn't curated is still an engineering explosive.
+ */
+export function isEngineeringExplosive(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  return ENGINEERING_EXPLOSIVE_NAMES.has(lower) || lower.includes("sapper charge");
+}
 const CASTS_BY_ID = new Map(TRACKED_CASTS.map((c) => [c.id, c]));
 const COMBAT_POTION_NAMES = new Set(
   TRACKED_CASTS.filter((c) => c.category === "potion").map((c) => c.name.toLowerCase()),
@@ -847,7 +949,8 @@ export type ConsumableGroup =
   | "elixir"
   | "potion"
   | "scroll"
-  | "sapper"
+  /** Sapper charges and the Arcane Bomb — everything that takes Engineering. */
+  | "explosive"
   | "rune"
   | "drums"
   | "food"
@@ -864,7 +967,7 @@ export const CONSUMABLE_GROUP_ORDER: readonly ConsumableGroup[] = [
   "elixir",
   "potion",
   "scroll",
-  "sapper",
+  "explosive",
   "rune",
   "drums",
   "food",
@@ -879,7 +982,7 @@ export const CONSUMABLE_GROUP_LABELS: Record<ConsumableGroup, string> = {
   elixir: "Elixirs",
   potion: "Potions",
   scroll: "Scrolls",
-  sapper: "Sappers",
+  explosive: "Engineering explosives",
   rune: "Runes",
   drums: "Drums",
   food: "Food",
@@ -940,6 +1043,11 @@ export function consumableGroupOf(label: string): ConsumableGroup {
   // labelling it apart is that it stops sitting in the raider's own line.
   if (lower.endsWith(PET_LABEL_SUFFIX)) return "pet";
 
+  // Ahead of the curated-category switch below, because the Arcane Bomb is
+  // deliberately curated as "other" — its category exists to keep it out of the
+  // stored sapper count, not to say what shelf it belongs on.
+  if (isEngineeringExplosive(lower)) return "explosive";
+
   const aura = AURA_BY_NAME.get(lower);
   if (aura) {
     switch (aura.category) {
@@ -969,7 +1077,7 @@ export function consumableGroupOf(label: string): ConsumableGroup {
       case "rune":
         return "rune";
       case "sapper":
-        return "sapper";
+        return "explosive";
       case "pet":
         return "pet";
       case "healthstone":
@@ -990,7 +1098,6 @@ export function consumableGroupOf(label: string): ConsumableGroup {
   if (SCROLL_PATTERN.test(lower)) return "scroll";
   if (lower.startsWith("elixir of") || lower.endsWith("elixir")) return "elixir";
   if (lower.endsWith("potion")) return "potion";
-  if (lower.includes("sapper charge")) return "sapper";
   if (lower.startsWith("drums of")) return "drums";
   return "other";
 }

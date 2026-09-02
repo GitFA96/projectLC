@@ -1,5 +1,7 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
 import {
+  ELIXIR_BUFF_IDS,
+  ELIXIR_BUFF_NAMES,
   FLASK_BUFF_IDS,
   PET_BUFF_IDS,
   SAPPER_CAST_NAMES,
@@ -209,11 +211,15 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       // further out: there is no combatantinfo for a PET at all, so a pet's own
       // aura stream is the only place its consumables exist. See
       // SCROLL_BUFF_IDS and PET_BUFF_IDS.
+      //
+      // The elixirs ride along for a third reason again: the snapshot is taken
+      // when the pull STARTS, so one drunk mid-pull is in no snapshot at all.
+      // See ELIXIR_BUFF_IDS.
       fetchAllEvents(
         code,
         "Buffs",
         reportDuration,
-        `ability.name IN (${quoted(BUFF_TRACK_NAMES)}) OR ability.id IN (${[...FLASK_BUFF_IDS.keys(), ...SCROLL_BUFF_IDS.keys(), ...PET_BUFF_IDS.keys()].join(", ")})`,
+        `ability.name IN (${quoted([...BUFF_TRACK_NAMES, ...ELIXIR_BUFF_NAMES])}) OR ability.id IN (${[...FLASK_BUFF_IDS.keys(), ...SCROLL_BUFF_IDS.keys(), ...PET_BUFF_IDS.keys(), ...ELIXIR_BUFF_IDS.keys()].join(", ")})`,
       ),
 
     ),

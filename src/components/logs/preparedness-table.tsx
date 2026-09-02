@@ -170,6 +170,13 @@ export function PreparednessTable({
   const scopeIds = React.useMemo(() => new Set(inScope.map((f) => f.fightId)), [inScope]);
   const single = inScope.length === 1;
 
+  /** Boss name for a pull id — the notes name the pull they are about. */
+  const fightName = React.useCallback(
+    (fightId: number) =>
+      fights.find((f) => f.fightId === fightId)?.encounterName ?? `pull ${fightId}`,
+    [fights],
+  );
+
   /** Click a header to order by it; click again to flip direction. */
   const sortBy = (by: Sort["by"]) =>
     setSort((current) =>
@@ -347,20 +354,25 @@ export function PreparednessTable({
                       </span>
                     </Td>
                     <Td>
-                      {single ? (
-                        <Coverage pull={only} itemsByName={itemsByName} />
-                      ) : (
-                        <Strip
-                          fights={inScope}
-                          byFight={byFight}
-                          read={(p) =>
-                            p.grade === "none" ? false : p.grade === "partial" ? "half" : true
-                          }
-                          // Amber pip either way; whether half a set counts is
-                          // the council's coverage rule, so the % asks that.
-                          counts={(p) => p.covered}
-                        />
-                      )}
+                      <span className="flex flex-col items-start">
+                        {single ? (
+                          <Coverage pull={only} itemsByName={itemsByName} />
+                        ) : (
+                          <>
+                            <Strip
+                              fights={inScope}
+                              byFight={byFight}
+                              read={(p) =>
+                                p.grade === "none" ? false : p.grade === "partial" ? "half" : true
+                              }
+                              // Amber pip either way; whether half a set counts is
+                              // the council's coverage rule, so the % asks that.
+                              counts={(p) => p.covered}
+                            />
+                            <PrepNotes pulls={pulls} fightName={fightName} />
+                          </>
+                        )}
+                      </span>
                     </Td>
                     <Td>
                       {single ? (
@@ -872,7 +884,94 @@ function Consumables({
 
 }
 
-/** The elixir budget on one pull — a flask, or whatever filled the two slots. */
+/** m:ss from the pull start, for a consumable that went up during it. */
+function atMinute(ms: number): string {
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * The two things a coverage pip cannot say, said as quietly as possible.
+ *
+ * **Mid-pull** — a flask or elixir that went up *during* the pull, on a raider
+ * who did not have it at the start. Deliberately not called "late": on this
+ * guild's logs most of these are Elixir of Demonslaying drunk in the opening
+ * seconds of a demon boss, which is the correct play for an elixir that does
+ * nothing anywhere else. The mark says *when*, and leaves what it means to the
+ * officer reading it — who can now also see why a pull graded empty.
+ *
+ * **Second** — the same event on a raider who *did* have it at the start: they
+ * drank another during the fight. Not a gap and not a failing, but it is a
+ * second item bought and used, and it is the only place the table can say so.
+ *
+ * **Stacked** — elixirs on top of a flask, which already covered the pull on
+ * its own. Not a better grade and deliberately not drawn as one; it is what
+ * somebody chose to spend, and the gold tab is where that lands.
+ *
+ * Neither is scored, neither moves a percentage, and both render as nothing at
+ * all when they do not apply — which is almost always. An empty `late` is also
+ * what a report imported before this was fetched looks like (§1), so it is
+ * never phrased as "nobody was late".
+ */
+function PrepNotes({ pulls, fightName }: { pulls: PreparednessPull[]; fightName: (id: number) => string }) {
+  const late = pulls.filter((p) => p.lateConsumables.some((l) => !l.refill));
+  const seconds = pulls.filter((p) => p.lateConsumables.some((l) => l.refill));
+  const stacked = pulls.filter((p) => p.flask !== undefined && p.elixirs.length > 0);
+  if (late.length === 0 && seconds.length === 0 && stacked.length === 0) return null;
+  const describe = (list: PreparednessPull[], refill: boolean) =>
+    list
+      .map(
+        (p) =>
+          `${fightName(p.fightId)}: ${p.lateConsumables
+            .filter((l) => Boolean(l.refill) === refill)
+            .map((l) => `${l.name} at ${atMinute(l.atMs)}`)
+            .join(", ")}`,
+      )
+      .join(" — ");
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] leading-tight text-muted-foreground/70">
+      {late.length > 0 && (
+        <span
+          title={`Not up at the pull, drunk during it (a situational elixir like Demonslaying is normally drunk this way) — ${describe(late, false)}`}
+        >
+          {late.length} mid-pull
+        </span>
+      )}
+      {seconds.length > 0 && (
+        <span title={`Already had it and drank another during the pull — ${describe(seconds, true)}`}>
+          {seconds.length} second
+        </span>
+      )}
+      {stacked.length > 0 && (
+        <span
+          title={stacked
+            .map((p) => `${fightName(p.fightId)}: ${p.flask} + ${p.elixirs.join(" + ")}`)
+            .join(" — ")}
+        >
+          {stacked.length} stacked
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The elixir budget on one pull — everything that was up, not just the part
+ * that graded it.
+ *
+ * **A flask does not mean the elixir slots were empty.** This used to return at
+ * the flask and never look, which hid a real habit: on this guild's logs 33
+ * pull-rows carry a flask *and* elixirs (one warrior runs Unstable Flask of the
+ * Soldier with Major Agility and Gift of Arthas on top). Grading is right to
+ * stop at the flask — the council's bar is met and `grade` says so — but the
+ * cell is a record of what somebody drank, and a raider stacking three is
+ * telling the officer something the pip cannot.
+ *
+ * So: flask first, then whatever else was up, with the extras marked as beyond
+ * the bar rather than as part of it. Nothing here scores anything — `grade` and
+ * `covered` are untouched, and an officer must not be able to read this as a
+ * raider clearing a higher standard than the one the council set (invariant 5).
+ */
 function Coverage({
   pull,
   itemsByName,
@@ -881,16 +980,23 @@ function Coverage({
   itemsByName: Record<string, ItemRef>;
 }) {
   if (pull === undefined) return <Absent />;
-  if (pull.flask !== undefined) {
-    return <Consumable name={pull.flask} itemsByName={itemsByName} />;
-  }
-  if (pull.elixirs.length === 0) return <Nothing>nothing</Nothing>;
+  if (pull.flask === undefined && pull.elixirs.length === 0) return <Nothing>nothing</Nothing>;
   return (
     <span className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+      {pull.flask !== undefined && <Consumable name={pull.flask} itemsByName={itemsByName} />}
       {pull.elixirs.map((name) => (
-
         <Consumable key={name} name={name} itemsByName={itemsByName} />
       ))}
+      {/* Stacked on top of a flask, which already met the bar on its own. Said
+          quietly: it is a fact about what they drank, not a better grade. */}
+      {pull.flask !== undefined && pull.elixirs.length > 0 && (
+        <Badge
+          variant="muted"
+          title="Elixirs on top of a flask — the flask alone already covers the pull, so these are extra"
+        >
+          +{pull.elixirs.length} on top
+        </Badge>
+      )}
       {/* Half a set passes a lenient coverage bar, so say which half is empty
           rather than letting it read as complete. */}
       {pull.grade === "partial" && (
@@ -898,6 +1004,23 @@ function Coverage({
           no {pull.missingSlot === "battleElixir" ? "battle" : "guardian"}
         </Badge>
       )}
+      {/* Drunk after the pull started, so the grade above does not count it —
+          and must not. Named and timed, because "0:12" and "2:40" are different
+          stories about the same raider. */}
+      {pull.lateConsumables.map((l) => (
+        <span
+          key={l.name}
+          className="text-[10px] text-muted-foreground/70"
+          title={
+            l.refill
+              ? "Already had it at the pull and drank another during the fight"
+              : "Not up when the pull started, so the grade above does not count it — which is normal for a situational elixir like Demonslaying"
+          }
+        >
+          {l.name} at {atMinute(l.atMs)}
+          {l.refill ? " (2nd)" : " (mid-pull)"}
+        </span>
+      ))}
     </span>
   );
 }
