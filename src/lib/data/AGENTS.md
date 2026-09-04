@@ -22,7 +22,9 @@ identically to SQLite. Never compute a summary in a backend.
   pick the backend from `DATA_BACKEND`; `getWriteRepo()` throws under `seed`.
 - **Every write calls `bumpDataVersion(db)`.** The read model is an in-memory
   rebuild triggered by that counter. Skip it and the write commits to disk and
-  stays invisible until restart.
+  stays invisible until restart. `write-contract.test.ts` calls every method on
+  `WriteRepo` and watches the counter, so a new writer fails until it is listed
+  there — in `BUMPS`, or in `NO_BUMP` with the argument for why not.
 - **Every *column* added after the first release needs an `addColumn()` line in
   `migrate()`.** A missing one works in tests and breaks the user's real
   database — the one failure mode nothing here catches. A whole **new table**

@@ -693,7 +693,11 @@ Two independent caches, two independent mistakes:
    memory once (`createRepoFromStore`) and rebuilds it lazily when `data_version`
    changes. A write that doesn't call `bumpDataVersion` commits to disk and
    stays invisible until the process restarts. Every write method in
-   `sqlite-repo.ts` calls it — copy a neighbour.
+   `sqlite-repo.ts` calls it — copy a neighbour, and
+   `src/lib/data/write-contract.test.ts` checks that you did: it calls every
+   method on `WriteRepo` and watches the counter, holds the board exception as
+   a list asserted in the other direction, and fails outright on a method it
+   has never been told about.
 2. **Next's route cache.** Call `refreshAfterWrite()` from `src/lib/refresh.ts`,
    never `revalidatePath()` inside a try block. The reasoning is in that file's
    header and it is not stylistic: a throw from the cache layer lands in the
