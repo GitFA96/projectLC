@@ -118,6 +118,9 @@ about 50 lines — a guide nobody finishes is a guide nobody reads.
 npm run dev       # the user usually has :3000 running already — don't kill it
 npm run check     # tsc --noEmit + vitest — run this before you say you're done
 npm test          # vitest alone
+npm run test:coverage  # vitest + coverage. CI runs this instead of `npm test`;
+                       # its thresholds are the only thing that notices a pure
+                       # layer losing cover, and they never run in `check`
 npm run typecheck # tsc --noEmit alone; nothing else typechecks outside a build
 npm run lint      # cached — a cold run is ~20s, a repeat ~2s
 NEXT_DIST_DIR=.next-build npm run build

@@ -439,7 +439,7 @@ change that added this file.
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2, and E1's first three skills) | every rule in §1 has something red behind it before anything is moved |
-| 2 — logic where tests reach | A4, B1, B3 **done**; B6, C1, C2, E1 (the rest), E3 open | the pricing sites can be compared; the big pages and components shrink |
+| 2 — logic where tests reach | A4, B1, B3, C1 **done**; B6, C2, E1 (the rest), E3 open | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
@@ -479,10 +479,10 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | B2 | Split `db.ts` | open | unblocked — A3 done |
 | B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
-| B5 | Decompose `createRepoFromStore` | open | after A7, C1 |
+| B5 | Decompose `createRepoFromStore` | open | unblocked — A7 and C1 done |
 | B6 | Client components | open | |
 | B7 | Filter builder | done | `src/lib/wcl/event-filters.ts` — `buildEventFilter` plus `CASTS_FILTER`/`DEBUFFS_FILTER`/`BUFFS_FILTER` and `UNFILTERED_ON_PURPOSE`, which names the three streams that stay unfiltered and why. An empty curated list now throws at import instead of silently matching nothing. `docs.test.ts` asserts the fetch sends the built filters and assembles none of its own; the list-by-list checks moved to `event-filters.test.ts`, which reads the built string |
-| C1 | Coverage, reported then gated | open | |
+| C1 | Coverage, reported then gated | done | `@vitest/coverage-v8`, `npm run test:coverage`, and thresholds on the five pure layers at the value measured on 5 Sep 2026, floored to the integer below. CI runs coverage in place of `npm test`, prints the totals into the job summary and uploads `coverage-summary.json`. Proven red twice: once with an impossible threshold, which is the only way to know the globs resolve at all, and once with a real regression — skipping `raid-gold.test.ts` takes `src/lib/analysis` under three of its four floors |
 | C2 | Tests for untested pure modules | open | one module per unit |
 | C3 | `use-unsaved-guard` behaviour test | open | optional |
 | C4 | Build-guard tests | done | split into `prerender-checks.mjs` and `standalone-checks.mjs` plus their CLIs, tested by `scripts/build-guards.test.ts` against a fake manifest and a fake standalone tree. Both CLIs were also exercised end to end on throwaway dist directories |
@@ -534,6 +534,8 @@ follows, and for the same reason.
 | **A4** | the three pricing sites agree | they agree, with two documented exceptions | `goldPerRaid` prices at defaults on purpose, and takes the raid span from the raider's own pulls because it is handed no report — so a latecomer is charged for the time they were there. Neither is in chains §5; both are now. A third looked like a divergence in the source (`summarizeSeason` floors a night at zero, `raidGoldView` does not) and is unreachable, because `applyAdjustments` floors each line |
 | **B3** | "No number may change — A7 is the proof" | the proof is `raid-gold.test.ts`, not A7 | A7's snapshot renders standing, contention, the loot plan and the dashboard — it never touches the raid gold table, so it would have stayed green through any error this move could make. What proves the move is the old inline expression, reproduced in the test and asserted to agree. It is scaffolding and says so |
 | **E2** | four chain-file patterns | six, two of them narrowed by what the edit contains | `repo.ts`/`sqlite-repo.ts` and `globals.css` earn one on the same test as the other four: a step that fails silently. The narrowing exists because `db.ts` is 4,000 lines and most edits to it have nothing to do with the schema — an unconditional note there would train the reader to skip all of them |
+| **C1** | coverage reported from CI beside `npm test` | coverage *instead of* `npm test` in CI | a threshold nothing runs is not a gate. `npm run check` stays coverage-free so the inner loop keeps its ~25 s; CI is where the floors are enforced, and it is the only place they are |
+| **C1** | "the pure layers", named as though they were the well-covered ones | they are not all well covered: `analysis` measures 97% of statements and `auth` 78%, with 68% of its branches | the floors are the measured values, so `auth`'s is a floor and not a standard. That is the intended shape — the number says "do not get worse", and raising it is C2's job — but a reader who sees a threshold of 68 and assumes it was chosen as *good enough* has it backwards |
 
 ### What the misses have in common
 

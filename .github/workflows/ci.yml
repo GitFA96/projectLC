@@ -28,7 +28,28 @@ jobs:
 
       - run: npm ci
 
-      - run: npm test
+      # Coverage rather than a bare `npm test`: it costs a second or two, and
+      # the thresholds in vitest.config.ts are only enforced when it runs. They
+      # cover the pure layers only, at the value measured when they were set —
+      # so this goes red when a layer loses cover, not when one is merely thin.
+      - run: npm run test:coverage
+
+      # The numbers, where you can read them without downloading anything.
+      - name: Coverage summary
+        if: always()
+        run: |
+          node -e '
+            const s = require("./coverage/coverage-summary.json").total;
+            const row = (k) => `| ${k} | ${s[k].pct}% | ${s[k].covered}/${s[k].total} |`;
+            console.log("| | % | covered |\n|---|---|---|");
+            for (const k of ["statements", "branches", "functions", "lines"]) console.log(row(k));
+          ' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
 
       - run: npm run lint
 
