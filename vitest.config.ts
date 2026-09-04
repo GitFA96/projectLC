@@ -55,18 +55,24 @@ export default defineConfig({
         "src/middleware.ts",
         "src/instrumentation.ts",
       ],
-      // Thresholds cover the pure layers only, at the value measured when C1
-      // landed. They ratchet up, never down: raising one is a normal part of
-      // adding a test; lowering one means a module lost its cover, which is the
-      // thing this is here to notice. Components are deliberately absent —
-      // see docs/improvement-plan.md §C1.
-      // Each number is the baseline of 5 Sep 2026, floored to the integer
-      // below. A glob's files are pooled, so one thinly covered new module in a
-      // well-covered directory does not fail on its own — the directory has to
-      // actually get worse.
+      /*
+       * Floors for the pure layers, and only those — components are
+       * deliberately absent; see docs/improvement-plan.md §C1.
+       *
+       * Each number started as the value measured on 5 Sep 2026, floored to the
+       * integer below, and ratchets up from there: raising one is a normal part
+       * of adding a test, and lowering one means a layer lost cover, which is
+       * the thing this exists to notice. A number here is therefore a floor,
+       * never a standard — 77% of `auth`'s branches is where that layer *is*,
+       * not where anyone decided it should stop.
+       *
+       * A glob's files are pooled, so a thinly covered new module in a
+       * well-covered directory does not fail on its own; the directory has to
+       * actually get worse.
+       */
       thresholds: {
         "src/lib/analysis/**": { statements: 97, branches: 88, functions: 95, lines: 98 },
-        "src/lib/auth/**": { statements: 78, branches: 68, functions: 87, lines: 80 },
+        "src/lib/auth/**": { statements: 86, branches: 77, functions: 90, lines: 88 },
         "src/lib/loot/**": { statements: 95, branches: 93, functions: 96, lines: 96 },
         "src/lib/sim/**": { statements: 83, branches: 70, functions: 83, lines: 84 },
         "src/lib/wcl/normalize.ts": {
