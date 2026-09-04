@@ -8,6 +8,15 @@ import { getRepo } from "@/lib/data/repo";
 import { AttendanceDetail } from "@/components/performance/attendance-detail";
 import { potionNames, potionsUsed, prepotName } from "@/lib/analysis/potions";
 import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
+import {
+  consumableTitle,
+  countedList,
+  coverage,
+  fmtAmount,
+  fmtDuration,
+  upkeepAverages,
+  usesOf,
+} from "@/lib/analysis/performance-view";
 import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
 import { P2_ENCHANT_GUIDE } from "@/lib/wcl/enchants";
 import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
@@ -62,16 +71,6 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   return { title: `${decoded.charAt(0).toUpperCase() + decoded.slice(1)} · Performance` };
 }
 
-function fmtDuration(ms: number): string {
-  const totalSeconds = Math.round(ms / 1000);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
-}
-
-function fmtAmount(row: WclPlayerFight): string {
-  if (row.amount === undefined) return "—";
-  return `${Math.round(row.amount).toLocaleString("en-US")} ${row.role === "healer" ? "hps" : "dps"}`;
-}
-
 function Mark({ ok, title, half }: { ok: boolean; title?: string; half?: boolean }) {
   return ok ? (
     <Check
@@ -106,38 +105,6 @@ function Excused() {
  * looks identical to a flask on the board, so the tooltip is the only place
  * the difference is readable.
  */
-function consumableTitle(row: WclPlayerFight): string {
-  if (row.flask !== undefined) return row.flask;
-  const c = elixirCoverage(row);
-  if (c.grade === "none") return "no flask or elixirs";
-  const had = [c.battle, c.guardian, ...c.unclassified].filter(Boolean).join(" + ");
-  if (c.missing === "guardianElixir") return `${had} — no guardian elixir`;
-  if (c.missing === "battleElixir") return `${had} — no battle elixir`;
-  return had;
-}
-
-/** Coverage line for the consumables card: label + pulls covered. */
-function coverage(rows: WclPlayerFight[], pick: (r: WclPlayerFight) => string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    for (const label of new Set(pick(row))) {
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-  }
-  return new Map([...counts].sort((a, b) => b[1] - a[1]));
-}
-
-/** Total uses per label (a pot can be used twice on a long pull). */
-function usesOf(rows: WclPlayerFight[], pick: (r: WclPlayerFight) => string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    for (const label of pick(row)) {
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-  }
-  return counts;
-}
-
 export default async function PerformancePage({
   params,
   searchParams,
@@ -666,15 +633,6 @@ export default async function PerformancePage({
 }
 
 /** "Haste Potion ×2 · Master Healthstone" from a list with repeats. */
-function countedList(values: string[]): string {
-  const counts = new Map<string, number>();
-  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-  return [...counts]
-    .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
-    .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
-    .join(" · ");
-}
-
 function UpkeepPct({ pct }: { pct: number }) {
   return (
     <span
@@ -758,22 +716,6 @@ function fightDetail(row: WclPlayerFight): React.ReactNode {
 }
 
 /** Pull-length-weighted average upkeep per label across the report's pulls. */
-function upkeepAverages(rows: WclPlayerFight[]): Map<string, number> {
-  const labels = [...new Set(rows.flatMap((r) => r.upkeep.map((u) => u.name)))];
-  const totalDur = rows.reduce((s, r) => s + r.durationMs, 0);
-  return new Map(
-    labels
-      .map((label): [string, number] => {
-        const weighted = rows.reduce(
-          (s, r) => s + (r.upkeep.find((u) => u.name === label)?.pct ?? 0) * r.durationMs,
-          0,
-        );
-        return [label, Math.round(weighted / Math.max(1, totalDur))];
-      })
-      .sort((a, b) => b[1] - a[1]),
-  );
-}
-
 function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
   const cooldownTotals = usesOf(rows, (r) => r.cooldowns);
   const upkeep = upkeepAverages(rows);

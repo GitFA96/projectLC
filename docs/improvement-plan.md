@@ -1,9 +1,8 @@
 # Improvement plan — structure, tests, and working with agents
 
-> **Status: proposed 2026-09-03. Phase 0 done and phase 1 under way, 2026-09-04.**
-> Phases 0 and 1 are done. Phase 0 and the first three phase-1 items landed in
-> `a3c08c0`; A2, A3, B7+C4, then the agent tooling followed. Phase 2 is next, and
-> starts with B1 and B3.
+> **Status: proposed 2026-09-03. Phases 0 and 1 done; phase 2 begun, 2026-09-05.**
+> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, B7+C4
+> and the agent tooling followed. B1 and B3 open phase 2, which unblocks A4.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
 > 2026-09-04 and will drift again — re-measure before quoting one.
@@ -440,7 +439,7 @@ change that added this file.
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2, and E1's first three skills) | every rule in §1 has something red behind it before anything is moved |
-| 2 — logic where tests reach | B1, B3 → A4, B6, C1, C2, E1 (the rest), E3 | the pricing sites can be compared; the big pages and components shrink |
+| 2 — logic where tests reach | B1, B3 **done**; A4 now unblocked, plus B6, C1, C2, E1 (the rest), E3 | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
@@ -478,7 +477,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | A8 | Doc truth | done | both sentences fixed; `docs.test.ts` now parses them and fails on the drift that had gone unnoticed for months |
 | B1 | Split `types.ts` | done | ten domain files under `types/`, `types.ts` the barrel — no import path anywhere changed. The five files §4B1 guessed at did not match the content: `wcl` and `items` are not domains of this file, and feedback is five one-line inferences that stayed with the entities. Done by a script rather than by hand, and verified against the original: 121 exports before and after, none lost, gained or duplicated; every comment line and every field line still present |
 | B2 | Split `db.ts` | open | unblocked — A3 done |
-| B3 | Page logic into the library | open | after A7 |
+| B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
 | B5 | Decompose `createRepoFromStore` | open | after A7, C1 |
 | B6 | Client components | open | |
@@ -532,6 +531,7 @@ follows, and for the same reason.
 | **B7** | extract the builder; `docs.test.ts` asserts the fetch uses it | that, plus three things the plan did not ask for | an empty curated list now **throws at import** rather than building an expression that matches nothing — the silent form is indistinguishable from a raid where nobody used a consumable. `UNFILTERED_ON_PURPOSE` names the three streams that stay unfiltered so removing a filter has somewhere to write itself down. And `docs.test.ts` refuses a hand-built expression anywhere in the fetch, which is the drift the split exists to prevent |
 | **C4** | one pure module and one CLI per guard | that, with **one** test file for both | they are the same claim twice — the build refuses to ship something — and they are read together |
 | **E1** | seven skills, forty lines at most | three so far, ~50 lines each | the remaining four are phase 2 by §5's own sequencing. On length: each of the three carries a trap that is the reason the skill exists, and trimming to 40 would have cut exactly that. A rule about length should lose to the content it was meant to protect |
+| **B3** | "No number may change — A7 is the proof" | the proof is `raid-gold.test.ts`, not A7 | A7's snapshot renders standing, contention, the loot plan and the dashboard — it never touches the raid gold table, so it would have stayed green through any error this move could make. What proves the move is the old inline expression, reproduced in the test and asserted to agree. It is scaffolding and says so |
 | **E2** | four chain-file patterns | six, two of them narrowed by what the edit contains | `repo.ts`/`sqlite-repo.ts` and `globals.css` earn one on the same test as the other four: a step that fails silently. The narrowing exists because `db.ts` is 4,000 lines and most edits to it have nothing to do with the schema — an unconditional note there would train the reader to skip all of them |
 
 ### What the misses have in common

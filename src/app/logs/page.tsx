@@ -22,13 +22,7 @@ import type {
   SeasonRosterEntry,
   WclRole,
 } from "@/lib/types";
-import { costPerUseMap, effectivePrice, goldOfBreakdown } from "@/lib/wcl/consumable-prices";
-import { baseConsumableName } from "@/lib/wcl/consumables";
-import {
-  adjustmentGold,
-  adjustmentsFor,
-  applyAdjustments,
-} from "@/lib/analysis/consumable-adjustments";
+import { leaderboardPrices, raidGoldView } from "@/lib/analysis/raid-gold";
 import type { WowClass } from "@/lib/constants/wow";
 import type { ItemRef } from "@/components/item-link";
 import { normalizeItemName } from "@/lib/loot/priority-sheet";
@@ -705,9 +699,7 @@ function RankingsPanel({
     .sort((a, b) => b.cooldowns - a.cooldowns || compareText(a.name, b.name));
 
   // Items used this raid — trash included — drive the (precise) gold toggle here.
-  const itemNames = new Set(usage.flatMap((u) => u.itemBreakdown.map((b) => b.name)));
-  const costPerUse = costPerUseMap(itemNames, overrides);
-  const usingDefault = Object.keys(overrides).length === 0;
+  const { costPerUse, usingDefault } = leaderboardPrices(usage, overrides);
 
   return (
     <>
@@ -834,53 +826,15 @@ function GoldPanel({
   policy: GuildPolicy;
 }) {
   const { usage, petSpend } = raid;
-  // Union of every consumable this raid touched — casts (boss and trash) + prep buffs.
-  const names = new Set<string>();
-  for (const u of usage) {
-    for (const b of u.itemBreakdown) names.add(b.name);
-    for (const b of u.prepBreakdown) names.add(b.name);
-  }
-  // A hand-added consumable needs a price too, even if nobody was logged using it.
-  for (const a of adjustments) names.add(a.name);
-  // And a scroll only ever SEEN on a pet, which by definition never reached a
-  // breakdown above — leave it out and the card prices it at zero, which is the
-  // silence the card exists to break. It also puts the name in the price panel,
-  // where the officer can give it this week's real price.
-  for (const row of petSpend.rows) for (const line of row.lines) names.add(line.name);
-  const costPerUse = costPerUseMap(names, overrides);
-  const usingDefault = Object.keys(overrides).length === 0;
-  // One row per ITEM, not per line label: a pet's scroll is listed apart in the
-  // breakdowns so it can be counted and corrected apart, but it is the same
-  // scroll at the same price, and two rows here would let one raid hold two
-  // prices for it.
-  const priceRows = [...new Set([...names].map(baseConsumableName))]
-    .sort()
-    .map((name) => ({ name, price: effectivePrice(name, overrides) }));
-
-  // Rank against the SAVED adjustments and hand the rows over in that order.
-  // GoldTable re-prices them as the officer presses ±, but does not re-sort:
-  // a batch of corrections would otherwise reshuffle the table mid-edit. The
-  // ranking is therefore only ever as fresh as the last save, which is the
-  // point — see the note there.
-  const ranked = usage
-    .map((u) => {
-      const inFight = goldOfBreakdown(u.itemBreakdown, costPerUse);
-      const prep = goldOfBreakdown(u.prepBreakdown, costPerUse);
-      // Merge both breakdowns for the "includes" column. The logged usage
-      // and prep columns stay as the log reported them, so the adjustment
-      // column shows exactly what a person changed rather than hiding it
-      // inside a bigger number.
-      const logged = [...u.itemBreakdown, ...u.prepBreakdown];
-      const mine = adjustmentsFor(adjustments, u.name);
-      const delta = adjustmentGold(logged, applyAdjustments(logged, mine), costPerUse);
-      return {
-        row: { name: u.name, slug: u.slug, className: u.className, inFight, prep, logged },
-        total: inFight + prep + delta,
-        adjusted: mine.length,
-      };
-    })
-    .filter((x) => x.total > 0 || x.adjusted > 0)
-    .sort((a, b) => b.total - a.total || compareText(a.row.name, b.row.name));
+  // Which names get a price, what each costs, and who spent most — all of it in
+  // `analysis/raid-gold.ts`, because it is one of the three sites change-chains
+  // §5 says must agree and the other two are already there.
+  const { costPerUse, usingDefault, priceRows, ranked } = raidGoldView(
+    usage,
+    petSpend,
+    overrides,
+    adjustments,
+  );
 
   return (
     <>

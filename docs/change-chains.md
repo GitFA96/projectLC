@@ -835,8 +835,9 @@ where somebody is while the trend says where they are heading.
 
 ## 5. Change how a consumable is priced or counted
 
-**Chain:** all three call sites must agree — `src/app/logs/page.tsx`,
-`goldPerRaid` in `analysis/comparison.ts`, `summarizeSeason` in `analysis/season.ts`.
+**Chain:** all three call sites must agree — `raidGoldView` in
+`analysis/raid-gold.ts` (one night), `goldPerRaid` in `analysis/comparison.ts`
+(a raider's career), `summarizeSeason` in `analysis/season.ts` (a phase).
 
 They each independently build a `costPerUseMap` and apply
 `adjustmentsFor`/`applyAdjustments`. That duplication is deliberate (different

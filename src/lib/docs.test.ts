@@ -146,10 +146,14 @@ describe("consumable gold is priced in exactly the documented places", () => {
   // docs/change-chains.md §5: these three must agree, and nothing but a test
   // notices when they stop agreeing. A fourth call site means the chain in that
   // doc is now wrong — update it, then update this list.
+  //
+  // All three are in src/lib now. The raid-night one was inside logs/page.tsx
+  // until B3 moved it to analysis/raid-gold.ts, which is what makes A4 — one
+  // fixture through all three, asserting they agree — writable at all.
   it("has three call sites", () => {
     const documented = [
-      "src/app/logs/page.tsx",
       "src/lib/analysis/comparison.ts",
+      "src/lib/analysis/raid-gold.ts",
       "src/lib/analysis/season.ts",
     ];
 
