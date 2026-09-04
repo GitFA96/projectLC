@@ -37,6 +37,31 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "//": "Prints what else has to move when a file in a documented chain is edited. A prompt, never a gate: it can only add context, and every failure path exits 0 printing nothing. Notes and reasoning in .claude/hooks/chain-notes.mjs.",
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/chain-hint.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "//": "Whether :3000 is up (which decides where a build may go) and how much of docs/improvement-plan.md section 7 is open. Fails open.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session-brief.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

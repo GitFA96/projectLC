@@ -1,8 +1,9 @@
 # Improvement plan — structure, tests, and working with agents
 
 > **Status: proposed 2026-09-03. Phase 0 done and phase 1 under way, 2026-09-04.**
-> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, then
-> B7 and C4 followed. Only the agent tooling (E1, E2) is left in phase 1.
+> Phases 0 and 1 are done. Phase 0 and the first three phase-1 items landed in
+> `a3c08c0`; A2, A3, B7+C4, then the agent tooling followed. Phase 2 is next, and
+> starts with B1 and B3.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
 > 2026-09-04 and will drift again — re-measure before quoting one.
@@ -434,7 +435,7 @@ change that added this file.
 | Phase | Items | What it buys |
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
-| 1 — invariants into checks | A2, A3, A5, A6, A7, B7, C4 **done**; E1 (`preflight`, `real-data-check`, `probe-wcl`) and E2 open | every rule in §1 has something red behind it before anything is moved |
+| 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2, and E1's first three skills) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | B1, B3 → A4, B6, C1, C2, E1 (the rest), E3 | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
@@ -489,8 +490,8 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | D4 | Rate limiting doc | open | |
 | D5 | `npm audit` step | open | |
 | D6 | Lint speed | open | |
-| E1 | Skills | open | seven named in §4E1 |
-| E2 | Hooks | open | |
+| E1 | Skills | in progress | three of the seven done — `preflight`, `real-data-check` and `probe-wcl` (with `scripts/probe-wcl.mjs`, verified end to end against the live API). `add-migration`, `add-tracked-consumable`, `add-policy-field` and `cycle` remain, in phase 2. Each runs ~50 lines rather than the 40 §4E1 asked for; trimming further would have cut the trap each one exists to carry |
+| E2 | Hooks | done | `chain-hint.mjs` (PostToolUse) prints the chain for six file patterns, narrowed by what the edit contains where the file is large; `session-brief.mjs` (SessionStart) reports whether :3000 answers and how much of §7 is open. Both fail open on every path, both pipe-tested, and `chain-notes.test.mjs` pins the notes — including that every file they name still exists |
 | E3 | Subagents | open | |
 | E4 | Model routing | done (this file) | the table in §4E4 |
 | E5 | Work-unit conventions | done (this file) | §4E5 |

@@ -63,6 +63,12 @@ with.
 the codebase itself: structure, tests, guards and how agents work here. Pick
 work from its state table and update the row in the same change.
 
+`.claude/` carries the working tools this repo assumes: **skills** (`deploy`,
+`preflight`, `real-data-check`, `probe-wcl`) and **hooks** — two that refuse a
+command which would touch the live database or take the dev server down, and two
+that only ever tell you something. The refusals are invariants, not suggestions;
+if one blocks you, it is the guard working.
+
 **[`docs/pitfalls.md`](docs/pitfalls.md)** — how this codebase and these docs
 will mislead you. Read it before a refactor that crosses layers. In particular:
 the lists in `docs/` tell you a coupling *exists*, never that the list is
