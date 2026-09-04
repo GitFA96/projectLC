@@ -27,6 +27,10 @@ stay in [`backlog.md`](backlog.md). Couplings stay in
    it there in the same change. That is the only kind of doc this plan asks for.
 4. If an item turns out to be wrong, change its state to `dropped` and say why
    in the row. Do not delete it — the next agent will otherwise re-derive it.
+5. **§4 is a proposal written before the work. Where it disagrees with what you
+   find, the code wins — and the disagreement goes in §8, in the same change.**
+   Read §8 before starting: it says which of §4's sentences have already been
+   overtaken, and it is short for a reason worth knowing.
 
 The one principle behind every item: **this project already turns prose into
 checks** — `docs.test.ts`, `enforcement.test.ts`, `pages.test.ts`,
@@ -468,7 +472,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | A2 | Write-contract test | done | `src/lib/data/write-contract.test.ts` — a case per `WriteRepo` method, plus a reflective parse of the interface so a new writer fails until it is listed. The five board writes are asserted **not** to bump, each proving its write landed first. Eight methods (`setReportPayback`, the three roster writes, `setSimProfile`, `addAbilities`, `addEnchantNames`, `harvestItemCache`) had no test call anywhere before this |
 | A3 | Migration walk | done | `COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS` in `db.ts`, walked by `migrations.test.ts` (43 entries, not the 44 §4 guessed). No skip list was needed — `DROP COLUMN` refuses three of them only because a block comment sits in front of the table’s last column, so the harness strips comments rather than skipping. Found and fixed real drift: `fight_start_ms` was in `migrate()` and never in `SCHEMA`. The completeness half is a pinned baseline of the columns no migration covers, so both adding one to `SCHEMA` alone and deleting a list entry show up in that diff. The nine rebuild/repair migrations were measured by neutering each call and running the suite: four were covered, five were not, and the five now have hand-written cases — including the ambiguity guard in `promoteSimSettingsToProfiles`, which the first fixture tripped by accident |
 | A4 | Pricing-agreement test | open | after B3 |
-| A5 | Layer boundaries as lint | done | analysis, components and app each get their own rule and message; `AccountRow` moved to `types.ts`; the eight governance files that legitimately reach `db.ts` are pinned by name |
+| A5 | Layer boundaries as lint | done | analysis, components and app each get their own rule and message; `AccountRow` moved out of `db.ts` (it now lives in `types/identity.ts`, after B1); the eight governance files that legitimately reach `db.ts` are pinned by name |
 | A6 | Action-shape test | done | follows calls transitively; six actions deliberately check no capability, each with its argument. Found a real bug: `previewPolicyAction` took a **write** repo for a pure read, so the policy preview threw under `DATA_BACKEND=seed` |
 | A7 | Golden verdicts | done | `src/lib/__snapshots__/golden-verdicts.md`. Standing uses `roster.minRaids: 1`, stated on the page: the seed ships one raid night and the real default of 3 places nobody |
 | A8 | Doc truth | done | both sentences fixed; `docs.test.ts` now parses them and fails on the drift that had gone unnoticed for months |
@@ -497,3 +501,49 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | E5 | Work-unit conventions | done (this file) | §4E5 |
 | E6 | Permission allowlist | done | eleven read-only entries in `.claude/settings.json`; writes still prompt, and both guards run ahead of the permission either way |
 | E7 | Pointers from `AGENTS.md` and `backlog.md` | done (this change) | |
+
+## 8. Where the plan was wrong
+
+Every item above was written before the work was done, and several of them
+guessed. This section is the running record of where the guess and the code
+disagreed and the code won — so that a reader who takes §4 as instructions
+knows which sentences have already been overtaken, and so the *pattern* is
+visible: the estimates that failed were, almost without exception, counts and
+approaches proposed without opening the file.
+
+**§4 is the proposal. §7 is what happened. This is why they differ.** Add a row
+here in the same change that adds the deviation — the same rule the §7 row
+follows, and for the same reason.
+
+| Item | The plan said | What was done | Why |
+|---|---|---|---|
+| **A2** | the test goes in `sqlite-repo.test.ts` | a separate `write-contract.test.ts` | that file tests what each write *means*, one behaviour per case; this tests one property of all of them at once by parsing the interface. They fail for different reasons and are read at different times |
+| **A2** | five exceptions — the board writes | seven — the five, plus `findCharacterByName` and `findExistingSet` | both are reads that sit on `WriteRepo` because resolving a name is the first step of a write flow. The plan's list counted writers; the reflective check counts *methods*, and every method needs a home |
+| **A3** | "44 column migrations, 5 tests" and "the eight rebuild/repair migrations" | 43 columns and 9 rebuilds | a count taken by eye. This is exactly what root `AGENTS.md` means by "document couplings, not inventories" — the plan broke its own rule and was wrong within a fortnight |
+| **A3** | the eight rebuilds "keep hand-written tests; write the missing ones" | measured first: 4 of 9 covered, 5 unwatched | measured by neutering each call in `migrate()` and running the suite. Deleting any of those five was silent. The plan assumed coverage it had not checked |
+| **A3** | columns `DROP COLUMN` refuses (indexed, keyed) go in a pinned skip list | no skip list; the harness strips comments | the three refusals had nothing to do with indexes. SQLite cannot re-parse a table whose **last** column is preceded by a `/* */` comment — a property of the test harness, not of the column, so skipping would have excused three columns for no reason |
+| **A3** | "done when deleting any entry from the list is red" | needed a pinned baseline to become true | a table-driven walk cannot detect a deleted entry: the entry *is* the test case, so removing it removes its own alarm. The baseline of columns no migration covers is what closes that hole |
+| **A3** | — | fixed `fight_start_ms`, in `migrate()` and never in `SCHEMA` | not in the plan at all. The walk found it on its first run, which is the argument for the walk |
+| **A5** | `src/app/**` may import `repo` and nothing else — "fix rather than allow" | eight governance files pinned by name | they legitimately need `db.ts`: tenancy, break-glass and succession operate on the database rather than on one guild's read model. Fixing would have meant inventing a repo surface for operator work, which is a design decision, not a lint fix |
+| **A6** | require a check "before the first repo call" in each action's own body | reachability through call chains | the literal form fails every good pattern already here — `service/tenancy` funnels four actions through one `operator()`, `roster/members` gates with `requireOwner()`, `saveLootWeightsAction` delegates wholesale. A test that pushed those toward four copies of the check would make the code worse |
+| **A6** | an allowlist of about three | six, each with its argument | the plan named `signOutAction`, `whoAmI` and "the pure `preview*` parsers". The real set also includes `lookupItemAction`, `submitFeedback` and `claimOwnershipAction` — and one of the two `preview*` actions **is** gated, because it reads the guild's own numbers back |
+| **A7** | over the seed store under `DEFAULT_POLICY` | `roster.minRaids: 1`, everything else default | the seed ships one raid night and the real minimum is three, so under the true default nobody is placed and the board is empty. A snapshot of an empty board proves nothing. The override is stated on the report page and pinned by a test asserting nothing else in the policy moved |
+| **B1** | five files — `loot`, `wcl`, `identity`, `items`, `feedback` | ten, by what the file actually contains | `wcl` and `items` are not domains of `types.ts`: they are zod inferences sitting with the other entities. Feedback is five one-line inferences that belong there too. `types/raid.ts` is left at 712 lines because a raid night from every angle is one domain, and cutting it would be cutting a seam that is not there |
+| **B7** | extract the builder; `docs.test.ts` asserts the fetch uses it | that, plus three things the plan did not ask for | an empty curated list now **throws at import** rather than building an expression that matches nothing — the silent form is indistinguishable from a raid where nobody used a consumable. `UNFILTERED_ON_PURPOSE` names the three streams that stay unfiltered so removing a filter has somewhere to write itself down. And `docs.test.ts` refuses a hand-built expression anywhere in the fetch, which is the drift the split exists to prevent |
+| **C4** | one pure module and one CLI per guard | that, with **one** test file for both | they are the same claim twice — the build refuses to ship something — and they are read together |
+| **E1** | seven skills, forty lines at most | three so far, ~50 lines each | the remaining four are phase 2 by §5's own sequencing. On length: each of the three carries a trap that is the reason the skill exists, and trimming to 40 would have cut exactly that. A rule about length should lose to the content it was meant to protect |
+| **E2** | four chain-file patterns | six, two of them narrowed by what the edit contains | `repo.ts`/`sqlite-repo.ts` and `globals.css` earn one on the same test as the other four: a step that fails silently. The narrowing exists because `db.ts` is 4,000 lines and most edits to it have nothing to do with the schema — an unconditional note there would train the reader to skip all of them |
+
+### What the misses have in common
+
+Ten of the fifteen are **counts or coverage claimed without measuring**, or an
+**approach chosen without reading the code it would run against**. None of them
+were wrong about *what mattered* — every item found the thing it was aimed at,
+and three found something extra. So the lesson is not that the plan was
+unreliable; it is narrower than that:
+
+> Write the *why* and the *done-when* in advance. Take the count, the exception
+> list and the shape of the solution from the code, at the time you do the work.
+
+That is already §0's instruction to read the chain before starting. These rows
+are the evidence for it.
