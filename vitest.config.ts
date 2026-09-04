@@ -58,7 +58,7 @@ export default defineConfig({
       thresholds: {
         "src/lib/analysis/**": { statements: 97, branches: 88, functions: 95, lines: 98 },
         "src/lib/auth/**": { statements: 78, branches: 68, functions: 87, lines: 80 },
-        "src/lib/loot/**": { statements: 92, branches: 91, functions: 90, lines: 93 },
+        "src/lib/loot/**": { statements: 95, branches: 93, functions: 96, lines: 96 },
         "src/lib/sim/**": { statements: 83, branches: 70, functions: 83, lines: 84 },
         "src/lib/wcl/normalize.ts": {
           statements: 89,
