@@ -92,7 +92,7 @@ rules have a check behind them and which are still only sentences.
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
 | Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `types.ts` 1701 · `import-tabs.tsx` 1584 · `preparedness-table.tsx` 1509 · `raid-planner.ts` 1472 |
+| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `import-tabs.tsx` 1584 · `preparedness-table.tsx` 1509 · `raid-planner.ts` 1472 · `types/raid.ts` 707 (was `types.ts` 1701, split by B1) |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -472,7 +472,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | A6 | Action-shape test | done | follows calls transitively; six actions deliberately check no capability, each with its argument. Found a real bug: `previewPolicyAction` took a **write** repo for a pure read, so the policy preview threw under `DATA_BACKEND=seed` |
 | A7 | Golden verdicts | done | `src/lib/__snapshots__/golden-verdicts.md`. Standing uses `roster.minRaids: 1`, stated on the page: the seed ships one raid night and the real default of 3 places nobody |
 | A8 | Doc truth | done | both sentences fixed; `docs.test.ts` now parses them and fails on the drift that had gone unnoticed for months |
-| B1 | Split `types.ts` | open | |
+| B1 | Split `types.ts` | done | ten domain files under `types/`, `types.ts` the barrel — no import path anywhere changed. The five files §4B1 guessed at did not match the content: `wcl` and `items` are not domains of this file, and feedback is five one-line inferences that stayed with the entities. Done by a script rather than by hand, and verified against the original: 121 exports before and after, none lost, gained or duplicated; every comment line and every field line still present |
 | B2 | Split `db.ts` | open | unblocked — A3 done |
 | B3 | Page logic into the library | open | after A7 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |

@@ -352,7 +352,8 @@ per pull, so it suits a panel someone opened, not a page everyone loads.
 ## 2. Add a persisted field
 
 **Chain:** `db.ts` schema + `migrate()` → `store.ts` (`EntityStore`) → `sqlite-repo.ts`
-→ `repo.ts` (`Repo`/`WriteRepo`) → `types.ts` → `import/schemas.ts` if it is
+→ `repo.ts` (`Repo`/`WriteRepo`) → the right file in `types/` (`types.ts` is a
+barrel; nothing imports the parts directly) → `import/schemas.ts` if it is
 seedable → `sqlite-repo.test.ts`.
 
 The step that fails silently is `migrate()`. A `CREATE TABLE` in the schema

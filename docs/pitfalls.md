@@ -89,7 +89,7 @@ anyway: that the backfill put the *right* value in the column it filled.
 
 ## 6. Mechanical refactors destroy the most valuable thing in this repo.
 
-The per-symbol comments — `types.ts` explaining why each type exists,
+The per-symbol comments — `types/` explaining why each type exists,
 `refresh.ts` explaining the duplicate-award bug it prevents, `store.ts`
 explaining why derived data lives there — are the reason this codebase is
 followable at all. They are worth more than the code they sit above.
