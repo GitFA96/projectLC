@@ -59,6 +59,10 @@ rule that verdict paths read the merged guild view rather than the shared table
 underneath. Read it before adding a table that anybody might want to disagree
 with.
 
+**[`docs/improvement-plan.md`](docs/improvement-plan.md)** — the standing plan for
+the codebase itself: structure, tests, guards and how agents work here. Pick
+work from its state table and update the row in the same change.
+
 **[`docs/pitfalls.md`](docs/pitfalls.md)** — how this codebase and these docs
 will mislead you. Read it before a refactor that crosses layers. In particular:
 the lists in `docs/` tell you a coupling *exists*, never that the list is
@@ -105,9 +109,11 @@ about 50 lines — a guide nobody finishes is a guide nobody reads.
 ## Commands
 
 ```bash
-npm run dev     # the user usually has :3000 running already — don't kill it
-npm test        # vitest
-npm run lint
+npm run dev       # the user usually has :3000 running already — don't kill it
+npm run check     # tsc --noEmit + vitest — run this before you say you're done
+npm test          # vitest alone
+npm run typecheck # tsc --noEmit alone; nothing else typechecks outside a build
+npm run lint      # cached — a cold run is ~20s, a repeat ~2s
 NEXT_DIST_DIR=.next-build npm run build
 
 npm run doctor      # every deployment footgun as a check that exits 1

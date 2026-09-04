@@ -38,13 +38,22 @@ reads the database.
   React state — so only one variant renders server-side and every view is
   shareable. Officers paste these links at each other; that's the point.
 - **Data comes from `@/lib/data/repo`**, never from `db.ts` or a backend
-  directly. **One exception: identity writes go through `@/lib/auth`.**
+  directly — now enforced by `no-restricted-imports` in `eslint.config.mjs`
+  rather than left to habit. **One exception: identity writes go through
+  `@/lib/auth`.**
   Invites, character claims and the deployment claim have rules that exist in
   exactly one place — hashing a code, one use only, refusing a character
   somebody already holds, all inside a single transaction. Routing them through
   `WriteRepo` would either duplicate those rules or make it a passthrough that
   pretends to own something it doesn't. *Reads* still come through the repo, and
   the read model serves them (`getMembersView`).
+
+  In practice eight governance and tenancy files reach `db.ts` **directly** —
+  accounts, sessions, memberships, ownership, audit and break-glass all sit
+  outside the read model on purpose (`src/lib/data/AGENTS.md`). That set is
+  listed by name in `eslint.config.mjs`, which makes it a pin rather than a
+  hole: a ninth file fails lint until somebody adds it there deliberately.
+  Ordinary guild data never belongs on that list.
 
 ## Result shapes
 

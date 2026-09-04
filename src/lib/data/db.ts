@@ -37,7 +37,7 @@ import {
   type Board,
   type GuildRoster,
 } from "@/lib/analysis/raid-planner";
-import type { StrandedSimSetting } from "@/lib/types";
+import type { AccountRow, StrandedSimSetting } from "@/lib/types";
 import { UPTIME_TRACK_BY_LABEL } from "@/lib/wcl/class-tracks";
 import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { loadSeedStore } from "@/lib/data/seed-data";
@@ -2936,23 +2936,6 @@ export function findOpenBreakGlass(
 /** Close one early. Expiry already handles the forgotten case. */
 export function closeBreakGlass(db: DatabaseSync, id: string, at: string = new Date().toISOString()): boolean {
   return Number(db.prepare("UPDATE break_glass SET closed_at = ? WHERE id = ? AND closed_at IS NULL").run(at, id).changes) > 0;
-}
-
-export interface AccountRow {
-  id: string;
-  discordUsername: string | null;
-  appAdmin: boolean;
-  disabled: boolean;
-  createdAt: string;
-  lastSeenAt: string | null;
-  /** Sessions that could still authenticate right now. */
-  liveSessions: number;
-  /**
-   * How many guilds they belong to. A **count**, deliberately not the guilds
-   * or what they hold in them: an operator administers the tenancy, and which
-   * roles somebody has inside a guild is that guild's business (section 7).
-   */
-  guildCount: number;
 }
 
 /** Every account on this deployment, newest first. Service-level: no guild data. */

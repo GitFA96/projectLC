@@ -1,6 +1,6 @@
 "use server";
 
-import { getWriteRepo } from "@/lib/data/repo";
+import { getRepo, getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
@@ -261,6 +261,10 @@ export async function previewPolicyAction(overrides: PolicyOverrides) {
   // Gated where its siblings are not: this one reads the guild's real numbers
   // back, so it is guild data, not a parse of what the caller just typed.
   requireCapability(await resolveViewer(), "policy.edit");
-  const repo = await getWriteRepo();
+  // A read, through the read repo. `previewGuildPolicy` is on `Repo`, and
+  // asking for the write one anyway made the preview throw outright under
+  // DATA_BACKEND=seed — where `getWriteRepo()` refuses by design — so the
+  // read-only demo could not open a panel that never intended to write.
+  const repo = await getRepo();
   return repo.previewGuildPolicy(overrides);
 }

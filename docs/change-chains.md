@@ -1754,8 +1754,9 @@ forget: it type-checks, it renders, and it is wrong only after the second click.
 `@/lib/data`. Read model in, view model out. Keep it that way; it is why this
 layer is testable without a database.
 
-Every module there has a `.test.ts` beside it except `contention.ts` and
-`fairness.ts`. Match the convention.
+Every module there has a `.test.ts` beside it except `fairness.ts`. Match the
+convention — and `docs.test.ts` fails if this sentence and the exception list in
+`src/lib/analysis/AGENTS.md` stop naming exactly what is untested.
 
 ## 8. Touch the seed backend
 

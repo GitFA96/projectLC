@@ -7,6 +7,10 @@ does not re-derive them or start something that is blocked.
 For work in progress and the identity layer's own sequence, see
 [`guild-and-player-profiles.md`](guild-and-player-profiles.md) §9.
 
+Structural work on the codebase — refactors, coverage, guards, agent tooling —
+is planned in [`improvement-plan.md`](improvement-plan.md); this file stays
+about product decisions.
+
 ---
 
 ## Multi-guild — one deployment, many guilds

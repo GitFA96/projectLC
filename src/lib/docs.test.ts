@@ -90,11 +90,12 @@ describe("src/lib/analysis is pure", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("has a test beside every module, apart from the documented exceptions", () => {
-    // Named in src/lib/analysis/AGENTS.md. Adding a test here should make this
-    // fail — delete the name from both places when it does.
-    const documentedExceptions = ["fairness.ts"];
+  // Named in src/lib/analysis/AGENTS.md and docs/change-chains.md §7. Adding a
+  // test here should make the next two fail — delete the name from all three
+  // places when it does.
+  const documentedExceptions = ["fairness.ts"];
 
+  it("has a test beside every module, apart from the documented exceptions", () => {
     const dir = path.join(root, "src/lib/analysis");
     const untested = readdirSync(dir)
       .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "AGENTS.md")
@@ -106,6 +107,38 @@ describe("src/lib/analysis is pure", () => {
         "the file to documentedExceptions. If you added a test for one of the " +
         "exceptions, remove it here and in src/lib/analysis/AGENTS.md.",
     ).toEqual(documentedExceptions.sort());
+  });
+
+  /*
+   * The prose has to agree with the array, and until now it didn't: both
+   * sentences still named `contention.ts` months after its test was written,
+   * and the test above passed throughout — it pins the array against the
+   * filesystem and never reads the docs that quote it. A reader who trusted
+   * either sentence would have believed a tested module was untested.
+   *
+   * So the sentence itself is the assertion. Each doc says "… except `x.ts`",
+   * and the names it lists must be exactly the ones the array exempts.
+   */
+  it("is described the same way in both docs that name the exceptions", () => {
+    // From "except" to the first period that closes the list. `.ts` inside a
+    // backticked name can't end it, and anything after the period — including
+    // this file's own name — is a different sentence.
+    const listed = (body: string, where: string): string[] => {
+      const sentence = body.match(/except\s+((?:`[\w.-]+\.ts`(?:,\s*|\s+and\s+)?)+)\./);
+      expect(sentence, `${where} no longer says which modules are exempt`).not.toBeNull();
+      return [...sentence![1].matchAll(/`([\w.-]+\.ts)`/g)].map((m) => m[1]).sort();
+    };
+
+    const guide = path.join(root, "src/lib/analysis/AGENTS.md");
+    const chains = path.join(root, "docs/change-chains.md");
+    const want = documentedExceptions.slice().sort();
+    const note =
+      "A doc still names a different set of untested analysis modules than " +
+      "docs.test.ts exempts. Fix the sentence — or, if a module really did lose " +
+      "its test, that is the bug.";
+
+    expect(listed(readFileSync(guide, "utf8"), rel(guide)), note).toEqual(want);
+    expect(listed(readFileSync(chains, "utf8"), rel(chains)), note).toEqual(want);
   });
 });
 

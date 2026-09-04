@@ -2,11 +2,33 @@
   "env": {
     "NODE_TLS_REJECT_UNAUTHORIZED": "1"
   },
+  "permissions": {
+    "//": "Read-only commands only. Every entry here must be incapable of changing a file, the database, the remote or the running server — an agent should never have to ask before looking at something. Anything that writes stays behind a prompt on purpose. The two PreToolUse guards below still run for these, because a hook decides before the permission does.",
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(npm test *)",
+      "Bash(npm run check *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run doctor *)",
+      "Bash(npx vitest run *)",
+      "Bash(npx tsc --noEmit *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-live-db.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking the live database is untouched"
+          },
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-dev-server.mjs\"",

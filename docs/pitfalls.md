@@ -23,7 +23,7 @@ that was always wrong. Only the code is authoritative.
 ## 2. When `docs.test.ts` fails, do not "fix" it by editing the expected list.
 
 The guards in `src/lib/docs.test.ts` assert exact sets — three pricing call
-sites, two untested analysis modules. A legitimate new call site makes that test
+sites, one untested analysis module. A legitimate new call site makes that test
 red, and the reflex is to add the file to the array and move on.
 
 **That silences the alarm instead of answering it.** A red guard means one of:

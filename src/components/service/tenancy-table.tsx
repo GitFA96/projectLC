@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { AccountRow } from "@/lib/data/db";
+import type { AccountRow } from "@/lib/types";
 
 /**
  * Every account on this deployment, and the two levers that matter.
