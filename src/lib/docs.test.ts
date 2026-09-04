@@ -143,9 +143,11 @@ describe("src/lib/analysis is pure", () => {
 });
 
 describe("consumable gold is priced in exactly the documented places", () => {
-  // docs/change-chains.md §5: these three must agree, and nothing but a test
-  // notices when they stop agreeing. A fourth call site means the chain in that
-  // doc is now wrong — update it, then update this list.
+  // docs/change-chains.md §5: these three must agree. `pricing-agreement.test.ts`
+  // is the test that checks they do — it runs one raid night through all three
+  // and compares. This one only counts them, which is the other half: a fourth
+  // site would not be in that comparison at all, so the chain in that doc is
+  // wrong the moment this list is. Update the doc, then update this list.
   //
   // All three are in src/lib now. The raid-night one was inside logs/page.tsx
   // until B3 moved it to analysis/raid-gold.ts, which is what makes A4 — one

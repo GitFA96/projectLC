@@ -842,8 +842,21 @@ where somebody is while the trend says where they are heading.
 They each independently build a `costPerUseMap` and apply
 `adjustmentsFor`/`applyAdjustments`. That duplication is deliberate (different
 inputs, different scopes) but it means a rule added to one makes **the same raid
-night read two different ways** on the raid page and the career page. Nothing
-catches this but a test that compares them.
+night read two different ways** on the raid page and the career page.
+
+`src/lib/analysis/pricing-agreement.test.ts` is the test that compares them: one
+raid night — on-pull, off-pull and a pet record — through all three, with and
+without an officer's corrections. Breaking any one of the three turns it red.
+**Two differences are deliberate and asserted there rather than fixed:**
+
+- `goldPerRaid` prices at **defaults**, ignoring a raid's own overrides, so a
+  column of raiders stays comparable when one of their nights was priced by hand.
+- `goldPerRaid` takes the raid span from **the raider's own pulls**, because it
+  is handed rows and no report. A raider present all night agrees with the other
+  two exactly; one who turned up for the last boss is charged for the time they
+  were there rather than the whole night, and timed buffs re-buy accordingly.
+  Right for "what does a night cost *this* raider", wrong for "what did tonight
+  cost" — which is why the raid page does not use it.
 
 **Two of the three read the same rows; all three must read the same *set* of
 them.** A consumable used away from a boss pull has no fight row and arrives as
