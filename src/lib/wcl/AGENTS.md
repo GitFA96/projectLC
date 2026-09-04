@@ -2,7 +2,8 @@
 
 ```
 client.ts        OAuth + GraphQL transport
-fetch-report.ts  the queries — and the server-side event filter
+fetch-report.ts  the queries, and which streams are asked for
+event-filters.ts the server-side filter expressions, built from the lists below
 normalize.ts     raw JSON → the rows we persist (pure)
 consumables.ts   curated consumable knowledge (ids, aura names, categories)
 class-tracks.ts  curated cooldowns / uptime auras / totem casts
@@ -17,9 +18,10 @@ consumable-prices.ts, enchants.ts, fight-graph.ts
 **Everything is derived at import time.** Pages never call Warcraft Logs. What
 a report can show is fixed by the code that existed when it was fetched.
 
-`fetch-report.ts` asks WCL to filter events **server-side** by the curated id
-and name lists. A report fetched before you added an id simply does not contain
-those events. So:
+`event-filters.ts` builds the expressions that ask WCL to filter events
+**server-side** by the curated id and name lists, and `fetch-report.ts` sends
+them. A report fetched before you added an id simply does not contain those
+events. So:
 
 > Adding a spell id without re-importing is a no-op that reviews as correct,
 > passes CI, and reports zero uses forever.

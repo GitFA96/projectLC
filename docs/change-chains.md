@@ -17,8 +17,9 @@ column, read the chain before you start.
 **Chain:** `src/lib/wcl/consumables.ts` (or `class-tracks.ts`) → `src/lib/wcl/normalize.ts`
 → **re-import every report**.
 
-The events fetch is filtered *server-side by Warcraft Logs*. `fetch-report.ts`
-builds a filter expression out of the curated id/name lists:
+The events fetch is filtered *server-side by Warcraft Logs*.
+`src/lib/wcl/event-filters.ts` builds a filter expression out of the curated
+id/name lists, and `fetch-report.ts` sends it:
 
 ```
 ability.id IN (TRACKED_CAST_IDS ∪ SCROLL_CAST_IDS ∪ COOLDOWN_CAST_IDS)
@@ -53,8 +54,8 @@ straight, that is a fury warrior with 98% uptime and a protection warrior who
 never sundered.
 
 The repair is the cast stream, and it has three parts that must move together:
-a track names its `appliedBy` casts (`class-tracks.ts`), `fetch-report.ts` puts
-those names in the **casts** filter, and `normalize.ts` matches each aura event
+a track names its `appliedBy` casts (`class-tracks.ts`), `CASTS_FILTER` puts
+those names in the **casts** expression, and `normalize.ts` matches each aura event
 to the nearest such cast on that target — every one of 1900 events across three
 reports sits within 3ms of one. Miss the fetch step and the matcher silently
 finds nothing and falls back to the log's own attribution, which is the bug it

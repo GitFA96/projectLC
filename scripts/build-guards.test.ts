@@ -1,0 +1,122 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { FRAMEWORK, prerenderReport, prerenderedRoutes } from "./prerender-checks.mjs";
+import { findDatabases, isDatabaseFile, leftoverReport } from "./standalone-checks.mjs";
+
+/**
+ * The two guards `npm run build` adds to `next build`.
+ *
+ * Both exist because the mistake they catch is silent and was shipped once, and
+ * both run only at build time — so nothing else in the suite ever exercises
+ * them, and a guard that has quietly stopped working looks exactly like a build
+ * with nothing wrong. That is the same argument `doctor.test.ts` makes for the
+ * doctor, and these are split the same way: a pure module the tests can call
+ * and a CLI that reads the filesystem and exits.
+ *
+ * The direction that matters in both is the **false clean**. A guard that
+ * wrongly fails a good build is an hour of confusion; a guard that wrongly
+ * passes a bad one puts the roster on the public internet, or the guild's
+ * database in a registry.
+ */
+
+describe("prerender guard", () => {
+  /** What Next writes for an app where every route is dynamic. */
+  const clean = { routes: {}, dynamicRoutes: {}, notFoundRoutes: [] };
+
+  it("passes a fully dynamic build", () => {
+    expect(prerenderedRoutes(clean)).toEqual([]);
+    expect(prerenderReport(prerenderedRoutes(clean))).toBe("");
+  });
+
+  it("fails the day force-dynamic went missing", () => {
+    // 30 Aug 2026: fourteen capability-gated routes turned static in a
+    // container build, /roster among them.
+    const leaked = { routes: { "/roster": {}, "/loot": {}, "/guild": {} } };
+    expect(prerenderedRoutes(leaked)).toEqual(["/roster", "/loot", "/guild"]);
+    const report = prerenderReport(prerenderedRoutes(leaked));
+    expect(report).toMatch(/Refusing to ship prerendered pages/);
+    // The route is named. A guard that says only "something is wrong" gets
+    // read as flaky and turned off.
+    expect(report).toContain("/roster");
+    // And it says where to look, because the fix is one line in one file.
+    expect(report).toContain("force-dynamic");
+  });
+
+  it("ignores the framework's own prerenders and nothing else", () => {
+    const manifest = { routes: Object.fromEntries([...FRAMEWORK].map((r) => [r, {}])) };
+    expect(prerenderedRoutes(manifest)).toEqual([]);
+
+    // A route that merely looks framework-ish is still a page.
+    expect(prerenderedRoutes({ routes: { "/_not-found/roster": {} } })).toEqual([
+      "/_not-found/roster",
+    ]);
+  });
+
+  it("treats a manifest with no routes key as nothing prerendered", () => {
+    // Next writes this shape for some builds. It is a clean bill of health —
+    // unlike a manifest that could not be read at all, which the CLI refuses
+    // on, because "I could not check" must never look like "I checked".
+    expect(prerenderedRoutes({})).toEqual([]);
+    expect(prerenderedRoutes(undefined as never)).toEqual([]);
+  });
+});
+
+describe("standalone database guard", () => {
+  /** A fake artifact tree: files at the given relative paths, all empty. */
+  function tree(...files: string[]): string {
+    const root = mkdtempSync(path.join(tmpdir(), "projectlc-standalone-"));
+    for (const f of files) {
+      const full = path.join(root, f);
+      mkdirSync(path.dirname(full), { recursive: true });
+      writeFileSync(full, "");
+    }
+    return root;
+  }
+
+  it("passes an artifact that carries no database", async () => {
+    const root = tree("server.js", "package.json", ".next/server/app/page.js");
+    expect(await findDatabases(root)).toEqual([]);
+    expect(leftoverReport([])).toBe("");
+  });
+
+  it("finds a database however deep the tracer buried it", async () => {
+    const root = tree("server.js", "data/projectlc.db");
+    expect((await findDatabases(root)).map((f) => path.basename(f))).toEqual(["projectlc.db"]);
+
+    const nested = tree("node_modules/whatever/fixtures/projectlc.db");
+    expect(await findDatabases(nested)).toHaveLength(1);
+  });
+
+  it("counts the WAL and the shared-memory file as guild data", async () => {
+    // Both directions are real. A WAL holds the newest writes, so shipping one
+    // without its .db still ships raid nights; shipping a .db without its WAL
+    // ships a stale copy, which is the worse of the two because it looks fine.
+    const root = tree("data/projectlc.db-wal", "data/projectlc.db-shm");
+    expect(await findDatabases(root)).toHaveLength(2);
+
+    for (const name of ["projectlc.db", "x.db-wal", "x.db-shm", "some.other.db"]) {
+      expect(isDatabaseFile(name), name).toBe(true);
+    }
+    // Not databases, and a guard that failed on these would be turned off.
+    for (const name of ["db", "readme.dbx", "index.db.js", "notes.mdb"]) {
+      expect(isDatabaseFile(name), name).toBe(false);
+    }
+  });
+
+  it("keeps searching past a directory it cannot read", async () => {
+    // The tree is generated by Next, and one odd corner of it must not stop the
+    // search reaching a database in another.
+    const root = tree("a/projectlc.db");
+    expect(await findDatabases(path.join(root, "does-not-exist"))).toEqual([]);
+    expect(await findDatabases(root)).toHaveLength(1);
+  });
+
+  it("names every file it found, because the question is what put it there", async () => {
+    const report = leftoverReport(["out/data/projectlc.db", "out/data/projectlc.db-wal"]);
+    expect(report).toMatch(/Refusing to leave a database/);
+    expect(report).toContain("projectlc.db-wal");
+    expect(report).toMatch(/registry/);
+  });
+});

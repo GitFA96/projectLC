@@ -173,17 +173,28 @@ describe("consumable gold is priced in exactly the documented places", () => {
 describe("the WCL event filter is built from the curated lists", () => {
   // docs/change-chains.md §1 — the reason adding a spell id without re-importing
   // is a silent no-op. If this stops being true, that chain needs rewriting.
-  it("filters server-side by the tracked id and name lists", () => {
+  //
+  // This used to grep the fetch for the names of the curated lists, which is a
+  // weaker claim than it looks: an import left behind by a refactor passes it
+  // while feeding nothing. The lists now build the expression in
+  // `event-filters.ts`, and `event-filters.test.ts` checks that every one of
+  // them reaches the built string. All this has to hold is that the fetch is
+  // still the thing sending it.
+  it("sends the built filters rather than assembling its own", () => {
     const src = readFileSync(path.join(root, "src/lib/wcl/fetch-report.ts"), "utf8");
-    for (const list of [
-      "TRACKED_CAST_IDS",
-      "SCROLL_CAST_IDS",
-      "COOLDOWN_CAST_IDS",
-      "SAPPER_CAST_NAMES",
-      "SHAMAN_TOTEM_CASTS",
-    ]) {
-      expect(src, `${list} no longer feeds the server-side event filter`).toContain(list);
+    expect(src, "fetch-report.ts no longer imports the event filters").toContain(
+      '@/lib/wcl/event-filters"',
+    );
+    for (const filter of ["CASTS_FILTER", "DEBUFFS_FILTER", "BUFFS_FILTER"]) {
+      expect(src, `${filter} is no longer sent by any fetch`).toContain(filter);
     }
+    // A hand-built expression beside them would be the drift this splits to
+    // prevent: two places to update and only one that anybody tests.
+    expect(
+      src,
+      "a filterExpression is being assembled in fetch-report.ts again — build it in " +
+        "event-filters.ts, where the curated lists can be checked against it",
+    ).not.toMatch(/ability\.(id|name) IN/);
   });
 
   // The inverse claim, and it is load-bearing the other way: docs/change-chains.md

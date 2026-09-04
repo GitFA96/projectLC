@@ -1,23 +1,5 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
-import {
-  ELIXIR_BUFF_IDS,
-  ELIXIR_BUFF_NAMES,
-  FLASK_BUFF_IDS,
-  PET_BUFF_IDS,
-  SAPPER_CAST_NAMES,
-  SCROLL_BUFF_IDS,
-  SCROLL_CAST_IDS,
-  TRACKED_CAST_IDS,
-} from "@/lib/wcl/consumables";
-
-
-import {
-  APPLY_CAST_NAMES,
-  BUFF_TRACK_NAMES,
-  COOLDOWN_CAST_IDS,
-  DEBUFF_TRACK_NAMES,
-  SHAMAN_TOTEM_CASTS,
-} from "@/lib/wcl/class-tracks";
+import { BUFFS_FILTER, CASTS_FILTER, DEBUFFS_FILTER } from "@/lib/wcl/event-filters";
 import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 
 /**
@@ -173,8 +155,6 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
    */
   const bossFightIds = ((rawReport as { fights?: { id: number }[] }).fights ?? []).map((f) => f.id);
 
-  // Upkeep tracks match by ability NAME so one entry covers every spell rank.
-  const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
   const softWarnings: string[] = [];
   const soft = (label: string, p: Promise<unknown[]>): Promise<unknown[]> =>
     p.catch((e) => {
@@ -186,42 +166,17 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
     await Promise.all([
     fetchAllEvents(code, "CombatantInfo", reportDuration),
     fetchAllEvents(code, "Deaths", reportDuration),
-    fetchAllEvents(
-      code,
-      "Casts",
-      reportDuration,
-      // Sappers and totems are matched by name — one entry covers every rank.
-      // Scrolls ride along so a hunter buffing their PET is visible; a raider
-      // scrolling themselves is already read off the auras at the pull.
-      // APPLY_CAST_NAMES rides along too: for a shared debuff the cast stream
-      // is the only record of who actually cast it (UptimeTrack.appliedBy).
-      `ability.id IN (${[...TRACKED_CAST_IDS, ...SCROLL_CAST_IDS, ...COOLDOWN_CAST_IDS].join(", ")}) OR ability.name IN (${quoted([...SAPPER_CAST_NAMES, ...SHAMAN_TOTEM_CASTS, ...APPLY_CAST_NAMES])})`,
-    ),
+    // Which lists feed this, and why each is in it, is on event-filters.ts.
+    fetchAllEvents(code, "Casts", reportDuration, CASTS_FILTER),
     soft(
       "Debuff-uptime tracking (curses, Thunder Clap…)",
-      fetchAllEvents(code, "Debuffs", reportDuration, `ability.name IN (${quoted(DEBUFF_TRACK_NAMES)})`, "Enemies"),
+      fetchAllEvents(code, "Debuffs", reportDuration, DEBUFFS_FILTER, "Enemies"),
     ),
     soft(
       "Buff-uptime tracking (shouts, totems, Innervate)",
-      // The flask ids ride along because Warcraft Logs leaves those flasks out
-      // of the pull's combatantinfo snapshot — the buff stream is the only
-      // place they exist. See FLASK_BUFF_IDS.
-      //
-      // The scroll and pet-food ids are here for the same reason, one step
-      // further out: there is no combatantinfo for a PET at all, so a pet's own
-      // aura stream is the only place its consumables exist. See
-      // SCROLL_BUFF_IDS and PET_BUFF_IDS.
-      //
-      // The elixirs ride along for a third reason again: the snapshot is taken
-      // when the pull STARTS, so one drunk mid-pull is in no snapshot at all.
-      // See ELIXIR_BUFF_IDS.
-      fetchAllEvents(
-        code,
-        "Buffs",
-        reportDuration,
-        `ability.name IN (${quoted([...BUFF_TRACK_NAMES, ...ELIXIR_BUFF_NAMES])}) OR ability.id IN (${[...FLASK_BUFF_IDS.keys(), ...SCROLL_BUFF_IDS.keys(), ...PET_BUFF_IDS.keys(), ...ELIXIR_BUFF_IDS.keys()].join(", ")})`,
-      ),
-
+      // Four id sets ride along with the names here, each because no snapshot
+      // carries them — event-filters.ts says which and why.
+      fetchAllEvents(code, "Buffs", reportDuration, BUFFS_FILTER),
     ),
     soft(
       "Dispel tracking (decurses, cleanses, purges)",

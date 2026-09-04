@@ -1,8 +1,8 @@
 # Improvement plan — structure, tests, and working with agents
 
 > **Status: proposed 2026-09-03. Phase 0 done and phase 1 under way, 2026-09-04.**
-> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2 and A3
-> followed.
+> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, then
+> B7 and C4 followed. Only the agent tooling (E1, E2) is left in phase 1.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
 > 2026-09-04 and will drift again — re-measure before quoting one.
@@ -80,18 +80,18 @@ Where the risk concentrates, and which doc owns each:
 Everything above is already documented. What §2 records is which of those
 rules have a check behind them and which are still only sentences.
 
-## 2. Findings — measured 2026-09-03, re-measured 2026-09-04 after phase 0
+## 2. Findings — measured 2026-09-03, re-measured 2026-09-04 after phase 1
 
 | Measure | Value |
 |---|---|
-| Source modules (`.ts`/`.tsx`, non-test) | 320 files, ~82k lines |
-| Test files / tests / wall time | 97 / 1864 / 22 s, all green (was 94 / 1831) |
+| Source modules (`.ts`/`.tsx`, non-test) | 321 files, ~83k lines |
+| Test files / tests / wall time | 101 / 2009 / 24 s, all green (was 94 / 1831 when this began) |
 | Typecheck (`tsc --noEmit`) | 12 s, clean — `npm run typecheck`, and `npm run check` with the tests |
 | Lint | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~20 s cold, ~2 s cached |
-| Column migrations (`addColumn` lines in `migrate()`) | 44, plus 8 table-rebuild or repair migrations |
-| Migration regression tests | 5 |
+| Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
+| Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `db.ts` 3971 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `types.ts` 1674 · `import-tabs.tsx` 1584 · `preparedness-table.tsx` 1509 · `raid-planner.ts` 1472 |
+| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `types.ts` 1701 · `import-tabs.tsx` 1584 · `preparedness-table.tsx` 1509 · `raid-planner.ts` 1472 |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -110,7 +110,7 @@ build while `:3000` answers unless it is sent to `.next-build`. And the
 **"except …" sentences** in `analysis/AGENTS.md` and chains §7 must now name
 exactly what `docs.test.ts` exempts — the drift below is what motivated it.
 
-Phase 1 has since added three more, each proven by breaking it on purpose.
+Phase 1 has since added seven more, each proven by breaking it on purpose.
 **Layer boundaries** are `no-restricted-imports` rules in `eslint.config.mjs`,
 so a violation fails in the editor rather than at test time (A5). **Every server
 action** must reach a capability check and, if it writes, a
@@ -120,14 +120,22 @@ action** must reach a capability check and, if it writes, a
 guild's standing, contention order, loot plan and dashboard, so a change to who
 ranks first shows up as a sentence in a diff (A7).
 
+Then the data layer. **Every `WriteRepo` method** is called and watched for the
+`data_version` bump, with the five board writes asserted in the other direction,
+and a new writer fails until it is listed either way (A2). **Every column
+migration** is walked against a database built without that column, and the
+columns no migration covers are pinned in a snapshot, so adding one to `SCHEMA`
+alone shows up in review (A3). **The WCL filter expressions** moved out of the
+fetch into `event-filters.ts`, where each curated list can be checked against the
+string that is actually sent (B7). And the **two build guards** are split into a
+pure half and a CLI, tested against a fake manifest and a fake artifact tree (C4).
+
 **Still prose only.**
 
-- **Invariant 3, per method.** `data/AGENTS.md` says "copy a neighbour". Five
-  writers skip the bump on purpose (the raid, template and guild-roster
-  boards) and nothing pins which five.
 - **The three pricing sites agreeing.** Chains §5 says "nothing catches this
   but a test that compares them". There is no such test — `comparison.test.ts`,
   `season.test.ts` and `raid-report.test.ts` each exercise one site alone.
+  This is A4, and it waits on B3.
 
 **Logic living where tests cannot reach it.**
 
@@ -138,8 +146,10 @@ ranks first shows up as a sentence in a diff (A7).
 - `components/logs/gold-table.tsx` holds the saved-versus-pending ordering rule
   chains §3 spends four paragraphs on, plus `countChanges` and `groupLines`.
 - `components/logs/preparedness-table.tsx` holds a module-level scale store.
-- `src/lib/wcl/fetch-report.ts` builds the server-side filter expression
-  inline; `docs.test.ts` can only grep for the list names.
+- ~~`src/lib/wcl/fetch-report.ts` builds the server-side filter expression
+  inline; `docs.test.ts` can only grep for the list names.~~ **Fixed (B7):**
+  the expressions moved to `event-filters.ts` and are asserted against the
+  curated lists themselves.
 
 **Doc drift, found and fixed (A8).** Chains §7 said every analysis module has a
 test "except `contention.ts` and `fairness.ts`" — `contention.test.ts` had
@@ -424,7 +434,7 @@ change that added this file.
 | Phase | Items | What it buys |
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
-| 1 — invariants into checks | A2, A3, A5, A6, A7 **done**; B7, C4, E1 (`preflight`, `real-data-check`, `probe-wcl`), E2 open | every rule in §1 has something red behind it before anything is moved |
+| 1 — invariants into checks | A2, A3, A5, A6, A7, B7, C4 **done**; E1 (`preflight`, `real-data-check`, `probe-wcl`) and E2 open | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | B1, B3 → A4, B6, C1, C2, E1 (the rest), E3 | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
@@ -467,11 +477,11 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
 | B5 | Decompose `createRepoFromStore` | open | after A7, C1 |
 | B6 | Client components | open | |
-| B7 | Filter builder | open | |
+| B7 | Filter builder | done | `src/lib/wcl/event-filters.ts` — `buildEventFilter` plus `CASTS_FILTER`/`DEBUFFS_FILTER`/`BUFFS_FILTER` and `UNFILTERED_ON_PURPOSE`, which names the three streams that stay unfiltered and why. An empty curated list now throws at import instead of silently matching nothing. `docs.test.ts` asserts the fetch sends the built filters and assembles none of its own; the list-by-list checks moved to `event-filters.test.ts`, which reads the built string |
 | C1 | Coverage, reported then gated | open | |
 | C2 | Tests for untested pure modules | open | one module per unit |
 | C3 | `use-unsaved-guard` behaviour test | open | optional |
-| C4 | Build-guard tests | open | |
+| C4 | Build-guard tests | done | split into `prerender-checks.mjs` and `standalone-checks.mjs` plus their CLIs, tested by `scripts/build-guards.test.ts` against a fake manifest and a fake standalone tree. Both CLIs were also exercised end to end on throwaway dist directories |
 | C5 | Developer experience | done | `vitest.setup.ts` silences the SQLite warning; `typecheck` and `check` scripts; cached lint (~20 s → ~2 s) |
 | D1 | PR template, branch protection | done | template written; `main` requires the `test` and `image` jobs, blocks force-pushes and deletion, and leaves `enforce_admins` **off** — a solo maintainer's direct pushes still work, and a required check cannot pass on a commit that does not exist yet. Tighten to `enforce_admins: true` if the work ever moves to PRs |
 | D2 | Tags | open | human |
