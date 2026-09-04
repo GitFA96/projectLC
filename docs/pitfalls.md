@@ -68,19 +68,24 @@ nothing fails. The same is true of aura *names*, which are matched as strings.
 > Nothing in `wcl/consumables.ts` or `wcl/class-tracks.ts` is unused. Removing an
 > entry is a product decision, not a cleanup.
 
-## 5. The test suite has one known blind spot, and it's the expensive one.
+## 5. The test suite builds every database from scratch. The user's is years old.
 
-Tests build throwaway databases from scratch, so a schema change that works on a
-fresh database passes everything — while breaking the user's real
-`data/projectlc.db`, the only copy of their guild's history.
+Tests create throwaway databases from `SCHEMA`, so a schema change that works on
+a fresh database passes everything — while breaking the real
+`data/projectlc.db`, the only copy of the guild's history.
 
-There *are* migration regression tests (they open a database, strip a column, and
-re-boot), but only for a couple of the many `addColumn` migrations. **The pattern
-exists; the discipline is per-column.** Most migrations have no test.
+**Columns are covered now.** `migrations.test.ts` walks `COLUMN_MIGRATIONS`,
+building a database missing each column in turn and checking that opening the
+repo puts it back shaped the way `SCHEMA` declares it, and pins the columns no
+migration covers so that adding one to `SCHEMA` alone fails in review. It found
+`fight_start_ms`, which `migrate()` added and `SCHEMA` had never declared.
 
-If you add or change a column, write the matching migration test. Copy
-`"migrates a database created before the external column existed"` in
-`sqlite-repo.test.ts`. A green suite is not evidence your migration works.
+**A migration that moves values is still on you**, and it is the larger half. A
+table rebuild, a repair or a backfill can only be tested by building the state
+it exists to fix, which no walk can do. Every one of them has a case today —
+`migrations.test.ts` for five, `sqlite-repo.test.ts` for four — so write yours
+the same way, by hand, and remember what a walk could never have checked
+anyway: that the backfill put the *right* value in the column it filled.
 
 ## 6. Mechanical refactors destroy the most valuable thing in this repo.
 

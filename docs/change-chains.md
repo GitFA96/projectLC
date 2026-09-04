@@ -359,9 +359,15 @@ string only runs for a **fresh** database, so:
 
 - a new column added to the `CREATE TABLE` block works perfectly in tests and on
   a new install, and throws on the user's existing `data/projectlc.db`;
-- every column added after the first release needs an `addColumn(table, column, ddl)`
-  line in `migrate()` as well — that helper is idempotent and is the only path
-  that reaches an existing database.
+- every column added after the first release needs an entry in
+  `COLUMN_MIGRATIONS` as well — that list is what `migrate()` walks, and it is
+  the only path that reaches an existing database. `migrations.test.ts` fails
+  until the entry is there, and fails again if the entry and the `CREATE TABLE`
+  disagree about the type, the NOT NULL or the DEFAULT.
+- a column on the `items` table goes in `POST_REBUILD_COLUMN_MIGRATIONS`
+  instead, for the reason written on that list: the `items_relaxed` rebuild
+  copies a fixed set of columns, so anything created before it runs is dropped
+  again on exactly the databases old enough to need it.
 
 Changing a **primary key or constraint** cannot be done with `addColumn`; SQLite
 needs a table rebuild (create new → copy → drop → rename). There are worked

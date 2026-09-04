@@ -1,7 +1,8 @@
 # Improvement plan — structure, tests, and working with agents
 
 > **Status: proposed 2026-09-03. Phase 0 done and phase 1 under way, 2026-09-04.**
-> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2 followed.
+> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2 and A3
+> followed.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
 > 2026-09-04 and will drift again — re-measure before quoting one.
@@ -423,7 +424,7 @@ change that added this file.
 | Phase | Items | What it buys |
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
-| 1 — invariants into checks | A2, A5, A6, A7 **done**; A3, B7, C4, E1 (`preflight`, `real-data-check`, `probe-wcl`), E2 open | every rule in §1 has something red behind it before anything is moved |
+| 1 — invariants into checks | A2, A3, A5, A6, A7 **done**; B7, C4, E1 (`preflight`, `real-data-check`, `probe-wcl`), E2 open | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | B1, B3 → A4, B6, C1, C2, E1 (the rest), E3 | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
@@ -454,14 +455,14 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 |---|---|---|---|
 | A1 | Live-database guard hook | done | `guard-live-db.mjs` + `guard-checks.mjs` (pure) + `hook-io.mjs`; bare `next build` and build-while-serving added to the dev-server guard; 25 tests |
 | A2 | Write-contract test | done | `src/lib/data/write-contract.test.ts` — a case per `WriteRepo` method, plus a reflective parse of the interface so a new writer fails until it is listed. The five board writes are asserted **not** to bump, each proving its write landed first. Eight methods (`setReportPayback`, the three roster writes, `setSimProfile`, `addAbilities`, `addEnchantNames`, `harvestItemCache`) had no test call anywhere before this |
-| A3 | Migration walk | open | |
+| A3 | Migration walk | done | `COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS` in `db.ts`, walked by `migrations.test.ts` (43 entries, not the 44 §4 guessed). No skip list was needed — `DROP COLUMN` refuses three of them only because a block comment sits in front of the table’s last column, so the harness strips comments rather than skipping. Found and fixed real drift: `fight_start_ms` was in `migrate()` and never in `SCHEMA`. The completeness half is a pinned baseline of the columns no migration covers, so both adding one to `SCHEMA` alone and deleting a list entry show up in that diff. The nine rebuild/repair migrations were measured by neutering each call and running the suite: four were covered, five were not, and the five now have hand-written cases — including the ambiguity guard in `promoteSimSettingsToProfiles`, which the first fixture tripped by accident |
 | A4 | Pricing-agreement test | open | after B3 |
 | A5 | Layer boundaries as lint | done | analysis, components and app each get their own rule and message; `AccountRow` moved to `types.ts`; the eight governance files that legitimately reach `db.ts` are pinned by name |
 | A6 | Action-shape test | done | follows calls transitively; six actions deliberately check no capability, each with its argument. Found a real bug: `previewPolicyAction` took a **write** repo for a pure read, so the policy preview threw under `DATA_BACKEND=seed` |
 | A7 | Golden verdicts | done | `src/lib/__snapshots__/golden-verdicts.md`. Standing uses `roster.minRaids: 1`, stated on the page: the seed ships one raid night and the real default of 3 places nobody |
 | A8 | Doc truth | done | both sentences fixed; `docs.test.ts` now parses them and fails on the drift that had gone unnoticed for months |
 | B1 | Split `types.ts` | open | |
-| B2 | Split `db.ts` | open | after A3 |
+| B2 | Split `db.ts` | open | unblocked — A3 done |
 | B3 | Page logic into the library | open | after A7 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
 | B5 | Decompose `createRepoFromStore` | open | after A7, C1 |

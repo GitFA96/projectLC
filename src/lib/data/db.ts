@@ -83,7 +83,18 @@ import { compareText } from "@/lib/sort";
  * A fresh database is seeded from src/data/seed — delete the file to reset.
  */
 
-const SCHEMA = `
+/**
+ * What a fresh database is created with, run on every boot.
+ *
+ * Every statement is `IF NOT EXISTS`, so this is also what gives an existing
+ * database any table or index added since it was made. Columns are the
+ * exception and need `COLUMN_MIGRATIONS` as well — see the comment there.
+ *
+ * Exported for `migrations.test.ts`, which builds databases missing one column
+ * each and checks that opening the repo puts them back exactly as declared
+ * here. Nothing else outside this file has any business reading it.
+ */
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -427,6 +438,10 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   kill                  INTEGER NOT NULL,
   fight_percentage      REAL,
   duration_ms           INTEGER NOT NULL,
+  -- Pull start, in the report's own millisecond clock. Optional: reports
+  -- imported before it was fetched have none, and the timeline says so rather
+  -- than drawing them at zero.
+  fight_start_ms        INTEGER,
   actor_name            TEXT NOT NULL,
   character_id          TEXT,
   class_name            TEXT,
@@ -816,102 +831,134 @@ function migrateClassGuidesToGuides(db: DatabaseSync): void {
 }
 
 /** Additive migrations for databases created by earlier versions of the schema. */
+/**
+ * One column added to a table after that table shipped.
+ *
+ * A new column has to go in two places: the `CREATE TABLE` in `SCHEMA`, which
+ * is what a fresh database gets, and an entry here, which is what every
+ * database that already exists gets. Miss the second and it works everywhere
+ * except on the user's real data — the one failure mode a from-scratch suite
+ * is blind to. A whole new *table* needs neither: `SCHEMA` is all
+ * `CREATE TABLE IF NOT EXISTS` and runs on every boot.
+ *
+ * These are a list rather than a run of calls so `migrations.test.ts` can walk
+ * them — build a database without the column, open the repo, and check the
+ * column came back looking exactly the way `SCHEMA` declares it. That test also
+ * pins which columns *aren't* here, so adding one to `SCHEMA` and forgetting
+ * the entry fails rather than waiting for the user to find it.
+ *
+ * **The order is history. Do not rearrange it**, and read
+ * `POST_REBUILD_COLUMN_MIGRATIONS` before adding to the end of this one.
+ */
+export interface ColumnMigration {
+  table: string;
+  column: string;
+  /** Everything after the name in `ALTER TABLE <table> ADD COLUMN <column> …`. */
+  type: string;
+}
+
+export const COLUMN_MIGRATIONS: ColumnMigration[] = [
+  { table: "guild", column: "visibility", type: "TEXT NOT NULL DEFAULT 'private'" },
+  { table: "guild", column: "succession_admin_days", type: "INTEGER" },
+  { table: "guild", column: "succession_member_days", type: "INTEGER" },
+  { table: "loot_awards", column: "external", type: "INTEGER NOT NULL DEFAULT 0" },
+  { table: "wcl_player_fights", column: "scrolls_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "other_casts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "extras_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "cooldowns_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "cast_times_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "upkeep_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "gear_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "talents_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "characters", column: "main_character_id", type: "TEXT" },
+  // Every existing character starts unclaimed, which is the honest backfill:
+  // nothing recorded who plays what, and nothing can now.
+  { table: "characters", column: "membership_id", type: "TEXT" },
+  { table: "characters", column: "off_spec", type: "TEXT" },
+  { table: "characters", column: "off_spec_role", type: "TEXT" },
+  // Existing characters backfill to "unknown", which is what an empty list
+  // means everywhere it is read — the roster never recorded this before.
+  { table: "characters", column: "professions_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "sappers", type: "INTEGER NOT NULL DEFAULT 0" },
+  { table: "wcl_player_fights", column: "late_consumables_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "fight_start_ms", type: "INTEGER" },
+  { table: "wcl_player_fights", column: "prepot_label", type: "TEXT" },
+  { table: "wcl_player_fights", column: "death_times_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "boss_parse_percent", type: "REAL" },
+  { table: "wcl_player_fights", column: "boss_amount", type: "REAL" },
+  { table: "wcl_player_fights", column: "dispels_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "interrupts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_offpull", column: "trash_interrupts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_offpull", column: "trash_dispels_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_offpull", column: "pet_buffs_seen_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_reports", column: "upkeep_tracks_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_reports", column: "enemy_casts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  // Reports imported before this get an empty list, which is honest: the dump
+  // was computed and shown at the time, and nothing kept it. It is not the same
+  // as "this night had no unknown auras", so readers say "not recorded" rather
+  // than "none" — the same distinction upkeep_tracks_json exists to make.
+  { table: "wcl_reports", column: "unclassified_auras_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  // The feedback table shipped with only bug reports. Existing rows were filed
+  // as bugs and the DEFAULT says so, so the backfill is the default itself.
+  { table: "feedback", column: "kind", type: "TEXT NOT NULL DEFAULT 'bug'" },
+  // Triage. Everything filed before these existed is untriaged, which is what
+  // the default says — no backfill can invent a judgement nobody made.
+  { table: "feedback", column: "priority", type: "TEXT NOT NULL DEFAULT 'unset'" },
+  { table: "feedback", column: "admin_note", type: "TEXT" },
+  // Notes written before anyone signed them keep no author, which is honest:
+  // nothing recorded who wrote them and nothing can now.
+  { table: "feedback", column: "admin_note_author", type: "TEXT" },
+  { table: "feedback", column: "admin_note_at", type: "TEXT" },
+  // Reports closed before this stay unsigned, and no backfill can fix that:
+  // nothing recorded who closed them or when. NULL says exactly that, which is
+  // the honest answer for a tool whose point is decisions you can defend later.
+  { table: "feedback", column: "resolved_by", type: "TEXT" },
+  { table: "feedback", column: "resolved_at", type: "TEXT" },
+  // Awards made before this shipped have no snapshot, and cannot gain one: the
+  // policy that produced them is gone. NULL says exactly that.
+  { table: "loot_awards", column: "decision_json", type: "TEXT" },
+];
+
+/**
+ * Columns that must be added **after** `relaxItemColumns`, not with the block
+ * above.
+ *
+ * That rebuild copies a fixed list of columns into a new `items` table, so a
+ * column added to `items` before it runs is created and then silently dropped —
+ * on exactly the databases old enough to need the rebuild, and nowhere else.
+ * The list is separate rather than a comment in the middle of one list because
+ * the split is the thing that has to survive somebody tidying up.
+ */
+export const POST_REBUILD_COLUMN_MIGRATIONS: ColumnMigration[] = [
+  { table: "items", column: "armor_token", type: "INTEGER" },
+  // Every row confirmed before the phase was read off Wowhead's answer is
+  // unchecked, which is what the default says: they get one more lookup each,
+  // once, and are never asked again whether or not a phase came back.
+  { table: "items", column: "phase_checked", type: "INTEGER NOT NULL DEFAULT 0" },
+  { table: "items", column: "redeems_from", type: "INTEGER" },
+];
+
 function migrate(db: DatabaseSync): void {
-  const addColumn = (table: string, column: string, ddl: string) => {
+  const addColumn = ({ table, column, type }: ColumnMigration) => {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (cols.length === 0 || cols.some((c) => c.name === column)) return;
     try {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
     } catch (e) {
       // Parallel build workers can race the same migration; losing is fine.
       if (!/duplicate column/i.test(String(e))) throw e;
     }
   };
   migrateClassGuidesToGuides(db);
-  addColumn("guild", "visibility", "visibility TEXT NOT NULL DEFAULT 'private'");
-  addColumn("guild", "succession_admin_days", "succession_admin_days INTEGER");
-  addColumn("guild", "succession_member_days", "succession_member_days INTEGER");
-  addColumn("loot_awards", "external", "external INTEGER NOT NULL DEFAULT 0");
-  addColumn("wcl_player_fights", "scrolls_json", "scrolls_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "other_casts_json", "other_casts_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "extras_json", "extras_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "cooldowns_json", "cooldowns_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "cast_times_json", "cast_times_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "upkeep_json", "upkeep_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "gear_json", "gear_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "talents_json", "talents_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("characters", "main_character_id", "main_character_id TEXT");
-  // Every existing character starts unclaimed, which is the honest backfill:
-  // nothing recorded who plays what, and nothing can now.
-  addColumn("characters", "membership_id", "membership_id TEXT");
   // Co-owners: ownership stopped being unique per guild. Idempotent, and the
   // rule it enforced ("at least one owner") moved into removeGuildOwner, which
   // can count rows and this cannot.
+  //
+  // Ahead of the column block rather than in the middle of it, which is where
+  // it used to sit: the index is on `memberships` and no column migration
+  // touches that table, so the two cannot interact in either order.
   db.exec("DROP INDEX IF EXISTS memberships_one_guild_master");
-  addColumn("characters", "off_spec", "off_spec TEXT");
-  addColumn("characters", "off_spec_role", "off_spec_role TEXT");
-  // Existing characters backfill to "unknown", which is what an empty list
-  // means everywhere it is read — the roster never recorded this before.
-  addColumn("characters", "professions_json", "professions_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "sappers", "sappers INTEGER NOT NULL DEFAULT 0");
-  addColumn(
-    "wcl_player_fights",
-    "late_consumables_json",
-    "late_consumables_json TEXT NOT NULL DEFAULT '[]'",
-  );
-  addColumn("wcl_player_fights", "fight_start_ms", "fight_start_ms INTEGER");
-  addColumn("wcl_player_fights", "prepot_label", "prepot_label TEXT");
-  addColumn("wcl_player_fights", "death_times_json", "death_times_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "boss_parse_percent", "boss_parse_percent REAL");
-  addColumn("wcl_player_fights", "boss_amount", "boss_amount REAL");
-  addColumn("wcl_player_fights", "dispels_json", "dispels_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_player_fights", "interrupts_json", "interrupts_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn(
-    "wcl_player_offpull",
-    "trash_interrupts_json",
-    "trash_interrupts_json TEXT NOT NULL DEFAULT '[]'",
-  );
-  addColumn(
-    "wcl_player_offpull",
-    "trash_dispels_json",
-    "trash_dispels_json TEXT NOT NULL DEFAULT '[]'",
-  );
-  addColumn(
-    "wcl_player_offpull",
-    "pet_buffs_seen_json",
-    "pet_buffs_seen_json TEXT NOT NULL DEFAULT '[]'",
-  );
-
-  addColumn("wcl_reports", "upkeep_tracks_json", "upkeep_tracks_json TEXT NOT NULL DEFAULT '[]'");
-  addColumn("wcl_reports", "enemy_casts_json", "enemy_casts_json TEXT NOT NULL DEFAULT '[]'");
-  // Reports imported before this get an empty list, which is honest: the dump
-  // was computed and shown at the time, and nothing kept it. It is not the same
-  // as "this night had no unknown auras", so readers say "not recorded" rather
-  // than "none" — the same distinction upkeep_tracks_json exists to make.
-  addColumn(
-    "wcl_reports",
-    "unclassified_auras_json",
-    "unclassified_auras_json TEXT NOT NULL DEFAULT '[]'",
-  );
-  // The feedback table shipped with only bug reports. Existing rows were filed
-  // as bugs and the DEFAULT says so, so the backfill is the default itself.
-  addColumn("feedback", "kind", "kind TEXT NOT NULL DEFAULT 'bug'");
-  // Triage. Everything filed before these existed is untriaged, which is what
-  // the default says — no backfill can invent a judgement nobody made.
-  addColumn("feedback", "priority", "priority TEXT NOT NULL DEFAULT 'unset'");
-  addColumn("feedback", "admin_note", "admin_note TEXT");
-  // Notes written before anyone signed them keep no author, which is honest:
-  // nothing recorded who wrote them and nothing can now.
-  addColumn("feedback", "admin_note_author", "admin_note_author TEXT");
-  addColumn("feedback", "admin_note_at", "admin_note_at TEXT");
-  // Reports closed before this stay unsigned, and no backfill can fix that:
-  // nothing recorded who closed them or when. NULL says exactly that, which is
-  // the honest answer for a tool whose point is decisions you can defend later.
-  addColumn("feedback", "resolved_by", "resolved_by TEXT");
-  addColumn("feedback", "resolved_at", "resolved_at TEXT");
-  // Awards made before this shipped have no snapshot, and cannot gain one: the
-  // policy that produced them is gone. NULL says exactly that.
-  addColumn("loot_awards", "decision_json", "decision_json TEXT");
+  for (const migration of COLUMN_MIGRATIONS) addColumn(migration);
   // The four loot weights moved into the `guild_policy` record, which holds
   // every other number the council can set too. The old value is deliberately
   // NOT carried across (the officers called it: the project is pre-release, and
@@ -924,16 +971,7 @@ function migrate(db: DatabaseSync): void {
   addAbilityKind(db);
   splitGearOverridesBySpec(db);
   promoteSimSettingsToProfiles(db);
-  // AFTER relaxItemColumns, not with the addColumn block above. That rebuild
-  // copies a fixed list of columns into a new table, so a column added to
-  // `items` before it runs is created and then silently dropped on exactly the
-  // databases old enough to need the rebuild — and nowhere else.
-  addColumn("items", "armor_token", "armor_token INTEGER");
-  // Every row confirmed before the phase was read off Wowhead's answer is
-  // unchecked, which is what the default says: they get one more lookup each,
-  // once, and are never asked again whether or not a phase came back.
-  addColumn("items", "phase_checked", "phase_checked INTEGER NOT NULL DEFAULT 0");
-  addColumn("items", "redeems_from", "redeems_from INTEGER");
+  for (const migration of POST_REBUILD_COLUMN_MIGRATIONS) addColumn(migration);
   // AFTER relaxItemColumns too, and for a second reason: the backfill reads
   // `items.phase` to place each existing chain, so it has to run against the
   // rebuilt table rather than the one about to be dropped.
