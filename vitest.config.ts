@@ -7,6 +7,15 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Vitest's default is 5 s, and nothing here is measuring elapsed time — the
+    // slowest test in the suite takes ~350 ms on an idle machine. What that
+    // default actually measures is contention: the database-backed files run
+    // 4× slower under the full suite than alone, and twice now a run that was
+    // ~40% slower than baseline has failed one test and passed on every rerun
+    // (the name was never captured; six clean runs at baseline speed since).
+    // 20 s keeps that headroom without hiding a genuine hang.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     // Quietens node:sqlite's ExperimentalWarning, which every worker that opens
     // a database would otherwise print. See the file for what it does not touch.
     setupFiles: ["./vitest.setup.ts"],

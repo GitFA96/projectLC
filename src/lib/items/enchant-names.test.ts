@@ -174,10 +174,7 @@ describe("the trickle", () => {
 
     await vi.advanceTimersByTimeAsync(150);
     expect((await run).resolved).toHaveLength(3);
-    // Generous, and deliberately so: nothing here waits on wall-clock time, so
-    // the only thing the default five seconds could ever measure is how loaded
-    // the machine is.
-  }, 20_000);
+  });
 
   it("gives up on a request that never answers, and moves on", async () => {
     vi.useFakeTimers();
@@ -203,5 +200,5 @@ describe("the trickle", () => {
     const result = await run;
     expect(result.failed).toEqual([1]);
     expect(result.resolved).toEqual([{ id: 2, name: "answered" }]);
-  }, 20_000);
+  });
 });

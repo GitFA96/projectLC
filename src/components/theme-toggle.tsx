@@ -6,6 +6,7 @@ import {
   THEME_PREFERENCES,
   THEME_STORAGE_KEY,
   isThemePreference,
+  prefersDarkTheme,
   type ThemePreference,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -45,9 +46,11 @@ function readPreference(): ThemePreference {
 
 /** Apply a preference to <html>, the same way the pre-paint script does. */
 function applyTheme(preference: ThemePreference) {
-  const dark =
-    preference === "dark" ||
-    (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // Same rule, same function: `theme.test.ts` holds the pre-paint script to it.
+  const dark = prefersDarkTheme(
+    preference,
+    window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
   document.documentElement.classList.toggle("dark", dark);
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
