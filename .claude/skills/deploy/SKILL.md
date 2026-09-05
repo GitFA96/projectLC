@@ -110,6 +110,30 @@ Two that catch people out:
   Discord's consent screen with Discord's error, not yours. Register the
   production URL on the Discord application and set the identical string.
 
+### Rate limiting belongs at the proxy
+
+The app has none, deliberately: TLS terminates in front of it, so the only place
+that sees a client IP is the reverse proxy, and a limiter inside a single Node
+process would be counting the proxy.
+
+Four routes are worth a limit, and only one of them is about brute force:
+
+- **`/api/fight-graph`** is the one that costs money. It carries a `logs.view`
+  check, so this is not an anonymous hole — but every call spends the
+  deployment's shared Warcraft Logs quota, and a page left refreshing spends it
+  in a loop. Limit this one even if you limit nothing else.
+- **`/signin`, `/claim`, `/join`** are the credential paths. The claim code is
+  too large to guess, so the case here is noise and log volume rather than a
+  break-in.
+
+A per-IP limit of a few requests a second, burst of a few dozen, is enough for a
+guild of forty. In Caddy that is one `rate_limit` directive; in nginx, one
+`limit_req_zone` plus a `limit_req` on those locations.
+
+**Not a CSP nonce.** `script-src 'unsafe-inline'` is still there and is tracked
+in `docs/backlog.md` with the condition that should trigger it — the two are
+separate decisions and conflating them has stalled both before.
+
 ## First run
 
 1. Start with `PROJECTLC_AUTH=on` from the beginning. An older draft of the

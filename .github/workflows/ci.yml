@@ -53,6 +53,15 @@ jobs:
 
       - run: npm run lint
 
+      # Informational, never a gate. Dependabot already opens the PRs; this is
+      # the standing picture between them, and it is `continue-on-error` on
+      # purpose: an advisory published against a transitive dev dependency must
+      # not be able to stop a raid-night fix from shipping. `--omit=dev` because
+      # nothing in devDependencies is reachable from the running server.
+      - name: npm audit (informational)
+        continue-on-error: true
+        run: npm audit --omit=dev
+
       # `npm run build`, never `next build` — the npm script also runs
       # check-dynamic-routes.mjs and prune-standalone.mjs, which are the two
       # guards standing between a mistake and a shipped artifact.

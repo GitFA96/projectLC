@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build && node scripts/check-dynamic-routes.mjs && node scripts/prune-standalone.mjs",
     "start": "next start",
-    "lint": "eslint --cache --cache-location node_modules/.cache/eslint/",
+    "lint": "eslint --cache --cache-strategy content --cache-location node_modules/.cache/eslint/",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
