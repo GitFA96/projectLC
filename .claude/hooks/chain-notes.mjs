@@ -22,8 +22,17 @@
 /**
  * `when` narrows a note to edits that plausibly touch the coupling. Only worth
  * it for a file large enough that most edits have nothing to do with the chain
- * — `sqlite-repo.ts` is 2,000 lines and most of an edit to it is not a write.
+ * — `repo.ts` is a thousand lines of interface and most of an edit to it is
+ * about reads or types rather than about a write.
  */
+
+/** Said twice, to two files, because both of them are where a write is added. */
+const WRITE_CHAIN =
+  "change-chains §4 — every write ends `bumpDataVersion(db)` in the data layer and " +
+  "`refreshAfterWrite()` in the action. Two caches, two silent failures. A new WriteRepo " +
+  "method must also be listed in write-contract.test.ts, in BUMPS or in NO_BUMP with the " +
+  "argument for why not.";
+
 export const CHAIN_NOTES = [
   {
     id: "wcl-curated-lists",
@@ -68,13 +77,17 @@ export const CHAIN_NOTES = [
   },
   {
     id: "write-repo",
-    match: /src[/\\]lib[/\\]data[/\\](repo|sqlite-repo)\.ts$/,
+    match: /src[/\\]lib[/\\]data[/\\]repo\.ts$/,
     when: /WriteRepo|bumpDataVersion|withTx/,
-    note:
-      "change-chains §4 — every write ends `bumpDataVersion(db)` in the data layer and " +
-      "`refreshAfterWrite()` in the action. Two caches, two silent failures. A new WriteRepo " +
-      "method must also be listed in write-contract.test.ts, in BUMPS or in NO_BUMP with the " +
-      "argument for why not.",
+    note: WRITE_CHAIN,
+  },
+  {
+    // Since B4 the writes are one small file per domain, so an edit to one is
+    // already about a write — no narrowing. `model.ts` and `reads.ts` are the
+    // read side of the same directory and are left out on purpose.
+    id: "write-repo-domain",
+    match: /src[/\\]lib[/\\]data[/\\]sqlite-repo[/\\](?!model|reads|composition)[a-z]+\.ts$/,
+    note: WRITE_CHAIN,
   },
   {
     id: "colour-roles",

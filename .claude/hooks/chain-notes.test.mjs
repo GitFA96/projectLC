@@ -47,6 +47,26 @@ describe("chainNoteFor", () => {
     expect(chainNoteFor(p("lib", "data", "db", "rows.ts"))).toBe("");
   });
 
+  it("names both cache steps on any edit to a write's own file", () => {
+    // B4 made these one small file per domain, so an edit to one is already
+    // about a write. `repo.ts` keeps its narrowing: it is a thousand lines of
+    // interface and most of an edit to it is reads or types.
+    for (const file of ["loot.ts", "planner.ts", "items.ts"]) {
+      const note = chainNoteFor(p("lib", "data", "sqlite-repo", file), "const x = 1;");
+      expect(note, file).toMatch(/bumpDataVersion/);
+      expect(note, file).toMatch(/refreshAfterWrite/);
+    }
+    expect(chainNoteFor(p("lib", "data", "repo.ts"), "a new WriteRepo method")).toMatch(
+      /bumpDataVersion/,
+    );
+    expect(chainNoteFor(p("lib", "data", "repo.ts"), "a doc comment")).toBe("");
+    // The read side of that directory, and the root, which only composes.
+    for (const file of ["model.ts", "reads.ts", "composition.test.ts"]) {
+      expect(chainNoteFor(p("lib", "data", "sqlite-repo", file)), file).toBe("");
+    }
+    expect(chainNoteFor(p("lib", "data", "sqlite-repo.ts"))).toBe("");
+  });
+
   it("names the silent step for policy and for capabilities", () => {
     expect(chainNoteFor(p("lib", "analysis", "policy.ts"))).toMatch(/sanitizePolicy/);
     const caps = chainNoteFor(p("lib", "auth", "capabilities.ts"));

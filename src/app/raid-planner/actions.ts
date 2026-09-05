@@ -29,7 +29,7 @@ import { resolveViewer } from "@/lib/auth/viewer";
  * The board autosaves, so this runs as an officer drags people around rather
  * than once at the end. That is why the repo's board writes skip
  * `bumpDataVersion` — nothing derived reads a board, so the rebuild it forces
- * would be pure latency. See sqlite-repo.ts.
+ * would be pure latency. See sqlite-repo/planner.ts.
  */
 
 const slotSchema = z.object({

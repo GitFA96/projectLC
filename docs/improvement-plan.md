@@ -1,8 +1,9 @@
 # Improvement plan — structure, tests, and working with agents
 
-> **Status: proposed 2026-09-03. Phases 0 and 1 done; phase 2 begun, 2026-09-05.**
+> **Status: proposed 2026-09-03. Phases 0, 1 and 2 done; phase 3 begun, 2026-09-05.**
 > Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, B7+C4
-> and the agent tooling followed. B1 and B3 open phase 2, which unblocks A4.
+> and the agent tooling followed. Phase 3 is the splits: B2 and B4 are done, and
+> what is left of it is backups, tags and lint speed rather than structure.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
 > 2026-09-04 and will drift again — re-measure before quoting one.
@@ -89,13 +90,13 @@ rules have a check behind them and which are still only sentences.
 | Measure | Value |
 |---|---|
 | Source modules (`.ts`/`.tsx`, non-test) | 321 files, ~83k lines |
-| Test files / tests / wall time | 101 / 2009 / 24 s, all green (was 94 / 1831 when this began) |
+| Test files / tests / wall time | 115 / 2271 / 34 s, all green (was 94 / 1831 when this began) |
 | Typecheck (`tsc --noEmit`) | 12 s, clean — `npm run typecheck`, and `npm run check` with the tests |
 | Lint | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~20 s cold, ~2 s cached |
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
 | Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `raid-planner.ts` 1472 · `preparedness-table.tsx` 1461 · `db/schema.ts` 699 (one template literal) · `db/identity.ts` 648 (was `db.ts` 3992, split by B2; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6) |
+| Largest modules | `store.ts` 2398 · `normalize.ts` 2168 · `raid-planner.ts` 1496 · `preparedness-table.tsx` 1461 · `import/schemas.ts` 1192 · `db/schema.ts` 699 (one template literal) · `db/identity.ts` 648 · `sqlite-repo/loot.ts` 406 (was `db.ts` 3992, split by B2; `sqlite-repo.ts` 2035, by B4; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6) |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -443,7 +444,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2 **done**; B4, C3, D2, D3, D6 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | B2, B4 **done**; C3, D2, D3, D6 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
@@ -481,7 +482,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | B1 | Split `types.ts` | done | ten domain files under `types/`, `types.ts` the barrel — no import path anywhere changed. The five files §4B1 guessed at did not match the content: `wcl` and `items` are not domains of this file, and feedback is five one-line inferences that stayed with the entities. Done by a script rather than by hand, and verified against the original: 121 exports before and after, none lost, gained or duplicated; every comment line and every field line still present |
 | B2 | Split `db.ts` | done | 3,992 lines → 19 files under `db/`, largest 699 and that one is a single template literal. Verified the way B6 was: every body line present exactly once across the split, the only differences the `export` keywords it needs. **The public surface is byte-identical** — `db-surface.test.ts` pins the 122 runtime exports of `@/lib/data/db`, and the barrel names them explicitly for the five modules whose internals a sibling needs, so a private helper cannot become public by being useful next door. `docs.test.ts`'s meta-key check reads the directory now, and the schema chain hook no longer needs its `when`: `db/schema.ts` and `db/migrate.ts` are already about the schema |
 | B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
-| B4 | Split `sqlite-repo.ts` writes | open | after A2 |
+| B4 | Split `sqlite-repo.ts` writes | done | 2,035 lines → a 48-line composition root over twelve files in `sqlite-repo/`, largest 406. Ten write domains, plus `model.ts` (the cached read model and the lookups a write consults before writing) and `reads.ts` (the read delegate — a third of the old file, and not a write at all, which §4B4's six names had nowhere for). Verified the way B2 and B6 were: every body line of the original present exactly once, the only differences the `export` keywords and the ten `satisfies Partial<Writes> & ThisType<WriteRepo>` clauses. **A2 pins the bump across the split and cannot see the mistake a spread makes** — a method defined in two domain files compiles, spreads, and leaves the loser dead — so `sqlite-repo/composition.test.ts` adds that half: the modules are disjoint, the root defines nothing of its own (checked by identity, not by name), and nothing outside the directory imports a domain file. All four proven red |
 | B5 | Decompose `createRepoFromStore` | open | unblocked — A7 and C1 done |
 | B6 | Client components | done | `import-tabs.tsx` 1584 → seven files (four tabs, the reports card, the import queue, the shared bits), verified line-for-line: every body line of the original is present exactly once across the split, the only differences being the `export` keywords the split needs. The gold table's three pure pieces are `analysis/consumable-adjustments.ts`, the preparedness table's scale store is `use-text-scale.ts`, and `board.tsx` had two things `raid-planner.ts` did not — `withGroupCount` and `specChoices`. All four moves have tests, each proven by breaking the moved code |
 | B7 | Filter builder | done | `src/lib/wcl/event-filters.ts` — `buildEventFilter` plus `CASTS_FILTER`/`DEBUFFS_FILTER`/`BUFFS_FILTER` and `UNFILTERED_ON_PURPOSE`, which names the three streams that stay unfiltered and why. An empty curated list now throws at import instead of silently matching nothing. `docs.test.ts` asserts the fetch sends the built filters and assembles none of its own; the list-by-list checks moved to `event-filters.test.ts`, which reads the built string |
@@ -536,7 +537,7 @@ follows, and for the same reason.
 | **E1** | seven skills, forty lines at most | seven skills, ~50 lines each | each one carries a trap that is the reason the skill exists — the migration that throws only on the user's real database, the id that is a no-op until a re-import, the sanitizer that drops an unlisted field silently. Trimming to 40 would have cut exactly that. A rule about length should lose to the content it was meant to protect |
 | **A4** | the three pricing sites agree | they agree, with two documented exceptions | `goldPerRaid` prices at defaults on purpose, and takes the raid span from the raider's own pulls because it is handed no report — so a latecomer is charged for the time they were there. Neither is in chains §5; both are now. A third looked like a divergence in the source (`summarizeSeason` floors a night at zero, `raidGoldView` does not) and is unreachable, because `applyAdjustments` floors each line |
 | **B3** | "No number may change — A7 is the proof" | the proof is `raid-gold.test.ts`, not A7 | A7's snapshot renders standing, contention, the loot plan and the dashboard — it never touches the raid gold table, so it would have stayed green through any error this move could make. What proves the move is the old inline expression, reproduced in the test and asserted to agree. It is scaffolding and says so |
-| **E2** | four chain-file patterns | six, two of them narrowed by what the edit contains | `repo.ts`/`sqlite-repo.ts` and `globals.css` earn one on the same test as the other four: a step that fails silently. The narrowing exists because `db.ts` is 4,000 lines and most edits to it have nothing to do with the schema — an unconditional note there would train the reader to skip all of them |
+| **E2** | four chain-file patterns | six, two of them narrowed by what the edit contains | `repo.ts`/`sqlite-repo.ts` and `globals.css` earn one on the same test as the other four: a step that fails silently. The narrowing existed because those two files were thousands of lines and most edits to them had nothing to do with the chain. B2 and B4 have since split both, and each dropped the narrowing it no longer needed — one `when` is left, on `repo.ts` |
 | **C1** | coverage reported from CI beside `npm test` | coverage *instead of* `npm test` in CI | a threshold nothing runs is not a gate. `npm run check` stays coverage-free so the inner loop keeps its ~25 s; CI is where the floors are enforced, and it is the only place they are |
 | **C1** | "the pure layers", named as though they were the well-covered ones | they are not all well covered: `analysis` measures 97% of statements and `auth` 78%, with 68% of its branches | the floors are the measured values, so `auth`'s is a floor and not a standard. That is the intended shape — the number says "do not get worse", and raising it is C2's job — but a reader who sees a threshold of 68 and assumes it was chosen as *good enough* has it backwards |
 | **C2** | ten untested pure modules, `comments.ts`, `auth/capabilities.ts` and `loot/priority-chain.ts` among them | seven; the other three are covered by tests that live next to their callers | C1 was written before C2 for exactly this reason, and it earned its place on the first look: `capabilities.ts` is asserted in `can.test.ts` and `roles.test.ts`, `priority-chain.ts` in `priority-sheet.test.ts`. `comments.ts` is the odd one — it is at 100% because it is nothing but constant tables, and the honest answer there is that there is nothing to test, not that a test is owed |
@@ -547,13 +548,16 @@ follows, and for the same reason.
 | **B6** | "check what `board.tsx` still holds" | two functions, not a list | `withGroupCount` and `specChoices`. Everything else it holds is about drawing — a colour role, a slot height, an undo limit, a hand-drawn bench icon, and `memberTitle`, which is a tooltip string rather than board arithmetic. Left where they are on purpose |
 | **B2** | six destinations — `schema`, `migrate`, `meta/` per key family, `rows` | nineteen | §4B2's list had nowhere for the entity writers, the identity and auth block, the lookup caches, the connection, or the seed — between them more than a third of the file. Naming four of the six by content and stopping was the guess; the file's own contents decided the rest |
 | **B2** | — | a barrel of `export *` silently widened the surface, so it does not | twelve helpers that were private inside a 4,000-line file became public the moment a sibling needed them — `insertGuild`, `migrate`, `seedIfEmpty`, four `rowTo*`. Nothing said so, and nothing would have. The barrel now names its exports explicitly for those five modules and `db-surface.test.ts` pins the whole list, which is a better guard than the split needed and a cheap one to keep |
+| **B4** | modules "taking `db` and `readModel`" | modules that take nothing — objects of methods, composed by spread | every method opens with its own `const db = getDb()`, and threading a handle in instead would have edited all sixty-nine bodies and moved *when* the handle is taken. `freshRepo()` in `write-contract.test.ts` repoints `PROJECTLC_DB` and re-reads per call; a handle captured at composition would have quietly broken that. `readModel` is imported from a sibling, which is the same indirection the original had |
+| **B4** | six destinations — gear, loot, wcl, items, governance, meta | twelve | the roster, the drop table's two layers, loot priority and the raid planner's boards each had nowhere to go, and `reads.ts` — a third of the file — is not a write. The same miss as §4B2's six, for the same reason: the list was written without opening the file |
+| **B4** | "A2 pins the bump across the split" | it does, and it is not enough | A2 calls the *composed* repo, so a method defined twice passes it — the spread picks one and the other is dead code that still has its own tests. That failure did not exist before this item created it, which is the argument for the guard shipping with the split rather than after it |
 
 ### What the misses have in common
 
-Ten of the fifteen are **counts or coverage claimed without measuring**, or an
-**approach chosen without reading the code it would run against**. None of them
-were wrong about *what mattered* — every item found the thing it was aimed at,
-and three found something extra. So the lesson is not that the plan was
+Nearly every row above is a **count or a coverage claim made without
+measuring**, or an **approach chosen without reading the code it would run
+against**. None of them were wrong about *what mattered* — every item found the
+thing it was aimed at, and several found something extra. So the lesson is not that the plan was
 unreliable; it is narrower than that:
 
 > Write the *why* and the *done-when* in advance. Take the count, the exception

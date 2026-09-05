@@ -9,6 +9,9 @@ db/          raw node:sqlite — schema, migrations, row⇄entity mapping.
 store.ts     EntityStore (plain entities) + createRepoFromStore (ALL derived data)
   ↓
 sqlite-repo.ts / seed-repo.ts    the two backends
+             `sqlite-repo.ts` composes; the methods live one domain
+             per file under `sqlite-repo/`, and nothing outside it
+             imports those files
   ↓
 repo.ts      the boundary — Repo (read) / WriteRepo (write). Pages see only this.
 ```
@@ -85,7 +88,13 @@ identically to SQLite. Never compute a summary in a backend.
 
 ## Testing
 
-`sqlite-repo.test.ts` is the big one. It builds throwaway databases; **never
+`sqlite-repo.test.ts` is the big one — it tests what each write *means*, and it
+covers the whole directory rather than one file in it. `write-contract.test.ts`
+holds every write to the `data_version` bump, and
+`sqlite-repo/composition.test.ts` to being assembled from exactly one place: a
+method defined in two domain files compiles, spreads, and leaves the loser dead.
+
+It builds throwaway databases; **never
 point a test at `data/projectlc.db`** — that is the user's real guild data.
 When you need to check behaviour against real data, copy the file to the
 scratchpad first and set `PROJECTLC_DB` to the copy.

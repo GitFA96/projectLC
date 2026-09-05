@@ -16,7 +16,7 @@ reasoning. This is the procedure.
 ## The chain, as a checklist
 
 `db/schema.ts` **and** the list in `db/migrate.ts` → `store.ts` (`EntityStore`) →
-`sqlite-repo.ts` → `repo.ts` (`Repo`/`WriteRepo`) → the right file under
+the domain file under `sqlite-repo/` → `repo.ts` (`Repo`/`WriteRepo`) → the right file under
 `types/` → `import/schemas.ts` if it is seedable → `sqlite-repo.test.ts`.
 
 ## Which list

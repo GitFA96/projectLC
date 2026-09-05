@@ -506,7 +506,7 @@ export function RaidBoard({
    *
    * Debounced, because a drag is not a decision: bursts of moves collapse into
    * one write, and the write itself is cheap (no read-model rebuild — see
-   * sqlite-repo.ts).
+   * sqlite-repo/planner.ts).
    */
   const [adopted, setAdopted] = React.useState(!shared);
   React.useEffect(() => {

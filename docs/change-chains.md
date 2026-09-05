@@ -351,8 +351,8 @@ per pull, so it suits a panel someone opened, not a page everyone loads.
 
 ## 2. Add a persisted field
 
-**Chain:** `db/schema.ts` + `db/migrate.ts` → `store.ts` (`EntityStore`) → `sqlite-repo.ts`
-→ `repo.ts` (`Repo`/`WriteRepo`) → the right file in `types/` (`types.ts` is a
+**Chain:** `db/schema.ts` + `db/migrate.ts` → `store.ts` (`EntityStore`) → the domain file
+under `sqlite-repo/` → `repo.ts` (`Repo`/`WriteRepo`) → the right file in `types/` (`types.ts` is a
 barrel; nothing imports the parts directly) → `import/schemas.ts` if it is
 seedable → `sqlite-repo.test.ts`.
 
@@ -697,11 +697,11 @@ pattern, and add the key to the table above.
 
 Two independent caches, two independent mistakes:
 
-1. **The derived read model.** `sqlite-repo.ts` builds the whole read model in
+1. **The derived read model.** `sqlite-repo/model.ts` builds the whole read model in
    memory once (`createRepoFromStore`) and rebuilds it lazily when `data_version`
    changes. A write that doesn't call `bumpDataVersion` commits to disk and
    stays invisible until the process restarts. Every write method in
-   `sqlite-repo.ts` calls it — copy a neighbour, and
+   `sqlite-repo/` calls it — copy a neighbour, and
    `src/lib/data/write-contract.test.ts` checks that you did: it calls every
    method on `WriteRepo` and watches the counter, holds the board exception as
    a list asserted in the other direction, and fails outright on a method it

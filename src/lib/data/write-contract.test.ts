@@ -710,7 +710,7 @@ describe("every write bumps data_version", () => {
       `${name} changed the database and left data_version at ${before}. The in-memory read model ` +
         "is keyed on that number, so every page keeps serving what it built before this write — " +
         "silently, with nothing failing. End the transaction with bumpDataVersion(db), the way " +
-        "its neighbours in sqlite-repo.ts do.",
+        "its neighbours under sqlite-repo/ do.",
     ).toBeGreaterThan(before);
   });
 });
