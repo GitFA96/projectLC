@@ -17,6 +17,7 @@
     "build:profile": "next build --profile",
     "start:profile": "next build --profile && next start",
     "doctor": "node scripts/doctor.mjs",
+    "backup": "node scripts/backup.mjs",
     "image": "docker build -t projectlc:test . && bash scripts/smoke-image.sh projectlc:test",
     "image:clean": "docker image prune -f && docker builder prune -f",
     "app": "docker compose up -d --build",

@@ -20,13 +20,23 @@ Migrations are additive and applied automatically on first connection, and
 the database has already moved on. So the snapshot *is* the rollback:
 
 ```bash
-sqlite3 "$PROJECTLC_DB" "VACUUM INTO '/backups/projectlc-$(date +%F).db'"
+npm run backup          # PROJECTLC_DB, or data/projectlc.db
 ```
 
+`VACUUM INTO` through a **read-only** handle, opened directly rather than
+through `getDb()` — the app's opener runs the schema and the migrations on every
+boot, so a backup taken the app's way would migrate the thing it is backing up.
+The copy is then opened and read before any old one is pruned, and the run exits
+1 if any of that fails.
+
 Never a plain file copy: the most recent writes sit in the `-wal` and a copy
-without it opens cleanly and is silently short. If there is no `sqlite3` on the
-host, the Node equivalent is in the spec — quote the destination with **single**
-quotes, since SQLite reads a double-quoted token as an identifier.
+without it opens cleanly and is silently short.
+
+`PROJECTLC_BACKUP_DIR` (default `backups/` beside the database) and
+`PROJECTLC_BACKUP_KEEP` (default 14) are the two knobs. **A backup beside the
+database survives a bad migration, not a lost disk** — the schedule that calls
+this has to copy the directory off the host, and that half is still an operator
+task, not a script.
 
 ## Build
 
@@ -138,4 +148,5 @@ testing, because migrations run on first connection and cannot be undone.
 - `curl -sf https://host/healthz` returns `{"ok":true}`.
 - A signed-out visitor gets no roster content.
 - Restore the snapshot onto a scratch host at least once. An untested backup is
-  a plan, not a backup.
+  a plan, not a backup — and "it verified" is not the same claim as "the app
+  boots on it". Point `PROJECTLC_DB` at a copy of the backup and open a page.

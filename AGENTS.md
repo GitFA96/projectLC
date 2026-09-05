@@ -129,6 +129,9 @@ npm run lint      # cached — a cold run is ~20s, a repeat ~2s
 NEXT_DIST_DIR=.next-build npm run build
 
 npm run doctor      # every deployment footgun as a check that exits 1
+npm run backup      # VACUUM INTO a dated file, verify it, then prune the old
+                    # ones. Read-only on the source, and never through getDb() —
+                    # the app's opener migrates what it opens
 npm run image       # build the container image, then smoke-test a live one
 npm run image:clean # reclaim dangling images and build cache
 ```

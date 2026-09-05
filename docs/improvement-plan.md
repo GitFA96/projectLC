@@ -90,7 +90,7 @@ rules have a check behind them and which are still only sentences.
 | Measure | Value |
 |---|---|
 | Source modules (`.ts`/`.tsx`, non-test) | 321 files, ~83k lines |
-| Test files / tests / wall time | 115 / 2271 / 34 s, all green (was 94 / 1831 when this began) |
+| Test files / tests / wall time | 116 / 2288 / 26 s, all green (was 94 / 1831 when this began) |
 | Typecheck (`tsc --noEmit`) | 12 s, clean — `npm run typecheck`, and `npm run check` with the tests |
 | Lint | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~20 s cold, ~2 s cached |
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
@@ -444,7 +444,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2, B4 **done**; C3, D2, D3, D6 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | B2, B4, D3 **done**; C3, D2, D6 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
@@ -493,7 +493,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | C5 | Developer experience | done | `vitest.setup.ts` silences the SQLite warning; `typecheck` and `check` scripts; cached lint (~20 s → ~2 s) |
 | D1 | PR template, branch protection | done | template written; `main` requires the `test` and `image` jobs, blocks force-pushes and deletion, and leaves `enforce_admins` **off** — a solo maintainer's direct pushes still work, and a required check cannot pass on a commit that does not exist yet. Tighten to `enforce_admins: true` if the work ever moves to PRs |
 | D2 | Tags | open | human |
-| D3 | Backups | open | |
+| D3 | Backups | done | `npm run backup` — `scripts/backup.mjs` over a pure `backup-checks.mjs`, the way the build guards and the doctor are split. `VACUUM INTO` through a **read-only** handle opened directly, never `getDb()`, which runs the schema and the migrations on everything it opens. The copy is opened and read back before any old one is pruned, so a run that cannot produce a backup deletes nothing. Rehearsed against real data: a 36 MB snapshot of a copy of the live database matches it across 32 tables and 11,972 rows including a 6.2 MB uncheckpointed WAL, and the app boots on the restore. Scheduling and the offsite copy stay with the operator, and the deploy skill says so |
 | D4 | Rate limiting doc | open | |
 | D5 | `npm audit` step | open | |
 | D6 | Lint speed | open | |
@@ -551,6 +551,8 @@ follows, and for the same reason.
 | **B4** | modules "taking `db` and `readModel`" | modules that take nothing — objects of methods, composed by spread | every method opens with its own `const db = getDb()`, and threading a handle in instead would have edited all sixty-nine bodies and moved *when* the handle is taken. `freshRepo()` in `write-contract.test.ts` repoints `PROJECTLC_DB` and re-reads per call; a handle captured at composition would have quietly broken that. `readModel` is imported from a sibling, which is the same indirection the original had |
 | **B4** | six destinations — gear, loot, wcl, items, governance, meta | twelve | the roster, the drop table's two layers, loot priority and the raid planner's boards each had nowhere to go, and `reads.ts` — a third of the file — is not a write. The same miss as §4B2's six, for the same reason: the list was written without opening the file |
 | **B4** | "A2 pins the bump across the split" | it does, and it is not enough | A2 calls the *composed* repo, so a method defined twice passes it — the spread picks one and the other is dead code that still has its own tests. That failure did not exist before this item created it, which is the argument for the guard shipping with the split rather than after it |
+| **D3** | "dated file, keep the last N, exit 1 on failure" | that, plus verify-then-prune and a name to the millisecond | verification is the difference between *a file was written* and *a backup exists*, and it has to come before pruning or a damaged source deletes good backups to make room for a bad one. The millisecond came from the test: at second precision a manual backup taken right after a scheduled one refused instead of running, which is an ordinary minute of an ordinary day |
+| **D3** | — | the test that proved the source untouched passed against a script that was writing to it | it compared `projectlc.db` and not `projectlc.db-wal`, so a deliberately broken version running `CREATE TABLE` on the source stayed green. That is this project's own documented WAL trap — the reason a database copy needs its `-wal` — reappearing inside a test written by someone who knew about it. Proving a guard red is what caught it, and nothing else would have |
 
 ### What the misses have in common
 
