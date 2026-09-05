@@ -8,6 +8,9 @@ import {
   bumpAdjustment,
   setAdjustmentNote,
   goldOfLines,
+  countChanges,
+  groupLines,
+  raiderBreakdown,
 } from "@/lib/analysis/consumable-adjustments";
 import type { ConsumableAdjustment } from "@/lib/types";
 
@@ -407,5 +410,200 @@ describe("addAdjustment", () => {
     const base: ConsumableAdjustment[] = [];
     expect(addAdjustment({ adjustments: base, actorName: "W", name: "  ", count: 1, at })).toBe(base);
     expect(addAdjustment({ adjustments: base, actorName: "W", name: "Food", count: 0, at })).toBe(base);
+  });
+});
+describe("groupLines", () => {
+  const priced = (name: string, count: number, cost: number, over = {}) => ({
+    name,
+    count,
+    cost,
+    ...over,
+  });
+
+  it("puts each line under its family, in the curated order", () => {
+    const groups = groupLines([
+      priced("Food", 1, 0.5),
+      priced("Super Mana Potion", 4, 2),
+      priced("Flask of Relentless Assault", 2, 82),
+    ]);
+    // Flasks before potions before food, whatever order the lines arrived in.
+    expect(groups.map((g) => g.label)).toEqual(["Flasks", "Potions", "Food"]);
+    expect(groups.map((g) => g.lines.map((l) => l.name))).toEqual([
+      ["Flask of Relentless Assault"],
+      ["Super Mana Potion"],
+      ["Food"],
+    ]);
+  });
+
+  it("keeps the order the lines arrived in, inside a family", () => {
+    // The sort upstream is frozen against the saved adjustments so a press
+    // cannot move a line past its neighbour; grouping must not undo that.
+    const groups = groupLines([
+      priced("Super Mana Potion", 4, 2),
+      priced("Haste Potion", 1, 15),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].lines.map((l) => l.name)).toEqual(["Super Mana Potion", "Haste Potion"]);
+  });
+
+  it("drops families nobody used, rather than showing an empty heading", () => {
+    const groups = groupLines([priced("Food", 1, 0.5)]);
+    expect(groups.map((g) => g.group)).toEqual(["food"]);
+  });
+
+  it("carries the price and the officer's note through", () => {
+    const [group] = groupLines([priced("Haste Potion", 2, 15, { delta: 2, note: "used on the run back" })]);
+    expect(group.lines[0]).toMatchObject({ cost: 15, delta: 2, note: "used on the run back" });
+  });
+
+  it("has nothing to show for a raider who used nothing", () => {
+    expect(groupLines([])).toEqual([]);
+  });
+});
+
+describe("raiderBreakdown", () => {
+  const of = (over: Partial<Parameters<typeof raiderBreakdown>[0]> = {}) =>
+    raiderBreakdown({ logged, actorName: "Kazrak", saved: [], pending: [], costPerUse, ...over });
+
+  it("prices and groups a raider's logged lines", () => {
+    const { groups, corrections, delta } = of();
+    expect(groups.map((g) => g.label)).toEqual(["Flasks", "Potions", "Food"]);
+    expect(corrections).toBe(0);
+    expect(delta).toBe(0);
+  });
+
+  it("charges the pending count and reports what it cost", () => {
+    const { groups, corrections, delta } = of({ pending: [adj("Kazrak", "Haste Potion", 2)] });
+    const potions = groups.find((g) => g.group === "potion")!;
+    expect(potions.lines.find((l) => l.name === "Haste Potion")).toMatchObject({
+      count: 2,
+      delta: 2,
+      added: true,
+    });
+    expect(corrections).toBe(1);
+    expect(delta).toBe(30);
+  });
+
+  /*
+   * The rule the panel is built on, and the one worth a test of its own: the
+   * ORDER comes from `saved`, the COUNTS from `pending`. A line that reshuffled
+   * on every press would be unusable — the officer is comparing lines while
+   * they work — and a number that sat still while its neighbours moved would be
+   * the one thing on screen contradicting itself.
+   */
+  it("freezes the order against the saved batch while the counts follow the presses", () => {
+    const saved: ConsumableAdjustment[] = [];
+    // Enough Haste Potions to be the most expensive line by far.
+    const pending = [adj("Kazrak", "Haste Potion", 40)];
+    const { groups } = raiderBreakdown({ logged, actorName: "Kazrak", saved, pending, costPerUse });
+    const potions = groups.find((g) => g.group === "potion")!;
+
+    // 600g of Haste Potion, and it still sits behind the 8g of mana potions,
+    // because nothing has been saved yet.
+    expect(potions.lines.map((l) => l.name)).toEqual(["Super Mana Potion", "Haste Potion"]);
+    expect(potions.lines.find((l) => l.name === "Haste Potion")!.count).toBe(40);
+  });
+
+  it("re-sorts once the batch is saved", () => {
+    const both = [adj("Kazrak", "Haste Potion", 40)];
+    const { groups } = raiderBreakdown({
+      logged,
+      actorName: "Kazrak",
+      saved: both,
+      pending: both,
+      costPerUse,
+    });
+    const potions = groups.find((g) => g.group === "potion")!;
+    expect(potions.lines.map((l) => l.name)).toEqual(["Haste Potion", "Super Mana Potion"]);
+  });
+
+  it("hides a line the raid prices at nothing, unless somebody touched it", () => {
+    const free = { ...costPerUse, Food: 0 };
+    const names = (pending: ConsumableAdjustment[]) =>
+      raiderBreakdown({ logged, actorName: "Kazrak", saved: [], pending, costPerUse: free })
+        .groups.flatMap((g) => g.lines.map((l) => l.name));
+
+    // A free line is noise; a free line an officer corrected is a statement.
+    expect(names([])).not.toContain("Food");
+    expect(names([adj("Kazrak", "Food", 1)])).toContain("Food");
+  });
+
+  it("reads only the adjustments belonging to this raider", () => {
+    const { corrections, delta } = of({ pending: [adj("Melige", "Haste Potion", 2)] });
+    expect(corrections).toBe(0);
+    expect(delta).toBe(0);
+  });
+
+  it("carries the officer's reason back onto the line it belongs to", () => {
+    const { groups } = of({ pending: [adj("Kazrak", "Super Mana Potion", -1, "died holding it")] });
+    const line = groups.flatMap((g) => g.lines).find((l) => l.name === "Super Mana Potion");
+    expect(line?.note).toBe("died holding it");
+  });
+
+  it("finds the note even when the adjustment's name is spaced differently", () => {
+    // `applyAdjustments` matches on a normalized name, so a doubled space folds
+    // into the logged line and the row shows a correction. Matching the note
+    // any more loosely than that would show the correction with its reason
+    // silently missing — which is the half an officer wrote down on purpose.
+    const { groups } = of({
+      pending: [adj("Kazrak", "Super  Mana   Potion", -1, "died holding it")],
+    });
+    const line = groups.flatMap((g) => g.lines).find((l) => l.name === "Super Mana Potion");
+    expect(line?.delta).toBe(-1);
+    expect(line?.note).toBe("died holding it");
+  });
+});
+
+describe("countChanges", () => {
+  it("counts nothing when the batch matches what is saved", () => {
+    const saved = [adj("Kazrak", "Haste Potion", 2)];
+    expect(countChanges(saved, [...saved])).toBe(0);
+  });
+
+  it("counts an entry added, one dropped, and one moved off its saved delta", () => {
+    const saved = [adj("Kazrak", "Haste Potion", 2), adj("Melige", "Food", 1)];
+    const pending = [adj("Kazrak", "Haste Potion", 5), adj("Thrainn", "Super Mana Potion", 1)];
+    // Kazrak moved, Melige's was dropped, Thrainn's is new.
+    expect(countChanges(saved, pending)).toBe(3);
+  });
+
+  it("counts a batch that presses + and − back to nothing as nothing", () => {
+    // Counting presses would say two. There is nothing to save.
+    const saved = [adj("Kazrak", "Haste Potion", 2)];
+    expect(countChanges(saved, [adj("Kazrak", "Haste Potion", 2)])).toBe(0);
+  });
+
+  it("treats writing a reason as a change, and as two", () => {
+    // The note is part of the key, so a correction that gains one reads as the
+    // old entry dropped and a new one added. That is the honest count for a
+    // batch the officer still has to save, and it errs upward — which is the
+    // safe direction for a number whose job is to stop somebody navigating away.
+    const saved = [adj("Kazrak", "Haste Potion", 2)];
+    expect(countChanges(saved, [adj("Kazrak", "Haste Potion", 2, "on the run back")])).toBe(2);
+  });
+
+  it("cannot be fooled by a note that runs into the next field", () => {
+    /*
+     * The key joins three arbitrary strings — a raider's name, a consumable's
+     * name and an officer's free text — so the separator has to be something
+     * nobody can type. These two collide under any printable one:
+     *
+     *     "Haste Potion"   + "x y"
+     *     "Haste Potion x" + "y"
+     *
+     * With a space between the fields both are "kazrak haste potion x y", the
+     * second correction lands on the first one's key at the same delta, and the
+     * batch reports NOTHING to save while holding a replacement the officer
+     * made on purpose.
+     */
+    const saved = [adj("Kazrak", "Haste Potion", 1, "x y")];
+    const pending = [adj("Kazrak", "Haste Potion x", 1, "y")];
+    // One dropped, one added.
+    expect(countChanges(saved, pending)).toBe(2);
+  });
+
+  it("ignores case and padding, the way every other matcher here does", () => {
+    const saved = [adj("Kazrak", "Haste Potion", 2)];
+    expect(countChanges(saved, [adj("  kazrak ", " HASTE POTION ", 2)])).toBe(0);
   });
 });

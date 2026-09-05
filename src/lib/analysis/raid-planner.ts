@@ -1470,3 +1470,27 @@ export function selectBoard(
   if (key && known.reportCodes.includes(key)) return { tab: "rosters", reportCode: key };
   return { tab: "rosters", rosterId: known.rosterIds[0] };
 }
+
+/**
+ * Re-fit a freshly seeded board to the groups the officer actually has.
+ *
+ * `seedBoard` always builds the full eight; a board someone has trimmed to five
+ * should not silently grow three back because they pressed "Fill in order".
+ * Anyone who no longer fits ends up unplaced, which the bench shows.
+ */
+export function withGroupCount(seeded: Board, like: Board): Board {
+  const groups = seeded.groups.slice(0, like.groups.length);
+  return { ...like, groups, bench: like.bench ? [] : like.bench };
+}
+
+/**
+ * The specs an officer may count this raider as, their current one included.
+ *
+ * Empty when the pool knows neither — a picker with nothing in it is not a
+ * choice, and the caller shows the raider's class alone instead.
+ */
+export function specChoices(member: PoolMember): string[] {
+  const options = member.specOptions ?? [];
+  if (options.length === 0) return member.spec ? [member.spec] : [];
+  return options;
+}

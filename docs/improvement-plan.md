@@ -95,7 +95,7 @@ rules have a check behind them and which are still only sentences.
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
 | Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `import-tabs.tsx` 1584 · `preparedness-table.tsx` 1509 · `raid-planner.ts` 1472 · `types/raid.ts` 707 (was `types.ts` 1701, split by B1) |
+| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `raid-planner.ts` 1472 · `preparedness-table.tsx` 1461 · `types/raid.ts` 707 (was `types.ts` 1701, split by B1; `import-tabs.tsx` was 1584, split by B6) |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -147,9 +147,12 @@ pure half and a CLI, tested against a fake manifest and a fake artifact tree (C4
   `costPerUseMap` twice).
 - `src/app/characters/[name]/performance/page.tsx` holds pure helpers
   (`coverage`, `usesOf`, `upkeepAverages`) in a 1,078-line page.
-- `components/logs/gold-table.tsx` holds the saved-versus-pending ordering rule
-  chains §3 spends four paragraphs on, plus `countChanges` and `groupLines`.
-- `components/logs/preparedness-table.tsx` holds a module-level scale store.
+- ~~`components/logs/gold-table.tsx` holds the saved-versus-pending ordering rule
+  chains §3 spends four paragraphs on, plus `countChanges` and `groupLines`.~~
+  **Fixed (B6):** all three are `analysis/consumable-adjustments.ts` now, as
+  `raiderBreakdown`, `groupLines` and `countChanges`, with tests.
+- ~~`components/logs/preparedness-table.tsx` holds a module-level scale store.~~
+  **Fixed (B6):** `components/logs/use-text-scale.ts`, and testable in node.
 - ~~`src/lib/wcl/fetch-report.ts` builds the server-side filter expression
   inline; `docs.test.ts` can only grep for the list names.~~ **Fixed (B7):**
   the expressions moved to `event-filters.ts` and are asserted against the
@@ -439,7 +442,7 @@ change that added this file.
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
-| 2 — logic where tests reach | A4, B1, B3, C1, C2, E1, E3 **done**; B6 open | the pricing sites can be compared; the big pages and components shrink |
+| 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
@@ -480,7 +483,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
 | B5 | Decompose `createRepoFromStore` | open | unblocked — A7 and C1 done |
-| B6 | Client components | open | |
+| B6 | Client components | done | `import-tabs.tsx` 1584 → seven files (four tabs, the reports card, the import queue, the shared bits), verified line-for-line: every body line of the original is present exactly once across the split, the only differences being the `export` keywords the split needs. The gold table's three pure pieces are `analysis/consumable-adjustments.ts`, the preparedness table's scale store is `use-text-scale.ts`, and `board.tsx` had two things `raid-planner.ts` did not — `withGroupCount` and `specChoices`. All four moves have tests, each proven by breaking the moved code |
 | B7 | Filter builder | done | `src/lib/wcl/event-filters.ts` — `buildEventFilter` plus `CASTS_FILTER`/`DEBUFFS_FILTER`/`BUFFS_FILTER` and `UNFILTERED_ON_PURPOSE`, which names the three streams that stay unfiltered and why. An empty curated list now throws at import instead of silently matching nothing. `docs.test.ts` asserts the fetch sends the built filters and assembles none of its own; the list-by-list checks moved to `event-filters.test.ts`, which reads the built string |
 | C1 | Coverage, reported then gated | done | `@vitest/coverage-v8`, `npm run test:coverage`, and thresholds on the five pure layers at the value measured on 5 Sep 2026, floored to the integer below. CI runs coverage in place of `npm test`, prints the totals into the job summary and uploads `coverage-summary.json`. Proven red twice: once with an impossible threshold, which is the only way to know the globs resolve at all, and once with a real regression — skipping `raid-gold.test.ts` takes `src/lib/analysis` under three of its four floors |
 | C2 | Tests for untested pure modules | done | three first — `import/diff.ts`, `loot/award-context.ts`, `items/enchant-names.ts`, all three 0% before and ~100% after; `src/lib/loot`'s thresholds ratcheted with them. C1 measured the rest of §4C2's list rather than trusting it: `comments.ts`, `auth/capabilities.ts` and `loot/priority-chain.ts` are already covered and asserted elsewhere, and `auth/session.ts` (28%), `sim/run.ts` (6%) and `sim/setup.ts` (4%) are what is actually left, plus `theme.ts`, now done: the pre-paint script and the toggle share `prefersDarkTheme`, and the test runs the script string against it for every stored value × OS preference. That found a real bug — the script's single try/catch swallowed the *whole* rule when a browser blocks storage, so a dark-mode OS got a light first paint and a flash on hydration, which is the exact thing the script exists to prevent. `auth/session.ts` done too: 28% → 100%, every refusal in `currentAccount` proven by deleting it. That found a test of mine passing for the wrong reason — disabling an account revokes its sessions, so the *revoked* check was catching what the disabled check was supposed to; a session minted while the account was already disabled is the case with only one lock on it. `src/lib/auth`'s thresholds ratcheted 78/68/87/80 → 86/77/90/88. `sim/setup.ts` and `sim/run.ts` close it: 4% and 6% to 100% of statements, `src/lib/sim` 83/70/83/84 → 94/82/93/96. Every layer C1 gated has now been raised at least once |
@@ -539,6 +542,9 @@ follows, and for the same reason.
 | **C2** | ten untested pure modules, `comments.ts`, `auth/capabilities.ts` and `loot/priority-chain.ts` among them | seven; the other three are covered by tests that live next to their callers | C1 was written before C2 for exactly this reason, and it earned its place on the first look: `capabilities.ts` is asserted in `can.test.ts` and `roles.test.ts`, `priority-chain.ts` in `priority-sheet.test.ts`. `comments.ts` is the odd one — it is at 100% because it is nothing but constant tables, and the honest answer there is that there is nothing to test, not that a test is owed |
 | **C2** | `sim/run.ts` + `sim/setup.ts` "with the subprocess injected" | `setup.ts` has no subprocess and never had one, and `run.ts` kept its signature | `setup.ts` is pure — it reads a request, a result and a pull and returns rows; it needed a fixture, not an injection. For `run.ts`, injecting a runner would have changed two exported signatures for the test's benefit alone, so the child process is faked at the module boundary instead, the way `wcl/client` already is. The one subtlety is real and is written down in the test: `execFile` carries a `promisify.custom`, and a fake without it resolves with stdout alone, so the module's `{ stdout }` quietly becomes undefined |
 | **E3** | all three subagents read-only | `pure-test-writer` has `Write` | its whole output is a file, and funnelling three hundred lines through an agent report is exactly where that degrades. It is constrained in the brief instead — one new `*.test.ts` beside the module, never the module itself — and `docs.test.ts` names it as the single permitted exception, so a *second* agent gaining `Write` fails the suite. `Edit` stays refused for all three |
+| **B6** | "pure moves; confirm in the browser" | one behaviour changed on purpose, and it is a fix | the gold table keyed its note lookup on `name.trim().toLowerCase()` while `applyAdjustments` matches on a normalizer that also collapses runs of whitespace. A correction whose name differs only by a doubled space therefore folded into the logged line — showing the correction — while its note silently did not come with it. The moved code uses the module's own normalizer for both, and the case is pinned |
+| **B6** | — | took the invitation in `countChanges`'s own comment | it separated its key fields with two raw NUL bytes, which made **git treat `gold-table.tsx` as binary**: no diff, no auto-merge, `grep` skipping it. The comment said writing them as `\u0000` "keeps the guarantee exactly and hands the file back to git" and to do it next time the function was open. It was open |
+| **B6** | "check what `board.tsx` still holds" | two functions, not a list | `withGroupCount` and `specChoices`. Everything else it holds is about drawing — a colour role, a slot height, an undo limit, a hand-drawn bench icon, and `memberTitle`, which is a tooltip string rather than board arithmetic. Left where they are on purpose |
 
 ### What the misses have in common
 

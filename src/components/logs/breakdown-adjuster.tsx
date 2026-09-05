@@ -2,29 +2,8 @@
 
 import * as React from "react";
 import { Minus, PencilLine, Plus } from "lucide-react";
-import type { ConsumableGroup } from "@/lib/wcl/consumables";
+import type { GroupedLines, PricedLine } from "@/lib/analysis/consumable-adjustments";
 import { cn } from "@/lib/utils";
-
-export interface AdjustLine {
-  name: string;
-  /** Count after corrections — what the gold is charged on. */
-  count: number;
-  /** Net uses added (+) or removed (-) by hand. Absent when untouched. */
-  delta?: number;
-  /** True when nothing was logged and the whole line is an officer's. */
-  added?: boolean;
-  /** The reason written against the correction, when there is one. */
-  note?: string;
-  /** Gold per use at this raid's prices. */
-  cost: number;
-}
-
-/** One family of a raider's consumables, already in display order. */
-export interface ConsumableGroupedLines {
-  group: ConsumableGroup;
-  label: string;
-  lines: AdjustLine[];
-}
 
 /**
  * One raider's consumables, correctable — the panel behind a row in the gold
@@ -66,7 +45,7 @@ export function BreakdownAdjuster({
 }: {
   /** The raider these lines belong to — the "who" of every press from here. */
   actorName: string;
-  groups: ConsumableGroupedLines[];
+  groups: GroupedLines[];
   /** True while the batch is being written, so the buffer can't move under it. */
   disabled?: boolean;
   /** Every consumable priced this raid — the suggestion list for an addition. */
@@ -335,6 +314,6 @@ function AddConsumable({
 }
 
 /** Gold a family accounts for, so a heading carries its own weight. */
-function gold(lines: AdjustLine[]): string {
+function gold(lines: PricedLine[]): string {
   return Math.round(lines.reduce((sum, l) => sum + l.count * l.cost, 0)).toLocaleString("en-US");
 }

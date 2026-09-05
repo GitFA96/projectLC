@@ -6,27 +6,16 @@ import type { ConsumableAdjustment, ReportPayback } from "@/lib/types";
 import { buildPayback, type PaybackRow } from "@/lib/analysis/payback";
 import type { GuildPolicy } from "@/lib/analysis/policy";
 import {
-  adjustmentGold,
-  adjustmentsFor,
-  applyAdjustments,
   addAdjustment,
   bumpAdjustment,
+  countChanges,
+  raiderBreakdown,
   setAdjustmentNote,
   type ConsumableLine,
 } from "@/lib/analysis/consumable-adjustments";
-import {
-  CONSUMABLE_GROUP_LABELS,
-  CONSUMABLE_GROUP_ORDER,
-  consumableGroupOf,
-  type ConsumableGroup,
-} from "@/lib/wcl/consumables";
 import { saveReportConsumableAdjustments } from "@/app/logs/actions";
 import { RankBadge, Raider } from "@/components/logs/rank-bits";
-import {
-  BreakdownAdjuster,
-  type AdjustLine,
-  type ConsumableGroupedLines,
-} from "@/components/logs/breakdown-adjuster";
+import { BreakdownAdjuster } from "@/components/logs/breakdown-adjuster";
 import { useUnsavedGuard } from "@/components/use-unsaved-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -251,31 +240,13 @@ export function GoldTable({
 
   // Values follow the presses; both sorts follow `saved`. See the note above.
   const view = rows.map((row) => {
-    const order = new Map(
-      applyAdjustments(row.logged, adjustmentsFor(saved, row.name))
-        .map((l) => [l.name, (costPerUse[l.name] ?? 0) * l.count] as const)
-        .sort((a, b) => b[1] - a[1])
-        .map(([name], i) => [name, i] as const),
-    );
-    const lines = applyAdjustments(row.logged, adjustmentsFor(pending, row.name))
-      .filter((l) => (costPerUse[l.name] ?? 0) * l.count > 0 || l.delta !== undefined)
-      .sort((a, b) => (order.get(a.name) ?? order.size) - (order.get(b.name) ?? order.size));
-    const delta = adjustmentGold(row.logged, lines, costPerUse);
-    // The reason lives on the adjustment, not the folded line — carry it back
-    // so the panel can show and edit what was written against each correction.
-    const notes = new Map(
-      adjustmentsFor(pending, row.name).map((a) => [a.name.trim().toLowerCase(), a.note]),
-    );
-    const groups = groupLines(
-      lines.map((l) => ({
-        ...l,
-        cost: costPerUse[l.name] ?? 0,
-        note: notes.get(l.name.trim().toLowerCase()),
-      })),
-    );
-    // Surfaced on the collapsed row so a corrected raider is visible without
-    // opening anything — the chips used to carry that and no longer do.
-    const corrections = lines.filter((l) => l.delta !== undefined).length;
+    const { groups, corrections, delta } = raiderBreakdown({
+      logged: row.logged,
+      actorName: row.name,
+      saved,
+      pending,
+      costPerUse,
+    });
     return { row, groups, corrections, delta, total: row.inFight + row.prep + delta };
   });
 
@@ -573,63 +544,4 @@ export function GoldTable({
       </Modal>
     </Card>
   );
-}
-
-/**
- * Split a raider's lines into families, in the curated display order.
- *
- * Grouping is applied *after* the gold sort, so the order inside a family is
- * still the frozen one and a press can't move a line past its neighbour. Empty
- * families are dropped — a raider who drank no potions gets no Potions heading.
- */
-function groupLines(lines: AdjustLine[]): ConsumableGroupedLines[] {
-  const byGroup = new Map<ConsumableGroup, AdjustLine[]>();
-  for (const line of lines) {
-    const group = consumableGroupOf(line.name);
-    const bucket = byGroup.get(group);
-    if (bucket) bucket.push(line);
-    else byGroup.set(group, [line]);
-  }
-  return CONSUMABLE_GROUP_ORDER.filter((g) => byGroup.has(g)).map((group) => ({
-    group,
-    label: CONSUMABLE_GROUP_LABELS[group],
-    lines: byGroup.get(group) ?? [],
-  }));
-}
-
-/**
- * How many corrections the open batch actually represents — entries added,
- * dropped, or moved off their saved delta. Counting presses would be wrong:
- * pressing + then − again leaves nothing to save.
- */
-function countChanges(saved: ConsumableAdjustment[], pending: ConsumableAdjustment[]): number {
-  /*
-   * The separator between the three parts is a raw NUL, and it has to be
-   * something no one can type: a raider's name, a consumable's name and an
-   * officer's free-text note are all arbitrary strings, so any printable
-   * separator is one an officer can put in a note and fold two different
-   * corrections onto one key — which would silently undercount the batch.
-   *
-   * The cost is paid outside this file, and is worth knowing before it
-   * surprises somebody: two NUL bytes make **git classify this file as
-   * binary**. It will not diff or auto-merge it the way it does every other
-   * source file here, `grep` skips it as binary, and a line-ending change
-   * that git would normally absorb shows up as a whole-file rewrite.
-   *
-   * Writing these as the escape `\u0000` — or switching to `\u001f` —
-   * keeps the guarantee exactly and hands the file back to git. Worth doing
-   * next time this function is open for another reason.
-   */
-  const key = (a: ConsumableAdjustment) =>
-    `${a.actorName.trim().toLowerCase()} ${a.name.trim().toLowerCase()} ${a.note ?? ""}`;
-  const before = new Map(saved.map((a) => [key(a), a.delta]));
-  const seen = new Set<string>();
-  let n = 0;
-  for (const a of pending) {
-    const k = key(a);
-    seen.add(k);
-    if (before.get(k) !== a.delta) n++;
-  }
-  for (const k of before.keys()) if (!seen.has(k)) n++;
-  return n;
 }

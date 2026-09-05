@@ -1,4 +1,10 @@
 import type { ConsumableAdjustment } from "@/lib/types";
+import {
+  CONSUMABLE_GROUP_LABELS,
+  CONSUMABLE_GROUP_ORDER,
+  consumableGroupOf,
+  type ConsumableGroup,
+} from "@/lib/wcl/consumables";
 
 /**
  * Officer corrections to what a raid's logs say a raider got through.
@@ -274,4 +280,142 @@ export function addAdjustment(input: {
             : a,
         );
   return next.filter((a) => a.delta !== 0);
+}
+/* --- The breakdown panel's view of one raider, which is arithmetic --- */
+
+/** A line priced at this raid's rates, with the reason written against it. */
+export interface PricedLine extends AdjustedLine {
+  /** The reason written against the correction, when there is one. */
+  note?: string;
+  /** Gold per use at this raid's prices. */
+  cost: number;
+}
+
+/** One family of a raider's consumables, already in display order. */
+export interface GroupedLines {
+  group: ConsumableGroup;
+  label: string;
+  lines: PricedLine[];
+}
+
+/**
+ * A raider's lines under their family headings.
+ *
+ * Grouping is applied *after* the gold sort, so the order inside a family is
+ * still the frozen one and a press cannot move a line past its neighbour. Empty
+ * families are dropped — a raider who drank no potions gets no Potions heading.
+ */
+export function groupLines(lines: PricedLine[]): GroupedLines[] {
+  const byGroup = new Map<ConsumableGroup, PricedLine[]>();
+  for (const line of lines) {
+    const group = consumableGroupOf(line.name);
+    const bucket = byGroup.get(group);
+    if (bucket) bucket.push(line);
+    else byGroup.set(group, [line]);
+  }
+  return CONSUMABLE_GROUP_ORDER.filter((g) => byGroup.has(g)).map((group) => ({
+    group,
+    label: CONSUMABLE_GROUP_LABELS[group],
+    lines: byGroup.get(group) ?? [],
+  }));
+}
+
+/**
+ * One raider's panel: their lines, priced and grouped, plus what the open batch
+ * has done to them.
+ *
+ * **Values follow the presses; the sort waits.** The order is computed against
+ * the *saved* adjustments and the counts against the *pending* ones, so a line
+ * cannot move under the officer's cursor mid-batch — a row that reshuffles on
+ * every press is unusable, and the officer is comparing lines while they work.
+ * The gold beside each line does move, because a number that sat still while
+ * its neighbours changed would be the one thing on screen contradicting itself.
+ *
+ * A line the raid has no price for is dropped unless somebody corrected it: a
+ * free line is noise, but a free line an officer touched is a statement.
+ */
+export function raiderBreakdown(input: {
+  /** The raider's logged lines, before any correction. */
+  logged: ConsumableLine[];
+  actorName: string;
+  /** What the server ranked against — the frozen order comes from these. */
+  saved: ConsumableAdjustment[];
+  /** What is on screen, including this batch's unsaved presses. */
+  pending: ConsumableAdjustment[];
+  costPerUse: Record<string, number>;
+}): {
+  groups: GroupedLines[];
+  /** How many of this raider's lines an officer has touched. */
+  corrections: number;
+  /** Signed gold the corrections cost or saved. */
+  delta: number;
+} {
+  const { logged, actorName, saved, pending, costPerUse } = input;
+  const priceOf = (name: string) => costPerUse[name] ?? 0;
+
+  const order = new Map(
+    applyAdjustments(logged, adjustmentsFor(saved, actorName))
+      .map((l) => [l.name, priceOf(l.name) * l.count] as const)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name], i) => [name, i] as const),
+  );
+
+  const forRaider = adjustmentsFor(pending, actorName);
+  const lines = applyAdjustments(logged, forRaider)
+    .filter((l) => priceOf(l.name) * l.count > 0 || l.delta !== undefined)
+    .sort((a, b) => (order.get(a.name) ?? order.size) - (order.get(b.name) ?? order.size));
+
+  // The reason lives on the adjustment, not on the folded line — carry it back
+  // so the panel can show and edit what was written against each correction.
+  // Keyed the same way `applyAdjustments` matches, which is the point: a name
+  // whose only difference is a doubled space folds into the logged line there,
+  // and a looser key here would drop the officer's note on the way.
+  const notes = new Map(forRaider.map((a) => [normalizeConsumableName(a.name), a.note]));
+
+  return {
+    groups: groupLines(
+      lines.map((l) => ({
+        ...l,
+        cost: priceOf(l.name),
+        note: notes.get(normalizeConsumableName(l.name)),
+      })),
+    ),
+    corrections: lines.filter((l) => l.delta !== undefined).length,
+    delta: adjustmentGold(logged, lines, costPerUse),
+  };
+}
+
+/**
+ * How many corrections the open batch actually represents — entries added,
+ * dropped, or moved off their saved delta. Counting presses would be wrong:
+ * pressing + then − again leaves nothing to save.
+ */
+export function countChanges(
+  saved: ConsumableAdjustment[],
+  pending: ConsumableAdjustment[],
+): number {
+  /*
+   * The separator between the three parts is a NUL, and it has to be something
+   * nobody can type: a raider's name, a consumable's name and an officer's
+   * free-text note are all arbitrary strings, so any printable separator is one
+   * an officer can put in a note to fold two different corrections onto one key
+   * — which would silently undercount the batch.
+   *
+   * Written as the escape rather than as the byte. As a raw byte it made git
+   * classify the file as binary: no diff, no auto-merge, `grep` skipping it,
+   * and a line-ending change showing up as a whole-file rewrite. The escape
+   * keeps the guarantee exactly and hands the file back to git.
+   */
+  const key = (a: ConsumableAdjustment) =>
+    `${a.actorName.trim().toLowerCase()}\u0000${a.name.trim().toLowerCase()}\u0000${a.note ?? ""}`;
+  const before = new Map(saved.map((a) => [key(a), a.delta]));
+  const seen = new Set<string>();
+  let n = 0;
+  for (const a of pending) {
+    const k = key(a);
+    seen.add(k);
+    if (before.get(k) !== a.delta) n++;
+  }
+  for (const k of before.keys()) if (!seen.has(k)) n++;
+  return n;
 }

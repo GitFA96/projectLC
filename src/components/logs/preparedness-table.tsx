@@ -6,6 +6,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { ItemLink, type ItemRef } from "@/components/item-link";
 import { Raider } from "@/components/logs/rank-bits";
+import {
+  SCALE_MAX,
+  SCALE_MIN,
+  SCALE_STEP,
+  changeScale,
+  useTextScale,
+} from "@/components/logs/use-text-scale";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
@@ -125,7 +132,7 @@ export function PreparednessTable({
   onScopeChange,
 }: Props) {
   const [sort, setSort] = React.useState<Sort>({ by: "name", dir: "asc" });
-  const textScale = React.useSyncExternalStore(subscribeScale, readScale, () => 1);
+  const textScale = useTextScale();
 
   /* Raider → item → what keeping it up all night takes. See `PetTally`. */
   const petEstimate = React.useMemo(
@@ -788,61 +795,6 @@ function Strip({
 
 /** Consumable name → the cache's item, when it knows one. */
 const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-/**
- * The reader's own text size for this table, remembered per browser.
- *
- * A raid night is as wide as its longest consumable name, and how much of that
- * is worth trading for a horizontal scrollbar is a preference, not something
- * this component can decide: a 34" ultrawide and a laptop want opposite things
- * from the same report. So the table is allowed to be wide and the reader
- * shrinks it until it fits — or doesn't, and scrolls.
- */
-const TEXT_SCALE_KEY = "projectlc.preparedness.textScale";
-const SCALE_MIN = 0.6;
-const SCALE_MAX = 1.3;
-const SCALE_STEP = 0.1;
-const clampScale = (n: number) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, n));
-
-/*
- * Kept outside React and read through `useSyncExternalStore`, because the
- * server has no localStorage: it renders 100% and React swaps the reader's own
- * size in after hydration, instead of the two disagreeing about the first
- * paint. The feedback list reads its "last seen" stamp the same way.
- *
- * The module-level mirror is also the whole store when storage is blocked — the
- * control still works for the visit, it just isn't remembered for the next one.
- */
-const scaleListeners = new Set<() => void>();
-let currentScale: number | undefined;
-
-function subscribeScale(onStoreChange: () => void) {
-  scaleListeners.add(onStoreChange);
-  return () => void scaleListeners.delete(onStoreChange);
-}
-
-function readScale(): number {
-  if (currentScale === undefined) {
-    try {
-      const saved = Number(localStorage.getItem(TEXT_SCALE_KEY));
-      currentScale = Number.isFinite(saved) && saved > 0 ? clampScale(saved) : 1;
-    } catch {
-      currentScale = 1;
-    }
-  }
-  return currentScale;
-}
-
-/** `by` undefined resets to 100%. Steps are relative to the stored value. */
-function changeScale(by?: number) {
-  currentScale = by === undefined ? 1 : clampScale(Math.round((readScale() + by) * 100) / 100);
-  try {
-    localStorage.setItem(TEXT_SCALE_KEY, String(currentScale));
-  } catch {
-    // Not remembered for next time; still applied to this one.
-  }
-  for (const notify of scaleListeners) notify();
-}
 
 /**
  * A consumable as an item where possible, and as its plain name otherwise.

@@ -30,7 +30,10 @@ import {
   place,
   placeInFirstOpen,
   sanitizeBoard,
+  type Board,
   seedBoard,
+  specChoices,
+  withGroupCount,
   setSlotSpec,
   unknownNames,
   withRosterSpecs,
@@ -1430,5 +1433,80 @@ describe("selectBoard", () => {
 
   it("treats an unknown report code as the default rather than a blank raid", () => {
     expect(selectBoard("NOTAREPORT", known)).toEqual({ tab: "rosters", rosterId: "b1" });
+  });
+});
+
+describe("withGroupCount", () => {
+  const pool: PoolMember[] = Array.from({ length: 40 }, (_, i) => ({ name: `R${i}` }));
+
+  it("keeps the board at the size the officer trimmed it to", () => {
+    // "Fill in order" seeds all eight groups. A board somebody cut down to five
+    // must not silently grow three back because they pressed a button that says
+    // nothing about adding groups.
+    const trimmed = { ...emptyBoard(5) };
+    const refitted = withGroupCount(seedBoard(pool), trimmed);
+    expect(refitted.groups).toHaveLength(5);
+  });
+
+  it("leaves everyone who no longer fits unplaced, where the bench shows them", () => {
+    const refitted = withGroupCount(seedBoard(pool), emptyBoard(2));
+    const placed = refitted.groups.flat().map((s) => s.name);
+    expect(placed).toHaveLength(2 * GROUP_SIZE);
+    // Not dropped from the pool — the bench is computed against it, so the
+    // other thirty are visible and draggable rather than gone.
+    expect(benchOf(refitted, pool)).toHaveLength(pool.length - placed.length);
+  });
+
+  it("takes everything but the groups from the board being replaced", () => {
+    const named: Board = { ...emptyBoard(3), groupNames: ["Bloodlust"] };
+    const refitted = withGroupCount(seedBoard(pool), named);
+    expect(refitted.groupNames).toEqual(["Bloodlust"]);
+  });
+
+  it("clears a stored bench, because the new seating decides who sits", () => {
+    const withBench = { ...emptyBoard(8), bench: [{ name: "R0" }] } as Board;
+    expect(withGroupCount(seedBoard(pool), withBench).bench).toEqual([]);
+  });
+
+  it("leaves a board that never had a bench without one", () => {
+    // Absent and empty are different: absent means nobody has ever sat anyone
+    // down on this board, and `benchOf` computes the bench for it instead.
+    expect(withGroupCount(seedBoard(pool), emptyBoard(8)).bench).toBeUndefined();
+  });
+
+  it("grows nothing when the board is already the full eight", () => {
+    const refitted = withGroupCount(seedBoard(pool), emptyBoard(GROUP_COUNT));
+    expect(refitted.groups).toHaveLength(GROUP_COUNT);
+    expect(refitted.groups.flat()).toHaveLength(GROUP_COUNT * GROUP_SIZE);
+  });
+});
+
+describe("specChoices", () => {
+  it("offers every spec the pool knows for a raider", () => {
+    expect(specChoices({ name: "Melige", spec: "Shadow", specOptions: ["Shadow", "Discipline"] })).toEqual([
+      "Shadow",
+      "Discipline",
+    ]);
+  });
+
+  it("offers the one they are, when that is all there is", () => {
+    // Not a choice, and the caller checks the length rather than the content —
+    // but returning the current spec keeps the two cases the same shape.
+    expect(specChoices({ name: "Melige", spec: "Shadow" })).toEqual(["Shadow"]);
+    expect(specChoices({ name: "Melige", spec: "Shadow", specOptions: [] })).toEqual(["Shadow"]);
+  });
+
+  it("offers nothing at all for a raider whose spec was never captured", () => {
+    // A log can name an actor with no spec, and a picker with nothing in it is
+    // worse than no picker.
+    expect(specChoices({ name: "Melige" })).toEqual([]);
+  });
+
+  it("does not add the current spec to a list that omits it", () => {
+    // The options are the pool's statement about what this raider may count as.
+    // Quietly appending to it would offer a spec the roster did not.
+    expect(specChoices({ name: "Melige", spec: "Shadow", specOptions: ["Discipline"] })).toEqual([
+      "Discipline",
+    ]);
   });
 });

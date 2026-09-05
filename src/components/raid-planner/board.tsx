@@ -33,6 +33,8 @@ import {
   removeGroup,
   removeSlot,
   seedBoard,
+  specChoices,
+  withGroupCount,
   archetypeSlot,
   encodePlan,
   paletteByClass,
@@ -108,25 +110,6 @@ const HISTORY_LIMIT = 100;
 /** Unique enough for a board: a slot id only has to be distinct from its twins. */
 const newSlotId = () =>
   `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-
-/**
- * Re-fit a freshly seeded board to the groups the officer actually has.
- *
- * `seedBoard` always builds the full eight; a board someone has trimmed
- * to five shouldn't silently grow three back because they pressed "Fill in
- * order". Anyone who no longer fits ends up unplaced, which the bench shows.
- */
-function withGroupCount(seeded: Board, like: Board): Board {
-  const groups = seeded.groups.slice(0, like.groups.length);
-  return { ...like, groups, bench: like.bench ? [] : like.bench };
-}
-
-/** The specs an officer may count this raider as, their current one included. */
-function specChoices(member: PoolMember): string[] {
-  const options = member.specOptions ?? [];
-  if (options.length === 0) return member.spec ? [member.spec] : [];
-  return options;
-}
 
 function memberTitle(member: PoolMember): string {
   return [
