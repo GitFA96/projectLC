@@ -74,7 +74,7 @@ export default defineConfig({
         "src/lib/analysis/**": { statements: 97, branches: 88, functions: 95, lines: 98 },
         "src/lib/auth/**": { statements: 86, branches: 77, functions: 90, lines: 88 },
         "src/lib/loot/**": { statements: 95, branches: 93, functions: 96, lines: 96 },
-        "src/lib/sim/**": { statements: 83, branches: 70, functions: 83, lines: 84 },
+        "src/lib/sim/**": { statements: 94, branches: 82, functions: 93, lines: 96 },
         "src/lib/wcl/normalize.ts": {
           statements: 89,
           branches: 76,
