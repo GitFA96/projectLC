@@ -351,7 +351,7 @@ per pull, so it suits a panel someone opened, not a page everyone loads.
 
 ## 2. Add a persisted field
 
-**Chain:** `db.ts` schema + `migrate()` → `store.ts` (`EntityStore`) → `sqlite-repo.ts`
+**Chain:** `db/schema.ts` + `db/migrate.ts` → `store.ts` (`EntityStore`) → `sqlite-repo.ts`
 → `repo.ts` (`Repo`/`WriteRepo`) → the right file in `types/` (`types.ts` is a
 barrel; nothing imports the parts directly) → `import/schemas.ts` if it is
 seedable → `sqlite-repo.test.ts`.
@@ -373,7 +373,7 @@ string only runs for a **fresh** database, so:
 
 Changing a **primary key or constraint** cannot be done with `addColumn`; SQLite
 needs a table rebuild (create new → copy → drop → rename). There are worked
-examples in `db.ts` (`current_gear_overrides_spec`, `items_relaxed`).
+examples in `db/migrate.ts` (`current_gear_overrides_spec`, `items_relaxed`).
 
 **The `INSERT OR REPLACE` trap.** Several `insert*` writers name their columns
 explicitly and are used as the *update* path — `updateCharacter` calls
@@ -675,7 +675,7 @@ bare string literals with no shape between them are one rename from crossing two
 records in silence.
 
 **`sim_settings:<slug>` is retired but not deleted.** Sim setups used to be per
-character. `promoteSimSettingsToProfiles` in `db.ts` copies each one into its
+character. `promoteSimSettingsToProfiles` in `db/migrate.ts` copies each one into its
 spec profile on boot, resolving the spec from the setup's talent totals against
 the builds this guild's logs have already named — and copies rather than moves,
 because that fingerprint is genuinely ambiguous for some builds (the logs call
@@ -770,8 +770,9 @@ it is the one field with its own grant.
 
 ## 4b. Add a policy field
 
-**Chain:** `analysis/policy.ts` (type + default) → `db.ts` `sanitizePolicy` →
-the module that reads it → `policy-editor.tsx` → `policy.test.ts`.
+**Chain:** `analysis/policy.ts` (type + default) → `sanitizePolicy` in
+`db/meta/policy.ts` → the module that reads it → `policy-editor.tsx` →
+`policy.test.ts`.
 
 Two steps fail quietly:
 

@@ -15,7 +15,7 @@ reasoning. This is the procedure.
 
 ## The chain, as a checklist
 
-`db.ts` `SCHEMA` **and** the migration list → `store.ts` (`EntityStore`) →
+`db/schema.ts` **and** the list in `db/migrate.ts` → `store.ts` (`EntityStore`) →
 `sqlite-repo.ts` → `repo.ts` (`Repo`/`WriteRepo`) → the right file under
 `types/` → `import/schemas.ts` if it is seedable → `sqlite-repo.test.ts`.
 
@@ -33,7 +33,7 @@ columns, so anything created before it runs is dropped again — on exactly the
 databases old enough to need the migration.
 
 A rebuild is create-new → copy → drop → rename. There are worked examples in
-`db.ts`: `current_gear_overrides_spec` and `items_relaxed`.
+`db/migrate.ts`: `current_gear_overrides_spec` and `items_relaxed`.
 
 ## What tells you it is wrong
 

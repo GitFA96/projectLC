@@ -45,7 +45,7 @@ The whole app is one pipeline with one durable store:
 SixtyUpgrades · Gargul · Warcraft Logs · Wowhead
         │  import time only — src/lib/import, src/lib/wcl, src/lib/items
         ▼
-SQLite  — src/lib/data/db.ts: schema, migrate(), the meta-key settings
+SQLite  — src/lib/data/db/: schema, migrations, the meta-key settings
         │  loadStore → EntityStore
         ▼
 createRepoFromStore — src/lib/data/store.ts: EVERY derived number, once,
@@ -95,7 +95,7 @@ rules have a check behind them and which are still only sentences.
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
 | Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `db.ts` 3992 · `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `raid-planner.ts` 1472 · `preparedness-table.tsx` 1461 · `types/raid.ts` 707 (was `types.ts` 1701, split by B1; `import-tabs.tsx` was 1584, split by B6) |
+| Largest modules | `store.ts` 2398 · `normalize.ts` 2168 · `sqlite-repo.ts` 2035 · `raid-planner.ts` 1472 · `preparedness-table.tsx` 1461 · `db/schema.ts` 699 (one template literal) · `db/identity.ts` 648 (was `db.ts` 3992, split by B2; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6) |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -443,7 +443,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | B2 **done**; B4, C3, D2, D3, D6 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
@@ -479,7 +479,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | A7 | Golden verdicts | done | `src/lib/__snapshots__/golden-verdicts.md`. Standing uses `roster.minRaids: 1`, stated on the page: the seed ships one raid night and the real default of 3 places nobody |
 | A8 | Doc truth | done | both sentences fixed; `docs.test.ts` now parses them and fails on the drift that had gone unnoticed for months |
 | B1 | Split `types.ts` | done | ten domain files under `types/`, `types.ts` the barrel — no import path anywhere changed. The five files §4B1 guessed at did not match the content: `wcl` and `items` are not domains of this file, and feedback is five one-line inferences that stayed with the entities. Done by a script rather than by hand, and verified against the original: 121 exports before and after, none lost, gained or duplicated; every comment line and every field line still present |
-| B2 | Split `db.ts` | open | unblocked — A3 done |
+| B2 | Split `db.ts` | done | 3,992 lines → 19 files under `db/`, largest 699 and that one is a single template literal. Verified the way B6 was: every body line present exactly once across the split, the only differences the `export` keywords it needs. **The public surface is byte-identical** — `db-surface.test.ts` pins the 122 runtime exports of `@/lib/data/db`, and the barrel names them explicitly for the five modules whose internals a sibling needs, so a private helper cannot become public by being useful next door. `docs.test.ts`'s meta-key check reads the directory now, and the schema chain hook no longer needs its `when`: `db/schema.ts` and `db/migrate.ts` are already about the schema |
 | B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
 | B4 | Split `sqlite-repo.ts` writes | open | after A2 |
 | B5 | Decompose `createRepoFromStore` | open | unblocked — A7 and C1 done |
@@ -545,6 +545,8 @@ follows, and for the same reason.
 | **B6** | "pure moves; confirm in the browser" | one behaviour changed on purpose, and it is a fix | the gold table keyed its note lookup on `name.trim().toLowerCase()` while `applyAdjustments` matches on a normalizer that also collapses runs of whitespace. A correction whose name differs only by a doubled space therefore folded into the logged line — showing the correction — while its note silently did not come with it. The moved code uses the module's own normalizer for both, and the case is pinned |
 | **B6** | — | took the invitation in `countChanges`'s own comment | it separated its key fields with two raw NUL bytes, which made **git treat `gold-table.tsx` as binary**: no diff, no auto-merge, `grep` skipping it. The comment said writing them as `\u0000` "keeps the guarantee exactly and hands the file back to git" and to do it next time the function was open. It was open |
 | **B6** | "check what `board.tsx` still holds" | two functions, not a list | `withGroupCount` and `specChoices`. Everything else it holds is about drawing — a colour role, a slot height, an undo limit, a hand-drawn bench icon, and `memberTitle`, which is a tooltip string rather than board arithmetic. Left where they are on purpose |
+| **B2** | six destinations — `schema`, `migrate`, `meta/` per key family, `rows` | nineteen | §4B2's list had nowhere for the entity writers, the identity and auth block, the lookup caches, the connection, or the seed — between them more than a third of the file. Naming four of the six by content and stopping was the guess; the file's own contents decided the rest |
+| **B2** | — | a barrel of `export *` silently widened the surface, so it does not | twelve helpers that were private inside a 4,000-line file became public the moment a sibling needed them — `insertGuild`, `migrate`, `seedIfEmpty`, four `rowTo*`. Nothing said so, and nothing would have. The barrel now names its exports explicitly for those five modules and `db-surface.test.ts` pins the whole list, which is a better guard than the split needed and a cheap one to keep |
 
 ### What the misses have in common
 

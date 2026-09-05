@@ -31,18 +31,20 @@ describe("chainNoteFor", () => {
     expect(chainNoteFor("/home/x/projectLC/src/lib/wcl/consumables.ts")).toMatch(/re-import/i);
   });
 
-  it("narrows the db.ts note to edits that touch the schema", () => {
-    const schemaEdit = "  phase_checked INTEGER NOT NULL DEFAULT 0\n);";
-    expect(chainNoteFor(p("lib", "data", "db.ts"), "CREATE TABLE IF NOT EXISTS x (")).toMatch(
-      /COLUMN_MIGRATIONS/,
-    );
-    expect(chainNoteFor(p("lib", "data", "db.ts"), `ALTER TABLE x ADD COLUMN ${schemaEdit}`)).toMatch(
-      /COLUMN_MIGRATIONS/,
-    );
-    // db.ts is 4,000 lines; most edits to it have nothing to do with the schema.
-    expect(chainNoteFor(p("lib", "data", "db.ts"), "const x = 1;")).toBe("");
-    // And with no text at all it stays quiet rather than guessing.
-    expect(chainNoteFor(p("lib", "data", "db.ts"))).toBe("");
+  it("names the migration step on any edit to the schema or the migrations", () => {
+    // Before B2 both lived in a 4,000-line `db.ts` and the note had to be
+    // narrowed by what the edit contained, or it fired on every unrelated
+    // change and taught the reader to skip it. They are two files of their own
+    // now, so an edit to either is already about the schema.
+    for (const file of ["schema.ts", "migrate.ts"]) {
+      expect(chainNoteFor(p("lib", "data", "db", file)), file).toMatch(/COLUMN_MIGRATIONS/);
+      expect(chainNoteFor(p("lib", "data", "db", file), "const x = 1;"), file).toMatch(
+        /COLUMN_MIGRATIONS/,
+      );
+    }
+    // And the barrel is not the schema.
+    expect(chainNoteFor(p("lib", "data", "db.ts"), "CREATE TABLE IF NOT EXISTS x (")).toBe("");
+    expect(chainNoteFor(p("lib", "data", "db", "rows.ts"))).toBe("");
   });
 
   it("names the silent step for policy and for capabilities", () => {
@@ -127,9 +129,15 @@ describe("the notes stay true", () => {
   });
 });
 
-/** Whether some file in the repo is called this — for notes that use a bare name. */
+/**
+ * Whether some file in the repo is called this.
+ *
+ * Notes name files the way a person would say them: sometimes a bare
+ * `policy.ts`, sometimes enough of the path to disambiguate it from another
+ * file with the same name — `db/meta/policy.ts` against `analysis/policy.ts`.
+ * Both have to resolve, so a path is matched as a suffix of a real one.
+ */
 function hasBasename(name) {
-  if (name.includes("/")) return false;
   const roots = ["src/lib", "src/app", "src/components", ".claude/hooks", "scripts", "docs"];
   const stack = roots.map((r) => path.join(root, r));
   while (stack.length > 0) {
@@ -141,8 +149,12 @@ function hasBasename(name) {
       continue;
     }
     for (const entry of entries) {
-      if (entry.isDirectory()) stack.push(path.join(dir, entry.name));
-      else if (entry.name === name) return true;
+      if (entry.isDirectory()) {
+        stack.push(path.join(dir, entry.name));
+        continue;
+      }
+      const full = path.join(dir, entry.name).split(path.sep).join("/");
+      if (full.endsWith("/" + name) || entry.name === name) return true;
     }
   }
   return false;

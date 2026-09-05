@@ -303,7 +303,11 @@ describe("the WCL event filter is built from the curated lists", () => {
 describe("per-report settings use the meta-key convention", () => {
   // docs/change-chains.md §3 lists these. A new one belongs in that table.
   it("keeps every documented key in the data layer", () => {
-    const db = readFileSync(path.join(root, "src/lib/data/db.ts"), "utf8");
+    // The whole directory, not `db.ts`: since B2 that file is a barrel, and
+    // each family of keys lives in its own file under `db/meta/`.
+    const layer = walk(path.join(root, "src/lib/data/db"), (f) => f.endsWith(".ts"))
+      .map((f) => readFileSync(f, "utf8"))
+      .join("\n");
     const chains = readFileSync(path.join(root, "docs/change-chains.md"), "utf8");
     for (const key of [
       "consumable_prices",
@@ -313,7 +317,7 @@ describe("per-report settings use the meta-key convention", () => {
       "raid_board",
       "guild_roster",
     ]) {
-      expect(db, `meta key ${key} vanished from db.ts`).toContain(`${key}:`);
+      expect(layer, `meta key ${key} vanished from src/lib/data/db/`).toContain(`${key}:`);
       expect(chains, `meta key ${key} is missing from the change-chains table`).toContain(key);
     }
   });

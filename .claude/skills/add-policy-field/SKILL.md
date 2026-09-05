@@ -15,8 +15,9 @@ reasoning. This is the procedure.
 
 ## The chain
 
-`analysis/policy.ts` (the type **and** the default) → `db.ts` `sanitizePolicy` →
-the module that reads it → `policy-editor.tsx` → `policy.test.ts`.
+`analysis/policy.ts` (the type **and** the default) → `sanitizePolicy` in
+`db/meta/policy.ts` → the module that reads it → `policy-editor.tsx` →
+`policy.test.ts`.
 
 ## Two steps that fail quietly
 

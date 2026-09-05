@@ -3,7 +3,8 @@
 One direction of flow:
 
 ```
-db.ts        raw node:sqlite — schema, migrations, row⇄entity mapping
+db/          raw node:sqlite — schema, migrations, row⇄entity mapping.
+             `db.ts` is the barrel; the files under it are the parts
   ↓
 store.ts     EntityStore (plain entities) + createRepoFromStore (ALL derived data)
   ↓

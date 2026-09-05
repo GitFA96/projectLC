@@ -22,7 +22,7 @@
 /**
  * `when` narrows a note to edits that plausibly touch the coupling. Only worth
  * it for a file large enough that most edits have nothing to do with the chain
- * — `db.ts` is 4,000 lines and the schema is a hundred of them.
+ * — `sqlite-repo.ts` is 2,000 lines and most of an edit to it is not a write.
  */
 export const CHAIN_NOTES = [
   {
@@ -37,8 +37,9 @@ export const CHAIN_NOTES = [
   },
   {
     id: "schema",
-    match: /src[/\\]lib[/\\]data[/\\]db\.ts$/,
-    when: /CREATE TABLE|ADD COLUMN|COLUMN_MIGRATIONS|ALTER TABLE/,
+    // Since B2 these are two files of their own, so an edit to either is
+    // already about the schema — no `when` needed to keep the note relevant.
+    match: /src[/\\]lib[/\\]data[/\\]db[/\\](schema|migrate)\.ts$/,
     note:
       "change-chains §2 — a column added to SCHEMA alone works on every machine except the " +
       "user's: CREATE TABLE IF NOT EXISTS never retrofits an existing database. Add an entry " +
@@ -49,11 +50,11 @@ export const CHAIN_NOTES = [
     id: "policy",
     match: /src[/\\]lib[/\\]analysis[/\\]policy\.ts$/,
     note:
-      "change-chains §4b — a new policy field needs `sanitizePolicy` in db.ts to name it, or " +
-      "it is silently dropped on read: the editor saves, the page reloads, the value is back " +
-      "to its default with no error. Then policy-editor.tsx, then policy.test.ts, which " +
-      "asserts the WHOLE default object — adopting a field must change no number until an " +
-      "officer edits one.",
+      "change-chains §4b — a new policy field needs `sanitizePolicy` in db/meta/policy.ts to " +
+      "name it, or it is silently dropped on read: the editor saves, the page reloads, the " +
+      "value is back to its default with no error. Then policy-editor.tsx, then " +
+      "policy.test.ts, which asserts the WHOLE default object — adopting a field must change " +
+      "no number until an officer edits one.",
   },
   {
     id: "capabilities",
