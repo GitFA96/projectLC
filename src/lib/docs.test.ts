@@ -36,6 +36,9 @@ describe("agent docs — links", () => {
   const docs = [
     ...walk(path.join(root, "src"), (f) => f === "AGENTS.md"),
     ...walk(path.join(root, "docs"), (f) => f.endsWith(".md")),
+    // The skills are agent docs too, and theirs is the link most likely to rot:
+    // they sit three directories deep, so every one of them is a `../../../`.
+    ...walk(path.join(root, ".claude", "skills"), (f) => f === "SKILL.md"),
     path.join(root, "AGENTS.md"),
     path.join(root, "README.md"),
   ];
@@ -55,6 +58,59 @@ describe("agent docs — links", () => {
       }
     }
     expect(broken).toEqual([]);
+  });
+});
+
+describe("the skills in .claude/skills", () => {
+  const skills = walk(path.join(root, ".claude", "skills"), (f) => f === "SKILL.md");
+
+  /**
+   * A skill is a procedure somebody follows without reading around it, so a
+   * filename that has since moved sends them looking for something that is not
+   * there. That is the one kind of rot a doc this short cannot survive, and it
+   * is mechanically checkable, so it is checked.
+   *
+   * `local/` is deliberately not checked: it is gitignored, so it exists on the
+   * maintainer's machine and never in CI.
+   */
+  const TRACKED = ["src/", "scripts/", "docs/", ".claude/"];
+  const looksLikeAFile = /^[\w./-]+\.(?:ts|tsx|mjs|mts|md|json|css|sh|yml)$/;
+  const backticked = /`([^`\n]+)`/g;
+
+  it("has at least the skills the plan asked for", () => {
+    expect(skills.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("gives every skill a name and a description", () => {
+    for (const skill of skills) {
+      const front = readFileSync(skill, "utf8").split("---")[1] ?? "";
+      expect(front, rel(skill)).toMatch(/\nname: \S+/);
+      // The description decides whether the skill is reached for at all. A
+      // skill nobody invokes is a file nobody reads.
+      expect(front, rel(skill)).toMatch(/\ndescription: \S/);
+    }
+  });
+
+  it("names only files that exist", () => {
+    const byName = new Set(
+      ["src", "scripts", "docs", ".claude"]
+        .flatMap((dir) => walk(path.join(root, dir), () => true))
+        .map((f) => path.basename(f)),
+    );
+    const missing: string[] = [];
+    for (const skill of skills) {
+      for (const [, token] of readFileSync(skill, "utf8").matchAll(backticked)) {
+        if (!looksLikeAFile.test(token)) continue;
+        if (token.includes("/")) {
+          if (!TRACKED.some((dir) => token.startsWith(dir))) continue;
+          if (!existsSync(path.join(root, token))) missing.push(`${rel(skill)} → ${token}`);
+        } else if (!byName.has(token)) {
+          // Named by basename alone — it has to exist somewhere tracked.
+          missing.push(`${rel(skill)} → ${token}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });
 
