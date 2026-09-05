@@ -439,7 +439,7 @@ change that added this file.
 |---|---|---|
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
-| 2 — logic where tests reach | A4, B1, B3, C1, C2, E1 **done**; B6, E3 open | the pricing sites can be compared; the big pages and components shrink |
+| 2 — logic where tests reach | A4, B1, B3, C1, C2, E1, E3 **done**; B6 open | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, C3, D2, D3, D6 | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
 
@@ -495,7 +495,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | D6 | Lint speed | open | |
 | E1 | Skills | done | all seven. `preflight`, `real-data-check` and `probe-wcl` (with `scripts/probe-wcl.mjs`, verified end to end against the live API) landed in phase 1; `add-migration`, `add-tracked-consumable`, `add-policy-field` and `cycle` here. Each runs ~50 lines rather than the 40 §4E1 asked for; trimming further would have cut the trap each one exists to carry. `docs.test.ts` now pins them: the `../../../` links resolve, every skill has a name and a description, and a filename a skill names in backticks has to exist somewhere tracked — proven red by renaming one |
 | E2 | Hooks | done | `chain-hint.mjs` (PostToolUse) prints the chain for six file patterns, narrowed by what the edit contains where the file is large; `session-brief.mjs` (SessionStart) reports whether :3000 answers and how much of §7 is open. Both fail open on every path, both pipe-tested, and `chain-notes.test.mjs` pins the notes — including that every file they name still exists |
-| E3 | Subagents | open | |
+| E3 | Subagents | done | `chain-reviewer`, `docs-truth` and `pure-test-writer` in `.claude/agents/`. `docs.test.ts` pins them beside the skills: links resolve, each has a name and a description, and none may hold `Edit` — `pure-test-writer` is the only one with `Write`, and the test names it as the exception rather than letting any agent quietly gain one |
 | E4 | Model routing | done (this file) | the table in §4E4 |
 | E5 | Work-unit conventions | done (this file) | §4E5 |
 | E6 | Permission allowlist | done | eleven read-only entries in `.claude/settings.json`; writes still prompt, and both guards run ahead of the permission either way |
@@ -538,6 +538,7 @@ follows, and for the same reason.
 | **C1** | "the pure layers", named as though they were the well-covered ones | they are not all well covered: `analysis` measures 97% of statements and `auth` 78%, with 68% of its branches | the floors are the measured values, so `auth`'s is a floor and not a standard. That is the intended shape — the number says "do not get worse", and raising it is C2's job — but a reader who sees a threshold of 68 and assumes it was chosen as *good enough* has it backwards |
 | **C2** | ten untested pure modules, `comments.ts`, `auth/capabilities.ts` and `loot/priority-chain.ts` among them | seven; the other three are covered by tests that live next to their callers | C1 was written before C2 for exactly this reason, and it earned its place on the first look: `capabilities.ts` is asserted in `can.test.ts` and `roles.test.ts`, `priority-chain.ts` in `priority-sheet.test.ts`. `comments.ts` is the odd one — it is at 100% because it is nothing but constant tables, and the honest answer there is that there is nothing to test, not that a test is owed |
 | **C2** | `sim/run.ts` + `sim/setup.ts` "with the subprocess injected" | `setup.ts` has no subprocess and never had one, and `run.ts` kept its signature | `setup.ts` is pure — it reads a request, a result and a pull and returns rows; it needed a fixture, not an injection. For `run.ts`, injecting a runner would have changed two exported signatures for the test's benefit alone, so the child process is faked at the module boundary instead, the way `wcl/client` already is. The one subtlety is real and is written down in the test: `execFile` carries a `promisify.custom`, and a fake without it resolves with stdout alone, so the module's `{ stdout }` quietly becomes undefined |
+| **E3** | all three subagents read-only | `pure-test-writer` has `Write` | its whole output is a file, and funnelling three hundred lines through an agent report is exactly where that degrades. It is constrained in the brief instead — one new `*.test.ts` beside the module, never the module itself — and `docs.test.ts` names it as the single permitted exception, so a *second* agent gaining `Write` fails the suite. `Edit` stays refused for all three |
 
 ### What the misses have in common
 

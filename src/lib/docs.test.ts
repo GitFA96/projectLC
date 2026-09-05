@@ -36,9 +36,11 @@ describe("agent docs — links", () => {
   const docs = [
     ...walk(path.join(root, "src"), (f) => f === "AGENTS.md"),
     ...walk(path.join(root, "docs"), (f) => f.endsWith(".md")),
-    // The skills are agent docs too, and theirs is the link most likely to rot:
-    // they sit three directories deep, so every one of them is a `../../../`.
+    // The skills and agent briefs are agent docs too, and theirs is the link
+    // most likely to rot: they sit two or three directories deep, so every one
+    // of them is a `../../` or a `../../../`.
     ...walk(path.join(root, ".claude", "skills"), (f) => f === "SKILL.md"),
+    ...walk(path.join(root, ".claude", "agents"), (f) => f.endsWith(".md")),
     path.join(root, "AGENTS.md"),
     path.join(root, "README.md"),
   ];
@@ -61,14 +63,16 @@ describe("agent docs — links", () => {
   });
 });
 
-describe("the skills in .claude/skills", () => {
+describe("the skills and agents in .claude", () => {
   const skills = walk(path.join(root, ".claude", "skills"), (f) => f === "SKILL.md");
+  const agents = walk(path.join(root, ".claude", "agents"), (f) => f.endsWith(".md"));
+  const briefs = [...skills, ...agents];
 
   /**
-   * A skill is a procedure somebody follows without reading around it, so a
-   * filename that has since moved sends them looking for something that is not
-   * there. That is the one kind of rot a doc this short cannot survive, and it
-   * is mechanically checkable, so it is checked.
+   * A skill or an agent brief is a procedure somebody follows without reading
+   * around it, so a filename that has since moved sends them looking for
+   * something that is not there. That is the one kind of rot a doc this short
+   * cannot survive, and it is mechanically checkable, so it is checked.
    *
    * `local/` is deliberately not checked: it is gitignored, so it exists on the
    * maintainer's machine and never in CI.
@@ -77,36 +81,56 @@ describe("the skills in .claude/skills", () => {
   const looksLikeAFile = /^[\w./-]+\.(?:ts|tsx|mjs|mts|md|json|css|sh|yml)$/;
   const backticked = /`([^`\n]+)`/g;
 
-  it("has at least the skills the plan asked for", () => {
+  it("has at least the skills and agents the plan asked for", () => {
     expect(skills.length).toBeGreaterThanOrEqual(7);
+    expect(agents.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("gives every skill a name and a description", () => {
-    for (const skill of skills) {
-      const front = readFileSync(skill, "utf8").split("---")[1] ?? "";
-      expect(front, rel(skill)).toMatch(/\nname: \S+/);
-      // The description decides whether the skill is reached for at all. A
-      // skill nobody invokes is a file nobody reads.
-      expect(front, rel(skill)).toMatch(/\ndescription: \S/);
+  it("gives every one a name and a description", () => {
+    for (const brief of briefs) {
+      const front = readFileSync(brief, "utf8").split("---")[1] ?? "";
+      expect(front, rel(brief)).toMatch(/\nname: \S+/);
+      // The description decides whether it is reached for at all. One nobody
+      // invokes is a file nobody reads.
+      expect(front, rel(brief)).toMatch(/\ndescription: \S/);
+    }
+  });
+
+  it("keeps every agent read-only about the repo", () => {
+    // An agent that can run anything can run a build, and a build while the dev
+    // server is up takes it down — which reads as a routing bug and costs an
+    // hour. `pure-test-writer` is the one exception and says so itself: it
+    // writes exactly one new test file.
+    for (const agent of agents) {
+      const tools = /\ntools: ([^\n]+)/.exec(readFileSync(agent, "utf8"))?.[1] ?? "";
+      const writers = tools
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t === "Edit" || t === "MultiEdit" || t === "NotebookEdit");
+      expect(writers, rel(agent)).toEqual([]);
+      if (tools.includes("Write")) expect(rel(agent)).toContain("pure-test-writer");
     }
   });
 
   it("names only files that exist", () => {
-    const byName = new Set(
-      ["src", "scripts", "docs", ".claude"]
+    const byName = new Set([
+      ...["src", "scripts", "docs", ".claude"]
         .flatMap((dir) => walk(path.join(root, dir), () => true))
         .map((f) => path.basename(f)),
-    );
+      // Plus the root's own files, which is where `package.json` and the
+      // configs live — named by basename in a brief and nowhere in a subtree.
+      ...readdirSync(root).filter((f) => statSync(path.join(root, f)).isFile()),
+    ]);
     const missing: string[] = [];
-    for (const skill of skills) {
-      for (const [, token] of readFileSync(skill, "utf8").matchAll(backticked)) {
+    for (const brief of briefs) {
+      for (const [, token] of readFileSync(brief, "utf8").matchAll(backticked)) {
         if (!looksLikeAFile.test(token)) continue;
         if (token.includes("/")) {
           if (!TRACKED.some((dir) => token.startsWith(dir))) continue;
-          if (!existsSync(path.join(root, token))) missing.push(`${rel(skill)} → ${token}`);
+          if (!existsSync(path.join(root, token))) missing.push(`${rel(brief)} → ${token}`);
         } else if (!byName.has(token)) {
           // Named by basename alone — it has to exist somewhere tracked.
-          missing.push(`${rel(skill)} → ${token}`);
+          missing.push(`${rel(brief)} → ${token}`);
         }
       }
     }
