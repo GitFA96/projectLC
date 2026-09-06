@@ -86,7 +86,7 @@ Where the risk concentrates, and which doc owns each:
 Everything above is already documented. What §2 records is which of those
 rules have a check behind them and which are still only sentences.
 
-## 2. Findings — measured 2026-09-03, re-measured 2026-09-04 after phase 1
+## 2. Findings — measured 2026-09-03, re-measured 2026-09-06 after phase 4
 
 | Measure | Value |
 |---|---|
