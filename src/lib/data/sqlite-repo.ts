@@ -1,5 +1,4 @@
 import type { WriteRepo } from "@/lib/data/repo";
-import { getGearSetById } from "./sqlite-repo/model";
 import { readMethods } from "./sqlite-repo/reads";
 import { dropWrites } from "./sqlite-repo/drops";
 import { gearWrites } from "./sqlite-repo/gear";
@@ -44,5 +43,3 @@ export function getSqliteRepo(): WriteRepo {
     ...guildWrites,
   };
 }
-
-export { getGearSetById };

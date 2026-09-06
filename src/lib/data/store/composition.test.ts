@@ -111,14 +111,24 @@ describe("the context", () => {
      *
      * Checked against the source rather than at runtime, because "is named" is
      * the claim: a member nothing mentions has already leaked.
+     *
+     * Only the `const { … } = ctx` lines count. Searching whole files would
+     * pass a member whose sole mention is a comment — a leak with prose in
+     * front of it is still a leak, and one sentence is all it would take.
      */
     const dir = path.resolve(import.meta.dirname);
-    const sources = readdirSync(dir)
-      .filter((f) => f.endsWith(".ts") && f !== "context.ts" && !f.endsWith(".test.ts"))
-      .map((f) => readFileSync(path.join(dir, f), "utf8"))
-      .join("\n");
+    const taken = new Set(
+      readdirSync(dir)
+        .filter((f) => f.endsWith(".ts") && f !== "context.ts" && !f.endsWith(".test.ts"))
+        .flatMap((f) => [...readFileSync(path.join(dir, f), "utf8").matchAll(/const \{([^}]*)\} = ctx;/g)])
+        .flatMap((m) => m[1].split(",").map((n) => n.trim()))
+        .filter(Boolean),
+    );
+    expect(taken.size, "no view builder destructures its context the way this test reads it").toBeGreaterThan(
+      10,
+    );
     const unused = Object.keys(ctx)
-      .filter((name) => !new RegExp(`\\b${name}\\b`).test(sources))
+      .filter((name) => !taken.has(name))
       .sort();
     expect(
       unused,

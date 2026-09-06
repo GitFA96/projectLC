@@ -85,10 +85,6 @@ export function readModel(): CachedModel {
   return model;
 }
 
-export function getGearSetById(setId: string): GearSet | undefined {
-  return readModel().store.gearSets.find((s) => s.id === setId);
-}
-
 export function findExisting(characterId: string, kind: GearSet["kind"], phase?: GearSet["phase"]): GearSet | undefined {
   return readModel().store.gearSets.find(
     (s) => s.characterId === characterId && s.kind === kind && (kind === "current" || s.phase === phase),
