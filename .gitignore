@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+# CI writes this so a failure leaves a name behind; see .github/workflows/ci.yml
+/test-results.json
 
 # local sqlite database (seeded from src/data/seed on first boot)
 /data/

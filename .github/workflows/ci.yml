@@ -32,7 +32,12 @@ jobs:
       # the thresholds in vitest.config.ts are only enforced when it runs. They
       # cover the pure layers only, at the value measured when they were set —
       # so this goes red when a layer loses cover, not when one is merely thin.
-      - run: npm run test:coverage
+      # The JSON reporter is here for one reason: twice on this project a single
+      # test has failed on a run ~40% slower than baseline and passed on every
+      # rerun, and *the name was never captured*. The 20 s timeout in
+      # vitest.config.ts is a mitigation for that, not a diagnosis. This makes
+      # the next occurrence name itself.
+      - run: npm run test:coverage -- --reporter=default --reporter=json --outputFile.json=test-results.json
 
       # The numbers, where you can read them without downloading anything.
       - name: Coverage summary
@@ -45,11 +50,40 @@ jobs:
             for (const k of ["statements", "branches", "functions", "lines"]) console.log(row(k));
           ' >> "$GITHUB_STEP_SUMMARY"
 
+      # Which test, and how slow the run was — the two things nobody had when
+      # the unexplained failure happened. The slowest five go in even on a green
+      # run, so there is a baseline to compare the next red one against.
+      - name: Test failures and timings
+        if: always()
+        run: |
+          node -e '
+            const r = require("./test-results.json");
+            const all = r.testResults.flatMap((f) =>
+              f.assertionResults.map((a) => ({ ...a, file: f.name.split(/[\\/]/).pop() })));
+            const failed = all.filter((a) => a.status === "failed");
+            const out = [];
+            if (failed.length > 0) {
+              out.push("### Failed", "");
+              for (const a of failed) {
+                out.push(`- \`${a.file}\` — ${a.fullName}`);
+                out.push("  ```", "  " + (a.failureMessages[0] ?? "").split("\n")[0], "  ```");
+              }
+              out.push("");
+            }
+            const slow = all.sort((a, b) => (b.duration ?? 0) - (a.duration ?? 0)).slice(0, 5);
+            out.push("### Slowest five", "", "| ms | test |", "|---|---|");
+            for (const a of slow) out.push(`| ${Math.round(a.duration ?? 0)} | ${a.file} — ${a.title} |`);
+            out.push("", `${r.numTotalTests} tests, ${r.numFailedTests} failed.`);
+            console.log(out.join("\n"));
+          ' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-summary
-          path: coverage/coverage-summary.json
+          name: test-and-coverage
+          path: |
+            coverage/coverage-summary.json
+            test-results.json
 
       - run: npm run lint
 

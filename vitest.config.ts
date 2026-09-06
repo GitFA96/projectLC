@@ -14,6 +14,11 @@ export default defineConfig({
     // ~40% slower than baseline has failed one test and passed on every rerun
     // (the name was never captured; six clean runs at baseline speed since).
     // 20 s keeps that headroom without hiding a genuine hang.
+    //
+    // CI now runs the JSON reporter and prints the failures and the slowest
+    // five into the job summary, so the next occurrence names itself and there
+    // is a green-run baseline to compare it against. Until then this number is
+    // a mitigation, not a diagnosis, and should not be read as one.
     testTimeout: 20_000,
     hookTimeout: 20_000,
     // Quietens node:sqlite's ExperimentalWarning, which every worker that opens
