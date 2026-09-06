@@ -2,18 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-
-/** A panel with unsaved work, and how to ask it about a pending destination. */
-interface ArmedPanel {
-  ask: (href: string) => void;
-}
-
-/**
- * Every panel on the page currently holding unsaved work, in the order each
- * became dirty. Module-level on purpose: the logs page has more than one, and
- * they have to take turns rather than each throw up its own dialog.
- */
-const armed = new Set<ArmedPanel>();
+import {
+  answers,
+  arm,
+  disarm,
+  interceptedHref,
+  nextAfter,
+  type ArmedPanel,
+} from "@/components/unsaved-navigation";
 
 /**
  * Stop a click from leaving the page while there is unsaved work on it.
@@ -41,6 +37,10 @@ const armed = new Set<ArmedPanel>();
  * pushing a decoy history entry and rewriting the user's back button, which
  * misbehaves in ways worse than the problem. The dialog is for the clicks it
  * can honestly catch; keep an unsaved marker visible for everything else.
+ *
+ * Which clicks count, and whose turn it is, are in
+ * `@/components/unsaved-navigation` — where a node test can reach them. What is
+ * left here is listener plumbing and reading three attributes off an anchor.
  */
 export function useUnsavedGuard({
   when,
@@ -62,40 +62,43 @@ export function useUnsavedGuard({
 
     const self: ArmedPanel = { ask: onIntercept };
     selfRef.current = self;
-    armed.add(self);
+    arm(self);
 
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
 
     const onClick = (e: MouseEvent) => {
       // One dialog at a time: whoever armed first answers, and passes the
       // destination along to the others through `leave`.
-      if (armed.values().next().value !== self) return;
-
-      // Anything that wasn't going to navigate this tab anyway: a modified
-      // click opens a new one, and a non-primary button isn't a navigation.
-      if (e.defaultPrevented || e.button !== 0) return;
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!answers(self)) return;
 
       const anchor = (e.target as Element | null)?.closest?.("a[href]");
-      if (!(anchor instanceof HTMLAnchorElement)) return;
-      if (anchor.hasAttribute("download")) return;
-      if (anchor.target && anchor.target !== "_self") return;
-
-      // An external link unloads the document, so `beforeunload` has it. Same
-      // for a bare hash on the current page: nothing unmounts, nothing is lost.
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      const href = interceptedHref(
+        {
+          defaultPrevented: e.defaultPrevented,
+          button: e.button,
+          modified: e.metaKey || e.ctrlKey || e.shiftKey || e.altKey,
+          anchor:
+            anchor instanceof HTMLAnchorElement
+              ? {
+                  href: anchor.href,
+                  download: anchor.hasAttribute("download"),
+                  target: anchor.target,
+                }
+              : null,
+        },
+        window.location.href,
+      );
+      if (href === null) return;
 
       e.preventDefault();
       e.stopPropagation();
-      onIntercept(`${url.pathname}${url.search}${url.hash}`);
+      onIntercept(href);
     };
 
     window.addEventListener("beforeunload", warn);
     document.addEventListener("click", onClick, true);
     return () => {
-      armed.delete(self);
+      disarm(self);
       selfRef.current = null;
       window.removeEventListener("beforeunload", warn);
       document.removeEventListener("click", onClick, true);
@@ -109,9 +112,7 @@ export function useUnsavedGuard({
    */
   const leave = React.useCallback(
     (href: string) => {
-      // Our own entry may not be cleaned up yet — the effect tears down after
-      // the commit that cleared `when`, and a dialog calls this during it.
-      const next = [...armed].find((panel) => panel !== selfRef.current);
+      const next = nextAfter(selfRef.current);
       if (next) next.ask(href);
       else router.push(href);
     },
