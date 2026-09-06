@@ -393,7 +393,7 @@ would preserve nothing.
 ## 2a. Claim a fact about a raider that a log could also prove
 
 **Chain:** the curated cast/aura that proves it (§1) → `analysis/professions.ts`
-→ the tally in `store.ts` → `CharacterSummary` → wherever the prompt is shown.
+→ the tally in `store/context.ts` → `CharacterSummary` → wherever the prompt is shown.
 
 Professions are the worked example, and the shape generalises to anything the
 roster records that a log can independently confirm.
@@ -790,7 +790,7 @@ default — never imports the repo — so `src/lib/analysis` stays pure (§7).
 ## 4d. The standing board
 
 **Chain:** `analysis/standing.ts` → `policy.roster` (§4b) → `policy-editor.tsx`
-→ `store.ts` `getRosterStanding`.
+→ `store/characters.ts` `getRosterStanding`.
 
 It reads the same `RaiderMetrics` the loot score does and deliberately answers a
 different question, so two things must stay true:
@@ -815,7 +815,7 @@ other group and cannot handle this one.
 
 ## 4e. The development series
 
-**Chain:** `analysis/development.ts` → `store.ts` `developmentOf` → the raider's
+**Chain:** `analysis/development.ts` → `store/context.ts` `developmentOf` → the raider's
 performance page, and `parseTrend` → `analysis/standing.ts` → the board's Trend
 column.
 
@@ -1088,7 +1088,7 @@ Two things follow, and both have bitten:
 ## 5h. "Recently" is one rule, and two pages show it
 
 **Chain:** `analysis/loot-recency.ts` → the dashboard's BiS card
-(`getDashboard` in `store.ts`) → the ledger's **when** filter
+(`getDashboard` in `store/dashboard.ts`) → the ledger's **when** filter
 (`components/loot-view.tsx`).
 
 The card lists the raid week's wishlist hits and links to the ledger filtered to
@@ -1166,7 +1166,7 @@ other options and what those block, so the argument goes in the item's notes
 
 ## 4h. An officer's chain for one item
 
-**Chain:** `item_priority_rules` → `getItemPriorityRules` → `store.ts`
+**Chain:** `item_priority_rules` → `getItemPriorityRules` → `store/context.ts`
 (`priorityRuleFor` **and** `getPrioritySheet`) → `setItemPriorityRule` →
 `saveItemPriorityAction` → `ItemPriorityEditor`, which is handed its phase by
 **every** caller.
@@ -1211,7 +1211,7 @@ guild's active phase for a name the cache can't place. It runs *after*
 
 ## 4f. Trust a new source of item data
 
-**Chain:** the writer → `items.verified` → `listUnresolvedItemIds` in `store.ts`.
+**Chain:** the writer → `items.verified` → `listUnresolvedItemIds` in `store/items.ts`.
 
 The item cache merges many sources, and exactly one of them is authoritative.
 `addItemsIfMissing` fills holes and never overwrites; `saveResolvedItems` is
@@ -1515,7 +1515,7 @@ note, and the first one is why it changed.
 
 ## 4g. Tier tokens and the pieces they buy
 
-**Chain:** `items.redeems_from` → `tokenRedemptions` in `store.ts` → **every
+**Chain:** `items.redeems_from` → `tokenRedemptions` in `store/context.ts` → **every
 reader that compares two item ids.**
 
 A tier token is the only drop that isn't the thing anyone wants. Gargul records
@@ -1539,7 +1539,7 @@ What has to change together when a new reader compares item ids:
   before adding an `itemId ===` comparison to loot or wishlist code.**
 - The readers wired today are `computeWishlistRows`, `matchAwardToWishlists`
   and `computeItemContention` (which is what `getLootPlan` reads). All three
-  get theirs from the one `tokenRedemptions(items)` built in `store.ts`.
+  get theirs from the one `tokenRedemptions(items)` built in `store/context.ts`.
 - `delivers` runs **one direction only**. A token delivers its piece; winning
   the piece is not winning the token, and two pieces of the same token are not
   interchangeable.
@@ -1952,7 +1952,7 @@ these are two independent layers and dropping either is a hole. Same rule as
 
 **Widening the public face is a four-place change**, and every one of them is
 deliberate on purpose: `PublicProfileInput` (what may be published at all), the
-mapping in `store.ts` (what is actually copied across), `buildPublicProfile`
+mapping in `store/governance.ts` (what is actually copied across), `buildPublicProfile`
 (which preset reveals it), and the leak test in `public-profile.test.ts`. The
 projection is never handed an award, a standing or a `status`, so there is no
 filter anybody can forget — but there is also no shortcut. That is the trade §6

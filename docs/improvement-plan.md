@@ -1,12 +1,13 @@
 # Improvement plan — structure, tests, and working with agents
 
-> **Status: proposed 2026-09-03. Phases 0, 1 and 2 done; phase 3 begun, 2026-09-05.**
+> **Status: proposed 2026-09-03. Every structural item done, 2026-09-06.**
 > Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, B7+C4
-> and the agent tooling followed. Phase 3 is the splits: B2 and B4 are done, and
-> what is left of it is backups, tags and lint speed rather than structure.
+> and the agent tooling followed. Phases 0–4 are done bar three rows in §7:
+> C3 (optional), D2 (a tag, and human) and the backlog's CSP nonce. Every file
+> this plan set out to split is split.
 > Every item carries a state in §7, and the change that does the work updates
 > that row in the same commit. The measurements in §2 were re-taken on
-> 2026-09-04 and will drift again — re-measure before quoting one.
+> 2026-09-06 and will drift again — re-measure before quoting one.
 >
 > Each guard added so far was proven by breaking the thing it guards and
 > watching it go red, then restoring. That step is not optional: a guard nobody
@@ -49,7 +50,7 @@ SixtyUpgrades · Gargul · Warcraft Logs · Wowhead
 SQLite  — src/lib/data/db/: schema, migrations, the meta-key settings
         │  loadStore → EntityStore
         ▼
-createRepoFromStore — src/lib/data/store.ts: EVERY derived number, once,
+createRepoFromStore — src/lib/data/store/: EVERY derived number, once,
         │  rebuilt when data_version moves; calls src/lib/analysis (pure)
         ▼
 Repo / WriteRepo — src/lib/data/repo.ts: the only boundary pages may see
@@ -90,13 +91,13 @@ rules have a check behind them and which are still only sentences.
 | Measure | Value |
 |---|---|
 | Source modules (`.ts`/`.tsx`, non-test) | 321 files, ~83k lines |
-| Test files / tests / wall time | 116 / 2288 / 26 s, all green (was 94 / 1831 when this began) |
+| Test files / tests / wall time | 117 / 2293 / 29 s, all green (was 94 / 1831 when this began) |
 | Typecheck (`tsc --noEmit`) | 12 s, clean — `npm run typecheck`, and `npm run check` with the tests |
 | Lint | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~13 s cold, ~1.7 s cached — and still ~1.7 s after a checkout rewrites every file, since D6 (`--cache-strategy content`) |
 | Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
 | Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
 | Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `store.ts` 2398 · `normalize.ts` 2168 · `raid-planner.ts` 1496 · `preparedness-table.tsx` 1461 · `import/schemas.ts` 1192 · `db/schema.ts` 699 (one template literal) · `db/identity.ts` 648 · `sqlite-repo/loot.ts` 406 (was `db.ts` 3992, split by B2; `sqlite-repo.ts` 2035, by B4; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6) |
+| Largest modules | `normalize.ts` 2168 · `raid-planner.ts` 1496 · `preparedness-table.tsx` 1461 · `import/schemas.ts` 1192 · `wcl/consumables.ts` 1137 · `store/context.ts` 836 · `db/schema.ts` 699 (one template literal) (was `db.ts` 3992, split by B2; `store.ts` 2398, by B5; `sqlite-repo.ts` 2035, by B4; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6). **Every module the plan set out to split is split**; what is left at the top of this list was never on it |
 | Last twelve commits | 1,300–5,900 changed lines each |
 
 **Enforced by a check today.** Analysis purity and its per-module tests;
@@ -445,7 +446,7 @@ change that added this file.
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
 | 3 — split the big files | B2, B4, D3, D6 **done**; C3, D2 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
-| 4 — the read model | B5 | after which the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are tractable |
+| 4 — the read model | B5 **done** | the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are now tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
 B5 after A7 and C1. Everything else can run in parallel worktrees.
@@ -483,7 +484,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | B2 | Split `db.ts` | done | 3,992 lines → 19 files under `db/`, largest 699 and that one is a single template literal. Verified the way B6 was: every body line present exactly once across the split, the only differences the `export` keywords it needs. **The public surface is byte-identical** — `db-surface.test.ts` pins the 122 runtime exports of `@/lib/data/db`, and the barrel names them explicitly for the five modules whose internals a sibling needs, so a private helper cannot become public by being useful next door. `docs.test.ts`'s meta-key check reads the directory now, and the schema chain hook no longer needs its `when`: `db/schema.ts` and `db/migrate.ts` are already about the schema |
 | B3 | Page logic into the library | done | the raid-night pricing site is `analysis/raid-gold.ts` (`raidGoldView`, `pricedNames`, `leaderboardPrices`); the performance page's helpers are `analysis/performance-view.ts`. All three pricing sites are in `src/lib` now, which is what A4 needs. Both pages are composition; `logs/page.tsx` 928 → 882 lines, `performance/page.tsx` 1078 → 1020 |
 | B4 | Split `sqlite-repo.ts` writes | done | 2,035 lines → a 48-line composition root over twelve files in `sqlite-repo/`, largest 406. Ten write domains, plus `model.ts` (the cached read model and the lookups a write consults before writing) and `reads.ts` (the read delegate — a third of the old file, and not a write at all, which §4B4's six names had nowhere for). Verified the way B2 and B6 were: every body line of the original present exactly once, the only differences the `export` keywords and the ten `satisfies Partial<Writes> & ThisType<WriteRepo>` clauses. **A2 pins the bump across the split and cannot see the mistake a spread makes** — a method defined in two domain files compiles, spreads, and leaves the loser dead — so `sqlite-repo/composition.test.ts` adds that half: the modules are disjoint, the root defines nothing of its own (checked by identity, not by name), and nothing outside the directory imports a domain file. All four proven red |
-| B5 | Decompose `createRepoFromStore` | open | unblocked — A7 and C1 done |
+| B5 | Decompose `createRepoFromStore` | done | 2,398 lines → a 322-line `store.ts` over nine files in `store/`. `buildContext` holds what the views share; eight builders turn it into methods; `createRepoFromStore` composes and memoizes and does nothing else — a test reads its body and refuses anything but a spread. Verified line for line: **exactly one line of the original is absent across the split**, `function sheetMarkdownFor`, which gained an `export`. The golden verdicts did not move, which is the claim that mattered. `store/composition.test.ts` adds what A7 cannot see — a view defined in two builders, a view written at the root, a context member no view names, and an import of a builder from outside — all four proven red |
 | B6 | Client components | done | `import-tabs.tsx` 1584 → seven files (four tabs, the reports card, the import queue, the shared bits), verified line-for-line: every body line of the original is present exactly once across the split, the only differences being the `export` keywords the split needs. The gold table's three pure pieces are `analysis/consumable-adjustments.ts`, the preparedness table's scale store is `use-text-scale.ts`, and `board.tsx` had two things `raid-planner.ts` did not — `withGroupCount` and `specChoices`. All four moves have tests, each proven by breaking the moved code |
 | B7 | Filter builder | done | `src/lib/wcl/event-filters.ts` — `buildEventFilter` plus `CASTS_FILTER`/`DEBUFFS_FILTER`/`BUFFS_FILTER` and `UNFILTERED_ON_PURPOSE`, which names the three streams that stay unfiltered and why. An empty curated list now throws at import instead of silently matching nothing. `docs.test.ts` asserts the fetch sends the built filters and assembles none of its own; the list-by-list checks moved to `event-filters.test.ts`, which reads the built string |
 | C1 | Coverage, reported then gated | done | `@vitest/coverage-v8`, `npm run test:coverage`, and thresholds on the five pure layers at the value measured on 5 Sep 2026, floored to the integer below. CI runs coverage in place of `npm test`, prints the totals into the job summary and uploads `coverage-summary.json`. Proven red twice: once with an impossible threshold, which is the only way to know the globs resolve at all, and once with a real regression — skipping `raid-gold.test.ts` takes `src/lib/analysis` under three of its four floors |
@@ -553,6 +554,10 @@ follows, and for the same reason.
 | **B4** | "A2 pins the bump across the split" | it does, and it is not enough | A2 calls the *composed* repo, so a method defined twice passes it — the spread picks one and the other is dead code that still has its own tests. That failure did not exist before this item created it, which is the argument for the guard shipping with the split rather than after it |
 | **D3** | "dated file, keep the last N, exit 1 on failure" | that, plus verify-then-prune and a name to the millisecond | verification is the difference between *a file was written* and *a backup exists*, and it has to come before pruning or a damaged source deletes good backups to make room for a bad one. The millisecond came from the test: at second precision a manual backup taken right after a scheduled one refused instead of running, which is an ordinary minute of an ordinary day |
 | **D3** | — | the test that proved the source untouched passed against a script that was writing to it | it compared `projectlc.db` and not `projectlc.db-wal`, so a deliberately broken version running `CREATE TABLE` on the source stayed green. That is this project's own documented WAL trap — the reason a database copy needs its `-wal` — reappearing inside a test written by someone who knew about it. Proving a guard red is what caught it, and nothing else would have |
+| **B5** | builders as "pure functions of `(store, config)`" | builders of `(ctx)`, where `buildContext(store, config)` is built once and shared | taken literally, each builder would rebuild every index for itself — and the three lazy caches (`metricsByCharacter`, `explosivesByCharacter`, `developmentByCharacter`) would become one per domain instead of one per read model, which is a behaviour change dressed as a refactor. The context is the honest shape: the locals were already a shared closure, and this names it |
+| **B5** | five domains | eight, plus the context | `settings` was not in the list and is the most useful of them: fourteen reads whose answer is a setting or is simply absent here, which is *why* they are one-liners. Splitting `drops` from `loot` follows the two-layer table the drop chain already documents |
+| **B5** | — | `context.ts` is 836 lines and stays one file | measured rather than assumed: of ~660 lines of shared locals, only **94** are used by exactly one domain and by no other helper. The rest are a dependency graph — `summarize` reaches attendance, attendance reaches the pull rows, the metrics cache is read by three unrelated views — so a second seam would mean threading partial contexts between builders, which is precisely where a change that alters a verdict without changing a test would hide |
+| **B5** | — | the analysis script had a bug that would have dropped real references | it stripped `.foo` as a property access, and `[...feedback]` contains `.feedback` — so the spread of a local read as a property and vanished. Caught by checking one method by hand against the tool's answer before building on it. The compiler would have caught the consequence; nothing would have caught it in the *measurements* this item's decisions rest on |
 
 ### What the misses have in common
 

@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS items (
      something we read off its answer. Not the same as having a phase: most of
      TBC's launch items carry no phase tag at all, so "we asked and there was
      none" and "we never asked" are different states, and only the second is
-     worth a request. See the STALE_PHASE tier in store.ts. */
+     worth a request. See the STALE_PHASE tier in store/items.ts. */
   phase_checked INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS gear_sets (

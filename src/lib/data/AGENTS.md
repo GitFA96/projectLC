@@ -6,7 +6,10 @@ One direction of flow:
 db/          raw node:sqlite — schema, migrations, row⇄entity mapping.
              `db.ts` is the barrel; the files under it are the parts
   ↓
-store.ts     EntityStore (plain entities) + createRepoFromStore (ALL derived data)
+store.ts     EntityStore (plain entities) + createRepoFromStore (ALL derived
+             data). `store/` holds the work: buildContext makes the indexes
+             and caches every view shares, one file per domain turns them
+             into methods, and store.ts composes and memoizes
   ↓
 sqlite-repo.ts / seed-repo.ts    the two backends
              `sqlite-repo.ts` composes; the methods live one domain
@@ -16,7 +19,7 @@ sqlite-repo.ts / seed-repo.ts    the two backends
 repo.ts      the boundary — Repo (read) / WriteRepo (write). Pages see only this.
 ```
 
-**Derived data is computed once, in `store.ts`.** Both backends run the same
+**Derived data is computed once, under `store/`.** Both backends run the same
 `createRepoFromStore`, which is why the read-only seed demo answers every query
 identically to SQLite. Never compute a summary in a backend.
 
@@ -64,8 +67,8 @@ identically to SQLite. Never compute a summary in a backend.
 - **A tier token and the piece it buys are one loot decision**, joined by
   `items.redeems_from` on the *piece*. `saveTokenRedemptions` is its writer and
   the only one — Wowhead's vendor listing is the sole source, so it overwrites
-  rather than gap-fills. `store.ts` reads the column once into the lookup every
-  wishlist and contention reader takes. See change-chains §4g.
+  rather than gap-fills. `store/context.ts` reads the column once into the lookup
+  every wishlist and contention reader takes. See change-chains §4g.
 - **Multi-row writes go in `withTx`** — one transaction, one version bump.
 - **`accounts` and `auth_sessions` are outside the read model, and their writes
   do NOT bump `data_version`.** They are not guild data, they change on every

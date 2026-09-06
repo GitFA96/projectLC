@@ -4,7 +4,7 @@ Read model in, view model out. **This layer is pure**: not one file here imports
 `@/lib/data`, and that is the property worth protecting. It's why every rule the
 council actually argues about can be tested without a database.
 
-Called from `store.ts` (`createRepoFromStore`) and from page components. Never
+Called from the view builders under `data/store/` and from page components. Never
 the reverse — analysis must not reach for a repo.
 
 ## Rules

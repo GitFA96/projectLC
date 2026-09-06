@@ -90,8 +90,8 @@ anyway: that the backfill put the *right* value in the column it filled.
 ## 6. Mechanical refactors destroy the most valuable thing in this repo.
 
 The per-symbol comments — `types/` explaining why each type exists,
-`refresh.ts` explaining the duplicate-award bug it prevents, `store.ts`
-explaining why derived data lives there — are the reason this codebase is
+`refresh.ts` explaining the duplicate-award bug it prevents, `store/context.ts`
+explaining why one cache is safe and a longer-lived one would not be — are the reason this codebase is
 followable at all. They are worth more than the code they sit above.
 
 Move-and-rename operations drop them, split them from what they describe, or
