@@ -63,11 +63,16 @@ with.
 the codebase itself: structure, tests, guards and how agents work here. Pick
 work from its state table and update the row in the same change.
 
-`.claude/` carries the working tools this repo assumes. **Skills** — one per
-change that has a chain and a trap: deploying, finishing a piece of work,
+`.claude/` carries the working tools this repo assumes. **Skills** — mostly one
+per change that has a chain and a trap: deploying, finishing a piece of work,
 probing a log, touching the schema, tracking a consumable, moving a policy
 number, recording a cycle. Read the directory; each says in its description when
-it applies. **Hooks** — two that refuse a command which would touch the live
+it applies. One is **vendored** rather than ours — `archify`, which renders
+diagrams — and it is exempt by name in two places, `eslint.config.mjs` and
+`src/lib/docs.test.ts`: its code is held to upstream's style and its brief names
+paths inside its own package, not from this root. Both exemptions are lists, so
+a second vendored skill fails until somebody adds it and says why. **Hooks** —
+two that refuse a command which would touch the live
 database or take the dev server down, and two that only ever tell you something.
 The refusals are invariants, not suggestions; if one blocks you, it is the guard
 working.

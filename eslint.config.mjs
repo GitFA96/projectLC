@@ -133,6 +133,17 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party skills. `.claude/hooks/` is ours and stays linted;
+    // a skill copied in from upstream is somebody else's code held to somebody
+    // else's rules, and linting it means carrying their style forever. It also
+    // ships generated single-line bundles, so a cold `npm run lint` goes from
+    // ~20s to over a minute walking files nobody here will edit.
+    ".claude/skills/*/bin/**",
+    ".claude/skills/*/renderers/**",
+    ".claude/skills/*/scripts/**",
+    ".claude/skills/*/delta/**",
+    ".claude/skills/*/recipes/**",
+    ".claude/skills/*/migrations/**",
   ]),
 ]);
 

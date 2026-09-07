@@ -78,6 +78,19 @@ describe("the skills and agents in .claude", () => {
    * maintainer's machine and never in CI.
    */
   const TRACKED = ["src/", "scripts/", "docs/", ".claude/"];
+
+  /**
+   * Skills vendored from upstream, which this rule does not apply to. A brief
+   * we wrote names paths from the repo root, because that is where the reader
+   * is standing. A copied-in one names paths inside its own package —
+   * `scripts/check-update.mjs` means the skill's own scripts directory, not
+   * ours — so resolving them from the root reports a file that is genuinely
+   * there as missing. Listing them by name rather than sniffing for them keeps
+   * this a deliberate exemption: a second vendored skill fails until somebody
+   * adds it here and says why.
+   */
+  const VENDORED = new Set([".claude/skills/archify/SKILL.md"]);
+  const ours = (brief: string) => !VENDORED.has(rel(brief));
   const looksLikeAFile = /^[\w./-]+\.(?:ts|tsx|mjs|mts|md|json|css|sh|yml)$/;
   const backticked = /`([^`\n]+)`/g;
 
@@ -122,7 +135,7 @@ describe("the skills and agents in .claude", () => {
       ...readdirSync(root).filter((f) => statSync(path.join(root, f)).isFile()),
     ]);
     const missing: string[] = [];
-    for (const brief of briefs) {
+    for (const brief of briefs.filter(ours)) {
       for (const [, token] of readFileSync(brief, "utf8").matchAll(backticked)) {
         if (!looksLikeAFile.test(token)) continue;
         if (token.includes("/")) {
