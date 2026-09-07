@@ -20,7 +20,7 @@
 # digest if you would rather review every base-image change than receive them.
 
 # ---- deps -------------------------------------------------------------------
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Nothing here compiles: SQLite comes from node:sqlite, built into Node, so no
@@ -32,7 +32,7 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 # ---- build ------------------------------------------------------------------
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -43,7 +43,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- runtime ----------------------------------------------------------------
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 # Standard OCI metadata. Worth having before the image is ever pushed anywhere:
