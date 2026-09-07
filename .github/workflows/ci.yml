@@ -77,7 +77,7 @@ jobs:
             console.log(out.join("\n"));
           ' >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-and-coverage
