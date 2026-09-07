@@ -7,6 +7,10 @@ import {
   hasFood,
   hasOwnWeaponBuff,
   isPrepared,
+  nextSort,
+  preparedPct,
+  comparePrepRows,
+  type PrepSort,
   type ExtrasRow,
   type PreparationRow,
 } from "@/lib/analysis/preparation";
@@ -230,5 +234,118 @@ describe("extras", () => {
     // nothing else. Widening `isPrepared` would re-rank loot priority.
     const bare = row({ flask: "Flask of Relentless Assault", food: true });
     expect(isPrepared(bare)).toBe(true);
+  });
+});
+
+/**
+ * The table's own three rules, which lived in `preparedness-table.tsx` at 0%
+ * coverage until they moved here.
+ *
+ * All three decide what an officer sees at the top of a page they read as "who
+ * needs a word", and all three fail quietly — a wrong order is not an error, it
+ * is a different raider being asked about their flasks.
+ */
+describe("the preparedness table's ordering", () => {
+  const pull = (prepared: boolean) => ({ prepared });
+
+  describe("preparedPct", () => {
+    it("is the share of pulls in scope the raider was prepared for", () => {
+      expect(preparedPct([pull(true), pull(true), pull(false), pull(false)])).toBe(50);
+      expect(preparedPct([pull(true)])).toBe(100);
+      expect(preparedPct([pull(false)])).toBe(0);
+    });
+
+    it("has no figure for a raider on none of the pulls", () => {
+      // Not zero. A 0% they never earned reads as the worst in the room, and
+      // this is the same rule extrasPct keeps — now the same code as well.
+      expect(preparedPct([])).toBeUndefined();
+    });
+
+    it("rounds rather than truncates", () => {
+      // 2 of 3 is 67, not 66: the figure an officer quotes back should be the
+      // nearest one.
+      expect(preparedPct([pull(true), pull(true), pull(false)])).toBe(67);
+    });
+  });
+
+  describe("nextSort", () => {
+    it("opens a percentage column on the raiders who need looking at", () => {
+      expect(nextSort({ by: "name", dir: "asc" }, "prepared")).toEqual({
+        by: "prepared",
+        dir: "desc",
+      });
+      expect(nextSort({ by: "name", dir: "asc" }, "extras")).toEqual({ by: "extras", dir: "desc" });
+    });
+
+    it("opens the name column A–Z", () => {
+      expect(nextSort({ by: "prepared", dir: "desc" }, "name")).toEqual({
+        by: "name",
+        dir: "asc",
+      });
+    });
+
+    it("flips the column already in use", () => {
+      expect(nextSort({ by: "prepared", dir: "desc" }, "prepared")).toEqual({
+        by: "prepared",
+        dir: "asc",
+      });
+      expect(nextSort({ by: "name", dir: "asc" }, "name")).toEqual({ by: "name", dir: "desc" });
+    });
+  });
+
+  describe("comparePrepRows", () => {
+    const r = (name: string, preparedPct?: number, extras?: number) => ({
+      name,
+      preparedPct,
+      extras,
+    });
+    const order = (rows: ReturnType<typeof r>[], sort: PrepSort) =>
+      [...rows].sort((a, b) => comparePrepRows(a, b, sort)).map((x) => x.name);
+
+    it("orders by the column and direction asked for", () => {
+      const rows = [r("Thrainn", 50, 10), r("Katzewarr", 90, 80), r("Bo", 70, 40)];
+      expect(order(rows, { by: "prepared", dir: "desc" })).toEqual(["Katzewarr", "Bo", "Thrainn"]);
+      expect(order(rows, { by: "prepared", dir: "asc" })).toEqual(["Thrainn", "Bo", "Katzewarr"]);
+      expect(order(rows, { by: "extras", dir: "desc" })).toEqual(["Katzewarr", "Bo", "Thrainn"]);
+      expect(order(rows, { by: "name", dir: "asc" })).toEqual(["Bo", "Katzewarr", "Thrainn"]);
+      expect(order(rows, { by: "name", dir: "desc" })).toEqual(["Thrainn", "Katzewarr", "Bo"]);
+    });
+
+    it("keeps a raider with no figure at the bottom in BOTH directions", () => {
+      /*
+       * The one that matters. An absent figure is not a low one, and floating
+       * it to the top of an ascending sort would put somebody who was not in
+       * the room at the head of the list an officer reads as "who to ask about
+       * their flasks". Sorting undefined as 0 or as -Infinity both do that.
+       */
+      const rows = [r("Thrainn", 50), r("Absent", undefined), r("Katzewarr", 90)];
+      expect(order(rows, { by: "prepared", dir: "desc" })).toEqual([
+        "Katzewarr",
+        "Thrainn",
+        "Absent",
+      ]);
+      expect(order(rows, { by: "prepared", dir: "asc" })).toEqual([
+        "Thrainn",
+        "Katzewarr",
+        "Absent",
+      ]);
+    });
+
+    it("orders two absent raiders by name rather than arbitrarily", () => {
+      const rows = [r("Thrainn"), r("Absent"), r("Bo")];
+      expect(order(rows, { by: "prepared", dir: "desc" })).toEqual(["Absent", "Bo", "Thrainn"]);
+    });
+
+    it("breaks a tie on the name, through the collator and not localeCompare", () => {
+      /*
+       * This fixture tells the two apart, which is the only reason it is worth
+       * having. `compareText` pins Intl.Collator("en"), where Æ collates as AE
+       * and sorts first. A bare `localeCompare` on this machine picks up nb-NO,
+       * where Æ is the third-from-last letter of the alphabet and sorts last —
+       * so the table would be ordered by whose laptop rendered it.
+       */
+      const rows = [r("Ærinn", 50), r("Bo", 50), r("Ana", 50)];
+      expect(order(rows, { by: "prepared", dir: "desc" })).toEqual(["Ærinn", "Ana", "Bo"]);
+    });
   });
 });

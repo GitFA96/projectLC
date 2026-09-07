@@ -1055,6 +1055,15 @@ Two separate questions live here on purpose:
 Deriving either one inline again is the failure mode: the raid page and the
 career page then disagree about the same night, and nothing catches it.
 
+**The preparedness table's tally and its ordering are here too**, and for the
+same reason rather than for tidiness. `preparedPct` shares one rule with
+`extrasPct` — a raider on none of the pulls in scope has **no figure, not a
+zero** — and `comparePrepRows` is what keeps that rule visible: an absent
+raider sorts to the bottom in *both* directions, because floating them to the
+top of an ascending sort puts somebody who was not in the room at the head of a
+list officers read as "who to ask about their flasks". Both lived inline in
+`preparedness-table.tsx` at 0% coverage until they moved.
+
 **Which pulls get asked is a third question, and it lives above this module.**
 `policy.preparation.excusedEncounters` names bosses nobody is expected to flask
 for — last phase's raid, cleared on the way past — and `summarizePerformance`

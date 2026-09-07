@@ -27,8 +27,14 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { extrasPct, hasOwnWeaponBuff } from "@/lib/analysis/preparation";
-import { compareText } from "@/lib/sort";
+import {
+  comparePrepRows,
+  extrasPct,
+  hasOwnWeaponBuff,
+  nextSort,
+  preparedPct,
+  type PrepSort,
+} from "@/lib/analysis/preparation";
 
 /**
  * What every raider brought, pull by pull.
@@ -59,7 +65,7 @@ import { compareText } from "@/lib/sort";
  */
 
 /** Which column orders the table, and which way. */
-type Sort = { by: "name" | "prepared" | "extras"; dir: "asc" | "desc" };
+type Sort = PrepSort;
 
 /** The URL parameter holding the scope, so a scoped view is a link. */
 export const PREP_SCOPE_PARAM = "prep";
@@ -185,12 +191,7 @@ export function PreparednessTable({
   );
 
   /** Click a header to order by it; click again to flip direction. */
-  const sortBy = (by: Sort["by"]) =>
-    setSort((current) =>
-      current.by === by
-        ? { by, dir: current.dir === "asc" ? "desc" : "asc" }
-        : { by, dir: by === "name" ? "asc" : "desc" },
-    );
+  const sortBy = (by: PrepSort["by"]) => setSort((current) => nextSort(current, by));
 
   /** Enchant id → name, for telling a bought oil from somebody else's totem. */
   const enchantNameOf = React.useCallback(
@@ -201,14 +202,14 @@ export function PreparednessTable({
   const rows = React.useMemo(() => {
     const scoped = view.rows.map((row) => {
       const pulls = row.pulls.filter((p) => scopeIds.has(p.fightId));
-      const prepared = pulls.filter((p) => p.prepared).length;
       return {
         row,
+        name: row.name,
         pulls,
         byFight: new Map(pulls.map((p) => [p.fightId, p] as const)),
-        // Undefined, not zero: a raider who was on none of these pulls has no
-        // figure, and a 0% they never earned reads as the worst in the room.
-        preparedPct: pulls.length === 0 ? undefined : Math.round((prepared / pulls.length) * 100),
+        // Undefined, not zero, for a raider on none of these pulls — the rule
+        // and the reason are on preparedPct.
+        preparedPct: preparedPct(pulls),
         // Scored into nothing — see `extrasPct`. Asked of the analysis layer
         // rather than counted here, so the rule has one home.
         extras: extrasPct(pulls, enchantNameOf),
@@ -216,22 +217,7 @@ export function PreparednessTable({
         ownWeaponPulls: pulls.filter((p) => hasOwnWeaponBuff(p, enchantNameOf)).length,
       };
     });
-    return scoped.sort((a, b) => {
-      if (sort.by === "name") {
-        const byName = compareText(a.row.name, b.row.name);
-        return sort.dir === "asc" ? byName : -byName;
-      }
-      const av = sort.by === "extras" ? a.extras : a.preparedPct;
-      const bv = sort.by === "extras" ? b.extras : b.preparedPct;
-      // Raiders with no pulls in scope sit at the bottom either way.
-      if (av === undefined || bv === undefined) {
-        return (
-          (av === undefined ? 1 : 0) - (bv === undefined ? 1 : 0) ||
-          compareText(a.row.name, b.row.name)
-        );
-      }
-      return (sort.dir === "desc" ? bv - av : av - bv) || compareText(a.row.name, b.row.name);
-    });
+    return scoped.sort((a, b) => comparePrepRows(a, b, sort));
   }, [view.rows, scopeIds, sort, enchantNameOf]);
 
   if (view.rows.length === 0) {

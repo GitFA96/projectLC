@@ -1,43 +1,43 @@
 # Improvement plan — structure, tests, and working with agents
 
-> **Status: proposed 2026-09-03. Every structural item done, 2026-09-06.**
-> Phase 0 and the first three phase-1 items landed in `a3c08c0`; A2, A3, B7+C4
-> and the agent tooling followed. **Every item is done but D2**, which is a tag
-> and a human's to cut; the CSP nonce stays in `backlog.md` with its trigger.
-> Every file this plan set out to split is split.
-> Every item carries a state in §7, and the change that does the work updates
-> that row in the same commit. The measurements in §2 were re-taken on
-> 2026-09-06 and will drift again — re-measure before quoting one.
->
-> Each guard added so far was proven by breaking the thing it guards and
-> watching it go red, then restoring. That step is not optional: a guard nobody
-> has seen fail is a guard nobody knows works.
+> **Status: closed 2026-09-07.** Proposed 2026-09-03; every item done by
+> 2026-09-06 but D2, which closed on 2026-09-07 when `v0.1.0` was pushed — a
+> release marker other people act on, so that step was left to the maintainer.
+> §7 carries the state of each row and is the only place that does. Nothing
+> here is open to pick. The file is kept as the record: what was built, what
+> each guard found when it was proven red, and where the plan's guesses were
+> wrong.
 
-This file is the standing plan for the *codebase* — how it is structured, how
-it is tested, and how agents work in it. Product decisions and blocked features
-stay in [`backlog.md`](backlog.md). Couplings stay in
+This file was the plan for the *codebase* — how it is structured, how it is
+tested, and how agents work in it. Product decisions and blocked features stay
+in [`backlog.md`](backlog.md). Couplings stay in
 [`change-chains.md`](change-chains.md). Nothing here restates either; it points.
 
-## 0. How to use this file
+## 0. How to read this file
 
-1. Pick an item from §7 whose state is `open` and whose dependencies (§5) are
-   `done`. Do the whole item, in one branch or worktree.
-2. Before starting, read the chain the item names. Before finishing, run the
-   preflight (E1) and update the item's row.
-3. If doing the item turns up a coupling that is not in `change-chains.md`, add
-   it there in the same change. That is the only kind of doc this plan asks for.
-4. If an item turns out to be wrong, change its state to `dropped` and say why
-   in the row. Do not delete it — the next agent will otherwise re-derive it.
-5. **§4 is a proposal written before the work. Where it disagrees with what you
-   find, the code wins — and the disagreement goes in §8, in the same change.**
-   Read §8 before starting: it says which of §4's sentences have already been
-   overtaken, and it is short for a reason worth knowing.
+The plan is closed, so there is nothing to pick. What is still worth reading:
 
-The one principle behind every item: **this project already turns prose into
-checks** — `docs.test.ts`, `enforcement.test.ts`, `pages.test.ts`,
-`routes.test.ts`, `sort.test.ts`, the two build guards, the image smoke test.
-Each exists because a rule that lived only in a doc was broken silently. The
-plan extends that pattern to the rules that are still prose.
+1. **§6** — what is deliberately not done, and why. Read it before proposing an
+   ORM, a unified pricing function, a component test suite or a dead-export
+   sweep; each has been decided, and the reason is there.
+2. **§7** — what each item became, and what the guard it added actually found.
+   The Notes column is where the plan learned something.
+3. **§8** — where §4's proposal and the code disagreed. Nearly every miss was a
+   count or an approach written without opening the file. A second plan, if
+   one is ever written, should carry the *why* and the *done-when* in advance,
+   take its counts from the code at the time of the work, and prove every guard
+   red by breaking what it guards before calling it done — the step that caught
+   three tests passing for the wrong reason.
+
+§4 is the proposal as written on 2026-09-03 and is left as it was; §7 and §8
+say how it turned out. Where the two differ, §7 is what exists.
+
+The one principle behind every item: **this project turns prose into checks** —
+`docs.test.ts`, `enforcement.test.ts`, `pages.test.ts`, `routes.test.ts`,
+`sort.test.ts`, the two build guards, the image smoke test — because each rule
+that lived only in a doc was broken silently at least once. The plan extended
+that pattern to the rules that were still prose; §1's table says which check
+holds each one now.
 
 ## 1. The shape, and where it is fragile
 
@@ -71,112 +71,49 @@ Three caches sit on that pipeline, and each has its own failure:
 - **Module scope**, which nothing clears. The priority sheet's parse cache had
   to move inside the read model the day sheets became pasteable.
 
-Where the risk concentrates, and which doc owns each:
+Where the risk concentrates, what catches each now, and which doc owns it:
 
-| Fragility | Why it is silent | Owner |
+| Fragility | Why it is silent | What catches it now | Owner |
+|---|---|---|---|
+| A curated id added without a re-import collects nothing, forever | the WCL events fetch is filtered server-side by the curated lists | nothing mechanical can. `event-filters.test.ts` (B7) proves the list reaches the filter, `chain-hint.mjs` says "re-import" on the edit, and the re-import itself stays a sentence in the summary | chains §1, `src/lib/wcl/AGENTS.md` |
+| A column added to `CREATE TABLE` alone works in every test and throws on the live database | `CREATE TABLE IF NOT EXISTS` never retrofits; only `migrate()` reaches an existing file | `migrations.test.ts` (A3): every column migration walked, and the columns no migration covers pinned, so the missing one is a snapshot diff | chains §2, pitfalls §5 |
+| A write that skips one of the two cache steps | the write succeeds; the page is stale | `write-contract.test.ts` (A2) for the `data_version` bump; `action-shape.test.ts` (A6) for `refreshAfterWrite()` | chains §4 |
+| Consumable gold priced in three places | different scopes, same rules | `pricing-agreement.test.ts` (A4): one night through all three, the two deliberate divergences named | chains §5, pitfalls §3 |
+| Authorization is a surface, not a framework | the dangerous mistake is an omission; only enumeration catches it | `enforcement.test.ts`, `pages.test.ts`, `routes.test.ts`, and `action-shape.test.ts` (A6) following each action's calls | chains §11–12, `src/lib/auth/AGENTS.md` |
+| Foundational data vs a guild's overlay | reading the wrong layer changes another council's verdict | nothing mechanical; the doc | [`shared-and-guild-data.md`](shared-and-guild-data.md) |
+| A number that changes a verdict living outside `policy.ts` | it re-ranks the guild's loot with nothing red | the golden verdicts (A7) turn the re-ranking into a diff a reviewer reads; nothing checks where the number lives | root `AGENTS.md` invariant 5 |
+
+Everything above is documented where the Owner column says. The third column
+is what the plan built; the two rows that say "nothing mechanical" say why.
+
+## 2. Findings — measured 2026-09-03, re-measured at close
+
+| Measure | 2026-09-03 | At close, 2026-09-07 |
 |---|---|---|
-| A curated id added without a re-import collects nothing, forever | the WCL events fetch is filtered server-side by the curated lists | chains §1, `src/lib/wcl/AGENTS.md` |
-| A column added to `CREATE TABLE` alone works in every test and throws on the live database | `CREATE TABLE IF NOT EXISTS` never retrofits; only `migrate()` reaches an existing file | chains §2, pitfalls §5 |
-| A write that skips one of the two cache steps | the write succeeds; the page is stale | chains §4 |
-| Consumable gold priced in three places | different scopes, same rules, no test compares them | chains §5, pitfalls §3 |
-| Authorization is a surface, not a framework | the dangerous mistake is an omission; only enumeration catches it | chains §11–12, `src/lib/auth/AGENTS.md` |
-| Foundational data vs a guild's overlay | reading the wrong layer changes another council's verdict | [`shared-and-guild-data.md`](shared-and-guild-data.md) |
-| A number that changes a verdict living outside `policy.ts` | it re-ranks the guild's loot with nothing red | root `AGENTS.md` invariant 5 |
+| Test files / tests | 94 / 1,831 | 119 / 2,331, ~29 s wall, all green |
+| Typecheck | nothing outside a build | `npm run typecheck`, 12 s, clean; `npm run check` runs it with the tests |
+| Lint | uncached | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~13 s cold, ~1.7 s cached, and still ~1.7 s after a checkout rewrites every file (D6) |
+| Column migrations / their tests | 43 + 9 rebuilds / 5 cases | all 43 walked, all 9 rebuilds covered (A3) |
+| Coverage | not measured | reported in CI and floored on the five pure layers (C1); every floor raised at least once since (C2) |
+| Largest modules | `db.ts` 3,992 · `store.ts` 2,398 · `sqlite-repo.ts` 2,035 · `types.ts` 1,701 · `import-tabs.tsx` 1,584 | all five split (B2, B5, B4, B1, B6). What tops the list now — `normalize.ts` 2,168 · `raid-planner.ts` 1,496 · `preparedness-table.tsx` 1,461 — was never on it, and was measured rather than split: one is a single pipeline behind 120 end-to-end tests, one a library of 92 small functions at 94%, and the third had its decisions moved out to `analysis/preparation.ts` |
 
-Everything above is already documented. What §2 records is which of those
-rules have a check behind them and which are still only sentences.
+Every number here drifts; re-measure before quoting one. Counts stay out of
+the other docs for exactly that reason, and this table is the exception because
+a before and an after is the whole point of it.
 
-## 2. Findings — measured 2026-09-03, re-measured 2026-09-06 after phase 4
-
-| Measure | Value |
-|---|---|
-| Source modules (`.ts`/`.tsx`, non-test) | 321 files, ~83k lines |
-| Test files / tests / wall time | 118 / 2309 / 27 s, all green (was 94 / 1831 when this began) |
-| Typecheck (`tsc --noEmit`) | 12 s, clean — `npm run typecheck`, and `npm run check` with the tests |
-| Lint | one warning (`data-table.tsx`, TanStack's `useReactTable`); ~13 s cold, ~1.7 s cached — and still ~1.7 s after a checkout rewrites every file, since D6 (`--cache-strategy content`) |
-| Column migrations (`COLUMN_MIGRATIONS` + `POST_REBUILD_COLUMN_MIGRATIONS`) | 43, plus 9 table-rebuild or repair migrations |
-| Migration regression tests | all 43 columns walked, all 9 rebuilds covered (was 5 cases in total) |
-| Pages / route handlers / action files / exported actions | 35 / 4 / 30 / 101 |
-| Largest modules | `normalize.ts` 2168 · `raid-planner.ts` 1496 · `preparedness-table.tsx` 1461 · `import/schemas.ts` 1192 · `wcl/consumables.ts` 1137 · `store/context.ts` 836 · `db/schema.ts` 699 (one template literal) (was `db.ts` 3992, split by B2; `store.ts` 2398, by B5; `sqlite-repo.ts` 2035, by B4; `types.ts` 1701, by B1; `import-tabs.tsx` 1584, by B6). **Every module the plan set out to split is split**; what is left at the top of this list was never on it |
-| Last twelve commits | 1,300–5,900 changed lines each |
-
-**Enforced by a check today.** Analysis purity and its per-module tests;
-the three pricing *call sites* (by count, not by agreement); the WCL filter
-being built from the lists; the meta-key table; every write capability having
-a site; every page declaring a need; every route handler checking; the layout
-fetching only outsider-safe data; no bare `localeCompare`; no prerendered
-page; no database in the artifact; the seven image assertions.
-
-Phase 0 added three more. **Invariant 1** is now a hook
-(`.claude/hooks/guard-live-db.mjs`): a command naming `data/projectlc.db` is
-refused unless it is a copy out of `data/`, reads included, because the `.db`
-without its `-wal` is silently stale. The same hook family now refuses a bare
-`next build`, which skips the two guards `npm run build` wraps it in, and a
-build while `:3000` answers unless it is sent to `.next-build`. And the
-**"except …" sentences** in `analysis/AGENTS.md` and chains §7 must now name
-exactly what `docs.test.ts` exempts — the drift below is what motivated it.
-
-Phase 1 has since added seven more, each proven by breaking it on purpose.
-**Layer boundaries** are `no-restricted-imports` rules in `eslint.config.mjs`,
-so a violation fails in the editor rather than at test time (A5). **Every server
-action** must reach a capability check and, if it writes, a
-`refreshAfterWrite()` — following calls, so the good patterns already here
-(`operator()`, `requireOwner()`, delegation to a gated sibling) keep working
-(A6). And **the verdicts themselves** are a readable file snapshot of the seed
-guild's standing, contention order, loot plan and dashboard, so a change to who
-ranks first shows up as a sentence in a diff (A7).
-
-Then the data layer. **Every `WriteRepo` method** is called and watched for the
-`data_version` bump, with the five board writes asserted in the other direction,
-and a new writer fails until it is listed either way (A2). **Every column
-migration** is walked against a database built without that column, and the
-columns no migration covers are pinned in a snapshot, so adding one to `SCHEMA`
-alone shows up in review (A3). **The WCL filter expressions** moved out of the
-fetch into `event-filters.ts`, where each curated list can be checked against the
-string that is actually sent (B7). And the **two build guards** are split into a
-pure half and a CLI, tested against a fake manifest and a fake artifact tree (C4).
-
-**Still prose only.**
-
-- **The three pricing sites agreeing.** Chains §5 says "nothing catches this
-  but a test that compares them". There is no such test — `comparison.test.ts`,
-  `season.test.ts` and `raid-report.test.ts` each exercise one site alone.
-  This is A4, and it waits on B3.
-
-**Logic living where tests cannot reach it.**
-
-- `src/app/logs/page.tsx` *is* one of the three pricing sites (it builds a
-  `costPerUseMap` twice).
-- `src/app/characters/[name]/performance/page.tsx` holds pure helpers
-  (`coverage`, `usesOf`, `upkeepAverages`) in a 1,078-line page.
-- ~~`components/logs/gold-table.tsx` holds the saved-versus-pending ordering rule
-  chains §3 spends four paragraphs on, plus `countChanges` and `groupLines`.~~
-  **Fixed (B6):** all three are `analysis/consumable-adjustments.ts` now, as
-  `raiderBreakdown`, `groupLines` and `countChanges`, with tests.
-- ~~`components/logs/preparedness-table.tsx` holds a module-level scale store.~~
-  **Fixed (B6):** `components/logs/use-text-scale.ts`, and testable in node.
-- ~~`src/lib/wcl/fetch-report.ts` builds the server-side filter expression
-  inline; `docs.test.ts` can only grep for the list names.~~ **Fixed (B7):**
-  the expressions moved to `event-filters.ts` and are asserted against the
-  curated lists themselves.
-
-**Doc drift, found and fixed (A8).** Chains §7 said every analysis module has a
-test "except `contention.ts` and `fairness.ts`" — `contention.test.ts` had
-existed for months. Pitfalls §2 said "two untested analysis modules"; there was
-one. The structural test pinned the array and never read the sentences quoting
-it, so both stayed wrong through every green run. Both are corrected, and
-`docs.test.ts` now parses the sentences themselves.
-
-**Tooling absent.** No coverage reporter, no formatter, no dead-export or
-dependency-graph tool. *Closed in phase 0:* branch protection on `main`, a PR template, the
-`typecheck` and `check` scripts, a cached lint, and the SQLite
-`ExperimentalWarning` that printed fifteen times a run — `vitest.setup.ts`
-now silences it exactly as `instrumentation-node.ts` does for the app.
-
-**Operations.** Backups are manual. `v0.1.0` is not tagged. Rate limiting is
-absent. `local/` is gitignored, so an agent in a fresh worktree or clone cannot
-read the cycle log — that is deliberate (it holds host details) and worth
-knowing.
+**What was still prose on 2026-09-03** is the third column of §1's table now.
+Two rows there stay prose and say why — the re-import, which no test can
+perform, and the foundational-versus-overlay read, which is a design rule
+rather than a mechanical one. **Doc drift** was the first thing measured and
+the first fixed (A8): two sentences about which analysis modules lacked tests
+had been wrong for months, because `docs.test.ts` pinned the array and never
+read the sentences quoting it; it parses them now. **Operations** at close:
+`npm run backup` takes, verifies and prunes a backup (D3), and scheduling and
+the off-host copy are the operator's, outside this repo; `v0.1.0` is published
+(D2), and the commits after it belong to the next tag; rate limiting belongs at
+the proxy and the deploy skill says which route to limit first (D4). `local/` is gitignored, so
+an agent in a fresh worktree or clone cannot read the cycle log — deliberate,
+it holds host details, and worth knowing.
 
 ## 3. Principles for the work
 
@@ -197,6 +134,9 @@ knowing.
    the seed backend stays, `Repo`/`WriteRepo` stays split. Pitfalls §3.
 
 ## 4. Workstreams
+
+The proposal as written on 2026-09-03, left as it was. §7 says what each item
+became; §8 says why they differ.
 
 Each item: why · do · done when · size (S/M/L) · model (§4E4) · risk.
 
@@ -445,7 +385,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2, B4, D3, D6 **done**; C3, D2 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | **done** (B2, B4, C3, D2, D3, D6) | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 **done** | the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are now tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
@@ -495,7 +435,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | C4 | Build-guard tests | done | split into `prerender-checks.mjs` and `standalone-checks.mjs` plus their CLIs, tested by `scripts/build-guards.test.ts` against a fake manifest and a fake standalone tree. Both CLIs were also exercised end to end on throwaway dist directories |
 | C5 | Developer experience | done | `vitest.setup.ts` silences the SQLite warning; `typecheck` and `check` scripts; cached lint (~20 s → ~2 s) |
 | D1 | PR template, branch protection | done | template written; `main` requires the `test` and `image` jobs, blocks force-pushes and deletion, and leaves `enforce_admins` **off** — a solo maintainer's direct pushes still work, and a required check cannot pass on a commit that does not exist yet. Tighten to `enforce_admins: true` if the work ever moves to PRs |
-| D2 | Tags | in progress | `v0.1.0` is an annotated tag on this workstation, at the commit where check, lint, both build guards, the image smoke test and `npm audit` are all clean — its message says what was verified and what is knowingly still open. **Not pushed:** a tag on the remote is a release marker other people act on, and that is the maintainer's to publish (`git push origin v0.1.0`). A tag per cycle after this one; the deploy skill's snapshot step names the tag being deployed |
+| D2 | Tags | done | `v0.1.0`, an annotated tag at `4e544f6` — the commit where check, lint, both build guards, the image smoke test and `npm audit` were all clean; its message says what was verified and what was knowingly still open. Cut 2026-09-06, pushed 2026-09-07 at the maintainer's instruction: a tag on the remote is a release marker other people act on, so publishing it was a person's step and not an agent's. The three commits after it — a refactor of a shipped component, a hook fix, this plan's closure — had `check` and lint but not the image smoke test, so they belong to the next tag. A tag per cycle after this one; the deploy skill's snapshot step names the tag being deployed |
 | D3 | Backups | done | `npm run backup` — `scripts/backup.mjs` over a pure `backup-checks.mjs`, the way the build guards and the doctor are split. `VACUUM INTO` through a **read-only** handle opened directly, never `getDb()`, which runs the schema and the migrations on everything it opens. The copy is opened and read back before any old one is pruned, so a run that cannot produce a backup deletes nothing. Rehearsed against real data: a 36 MB snapshot of a copy of the live database matches it across 32 tables and 11,972 rows including a 6.2 MB uncheckpointed WAL, and the app boots on the restore. Scheduling and the offsite copy stay with the operator, and the deploy skill says so |
 | D4 | Rate limiting doc | done | a section in the deploy skill: the limit belongs at the proxy, because TLS terminates in front and a limiter inside one Node process would be counting the proxy. Four routes named, and the reason they differ — `/api/fight-graph` is gated by `logs.view` and still spends the deployment's shared Warcraft Logs quota on every call, so it is the one to limit even if nothing else is; `/signin`, `/claim`, `/join` are about noise rather than a break-in, the claim code being too large to guess. The CSP nonce stays in `backlog.md` with its trigger, and the skill says so, because conflating the two has stalled both before |
 | D5 | `npm audit` step | done | `npm audit --omit=dev` in CI, `continue-on-error` on purpose — an advisory against a transitive dev dependency must not be able to stop a raid-night fix from shipping, and Dependabot already opens the PRs. It was **not** clean on the day it was added: four high-severity libvips CVEs reached the tree through `sharp@0.34.5`, which `next@16.2.9` pulled in. Nothing in this app calls `next/image` — `item-icon.tsx` uses a plain `<img>` on purpose, with the lint disable to say so — so the optimizer that links libvips never ran, which was a reason it was not urgent and never a reason it was fine. Fixed by the bump to `next@16.3.4` (`sharp@0.35.4`), which is the first thing this step actually caught |
@@ -575,5 +515,5 @@ unreliable; it is narrower than that:
 > Write the *why* and the *done-when* in advance. Take the count, the exception
 > list and the shape of the solution from the code, at the time you do the work.
 
-That is already §0's instruction to read the chain before starting. These rows
-are the evidence for it.
+That is §0's instruction to whoever writes the next plan, and these rows are
+the evidence for it.
