@@ -181,6 +181,47 @@ this becomes a real hole.
 Adding middleware has its own cost worth weighing first: it puts an Edge-runtime
 layer in front of every request in an app that currently has none.
 
+## Four dependency majors are held, and why
+
+Dependabot opens these; none is rejected, and each is left **open** so the bot
+keeps it rebased. What follows is what was already measured, so the next person
+holds or merges on evidence rather than re-deriving it. Checked 7 Sep 2026.
+
+**`node:24-alpine` → `node:26-alpine` — waiting on a date, not a fix.** Nothing
+is wrong with it: on `node:26-alpine` (v26.8.1) `tsc` is clean, the whole suite
+is green, `npm run image` builds and all seven smoke assertions pass. The single
+objection is that `process.release.lts` is undefined — 26 is Current, and this
+deployment is one guild's live data behind one replica. **Revisit October 2026**,
+when 26 promotes; rebuild, run `npm run image`, merge. One incidental finding
+worth keeping: the `ExperimentalWarning` that `src/instrumentation-node.ts`
+suppresses fires on 22 but not on 24 or 26 — so that suppressor is a no-op in
+the container already and earns its place only for `npm run dev`, which `.nvmrc`
+pins to 22.13. Bumping the base image does not make it dead code.
+
+**eslint 9 → 10 — blocked upstream, nothing to do here.** `eslint-plugin-react`,
+nested under `eslint-config-next`, still calls `context.getFilename()`, which
+eslint 10 removed; `npm run lint` dies on the first file with
+`contextOrFilename.getFilename is not a function`. The peer ranges all resolve
+cleanly, so the lockfile looks healthy and the lint run is the only thing that
+says otherwise. Merge when `eslint-config-next` ships a newer plugin.
+
+**typescript 5 → 7 — blocked upstream, and the lockfile says so quietly.**
+`typescript-eslint` declares `typescript: >=4.8.4 <6.1.0`; npm satisfies the
+install by *nesting* a second copy rather than reporting a conflict, so nothing
+fails until lint runs. TS 7 is the native port, not a point release. Merge when
+`typescript-eslint` publishes a range that includes 7.
+
+**`@tanstack/react-table` 8 → 9 — a migration, and it needs its own change.**
+93 type errors across the four files that use it, all from one rewrite:
+`useReactTable` became `ReactTable`, `getCoreRowModel` / `getSortedRowModel`
+became `createCoreRowModel` / `createSortedRowModel`, `getPaginationRowModel` is
+gone outright, and `ColumnDef` gained a leading `TableFeatures` parameter — that
+last one is what turns every `row.original` into `unknown` at the call sites.
+The pagination removal is the part to plan around: `data-table.tsx` uses it for
+the 100-row windowing that keeps the loot ledger and item list from laying out
+a thousand rows a visit, so the replacement has to preserve that, not just
+compile. Sizeable enough to deserve a cycle rather than a merge.
+
 ## Smaller things, already decided
 
 - **Handing a guild over is two steps, on purpose.** `transferGuildOwnership`

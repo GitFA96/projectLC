@@ -19,7 +19,15 @@ updates:
       interval: weekly
 
   # The workflow actions above. Unwatched pinned actions rot quietly.
+  #
+  # Grouped for the same reason the npm block is: five separate one-line PRs
+  # landed on 7 Sep 2026, each needing its own review and its own CI run, and
+  # the review that matters is "do the actions still do what ci.yml expects",
+  # which is one question about all of them.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
