@@ -48,5 +48,12 @@ has to act, and a summary that leaves it out is wrong:
 ## Then report honestly
 
 If a test fails, say so with the output. If you skipped a step above, say which
-and why. Work picked from `docs/improvement-plan.md` §7 updates its row in the
-same commit.
+and why.
+
+## Prove a new guard red
+
+If the change adds something that can say no — a test that pins a surface, a
+hook that refuses, a build check — break what it guards, watch it fail, then
+restore. Three guards in this repo passed for the wrong reason and only that
+step found them (`docs/improvement-plan.md` §8). Say what you broke in the
+summary.

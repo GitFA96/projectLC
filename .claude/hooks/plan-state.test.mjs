@@ -79,20 +79,25 @@ describe("planLine", () => {
     expect(line).toMatch(/waiting on/);
   });
 
-  it("points elsewhere once every row is settled", () => {
-    const line = planLine(planCounts([row("A1", "done"), row("A2", "dropped (why)")].join("\n")));
-    expect(line).toMatch(/1 dropped/);
-    expect(line).toMatch(/backlog/);
+  it("says nothing once every row is settled", () => {
+    // A closed plan is not news: root AGENTS.md already says where to look
+    // instead, and a line repeating it at every session start is the brief
+    // teaching the reader to skip it. Dropped rows are settled too.
+    const counts = planCounts([row("A1", "done"), row("A2", "dropped (why)")].join("\n"));
+    expect(planLine(counts)).toBeNull();
   });
 
-  it("always says when a row could not be read", () => {
+  it("always says when a row could not be read, and says to fix it", () => {
     const line = planLine(planCounts(row("A1", "waiting on the guild")));
     expect(line).toMatch(/1 in a state this parse cannot read/);
+    expect(line).toMatch(/fix the row/);
   });
 
   it("leaves out the states that are zero", () => {
-    const line = planLine(planCounts([row("A1", "done"), row("A2", "done")].join("\n")));
-    expect(line).toMatch(/0 open, 2 done\./);
+    const line = planLine(
+      planCounts([row("A1", "open"), row("A2", "done"), row("A3", "done")].join("\n")),
+    );
+    expect(line).toMatch(/1 open, 2 done\./);
     expect(line).not.toMatch(/dropped|in progress|cannot read/);
   });
 });

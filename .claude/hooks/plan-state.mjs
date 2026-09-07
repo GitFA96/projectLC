@@ -14,6 +14,10 @@
  *
  * Both are the same failure: a row in a state the parse does not know about
  * disappears instead of being reported. `other` exists so the third one cannot.
+ *
+ * A plan with nothing left prints nothing. The plan closed on 2026-09-07 and
+ * root `AGENTS.md` says so; a line repeating it at every session start would be
+ * the brief teaching the reader to skip it.
  */
 
 /**
@@ -58,11 +62,13 @@ export function planCounts(text) {
 }
 
 /**
- * The line the brief prints. Zero-valued states are left out so the common case
- * stays one short sentence, except `other`, which is always worth saying: it
- * means a row exists that this parse could not read.
+ * The line the brief prints, or null once every row is settled. Zero-valued
+ * states are left out so the line stays one short sentence — except `other`,
+ * which is always said: it means a row exists that this parse could not read.
  */
 export function planLine(counts) {
+  if (counts.open + counts.inProgress + counts.other === 0) return null;
+
   const parts = [`${counts.open} open`];
   if (counts.inProgress > 0) parts.push(`${counts.inProgress} in progress`);
   parts.push(`${counts.done} done`);
@@ -78,7 +84,7 @@ export function planLine(counts) {
     // would be sending it at a human's task.
     advice = "Nothing is open; the in-progress row says what it is waiting on.";
   } else {
-    advice = "Every row is settled — read §8 and docs/backlog.md before starting something new.";
+    advice = "Nothing is open, but a row carries a state §7's header does not allow — fix the row.";
   }
   return `docs/improvement-plan.md §7: ${parts.join(", ")}. ${advice}`;
 }

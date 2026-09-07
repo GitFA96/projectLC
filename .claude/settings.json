@@ -53,7 +53,7 @@
     ],
     "SessionStart": [
       {
-        "//": "Whether :3000 is up (which decides where a build may go) and how much of docs/improvement-plan.md section 7 is open. Fails open.",
+        "//": "Whether :3000 is up (which decides where a build may go), and how much of docs/improvement-plan.md section 7 is still open — silent once every row is settled. Fails open.",
         "hooks": [
           {
             "type": "command",

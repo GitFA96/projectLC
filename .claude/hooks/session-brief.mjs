@@ -9,10 +9,12 @@
  * the build is typed is too late — `guard-dev-server.mjs` catches that case,
  * but knowing up front is what stops the wasted attempt.
  *
- * **How much of the plan is open.** `docs/improvement-plan.md` §7 is where work
- * is picked and recorded, and a session that does not know it exists re-derives
- * it. The counting is `plan-state.mjs`, which is testable and has been wrong
- * twice; what is left here is reading the file and printing the line.
+ * **How much of the plan is open.** `docs/improvement-plan.md` §7 is where a
+ * plan's work is picked and recorded, and a session that does not know it
+ * exists re-derives it. The counting is `plan-state.mjs`, which is testable and
+ * has been wrong twice; what is left here is reading the file and printing the
+ * line — or not: a plan with every row settled prints nothing, because root
+ * `AGENTS.md` already says it is closed.
  *
  * Fails open in every direction: any error, any missing file, any surprise, and
  * this prints nothing and exits 0. A session must never fail to start because
@@ -57,9 +59,8 @@ try {
         "it down, and the symptom is 404s on nested routes rather than an error."
       : `Nothing is listening on :${DEV_PORT}, so \`npm run build\` is safe as it stands.`,
   ];
-  if (plan) {
-    lines.push(planLine(plan));
-  }
+  const planText = plan && planLine(plan);
+  if (planText) lines.push(planText);
 
   process.stdout.write(
     JSON.stringify({

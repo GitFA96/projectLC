@@ -1,29 +1,33 @@
 ---
 name: cycle
-description: Record a stretch of projectLC work — open a cycle in the local log, close one out, or update the improvement plan's state table. Use when starting a new body of work, when finishing one, and whenever a plan item changes state.
+description: Record a stretch of projectLC work — open a cycle in the local log or close one out, and keep a plan's state table honest while one is open. Use when starting a new body of work, when finishing one, and whenever a plan item changes state.
 ---
 
 # Recording a cycle
 
-Two places, and they answer different questions. **`docs/improvement-plan.md`
-§7 says what state each item is in. `local/dev-cycles.md` says how it went.**
-Neither substitutes for the other, and a change that touches one usually touches
-both.
+Two places, and they answer different questions. **A plan's state table says
+what state each item is in. `local/dev-cycles.md` says how it went.** Neither
+substitutes for the other. The one plan this repo has had,
+`docs/improvement-plan.md`, closed on 2026-09-07 with its §7 full; it stays as
+the record and as the shape the next one takes.
 
-## §7, every time — same commit, not a follow-up
+## A plan's state table — same commit, not a follow-up
 
-One item per branch. When an item changes state, its row changes in the **same
+While a plan is open: one item per branch, and its row changes in the **same
 commit** as the work. States are `open` · `in progress (branch)` ·
 `done (commit)` · `dropped (why)`.
 
 The Notes column is where a later reader learns something. Put in it what the
 plan did not know: a count that turned out wrong, a module already covered, a
-bug the work uncovered. If §4's proposal and what you built differ, that is a
-row in **§8** as well — same commit, same rule. §8 is the running record of
-where the guess and the code disagreed and the code won.
+bug the work uncovered. If the proposal and what you built differ, that is a
+row in the plan's *where the plan was wrong* section as well — same commit,
+same rule. `docs/improvement-plan.md` §8 is what that section looks like at
+close, and what it shows: the guesses that failed were counts and approaches
+written without opening the file. Write the *why* and the *done-when* in
+advance; take the count and the shape from the code when you do the work.
 
-Also update §5's phase row when an item completes, and any dependency note that
-has just been unblocked.
+Also update the sequencing row when an item completes, and any dependency note
+that has just been unblocked.
 
 ## `local/dev-cycles.md`, per cycle
 
