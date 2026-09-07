@@ -1,12 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, HandCoins, Loader2 } from "lucide-react";
+import { ChevronRight, Download, HandCoins, Loader2, Upload } from "lucide-react";
 import type { ReportPayback } from "@/lib/types";
-import { buildPayback } from "@/lib/analysis/payback";
+import {
+  buildPayback,
+  exportPayback,
+  mergeImportedPayback,
+  parsePaybackFile,
+} from "@/lib/analysis/payback";
 import type { GuildPolicy } from "@/lib/analysis/policy";
 import { saveReportPayback } from "@/app/logs/actions";
 import { Raider } from "@/components/logs/rank-bits";
+import { usePressToggle } from "@/components/use-press-toggle";
 import { useUnsavedGuard } from "@/components/use-unsaved-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +65,7 @@ export function PaybackPanel({
   policy: GuildPolicy;
 }) {
   const [open, setOpen] = React.useState(false);
+  const pressToggle = usePressToggle(() => setOpen((o) => !o));
   const [marks, setMarks] = React.useState(String(payback.marks || ""));
   const [markGold, setMarkGold] = React.useState(String(payback.markGold || ""));
   const [paid, setPaid] = React.useState<Record<string, string>>(() =>
@@ -67,6 +74,7 @@ export function PaybackPanel({
   const [saving, startTransition] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
   const [leavingTo, setLeavingTo] = React.useState<string | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   const asNumber = (v: string) => {
     const n = Number(v.trim());
@@ -104,9 +112,78 @@ export function PaybackPanel({
     });
   };
 
+  /*
+   * The pot as a file, and back again.
+   *
+   * Both halves work on the boxes rather than on what is stored, so an import
+   * is an edit like any other: it lands in the draft, arms the same dirty flag
+   * and unsaved-work guard, and is written by the same Save. That matters most
+   * for the marks — a file from another night carries a count that is almost
+   * certainly wrong for this one, and landing unsaved is what gives the officer
+   * the chance to fix it before it is written.
+   */
+  const exportFile = () => {
+    const file = exportPayback({ code, payback: draft, at: new Date().toISOString() });
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `consumable-payback-${code}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMsg(dirty ? "Exported this night's pot, including what is unsaved." : "Exported this night's pot.");
+  };
+
+  const importFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+
+    let read: ReturnType<typeof parsePaybackFile> = null;
+    try {
+      read = parsePaybackFile(JSON.parse(await file.text()));
+    } catch {
+      read = null;
+    }
+    if (!read) {
+      setMsg("Couldn't read that file — expected a payback record exported from this panel.");
+      return;
+    }
+
+    const { payback, applied, absent, potChanged } = mergeImportedPayback({
+      current: draft,
+      imported: read,
+      knownSpenders: spenders.map((s) => s.name),
+    });
+    setMarks(String(payback.marks || ""));
+    setMarkGold(String(payback.markGold || ""));
+    setPaid((prev) => {
+      const next = { ...prev };
+      for (const [name, gold] of Object.entries(payback.paid)) next[name] = String(gold);
+      return next;
+    });
+
+    const parts = [
+      potChanged && "the pot",
+      applied > 0 && `${applied} payout${applied === 1 ? "" : "s"}`,
+    ].filter(Boolean);
+    const aside = [
+      absent > 0 && `${absent} for raider${absent === 1 ? "" : "s"} not in this raid`,
+      read.skipped > 0 && `${read.skipped} unreadable`,
+    ].filter(Boolean);
+    const skippedNote = aside.length > 0 ? ` (${aside.join(", ")} skipped)` : "";
+    setMsg(
+      parts.length === 0
+        ? `Nothing in that file applies to this raid${skippedNote}.`
+        : `Imported ${parts.join(" and ")}${skippedNote} — check the marks banked, then save.`,
+    );
+  };
+
   return (
     <Card>
-      <CardHeader className="cursor-pointer select-none" onClick={() => setOpen((o) => !o)}>
+      {/* Selectable: the pot and the mark price are the two numbers officers
+          quote at each other, and this is where they are written. */}
+      <CardHeader className="cursor-pointer" {...pressToggle}>
         <CardTitle className="flex flex-wrap items-center gap-2">
           <ChevronRight
             className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-90")}
@@ -201,11 +278,40 @@ export function PaybackPanel({
               </div>
             )}
             <div className="ml-auto flex items-center gap-2">
-              {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
+              {msg && <span className="max-w-md text-xs text-muted-foreground">{msg}</span>}
               <Button size="sm" onClick={() => save()} disabled={!dirty || saving}>
                 {saving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 Save
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={exportFile}
+                disabled={!split.potRecorded && split.paidTotal === 0}
+                title={
+                  split.potRecorded
+                    ? "Save this night's pot and payouts to a file"
+                    : "Nothing recorded for this night yet"
+                }
+              >
+                <Download className="h-3.5 w-3.5" /> Export
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                disabled={saving}
+                title="Load a pot from a file — it arrives unsaved, so the marks can be corrected first"
+              >
+                <Upload className="h-3.5 w-3.5" /> Import
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={importFile}
+              />
             </div>
           </div>
 

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildPayback, type PaybackSpender } from "@/lib/analysis/payback";
+import {
+  PAYBACK_FILE_KIND,
+  PAYBACK_LIMITS,
+  buildPayback,
+  exportPayback,
+  mergeImportedPayback,
+  parsePaybackFile,
+  type PaybackSpender,
+} from "@/lib/analysis/payback";
+import { ADJUSTMENTS_FILE_KIND } from "@/lib/analysis/consumable-adjustments";
 import { DEFAULT_POLICY } from "@/lib/analysis/policy";
 
 const spenders = (...gold: number[]): PaybackSpender[] =>
@@ -229,5 +238,206 @@ describe("buildPayback — what officers recorded", () => {
     // as an accusation rather than an absence.
     const view = buildPayback({ spenders: spenders(10000, 0, 5000), pot: POT });
     expect(view.rows.map((r) => r.name)).toEqual(["R01", "R03"]);
+  });
+});
+
+describe("exportPayback", () => {
+  const at = "2026-09-07T18:00:00.000Z";
+
+  it("names itself, the night it came from, and when it was written", () => {
+    const file = exportPayback({
+      code: "abc123",
+      payback: { marks: 30, markGold: 100, paid: { Thrainn: 250 } },
+      at,
+    });
+    expect(file.kind).toBe(PAYBACK_FILE_KIND);
+    expect(file.version).toBe(1);
+    expect(file.code).toBe("abc123");
+    expect(file.exportedAt).toBe(at);
+    expect(file.payback).toEqual({ marks: 30, markGold: 100, paid: { Thrainn: 250 } });
+  });
+
+  it("is not the corrections file, so the wrong pick is answerable", () => {
+    expect(PAYBACK_FILE_KIND).not.toBe(ADJUSTMENTS_FILE_KIND);
+  });
+
+  it("copies the payouts rather than aliasing them", () => {
+    const paid = { Thrainn: 250 };
+    const file = exportPayback({ code: "abc123", payback: { marks: 30, markGold: 100, paid }, at });
+    paid.Thrainn = 999;
+    expect(file.payback.paid.Thrainn).toBe(250);
+  });
+});
+
+describe("parsePaybackFile", () => {
+  it("reads back exactly what it wrote", () => {
+    const payback = { marks: 30, markGold: 100, paid: { Thrainn: 250, Pyrelia: 90 } };
+    const file = exportPayback({ code: "abc123", payback, at: "2026-09-07T18:00:00.000Z" });
+    const back = parsePaybackFile(JSON.parse(JSON.stringify(file)));
+    expect(back).toEqual({ code: "abc123", marks: 30, markGold: 100, paid: payback.paid, skipped: 0 });
+  });
+
+  it("reads a bare record, so a pot assembled by hand works", () => {
+    const back = parsePaybackFile({ marks: 12, markGold: 80, paid: {} });
+    expect(back?.marks).toBe(12);
+    expect(back?.code).toBeUndefined();
+  });
+
+  it("is null for anything that answers none of the three questions", () => {
+    expect(parsePaybackFile(null)).toBeNull();
+    expect(parsePaybackFile(42)).toBeNull();
+    expect(parsePaybackFile([])).toBeNull();
+    expect(parsePaybackFile({})).toBeNull();
+    // The two other files exported from this same page.
+    expect(parsePaybackFile({ "Super Mana Potion": { gold: 30, charges: 5 } })).toBeNull();
+    expect(
+      parsePaybackFile({
+        kind: ADJUSTMENTS_FILE_KIND,
+        adjustments: [{ actorName: "Thrainn", name: "Food", delta: 1, at: "x" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps absent apart from zero — the difference an import turns on", () => {
+    const only = parsePaybackFile({ markGold: 120 });
+    expect(only?.markGold).toBe(120);
+    // Not `marks: 0`. The merge reads the absence as "the file didn't say".
+    expect(only).not.toHaveProperty("marks");
+
+    const zeroed = parsePaybackFile({ marks: 0, markGold: 120 });
+    expect(zeroed?.marks).toBe(0);
+  });
+
+  it("drops a figure past its bound rather than clamping to it", () => {
+    // Clamping would show the officer a number nobody recorded, as theirs.
+    expect(parsePaybackFile({ marks: PAYBACK_LIMITS.marks + 1 })).not.toHaveProperty("marks");
+    expect(parsePaybackFile({ marks: PAYBACK_LIMITS.marks })?.marks).toBe(PAYBACK_LIMITS.marks);
+    expect(parsePaybackFile({ markGold: PAYBACK_LIMITS.markGold + 1 })).not.toHaveProperty(
+      "markGold",
+    );
+    expect(parsePaybackFile({ markGold: -1 })).not.toHaveProperty("markGold");
+    expect(parsePaybackFile({ marks: Number.NaN })).not.toHaveProperty("marks");
+    expect(parsePaybackFile({ marks: "30" })).not.toHaveProperty("marks");
+  });
+
+  it("floors the marks, the way the panel floors what is typed into it", () => {
+    expect(parsePaybackFile({ marks: 30.9 })?.marks).toBe(30);
+  });
+
+  it("skips payouts it cannot use, and counts them", () => {
+    const back = parsePaybackFile({
+      paid: {
+        Thrainn: 250,
+        Pyrelia: -5,
+        Kazrak: "90",
+        Gorlok: Number.POSITIVE_INFINITY,
+        Ysolde: PAYBACK_LIMITS.paid + 1,
+        "  ": 40,
+        ["V".repeat(PAYBACK_LIMITS.paidName + 1)]: 40,
+      },
+    });
+    expect(back?.paid).toEqual({ Thrainn: 250 });
+    expect(back?.skipped).toBe(6);
+  });
+
+  it("drops a zero payout rather than carrying it as a value", () => {
+    // An empty box already writes nothing; a stored 0 would read as an edit.
+    const back = parsePaybackFile({ paid: { Thrainn: 0, Pyrelia: 10 } });
+    expect(back?.paid).toEqual({ Pyrelia: 10 });
+    expect(back?.skipped).toBe(0);
+  });
+});
+
+describe("mergeImportedPayback", () => {
+  const known = ["Thrainn", "Pyrelia"];
+  const current = { marks: 30, markGold: 100, paid: { Thrainn: 250 } };
+
+  it("re-importing a night's own export changes nothing", () => {
+    const file = exportPayback({ code: "abc123", payback: current, at: "now" });
+    const read = parsePaybackFile(JSON.parse(JSON.stringify(file)));
+    const { payback, applied, absent, potChanged } = mergeImportedPayback({
+      current,
+      imported: read!,
+      knownSpenders: known,
+    });
+    expect(payback).toEqual(current);
+    expect(applied).toBe(1);
+    expect(absent).toBe(0);
+    expect(potChanged).toBe(false);
+  });
+
+  it("leaves the pot alone when the file is silent about it", () => {
+    const { payback, potChanged } = mergeImportedPayback({
+      current,
+      imported: { paid: { Pyrelia: 40 } },
+      knownSpenders: known,
+    });
+    expect(payback.marks).toBe(30);
+    expect(payback.markGold).toBe(100);
+    expect(potChanged).toBe(false);
+    // And the payout it did name landed beside the one already there.
+    expect(payback.paid).toEqual({ Thrainn: 250, Pyrelia: 40 });
+  });
+
+  it("carries a mark price onto a night that has none", () => {
+    // The reason `code` is recorded but not enforced: what a mark is worth is
+    // this week's reading of the economy, not a fact about one raid.
+    const { payback, potChanged } = mergeImportedPayback({
+      current: { marks: 0, markGold: 0, paid: {} },
+      imported: { markGold: 120, paid: {} },
+      knownSpenders: known,
+    });
+    expect(payback).toEqual({ marks: 0, markGold: 120, paid: {} });
+    expect(potChanged).toBe(true);
+  });
+
+  it("replaces a payout rather than adding to it", () => {
+    const { payback } = mergeImportedPayback({
+      current,
+      imported: { paid: { Thrainn: 90 } },
+      knownSpenders: known,
+    });
+    expect(payback.paid.Thrainn).toBe(90);
+  });
+
+  it("never removes a payout the file is silent about", () => {
+    const { payback, applied } = mergeImportedPayback({
+      current,
+      imported: { marks: 40, paid: {} },
+      knownSpenders: known,
+    });
+    expect(payback.paid).toEqual({ Thrainn: 250 });
+    expect(applied).toBe(0);
+  });
+
+  it("drops payouts for raiders this raid never had, and counts them", () => {
+    const { payback, applied, absent } = mergeImportedPayback({
+      current: { marks: 0, markGold: 0, paid: {} },
+      imported: { paid: { Thrainn: 10, Gorlok: 20, Ysolde: 30 } },
+      knownSpenders: known,
+    });
+    expect(payback.paid).toEqual({ Thrainn: 10 });
+    expect(applied).toBe(1);
+    expect(absent).toBe(2);
+  });
+
+  it("stores under the ranking's spelling, not the file's", () => {
+    // `paid` is keyed by logged raider name and every reader looks it up by
+    // that exact string — a row under "thrainn" is a row nothing reads.
+    const { payback } = mergeImportedPayback({
+      current: { marks: 0, markGold: 0, paid: {} },
+      imported: { paid: { "  THRAINN ": 75 } },
+      knownSpenders: known,
+    });
+    expect(payback.paid).toEqual({ Thrainn: 75 });
+  });
+
+  it("reports a moved pot so the officer is told what the file overwrote", () => {
+    const { potChanged } = mergeImportedPayback({
+      current,
+      imported: { marks: 31, paid: {} },
+      knownSpenders: known,
+    });
+    expect(potChanged).toBe(true);
   });
 });

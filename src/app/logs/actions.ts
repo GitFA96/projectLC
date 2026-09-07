@@ -5,7 +5,8 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
-import { attributeAdjustments } from "@/lib/analysis/consumable-adjustments";
+import { ADJUSTMENT_LIMITS, attributeAdjustments } from "@/lib/analysis/consumable-adjustments";
+import { PAYBACK_LIMITS } from "@/lib/analysis/payback";
 import { actingOfficer } from "@/app/acting-officer";
 
 const priceSchema = z.object({
@@ -36,14 +37,21 @@ export async function saveReportConsumablePrices(input: SavePricesInput): Promis
   }
 }
 
+// Bounds come from `PAYBACK_LIMITS` rather than sitting here as literals, for
+// the reason `ADJUSTMENT_LIMITS` does below: the payback panel's file parser
+// has to hold an import to exactly this standard, and a bound raised in one
+// place and not the other turns a legitimate figure into a dropped one.
 const paybackSchema = z.object({
   code: z.string().min(1),
   /** Marks of Illidari the raid banked. Whole tokens — you cannot bank half. */
-  marks: z.number().int().min(0).max(10_000),
+  marks: z.number().int().min(0).max(PAYBACK_LIMITS.marks),
   /** This week's gold value of one mark. */
-  markGold: z.number().min(0).max(100_000),
+  markGold: z.number().min(0).max(PAYBACK_LIMITS.markGold),
   /** Gold already handed over, by logged raider name. */
-  paid: z.record(z.string().min(1).max(80), z.number().min(0).max(1_000_000)),
+  paid: z.record(
+    z.string().min(1).max(PAYBACK_LIMITS.paidName),
+    z.number().min(0).max(PAYBACK_LIMITS.paid),
+  ),
 });
 
 export type SavePaybackInput = z.infer<typeof paybackSchema>;
@@ -99,15 +107,19 @@ export async function saveReportFightFilter(input: SaveFightFilterInput): Promis
   }
 }
 
+// Lengths come from `ADJUSTMENT_LIMITS` rather than sitting here as literals:
+// the file parser on the gold card has to hold an import to exactly this
+// standard, and a limit raised in one place and not the other truncates an
+// officer's imported notes without saying so.
 const adjustmentSchema = z.object({
-  actorName: z.string().min(1).max(60),
-  name: z.string().min(1).max(80),
+  actorName: z.string().min(1).max(ADJUSTMENT_LIMITS.actorName),
+  name: z.string().min(1).max(ADJUSTMENT_LIMITS.name),
   // Zero would be a no-op pretending to be a correction.
   delta: z.number().int().refine((d) => d !== 0, "An adjustment has to add or remove something."),
-  note: z.string().max(200).optional(),
+  note: z.string().max(ADJUSTMENT_LIMITS.note).optional(),
   // Accepted so an untouched entry can carry its existing author back, but
   // never trusted for a changed one — `attributeAdjustments` restamps those.
-  by: z.string().max(80).optional(),
+  by: z.string().max(ADJUSTMENT_LIMITS.by).optional(),
   at: z.string().min(1),
 });
 

@@ -419,3 +419,221 @@ export function countChanges(
   for (const k of before.keys()) if (!seen.has(k)) n++;
   return n;
 }
+
+/* --- Carrying a night's corrections out of the app, and back in --- */
+
+/**
+ * Marks an exported file as this app's, and as this shape.
+ *
+ * A bare array of corrections is also accepted on the way in (see
+ * `parseAdjustmentsFile`) — this is what makes a file *recognisable*, not what
+ * makes it readable.
+ */
+export const ADJUSTMENTS_FILE_KIND = "projectlc.consumable-adjustments";
+
+/**
+ * How long a stored correction's text fields may be.
+ *
+ * One definition because there are two readers: the zod gate in the logs
+ * actions, which decides what may be written, and `parseAdjustmentsFile`, which
+ * has to hold an imported file to exactly that standard or hand the officer a
+ * buffer that fails to save. Split in two, raising a limit in the gate and not
+ * the parser truncates imported notes in silence — the parser is the half
+ * nobody would think to look at.
+ */
+export const ADJUSTMENT_LIMITS = {
+  actorName: 60,
+  name: 80,
+  note: 200,
+  by: 80,
+} as const;
+
+/**
+ * A raid's corrections as a file.
+ *
+ * Written so a human reading it can tell what it is and which night it came
+ * from without opening the app: the corrections themselves are the officers'
+ * reasoning, and the audit list is only as useful as it is portable.
+ *
+ * `code` is recorded, never enforced. A file exported from one night is
+ * deliberately importable into another — "Thrainn always drinks his flask
+ * before the pull timer" is true every week, and re-entering it by hand every
+ * week is how it stops being recorded at all.
+ */
+export interface AdjustmentsFile {
+  kind: typeof ADJUSTMENTS_FILE_KIND;
+  version: 1;
+  /** The report the corrections were made against. */
+  code: string;
+  /** When the file was written, ISO. */
+  exportedAt: string;
+  adjustments: ConsumableAdjustment[];
+}
+
+/** The current file, for one raid's corrections. Time is passed in — this layer is pure. */
+export function exportAdjustments(input: {
+  code: string;
+  adjustments: ConsumableAdjustment[];
+  at: string;
+}): AdjustmentsFile {
+  return {
+    kind: ADJUSTMENTS_FILE_KIND,
+    version: 1,
+    code: input.code,
+    exportedAt: input.at,
+    // `by` and `at` ride along: who corrected what, and when, is half of what
+    // makes the record worth keeping, and dropping them here would make an
+    // export of a night lossy against the night it came from.
+    adjustments: input.adjustments.map((a) => ({ ...a })),
+  };
+}
+
+/** Trimmed if it is a usable string of at most `max` characters, else undefined. */
+function boundedText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" || trimmed.length > max ? undefined : trimmed;
+}
+
+/**
+ * Read corrections out of a parsed JSON file. `null` when it isn't one.
+ *
+ * **Tolerant on input, strict on output** — the import layer's rule, and it
+ * earns its place twice here. A bare array is read as well as the envelope, so
+ * a list somebody assembled by hand works. And every entry is held to the
+ * limits the server's own gate enforces, so a file cannot produce a buffer that
+ * fails to save later with a message about array elements.
+ *
+ * Where an entry breaks a limit, what happens depends on whether the field
+ * *identifies* something: a raider or consumable name over length is dropped,
+ * because a truncated identifier files the correction against the wrong person
+ * or nothing at all. A note over length is prose and is truncated, because
+ * losing the end of a sentence beats losing the correction it explains.
+ *
+ * `by` is read back but is not evidence of anything: the server restamps every
+ * entry it does not recognise as already stored (`attributeAdjustments`), so an
+ * import can never claim a correction on another officer's behalf.
+ */
+export function parseAdjustmentsFile(
+  raw: unknown,
+  /** Stamped on entries whose own timestamp is missing or unusable. */
+  at: string,
+): { code?: string; adjustments: ConsumableAdjustment[]; skipped: number } | null {
+  const envelope = raw !== null && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : undefined;
+  const list = Array.isArray(raw) ? raw : envelope?.adjustments;
+  if (!Array.isArray(list)) return null;
+
+  const adjustments: ConsumableAdjustment[] = [];
+  let skipped = 0;
+  for (const entry of list) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      skipped++;
+      continue;
+    }
+    const e = entry as Record<string, unknown>;
+    const actorName = boundedText(e.actorName, ADJUSTMENT_LIMITS.actorName);
+    const name = boundedText(e.name, ADJUSTMENT_LIMITS.name);
+    const delta = e.delta;
+    // Zero is the one number that cannot be a correction — it would show up in
+    // the audit list as a change nobody made.
+    if (!actorName || !name || typeof delta !== "number" || !Number.isInteger(delta) || delta === 0) {
+      skipped++;
+      continue;
+    }
+    const note =
+      typeof e.note === "string" ? e.note.trim().slice(0, ADJUSTMENT_LIMITS.note) : "";
+    const by = boundedText(e.by, ADJUSTMENT_LIMITS.by);
+    adjustments.push({
+      actorName,
+      name,
+      delta,
+      ...(note ? { note } : {}),
+      ...(by ? { by } : {}),
+      // Not one of the stored limits — the server takes any non-empty string
+      // here. It is a sanity bound on a field that should hold 24 characters of
+      // ISO, and anything past it falls back to the import time rather than
+      // being refused.
+      at: boundedText(e.at, 40) ?? at,
+    });
+  }
+  return { code: boundedText(envelope?.code, 80), adjustments, skipped };
+}
+
+/**
+ * Fold an imported list into the corrections already on screen.
+ *
+ * Two rules, and both exist so that exporting a night and importing it straight
+ * back changes nothing:
+ *
+ * **The file wins per (raider, consumable), and only for the pairs it names.**
+ * Not addition — adding an imported +2 onto the +2 already there would double
+ * every correction on a re-import, which turns a backup into a trap. A pair the
+ * file is silent about keeps whatever it had.
+ *
+ * **An import never removes a correction.** A file whose entries for one pair
+ * cancel out says nothing storable about it, so the standing correction is left
+ * alone rather than cleared. Undoing is what the ± and Discard are for; a file
+ * quietly deleting an officer's judgement call is not something you can see
+ * happen.
+ *
+ * Duplicate entries for one pair are summed before either rule applies, because
+ * that is what `applyAdjustments` would have made of them — corrections written
+ * before a press merged into its noted neighbour still come in pairs, and
+ * last-one-wins would drop half of such a pair on the floor.
+ *
+ * Raiders this raid has no rows for are dropped and counted. They would
+ * otherwise be stored and never shown: the ranking is built from the raiders
+ * the log caught, so a correction against somebody who wasn't there is
+ * invisible in the one place it would be reviewed.
+ */
+export function mergeImportedAdjustments(input: {
+  /** The open batch, as it stands on screen. */
+  current: ConsumableAdjustment[];
+  imported: ConsumableAdjustment[];
+  /** The raiders this raid ranked. Matched the way every other lookup here is. */
+  knownActors: string[];
+}): {
+  adjustments: ConsumableAdjustment[];
+  /** Corrections that landed on a raider in this raid. */
+  applied: number;
+  /** Corrections dropped because the raider is not in this raid. */
+  absent: number;
+} {
+  const { current, imported, knownActors } = input;
+  const known = new Set(knownActors.map((n) => n.trim().toLowerCase()));
+  const keyOf = (a: ConsumableAdjustment) =>
+    `${a.actorName.trim().toLowerCase()}\u0000${normalizeConsumableName(a.name)}`;
+
+  const folded = new Map<string, ConsumableAdjustment>();
+  let absent = 0;
+  for (const entry of imported) {
+    if (!known.has(entry.actorName.trim().toLowerCase())) {
+      absent++;
+      continue;
+    }
+    const key = keyOf(entry);
+    const seen = folded.get(key);
+    folded.set(
+      key,
+      seen
+        ? { ...seen, delta: seen.delta + entry.delta, note: seen.note ?? entry.note }
+        : { ...entry },
+    );
+  }
+  for (const [key, entry] of folded) if (entry.delta === 0) folded.delete(key);
+  const applied = folded.size;
+
+  // Replaced in place, so a correction the file restates keeps its position and
+  // the panel's frozen order survives an import. Whatever is left over is new
+  // and goes on the end, which is where a hand-added correction lands too.
+  const next = current.map((a) => {
+    const key = keyOf(a);
+    const replacement = folded.get(key);
+    if (!replacement) return a;
+    folded.delete(key);
+    return replacement;
+  });
+  return { adjustments: [...next, ...folded.values()], applied, absent };
+}

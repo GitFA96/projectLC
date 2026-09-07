@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Coins, Loader2, TriangleAlert } from "lucide-react";
+import { ChevronRight, Coins, Download, Loader2, TriangleAlert, Upload } from "lucide-react";
 import type { ConsumableAdjustment, ReportPayback } from "@/lib/types";
 import { buildPayback, type PaybackRow } from "@/lib/analysis/payback";
 import type { GuildPolicy } from "@/lib/analysis/policy";
@@ -9,6 +9,9 @@ import {
   addAdjustment,
   bumpAdjustment,
   countChanges,
+  exportAdjustments,
+  mergeImportedAdjustments,
+  parseAdjustmentsFile,
   raiderBreakdown,
   setAdjustmentNote,
   type ConsumableLine,
@@ -153,10 +156,13 @@ export function GoldTable({
   const [saved, setSaved] = React.useState(adjustments);
   const [dirty, setDirty] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** What the last export or import did. Shares the error's line, so neither moves the table twice. */
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [leavingTo, setLeavingTo] = React.useState<string | null>(null);
   /** Which raider's correction panel is open — one at a time, so the card stays short. */
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [saving, startTransition] = React.useTransition();
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   // A save refreshes the route, which streams the written list back down as a
   // new prop. Take it — but never over unsaved presses, or a slow round trip
@@ -174,6 +180,7 @@ export function GoldTable({
 
   const bump = (actorName: string, name: string, direction: 1 | -1) => {
     setError(null);
+    setNotice(null);
     setDirty(true);
     setPending((prev) =>
       bumpAdjustment({
@@ -199,6 +206,7 @@ export function GoldTable({
 
   const add = (actorName: string, name: string, count: number, text: string) => {
     setError(null);
+    setNotice(null);
     setDirty(true);
     setPending((prev) =>
       addAdjustment({
@@ -217,6 +225,7 @@ export function GoldTable({
   // its error rather than dropping it on the way out.
   const save = (then?: () => void) => {
     setError(null);
+    setNotice(null);
     const sent = pending;
     startTransition(async () => {
       const result = await saveReportConsumableAdjustments({
@@ -234,8 +243,89 @@ export function GoldTable({
 
   const discard = () => {
     setError(null);
+    setNotice(null);
     setPending(saved);
     setDirty(false);
+  };
+
+  /*
+   * The corrections as a file, and back again.
+   *
+   * Both halves work on the same buffer the ± presses do, deliberately: an
+   * import is a batch of corrections like any other, so it arrives unsaved,
+   * shows up in the unsaved count, and is written by the same Save that writes
+   * a press. Anything else would need its own server action, which would mean a
+   * second copy of the capability check and of `attributeAdjustments` — and
+   * attribution is the one thing about a correction that must not be decided on
+   * the client (change-chains §4).
+   */
+
+  // What is on screen, not what is stored: the officer exports the night they
+  // are looking at, and a batch they have not saved yet is still theirs.
+  const exportFile = () => {
+    setError(null);
+    const file = exportAdjustments({ code, adjustments: pending, at: new Date().toISOString() });
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `consumable-adjustments-${code}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    // Counted here rather than read off the badge below: this says how much of
+    // what just left the app has not been written yet, which is the one thing
+    // about the file the officer cannot see by opening it.
+    const open = countChanges(saved, pending);
+    setNotice(
+      `Exported ${pending.length} correction${pending.length === 1 ? "" : "s"}${
+        open > 0 ? `, including ${open} still unsaved` : ""
+      }.`,
+    );
+  };
+
+  const importFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    setError(null);
+
+    let read: ReturnType<typeof parseAdjustmentsFile> = null;
+    try {
+      read = parseAdjustmentsFile(JSON.parse(await file.text()), new Date().toISOString());
+    } catch {
+      read = null;
+    }
+    if (!read) {
+      setNotice("Couldn't read that file — expected corrections exported from this card.");
+      return;
+    }
+
+    const { adjustments, applied, absent } = mergeImportedAdjustments({
+      current: pending,
+      imported: read.adjustments,
+      // The ranking is built from the raiders the log caught, so a correction
+      // against anybody else would be stored and never shown again.
+      knownActors: rows.map((r) => r.name),
+    });
+    setPending(adjustments);
+    // Not simply `true`: a file that restates what is already saved leaves
+    // nothing to write, and a Save button over "0 unsaved corrections" is a
+    // worse lie than no button at all.
+    const open = countChanges(saved, adjustments);
+    setDirty(open > 0);
+
+    const aside = [
+      absent > 0 && `${absent} for raider${absent === 1 ? "" : "s"} not in this raid`,
+      read.skipped > 0 && `${read.skipped} unreadable`,
+    ].filter(Boolean);
+    const skippedNote = aside.length > 0 ? ` (${aside.join(", ")} skipped)` : "";
+    setNotice(
+      applied === 0
+        ? `Nothing in that file applies to this raid${skippedNote}.`
+        : `Imported ${applied} correction${applied === 1 ? "" : "s"}${skippedNote}. ${
+            open > 0 ? "Review and save." : "Everything in it was already saved."
+          }`,
+    );
   };
 
   // Values follow the presses; both sorts follow `saved`. See the note above.
@@ -325,6 +415,38 @@ export function GoldTable({
                 </Button>
               </>
             )}
+            {/* Last in the row on purpose. The span hugs the right edge, so
+                Discard and Save appear by extending it leftward into empty
+                title space — these two never move under the cursor. */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportFile}
+              disabled={pending.length === 0}
+              title={
+                pending.length === 0
+                  ? "Nothing corrected on this raid yet"
+                  : "Save this raid's corrections to a file"
+              }
+            >
+              <Download className="h-3.5 w-3.5" /> Export
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fileRef.current?.click()}
+              disabled={saving}
+              title="Load corrections from a file — they arrive unsaved, like any other batch"
+            >
+              <Upload className="h-3.5 w-3.5" /> Import
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={importFile}
+            />
           </span>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
@@ -342,7 +464,14 @@ export function GoldTable({
               here: a sentence appended to this paragraph wraps it onto another
               line, which moves the table for the same reason. */}
         </p>
-        {error && <p className="text-xs text-danger-ink">{error}</p>}
+        {/* One line, shared. Either message appearing pushes the table down by a
+            row; two lines that could stack would do it twice, and the officer
+            reading the second one has already lost the row they were aiming at. */}
+        {(error ?? notice) && (
+          <p className={cn("text-xs", error ? "text-danger-ink" : "text-muted-foreground")}>
+            {error ?? notice}
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         {view.length === 0 ? (

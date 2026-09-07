@@ -5,6 +5,7 @@ import { ChevronRight, Coins, Download, TriangleAlert, Upload } from "lucide-rea
 import type { ConsumablePrice } from "@/lib/types";
 import { costPerUse } from "@/lib/wcl/consumable-prices";
 import { saveReportConsumablePrices } from "@/app/logs/actions";
+import { usePressToggle } from "@/components/use-press-toggle";
 import { useUnsavedGuard } from "@/components/use-unsaved-guard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +51,7 @@ export function ConsumablePricePanel({
   usingDefault: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const pressToggle = usePressToggle(() => setOpen((o) => !o));
   const [edits, setEdits] = React.useState<Record<string, ConsumablePrice>>(() =>
     Object.fromEntries(rows.map((r) => [r.name, r.price])),
   );
@@ -153,7 +155,7 @@ export function ConsumablePricePanel({
 
   return (
     <Card>
-      <CardHeader className="cursor-pointer" onClick={() => setOpen((o) => !o)}>
+      <CardHeader className="cursor-pointer" {...pressToggle}>
         <CardTitle className="flex items-center gap-2">
           <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-90")} />
           <Coins className="h-4 w-4 text-warn" />

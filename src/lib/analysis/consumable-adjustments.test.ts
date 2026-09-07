@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADJUSTMENT_LIMITS,
+  ADJUSTMENTS_FILE_KIND,
   adjustmentGold,
   adjustmentsFor,
   addAdjustment,
   applyAdjustments,
   attributeAdjustments,
   bumpAdjustment,
+  exportAdjustments,
+  mergeImportedAdjustments,
+  parseAdjustmentsFile,
   setAdjustmentNote,
   goldOfLines,
   countChanges,
@@ -605,5 +610,325 @@ describe("countChanges", () => {
   it("ignores case and padding, the way every other matcher here does", () => {
     const saved = [adj("Kazrak", "Haste Potion", 2)];
     expect(countChanges(saved, [adj("  kazrak ", " HASTE POTION ", 2)])).toBe(0);
+  });
+});
+
+describe("exportAdjustments", () => {
+  it("names itself, the night it came from, and when it was written", () => {
+    const file = exportAdjustments({
+      code: "abc123",
+      adjustments: [adj("Thrainn", "Flask of Relentless Assault", 1, "before the pull timer")],
+      at: "2026-09-07T18:00:00.000Z",
+    });
+    expect(file.kind).toBe(ADJUSTMENTS_FILE_KIND);
+    expect(file.version).toBe(1);
+    expect(file.code).toBe("abc123");
+    expect(file.exportedAt).toBe("2026-09-07T18:00:00.000Z");
+    expect(file.adjustments).toHaveLength(1);
+  });
+
+  it("carries the author and the timestamp, or an export is lossy", () => {
+    const stored: ConsumableAdjustment = {
+      actorName: "Thrainn",
+      name: "Food",
+      delta: 1,
+      by: "Vaelen",
+      at: "2026-08-02T20:00:00.000Z",
+    };
+    const [out] = exportAdjustments({
+      code: "abc123",
+      adjustments: [stored],
+      at: "2026-09-07T18:00:00.000Z",
+    }).adjustments;
+    expect(out.by).toBe("Vaelen");
+    expect(out.at).toBe("2026-08-02T20:00:00.000Z");
+  });
+
+  it("copies rather than aliasing, so the buffer can go on being edited", () => {
+    const source = [adj("Thrainn", "Food", 1)];
+    const file = exportAdjustments({ code: "abc123", adjustments: source, at: "now" });
+    source[0].delta = 99;
+    expect(file.adjustments[0].delta).toBe(1);
+  });
+});
+
+describe("parseAdjustmentsFile", () => {
+  const at = "2026-09-07T18:00:00.000Z";
+
+  it("reads back exactly what it wrote", () => {
+    const adjustments = [
+      adj("Thrainn", "Flask of Relentless Assault", 1, "before the pull timer"),
+      adj("Pyrelia", "Super Mana Potion", -2),
+    ];
+    const file = exportAdjustments({ code: "abc123", adjustments, at });
+    const back = parseAdjustmentsFile(JSON.parse(JSON.stringify(file)), at);
+    expect(back?.code).toBe("abc123");
+    expect(back?.skipped).toBe(0);
+    // `adj` writes `note: undefined` for an unnoted correction; the parser drops
+    // the key entirely, which is how the server stores it.
+    expect(back?.adjustments).toEqual([
+      {
+        actorName: "Thrainn",
+        name: "Flask of Relentless Assault",
+        delta: 1,
+        note: "before the pull timer",
+        at: adjustments[0].at,
+      },
+      { actorName: "Pyrelia", name: "Super Mana Potion", delta: -2, at: adjustments[1].at },
+    ]);
+  });
+
+  it("reads a bare array, so a list somebody assembled by hand works", () => {
+    const back = parseAdjustmentsFile([{ actorName: "Thrainn", name: "Food", delta: 1, at }], at);
+    expect(back?.adjustments).toHaveLength(1);
+    expect(back?.code).toBeUndefined();
+  });
+
+  it("is null for anything that isn't a list of corrections", () => {
+    expect(parseAdjustmentsFile(null, at)).toBeNull();
+    expect(parseAdjustmentsFile(42, at)).toBeNull();
+    expect(parseAdjustmentsFile("[]", at)).toBeNull();
+    // The prices file — the other thing an officer might pick by mistake.
+    expect(parseAdjustmentsFile({ "Super Mana Potion": { gold: 30, charges: 5 } }, at)).toBeNull();
+  });
+
+  it("skips what the server would refuse, and counts it", () => {
+    const back = parseAdjustmentsFile(
+      [
+        { actorName: "Thrainn", name: "Food", delta: 1, at },
+        // Zero corrects nothing.
+        { actorName: "Thrainn", name: "Food", delta: 0, at },
+        { actorName: "Thrainn", name: "Food", delta: 1.5, at },
+        { actorName: "Thrainn", name: "Food", delta: "1", at },
+        { actorName: "", name: "Food", delta: 1, at },
+        { actorName: "Thrainn", name: "   ", delta: 1, at },
+        { actorName: "T".repeat(61), name: "Food", delta: 1, at },
+        { actorName: "Thrainn", name: "F".repeat(81), delta: 1, at },
+        null,
+        "nope",
+      ],
+      at,
+    );
+    expect(back?.adjustments).toHaveLength(1);
+    expect(back?.skipped).toBe(9);
+  });
+
+  it("truncates a long note but keeps the correction, and drops a long author", () => {
+    const back = parseAdjustmentsFile(
+      [
+        {
+          actorName: "Thrainn",
+          name: "Food",
+          delta: 1,
+          note: "x".repeat(400),
+          by: "y".repeat(81),
+          at,
+        },
+      ],
+      at,
+    );
+    // The prose is the expendable half — the correction it explains is not.
+    expect(back?.adjustments[0].note).toHaveLength(200);
+    expect(back?.adjustments[0].by).toBeUndefined();
+    expect(back?.skipped).toBe(0);
+  });
+
+  it("stamps the import time on an entry with no usable one of its own", () => {
+    const back = parseAdjustmentsFile([{ actorName: "Thrainn", name: "Food", delta: 1 }], at);
+    expect(back?.adjustments[0].at).toBe(at);
+  });
+});
+
+describe("mergeImportedAdjustments", () => {
+  const known = ["Thrainn", "Pyrelia"];
+
+  it("re-importing a night's own export changes nothing", () => {
+    const current = [adj("Thrainn", "Food", 2, "held it"), adj("Pyrelia", "Super Mana Potion", -1)];
+    const { adjustments, applied, absent } = mergeImportedAdjustments({
+      current,
+      imported: current.map((a) => ({ ...a })),
+      knownActors: known,
+    });
+    expect(adjustments).toEqual(current);
+    expect(applied).toBe(2);
+    expect(absent).toBe(0);
+  });
+
+  it("replaces a pair rather than adding to it — a doubled correction is the trap", () => {
+    const { adjustments } = mergeImportedAdjustments({
+      current: [adj("Thrainn", "Food", 2)],
+      imported: [adj("Thrainn", "Food", 3, "counted again")],
+      knownActors: known,
+    });
+    expect(adjustments).toHaveLength(1);
+    expect(adjustments[0].delta).toBe(3);
+    expect(adjustments[0].note).toBe("counted again");
+  });
+
+  it("leaves a pair the file is silent about alone", () => {
+    const { adjustments } = mergeImportedAdjustments({
+      current: [adj("Thrainn", "Food", 2), adj("Pyrelia", "Haste Potion", 1)],
+      imported: [adj("Thrainn", "Food", 5)],
+      knownActors: known,
+    });
+    expect(adjustments.map((a) => [a.actorName, a.delta])).toEqual([
+      ["Thrainn", 5],
+      ["Pyrelia", 1],
+    ]);
+  });
+
+  it("keeps a replaced correction in its place and puts a new one on the end", () => {
+    const { adjustments } = mergeImportedAdjustments({
+      current: [adj("Thrainn", "Food", 1), adj("Pyrelia", "Haste Potion", 1)],
+      imported: [adj("Pyrelia", "Super Mana Potion", 2), adj("Thrainn", "Food", 9)],
+      knownActors: known,
+    });
+    expect(adjustments.map((a) => a.name)).toEqual(["Food", "Haste Potion", "Super Mana Potion"]);
+    expect(adjustments[0].delta).toBe(9);
+  });
+
+  it("sums a split pair instead of losing half of it", () => {
+    // The shape old data comes in: one noted entry, one not, both stored.
+    const { adjustments, applied } = mergeImportedAdjustments({
+      current: [],
+      imported: [adj("Thrainn", "Food", 2, "pre-pull"), adj("Thrainn", "Food", 3)],
+      knownActors: known,
+    });
+    expect(adjustments).toHaveLength(1);
+    expect(adjustments[0].delta).toBe(5);
+    expect(adjustments[0].note).toBe("pre-pull");
+    expect(applied).toBe(1);
+  });
+
+  it("never removes a standing correction, even when the file's entries cancel", () => {
+    const { adjustments, applied } = mergeImportedAdjustments({
+      current: [adj("Thrainn", "Food", 4)],
+      imported: [adj("Thrainn", "Food", 2, "a"), adj("Thrainn", "Food", -2)],
+      knownActors: known,
+    });
+    expect(adjustments).toEqual([adj("Thrainn", "Food", 4)]);
+    expect(applied).toBe(0);
+  });
+
+  it("drops raiders this raid never had, and counts them", () => {
+    const { adjustments, applied, absent } = mergeImportedAdjustments({
+      current: [],
+      imported: [adj("Thrainn", "Food", 1), adj("Gorlok", "Food", 1), adj("Ysolde", "Food", 1)],
+      knownActors: known,
+    });
+    expect(adjustments.map((a) => a.actorName)).toEqual(["Thrainn"]);
+    expect(applied).toBe(1);
+    expect(absent).toBe(2);
+  });
+
+  it("matches raiders and consumables the way every other matcher here does", () => {
+    const { adjustments, absent } = mergeImportedAdjustments({
+      current: [adj("Thrainn", "Super Mana Potion", 1)],
+      imported: [adj("  thrainn ", " SUPER  MANA   POTION ", 7)],
+      knownActors: known,
+    });
+    expect(adjustments).toHaveLength(1);
+    expect(adjustments[0].delta).toBe(7);
+    expect(absent).toBe(0);
+  });
+
+  it("adds a consumable the raid never logged — that is what an addition is for", () => {
+    // Names are deliberately NOT filtered against the raid: a flask drunk
+    // before the pull timer appears in no breakdown, and recording it is the
+    // whole reason corrections exist.
+    const { adjustments, applied } = mergeImportedAdjustments({
+      current: [],
+      imported: [adj("Thrainn", "Nightmare Seed", 1, "used on the run back")],
+      knownActors: known,
+    });
+    expect(adjustments).toHaveLength(1);
+    expect(applied).toBe(1);
+  });
+});
+
+describe("a night's corrections survive a round trip through a file", () => {
+  /*
+   * The promise the two buttons make, asserted end to end rather than in
+   * halves: export a raid, hand the file straight back, and the batch has
+   * nothing to save. Each piece passing on its own does not give you this —
+   * `JSON.stringify` drops an absent note, the parser re-reads a name with its
+   * own trimming, and the merge matches on a third rule again. Any one of them
+   * disagreeing shows up here as a badge offering to save corrections that are
+   * already stored, which is exactly the thing an officer cannot tell apart
+   * from real unsaved work.
+   */
+  it("leaves the batch clean", () => {
+    const saved = [
+      adj("Thrainn", "Flask of Relentless Assault", 1, "drunk before the pull timer"),
+      adj("Pyrelia", "Super Mana Potion", -2),
+      { actorName: "Kazrak", name: "Food", delta: 3, by: "Vaelen", at: "2026-08-02T20:00:00.000Z" },
+    ];
+    const at = "2026-09-07T18:00:00.000Z";
+
+    const file = exportAdjustments({ code: "abc123", adjustments: saved, at });
+    const read = parseAdjustmentsFile(JSON.parse(JSON.stringify(file)), at);
+    const { adjustments, applied, absent } = mergeImportedAdjustments({
+      current: saved,
+      imported: read?.adjustments ?? [],
+      knownActors: ["Thrainn", "Pyrelia", "Kazrak"],
+    });
+
+    expect(applied).toBe(3);
+    expect(absent).toBe(0);
+    expect(countChanges(saved, adjustments)).toBe(0);
+    // And the gold it prices out is the same gold, which is what the card shows.
+    expect(applyAdjustments(logged, adjustmentsFor(adjustments, "Thrainn"))).toEqual(
+      applyAdjustments(logged, adjustmentsFor(saved, "Thrainn")),
+    );
+  });
+
+  it("carries a standing correction onto a different night", () => {
+    // The reason the file records `code` but does not enforce it: "Thrainn
+    // always drinks his flask before the pull timer" is true every week.
+    const lastWeek = [adj("Thrainn", "Flask of Relentless Assault", 1, "before the pull timer")];
+    const file = exportAdjustments({ code: "lastweek", adjustments: lastWeek, at: "then" });
+    const read = parseAdjustmentsFile(JSON.parse(JSON.stringify(file)), "now");
+
+    const { adjustments, applied, absent } = mergeImportedAdjustments({
+      current: [adj("Pyrelia", "Haste Potion", 2)],
+      imported: read?.adjustments ?? [],
+      // Thrainn raided again; the rest of last week's list did not.
+      knownActors: ["Thrainn", "Pyrelia"],
+    });
+
+    expect(read?.code).toBe("lastweek");
+    expect(applied).toBe(1);
+    expect(absent).toBe(0);
+    // This week's own correction is untouched, last week's is now beside it.
+    expect(adjustments.map((a) => a.actorName)).toEqual(["Pyrelia", "Thrainn"]);
+  });
+});
+
+describe("ADJUSTMENT_LIMITS", () => {
+  it("is what the parser actually enforces, both sides of each edge", () => {
+    /*
+     * The point of the constant is that the server's gate and this parser read
+     * one number. That the gate reads it is a fact about `logs/actions.ts`,
+     * which is a server action and cannot be imported here — so what is pinned
+     * here is the other half: raising a limit without touching the parser can
+     * no longer pass silently, because these assertions are written against the
+     * constant rather than against 60, 80 and 200.
+     */
+    const at = "2026-09-07T18:00:00.000Z";
+    const of = (over: Record<string, unknown>) =>
+      parseAdjustmentsFile([{ actorName: "Thrainn", name: "Food", delta: 1, at, ...over }], at);
+
+    expect(of({ actorName: "T".repeat(ADJUSTMENT_LIMITS.actorName) })?.skipped).toBe(0);
+    expect(of({ actorName: "T".repeat(ADJUSTMENT_LIMITS.actorName + 1) })?.skipped).toBe(1);
+    expect(of({ name: "F".repeat(ADJUSTMENT_LIMITS.name) })?.skipped).toBe(0);
+    expect(of({ name: "F".repeat(ADJUSTMENT_LIMITS.name + 1) })?.skipped).toBe(1);
+    expect(of({ by: "V".repeat(ADJUSTMENT_LIMITS.by) })?.adjustments[0].by).toHaveLength(
+      ADJUSTMENT_LIMITS.by,
+    );
+    expect(of({ by: "V".repeat(ADJUSTMENT_LIMITS.by + 1) })?.adjustments[0].by).toBeUndefined();
+    // Prose, so it is cut rather than costing the correction its place.
+    expect(of({ note: "x".repeat(ADJUSTMENT_LIMITS.note + 50) })?.adjustments[0].note).toHaveLength(
+      ADJUSTMENT_LIMITS.note,
+    );
   });
 });

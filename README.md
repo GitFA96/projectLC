@@ -410,7 +410,12 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   record.
 - **Gold spent** — the night priced, with editable per-raid consumable prices and
   **manual adjustments**: add or remove uses the log got wrong, each logged with
-  a reason and undoable, flowing through to every other gold figure. **Pet
+  a reason and undoable, flowing through to every other gold figure. Corrections
+  **export and import** as a file — a night's judgement calls kept outside the
+  app, and standing ones ("drinks his flask before the pull timer") carried onto
+  the next raid rather than retyped. An import arrives unsaved like any other
+  batch, overwrites per raider and consumable rather than adding to what is
+  there, and drops corrections for anyone who wasn't in the raid. **Pet
   consumables get their own section**, because they are the one thing the log
   cannot count: a pet is fed and scrolled between pulls, where no events are
   recorded, so the card reads what was charged against what keeping it up all
@@ -420,7 +425,9 @@ boss stops skewing the night in one click, and the exclusion survives a re-fetch
   alone — they are two purchases with one name.
 - **Payback** — the night's Marks of Illidari shared back out to the people who
   bought the consumables. Officers record what the raid banked and what a mark
-  is worth this week; the ranking gains a column with each raider's share, in
+  is worth this week; the pot and the payouts **export and import** the same way
+  the corrections do, which is mostly how this week's mark price reaches next
+  week's raid. The ranking gains a column with each raider's share, in
   gold and in whole marks, and a night total that always adds up to exactly the
   pot — it is a split of what the guild has, never a percentage that could
   promise more. **Nobody is paid back more than they spent**: a share that would

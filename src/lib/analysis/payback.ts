@@ -1,3 +1,4 @@
+import type { ReportPayback } from "@/lib/types";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { compareText } from "@/lib/sort";
 
@@ -294,5 +295,210 @@ export function buildPayback(input: PaybackInput): PaybackView {
     marksAllocated: rows.reduce((sum, r) => sum + r.marks, 0),
     spendTotal,
     potRecorded,
+  };
+}
+
+/* --- Carrying a night's pot out of the app, and back in --- */
+
+/**
+ * Marks an exported file as this app's, and as this shape.
+ *
+ * Deliberately not the string the corrections file carries: the two are
+ * exported from the same card and land in the same downloads folder, so picking
+ * the wrong one is the mistake worth being able to answer.
+ */
+export const PAYBACK_FILE_KIND = "projectlc.consumable-payback";
+
+/**
+ * What a stored payback record may hold.
+ *
+ * One definition because there are two readers: the zod gate in the logs
+ * actions, which decides what may be written, and `parsePaybackFile`, which has
+ * to hold an imported file to exactly that standard or hand the officer a draft
+ * that fails to save. Split in two, a bound raised in the gate and not the
+ * parser turns a legitimate number into a silently dropped one.
+ */
+export const PAYBACK_LIMITS = {
+  /** Whole tokens; you cannot bank half a mark. */
+  marks: 10_000,
+  /** Gold for one mark, as the officers price it this week. */
+  markGold: 100_000,
+  /** A logged raider name. */
+  paidName: 80,
+  /** Gold handed back to one raider. */
+  paid: 1_000_000,
+} as const;
+
+/**
+ * A raid's pot as a file.
+ *
+ * `code` is recorded, never enforced — the same rule the corrections file
+ * follows, and for a sharper reason here. What a mark is worth is the officers'
+ * reading of the server economy this week rather than a fact about one night,
+ * so carrying it to the next raid is the point. The marks banked are not, and
+ * an import landing unsaved is what lets that number be corrected before it is
+ * written.
+ */
+export interface PaybackFile {
+  kind: typeof PAYBACK_FILE_KIND;
+  version: 1;
+  /** The report the pot was recorded against. */
+  code: string;
+  /** When the file was written, ISO. */
+  exportedAt: string;
+  payback: ReportPayback;
+}
+
+/** The current file, for one raid's pot. Time is passed in — this layer is pure. */
+export function exportPayback(input: {
+  code: string;
+  payback: ReportPayback;
+  at: string;
+}): PaybackFile {
+  const { marks, markGold, paid } = input.payback;
+  return {
+    kind: PAYBACK_FILE_KIND,
+    version: 1,
+    code: input.code,
+    exportedAt: input.at,
+    payback: { marks, markGold, paid: { ...paid } },
+  };
+}
+
+/**
+ * A finite number in [0, max], or undefined.
+ *
+ * Never a clamp: a figure past the bound is one this app did not write, and
+ * turning it into the bound would invent a number the officer never recorded
+ * and then show it as theirs.
+ */
+function boundedNumber(value: unknown, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) {
+    return undefined;
+  }
+  return value;
+}
+
+/**
+ * Read a pot out of a parsed JSON file. `null` when it isn't one.
+ *
+ * **Every field is optional, and absent is not zero.** A file naming only the
+ * mark price says nothing about how many marks were banked, and reading that
+ * silence as "none" would wipe the night's pot on import. The merge below turns
+ * each answer into a value; this only says which questions the file answered.
+ *
+ * That is also what makes `null` meaningful. An object answering none of the
+ * three is not an empty pot, it is a different file — the corrections export
+ * and the prices export are both objects and both live in the same folder, and
+ * either would otherwise import as a confident "nothing changed".
+ */
+export function parsePaybackFile(raw: unknown): {
+  code?: string;
+  marks?: number;
+  markGold?: number;
+  /** Only the raiders the file gave a usable figure for. */
+  paid: Record<string, number>;
+  /** Paid entries dropped because the name or the number was unusable. */
+  skipped: number;
+} | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const envelope = raw as Record<string, unknown>;
+  const wrapped =
+    envelope.payback !== null &&
+    typeof envelope.payback === "object" &&
+    !Array.isArray(envelope.payback);
+  // The envelope this writes, or the bare record somebody assembled by hand.
+  const body = wrapped ? (envelope.payback as Record<string, unknown>) : envelope;
+  if (!["marks", "markGold", "paid"].some((k) => k in body)) return null;
+
+  const marks = boundedNumber(body.marks, PAYBACK_LIMITS.marks);
+  const markGold = boundedNumber(body.markGold, PAYBACK_LIMITS.markGold);
+
+  const paid: Record<string, number> = {};
+  let skipped = 0;
+  if (body.paid !== null && typeof body.paid === "object" && !Array.isArray(body.paid)) {
+    for (const [name, value] of Object.entries(body.paid as Record<string, unknown>)) {
+      const trimmed = name.trim();
+      const gold = boundedNumber(value, PAYBACK_LIMITS.paid);
+      if (trimmed === "" || trimmed.length > PAYBACK_LIMITS.paidName || gold === undefined) {
+        skipped++;
+        continue;
+      }
+      // Zero is what an empty box already writes and what the panel's draft
+      // drops, so carrying it would make an import look like an edit.
+      if (gold > 0) paid[trimmed] = gold;
+    }
+  } else if ("paid" in body) {
+    skipped++;
+  }
+
+  const code = typeof envelope.code === "string" ? envelope.code.trim() : "";
+  return {
+    ...(code === "" ? {} : { code }),
+    // Whole tokens, the same floor the panel applies to what is typed into it.
+    ...(marks === undefined ? {} : { marks: Math.floor(marks) }),
+    ...(markGold === undefined ? {} : { markGold }),
+    paid,
+    skipped,
+  };
+}
+
+/**
+ * Fold an imported pot into the one on screen.
+ *
+ * The rule the corrections import follows, for the same reason: **the file wins
+ * for what it names, and is silent about the rest.** A file with no mark price
+ * leaves this night's alone; a file naming three raiders leaves everybody
+ * else's payout where it was. Exporting a night and importing it straight back
+ * therefore changes nothing, which is the property that makes the pair a backup
+ * rather than a way to lose an evening's bookkeeping.
+ *
+ * Raiders this raid has no spend row for are dropped and counted. The panel
+ * builds its boxes from the ranking above, so a payout against somebody who
+ * wasn't there has nowhere to appear — and the next save writes the boxes
+ * rather than the stored record, so it would be dropped anyway, silently.
+ */
+export function mergeImportedPayback(input: {
+  /** The draft as it stands on screen. */
+  current: ReportPayback;
+  imported: { marks?: number; markGold?: number; paid: Record<string, number> };
+  /** Everyone in this raid's gold ranking. */
+  knownSpenders: string[];
+}): {
+  payback: ReportPayback;
+  /** Raiders whose payout the file set. */
+  applied: number;
+  /** Payouts dropped because the raider is not in this raid. */
+  absent: number;
+  /** True when the file moved the marks banked or what one is worth. */
+  potChanged: boolean;
+} {
+  const { current, imported, knownSpenders } = input;
+  const known = new Map(knownSpenders.map((n) => [n.trim().toLowerCase(), n]));
+
+  const paid = { ...current.paid };
+  let applied = 0;
+  let absent = 0;
+  for (const [name, gold] of Object.entries(imported.paid)) {
+    // Matched case-insensitively but stored under the name the ranking uses:
+    // `paid` is keyed by logged raider name and every reader looks it up by
+    // that exact string, so a file with a different casing would otherwise
+    // write a row nothing on the page reads.
+    const row = known.get(name.trim().toLowerCase());
+    if (!row) {
+      absent++;
+      continue;
+    }
+    paid[row] = gold;
+    applied++;
+  }
+
+  const marks = imported.marks ?? current.marks;
+  const markGold = imported.markGold ?? current.markGold;
+  return {
+    payback: { marks, markGold, paid },
+    applied,
+    absent,
+    potChanged: marks !== current.marks || markGold !== current.markGold,
   };
 }

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
+import { usePressToggle } from "@/components/use-press-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -23,11 +24,12 @@ export function CollapsibleCard({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const pressToggle = usePressToggle(() => setOpen((o) => !o));
   return (
     <Card>
       <CardHeader
-        className="cursor-pointer select-none"
-        onClick={() => setOpen((o) => !o)}
+        className="cursor-pointer"
+        {...pressToggle}
         role="button"
         aria-expanded={open}
       >

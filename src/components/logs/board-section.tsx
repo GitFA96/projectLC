@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
+import { usePressToggle } from "@/components/use-press-toggle";
 import { cn } from "@/lib/utils";
 
 /**
@@ -54,11 +55,12 @@ export function BoardSection({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const pressToggle = usePressToggle(() => setOpen((o) => !o));
   return (
     <section className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0">
       <div
-        className="flex cursor-pointer select-none items-baseline gap-1.5"
-        onClick={() => setOpen((o) => !o)}
+        className="flex cursor-pointer items-baseline gap-1.5"
+        {...pressToggle}
         role="button"
         aria-expanded={open}
       >
