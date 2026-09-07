@@ -1,11 +1,12 @@
 # Improvement plan — structure, tests, and working with agents
 
 > **Status: closed 2026-09-07.** Proposed 2026-09-03; every item done by
-> 2026-09-06 except D2, which waits on `git push origin v0.1.0` — a release
-> marker other people act on, and so the maintainer's to publish. §7 carries
-> the state of each row and is the only place that does. Nothing here is open
-> to pick. The file is kept as the record: what was built, what each guard
-> found when it was proven red, and where the plan's guesses were wrong.
+> 2026-09-06 but D2, which closed on 2026-09-07 when `v0.1.0` was pushed — a
+> release marker other people act on, so that step was left to the maintainer.
+> §7 carries the state of each row and is the only place that does. Nothing
+> here is open to pick. The file is kept as the record: what was built, what
+> each guard found when it was proven red, and where the plan's guesses were
+> wrong.
 
 This file was the plan for the *codebase* — how it is structured, how it is
 tested, and how agents work in it. Product decisions and blocked features stay
@@ -108,9 +109,9 @@ the first fixed (A8): two sentences about which analysis modules lacked tests
 had been wrong for months, because `docs.test.ts` pinned the array and never
 read the sentences quoting it; it parses them now. **Operations** at close:
 `npm run backup` takes, verifies and prunes a backup (D3), and scheduling and
-the off-host copy are the operator's, outside this repo; `v0.1.0` is tagged on
-the workstation and not pushed (D2); rate limiting belongs at the proxy and the
-deploy skill says which route to limit first (D4). `local/` is gitignored, so
+the off-host copy are the operator's, outside this repo; `v0.1.0` is published
+(D2), and the commits after it belong to the next tag; rate limiting belongs at
+the proxy and the deploy skill says which route to limit first (D4). `local/` is gitignored, so
 an agent in a fresh worktree or clone cannot read the cycle log — deliberate,
 it holds host details, and worth knowing.
 
@@ -384,7 +385,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2, B4, C3, D3, D6 **done**; D2 waits on a push | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | **done** (B2, B4, C3, D2, D3, D6) | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 **done** | the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are now tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
@@ -434,7 +435,7 @@ States: `open` · `in progress (branch)` · `done (commit)` · `dropped (why)`.
 | C4 | Build-guard tests | done | split into `prerender-checks.mjs` and `standalone-checks.mjs` plus their CLIs, tested by `scripts/build-guards.test.ts` against a fake manifest and a fake standalone tree. Both CLIs were also exercised end to end on throwaway dist directories |
 | C5 | Developer experience | done | `vitest.setup.ts` silences the SQLite warning; `typecheck` and `check` scripts; cached lint (~20 s → ~2 s) |
 | D1 | PR template, branch protection | done | template written; `main` requires the `test` and `image` jobs, blocks force-pushes and deletion, and leaves `enforce_admins` **off** — a solo maintainer's direct pushes still work, and a required check cannot pass on a commit that does not exist yet. Tighten to `enforce_admins: true` if the work ever moves to PRs |
-| D2 | Tags | in progress | `v0.1.0` is an annotated tag on this workstation, at the commit where check, lint, both build guards, the image smoke test and `npm audit` are all clean — its message says what was verified and what is knowingly still open. **Not pushed:** a tag on the remote is a release marker other people act on, and that is the maintainer's to publish (`git push origin v0.1.0`). A tag per cycle after this one; the deploy skill's snapshot step names the tag being deployed |
+| D2 | Tags | done | `v0.1.0`, an annotated tag at `4e544f6` — the commit where check, lint, both build guards, the image smoke test and `npm audit` were all clean; its message says what was verified and what was knowingly still open. Cut 2026-09-06, pushed 2026-09-07 at the maintainer's instruction: a tag on the remote is a release marker other people act on, so publishing it was a person's step and not an agent's. The three commits after it — a refactor of a shipped component, a hook fix, this plan's closure — had `check` and lint but not the image smoke test, so they belong to the next tag. A tag per cycle after this one; the deploy skill's snapshot step names the tag being deployed |
 | D3 | Backups | done | `npm run backup` — `scripts/backup.mjs` over a pure `backup-checks.mjs`, the way the build guards and the doctor are split. `VACUUM INTO` through a **read-only** handle opened directly, never `getDb()`, which runs the schema and the migrations on everything it opens. The copy is opened and read back before any old one is pruned, so a run that cannot produce a backup deletes nothing. Rehearsed against real data: a 36 MB snapshot of a copy of the live database matches it across 32 tables and 11,972 rows including a 6.2 MB uncheckpointed WAL, and the app boots on the restore. Scheduling and the offsite copy stay with the operator, and the deploy skill says so |
 | D4 | Rate limiting doc | done | a section in the deploy skill: the limit belongs at the proxy, because TLS terminates in front and a limiter inside one Node process would be counting the proxy. Four routes named, and the reason they differ — `/api/fight-graph` is gated by `logs.view` and still spends the deployment's shared Warcraft Logs quota on every call, so it is the one to limit even if nothing else is; `/signin`, `/claim`, `/join` are about noise rather than a break-in, the claim code being too large to guess. The CSP nonce stays in `backlog.md` with its trigger, and the skill says so, because conflating the two has stalled both before |
 | D5 | `npm audit` step | done | `npm audit --omit=dev` in CI, `continue-on-error` on purpose — an advisory against a transitive dev dependency must not be able to stop a raid-night fix from shipping, and Dependabot already opens the PRs. It was **not** clean on the day it was added: four high-severity libvips CVEs reached the tree through `sharp@0.34.5`, which `next@16.2.9` pulled in. Nothing in this app calls `next/image` — `item-icon.tsx` uses a plain `<img>` on purpose, with the lint disable to say so — so the optimizer that links libvips never ran, which was a reason it was not urgent and never a reason it was fine. Fixed by the bump to `next@16.3.4` (`sharp@0.35.4`), which is the first thing this step actually caught |

@@ -80,7 +80,7 @@ export function planLine(counts) {
     advice = "Pick from there and update the row in the same commit.";
   } else if (counts.inProgress > 0) {
     // An in-progress row is usually waiting on something an agent cannot do —
-    // D2 waits on a maintainer pushing a tag. Sending one to "pick from there"
+    // D2 waited on a maintainer pushing a tag. Sending one to "pick from there"
     // would be sending it at a human's task.
     advice = "Nothing is open; the in-progress row says what it is waiting on.";
   } else {

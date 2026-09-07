@@ -70,9 +70,9 @@ describe("planLine", () => {
   });
 
   it("does not send an agent at a row that is waiting on a person", () => {
-    // D2 is in progress because a maintainer has to push the tag. "Pick from
-    // there" is the wrong instruction for that, and "0 open, 32 done" — what
-    // this line used to say — was the wrong report.
+    // D2 sat in progress until a maintainer pushed the tag. "Pick from there"
+    // was the wrong instruction for that, and "0 open, 32 done" — what this
+    // line used to say — was the wrong report.
     const line = planLine(planCounts([row("D2", "in progress"), row("A1", "done")].join("\n")));
     expect(line).toMatch(/1 in progress/);
     expect(line).not.toMatch(/Pick from there/);
