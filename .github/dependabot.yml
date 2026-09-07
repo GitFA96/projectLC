@@ -7,6 +7,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Wait for a release to survive contact with everyone else before it is
+    # offered here. Day-one majors are what actually cost this project time:
+    # typescript 7 and eslint 10 both arrived before `typescript-eslint` and
+    # `eslint-config-next` had published ranges that admit them, so both are
+    # held in docs/backlog.md waiting on somebody else's release rather than on
+    # a decision. A month of cooldown on a major is roughly how long that takes.
+    #
+    # This delays *version* updates only — a security advisory still opens its
+    # PR the day it lands, which is the half that must not wait.
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 30
     groups:
       patch-and-minor:
         update-types: [minor, patch]
@@ -17,6 +30,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # The base image is a floating `node:NN-alpine` tag, so the only thing
+    # Dependabot ever proposes here is the next major — and this deployment's
+    # standing answer is to run the LTS line, one guild's live data behind one
+    # replica. Node's even majors ship in April and promote in October, so ~180
+    # days turns "a major is out" into "a major is about to be LTS", which is
+    # the decision that was made for Node 26 by hand. Docker tags are not
+    # semver, so `default-days` is the only dial the ecosystem offers.
+    cooldown:
+      default-days: 180
 
   # The workflow actions above. Unwatched pinned actions rot quietly.
   #

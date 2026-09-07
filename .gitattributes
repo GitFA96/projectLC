@@ -1,0 +1,15 @@
+# Line endings are LF in the working tree, on every machine.
+#
+# Not a style preference — this repo enforces its own structure by reading its
+# source and docs back as text (`src/lib/docs.test.ts` and the `composition`
+# tests are the ones that do it most), and several of those regexes match `\n`
+# literally. A CRLF checkout makes them see `\r\n` and fail, which reads as a
+# broken test rather than a checkout setting and costs an afternoon. A clone on
+# Windows with the common `core.autocrlf=true` produces exactly that, so the
+# repo has to say so rather than rely on each machine being configured right.
+* text=auto eol=lf
+
+# `scripts/smoke-image.sh` holds a literal CR — `tr -d '<CR>'`, stripping the
+# one that ends an HTTP header. It is data, not a line ending. Marking the file
+# binary keeps every conversion away from it; it is already LF throughout.
+scripts/smoke-image.sh -text
