@@ -445,7 +445,7 @@ change that added this file.
 | 0 — cheap guards | **done** (A1, A8, C5, D1, E6, E7) | the live database is protected; the docs are true; the inner loop is quieter |
 | 1 — invariants into checks | **done** (A2, A3, A5, A6, A7, B7, C4, E2) | every rule in §1 has something red behind it before anything is moved |
 | 2 — logic where tests reach | **done** (A4, B1, B3, B6, C1, C2, E1, E3) | the pricing sites can be compared; the big pages and components shrink |
-| 3 — split the big files | B2, B4, D3, D6 **done**; C3, D2 open | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
+| 3 — split the big files | B2, B4, C3, D3, D6 **done**; D2 waits on a push | `db.ts` and `sqlite-repo.ts` become navigable; backups exist |
 | 4 — the read model | B5 **done** | the backlog's multi-guild prerequisites (meta-key prefix, the `items` split) are now tractable |
 
 Hard dependencies: A4 after B3 · B2 after A3 · B4 after A2 · B3 after A7 ·
