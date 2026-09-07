@@ -138,6 +138,33 @@ describe("verification", () => {
 });
 
 describe("the CLI, end to end", () => {
+  /*
+   * **The case below has failed in CI three times and never locally.** It is
+   * annotated here because the third, on 7 Sep 2026, is the first that was
+   * captured: the JSON reporter in `ci.yml` exists for exactly this, and what
+   * it caught was
+   *
+   *   backup FAILED — .../projectlc.db → .../backups/...db: database is locked
+   *
+   * It passes on every rerun, so this is a starting point, not a diagnosis.
+   * What has been ruled out — so the next person does not spend the afternoon
+   * re-deriving it:
+   *
+   * - **Not the open writer `seeded()` leaves behind.** In WAL mode a reader
+   *   does not wait on a writer. `VACUUM INTO` against a held write lock
+   *   succeeds, with or without a `busy_timeout`.
+   * - **Not a missing `busy_timeout` in `backup.mjs`.** One can be set on a
+   *   read-only connection and does take effect. But the only lock that
+   *   reproduces this at all is `PRAGMA locking_mode = EXCLUSIVE`, which
+   *   nothing in this app or these tests sets — and a timeout waits that one
+   *   out and still loses, so adding one would buy nothing.
+   * - **Not the change it rode in on.** It surfaced on a types-only dependency
+   *   bump, which cannot alter runtime behaviour.
+   *
+   * Still open: what holds the lock. Both earlier occurrences were on runs
+   * ~40% slower than baseline, so whatever it is, contention makes it likelier
+   * — which is the one thing the three have in common.
+   */
   it("takes a backup that carries what is still in the -wal", async () => {
     const { dir, file } = seeded();
     const { stdout } = await backup({ PROJECTLC_DB: file });

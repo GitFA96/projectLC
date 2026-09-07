@@ -32,11 +32,14 @@ jobs:
       # the thresholds in vitest.config.ts are only enforced when it runs. They
       # cover the pure layers only, at the value measured when they were set —
       # so this goes red when a layer loses cover, not when one is merely thin.
-      # The JSON reporter is here for one reason: twice on this project a single
-      # test has failed on a run ~40% slower than baseline and passed on every
-      # rerun, and *the name was never captured*. The 20 s timeout in
-      # vitest.config.ts is a mitigation for that, not a diagnosis. This makes
-      # the next occurrence name itself.
+      # The JSON reporter is here for one reason: a single test kept failing on
+      # runs ~40% slower than baseline, passing on every rerun, and *the name
+      # was never captured*. It is now — `scripts/backup.test.ts > the CLI, end
+      # to end > takes a backup that carries what is still in the -wal`, on
+      # 7 Sep 2026. What that bought, and the three mechanisms it ruled out,
+      # are written above that test. The 20 s timeout in vitest.config.ts is a
+      # mitigation, not a diagnosis, and the cause is still open — so this
+      # reporter stays until the next occurrence explains itself.
       - run: npm run test:coverage -- --reporter=default --reporter=json --outputFile.json=test-results.json
 
       # The numbers, where you can read them without downloading anything.
