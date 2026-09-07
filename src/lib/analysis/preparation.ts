@@ -28,6 +28,7 @@
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
 import { elixirCategoryOf, isFoodLabel, type ElixirSlot } from "@/lib/wcl/consumables";
 import { isOwnWeaponBuff } from "@/lib/wcl/enchants";
+import { compareText } from "@/lib/sort";
 
 /**
  * The one policy field these checks read.
@@ -240,4 +241,74 @@ export function extrasPct(rows: ExtrasRow[], nameOf: EnchantNameLookup): number 
   if (rows.length === 0) return undefined;
   const filled = rows.reduce((sum, row) => sum + extraSlotsFilled(row, nameOf), 0);
   return Math.round((filled / (rows.length * EXTRA_SLOTS_PER_PULL)) * 100);
+}
+
+/**
+ * Share of the pulls in scope a raider was prepared for.
+ *
+ * **This tallies a verdict; it does not reach one.** `prepared` is already on
+ * the row when it gets here, decided by `isPrepared` above. The header of this
+ * file describes an older function of this name that meant the *rule* — that
+ * one is gone, and reviving the confusion by deciding anything here would undo
+ * the whole point of the rename.
+ *
+ * Undefined for nobody-was-here, the same rule as `extrasPct`, and now the same
+ * code: it was written out again in `preparedness-table.tsx` where nothing
+ * tested it. Two implementations of one judgement is how a page and a career
+ * summary end up disagreeing about the same raider.
+ */
+export function preparedPct(pulls: { prepared: boolean }[]): number | undefined {
+  if (pulls.length === 0) return undefined;
+  return Math.round((pulls.filter((p) => p.prepared).length / pulls.length) * 100);
+}
+
+/** How the preparedness table is ordered. */
+export interface PrepSort {
+  by: "name" | "prepared" | "extras";
+  dir: "asc" | "desc";
+}
+
+/**
+ * What clicking a column header does.
+ *
+ * A new column starts in the direction that answers the question somebody
+ * clicked it to ask: names read A–Z, and a percentage column opens on the
+ * raiders who need looking at. Clicking the column you are already on flips it.
+ */
+export function nextSort(current: PrepSort, by: PrepSort["by"]): PrepSort {
+  if (current.by === by) return { by, dir: current.dir === "asc" ? "desc" : "asc" };
+  return { by, dir: by === "name" ? "asc" : "desc" };
+}
+
+/** A row of the preparedness table, as far as the ordering is concerned. */
+export interface PrepSortRow {
+  name: string;
+  preparedPct: number | undefined;
+  extras: number | undefined;
+}
+
+/**
+ * The order raiders appear in.
+ *
+ * **A raider with no pulls in scope sits at the bottom in both directions.**
+ * They have no figure — not a zero — and floating them to the top of an
+ * ascending sort would put somebody who was not in the room at the head of a
+ * table an officer reads as "who needs a word". That asymmetry is the whole
+ * reason this is a named function with a test rather than a comparator inline
+ * in a `useMemo`.
+ *
+ * Ties break on the name, through `compareText`, so the order is stable and
+ * does not depend on the machine's locale.
+ */
+export function comparePrepRows(a: PrepSortRow, b: PrepSortRow, sort: PrepSort): number {
+  if (sort.by === "name") {
+    const byName = compareText(a.name, b.name);
+    return sort.dir === "asc" ? byName : -byName;
+  }
+  const av = sort.by === "extras" ? a.extras : a.preparedPct;
+  const bv = sort.by === "extras" ? b.extras : b.preparedPct;
+  if (av === undefined || bv === undefined) {
+    return (av === undefined ? 1 : 0) - (bv === undefined ? 1 : 0) || compareText(a.name, b.name);
+  }
+  return (sort.dir === "desc" ? bv - av : av - bv) || compareText(a.name, b.name);
 }

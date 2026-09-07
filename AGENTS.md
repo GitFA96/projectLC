@@ -59,9 +59,12 @@ rule that verdict paths read the merged guild view rather than the shared table
 underneath. Read it before adding a table that anybody might want to disagree
 with.
 
-**[`docs/improvement-plan.md`](docs/improvement-plan.md)** — the standing plan for
-the codebase itself: structure, tests, guards and how agents work here. Pick
-work from its state table and update the row in the same change.
+**[`docs/improvement-plan.md`](docs/improvement-plan.md)** — the structural plan
+that ran 3–7 September 2026, closed and kept as the record. Nothing in it is
+open to pick. Read its §6 before proposing an ORM, a unified pricing function, a
+component test suite or a dead-export sweep — each is decided there; §7 for what
+each guard actually found; §8 before writing a second plan, because it says
+which kind of guess failed.
 
 `.claude/` carries the working tools this repo assumes. **Skills** — one per
 change that has a chain and a trap: deploying, finishing a piece of work,

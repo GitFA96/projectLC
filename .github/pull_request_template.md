@@ -52,11 +52,7 @@ completely healthy while it does.
 - [ ] `src/lib/docs.test.ts` green **because the claims are true**, not because
       an expected array was edited (pitfalls §2)
 - [ ] Golden verdict snapshots: unchanged, or the diff is explained above
-      <!-- Lands with item A7; ignore this line until then. -->
 - [ ] Auth, build or Dockerfile touched? `npm run image` — two shipped security
       bugs were invisible to the whole suite and to a workstation build
-
-## Plan
-
-- [ ] If this completes an item in [`docs/improvement-plan.md`](../docs/improvement-plan.md),
-      its §7 row is updated in this same PR
+- [ ] Added a guard — a test that pins a surface, a hook that refuses, a build
+      check? Say what you broke to see it go red
