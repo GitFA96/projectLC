@@ -6,6 +6,7 @@ import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
 import { getRepo, getWriteRepo, type AwardEditInput, type WriteRepo } from "@/lib/data/repo";
 import { actingOfficer } from "@/app/acting-officer";
+import { PHASES, phaseForZones } from "@/lib/constants/wow";
 import type { Quality } from "@/lib/types";
 
 /**
@@ -212,6 +213,68 @@ export async function deleteAwardsAction(input: DeleteAwardsInput): Promise<Loot
     return { ok: true, message: `Deleted ${deleted} award${deleted === 1 ? "" : "s"}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Deleting failed." };
+  }
+}
+
+/**
+ * Correct one import's own facts after it has landed — the night, the raids,
+ * the note beside it.
+ *
+ * `loot.award`, not `loot.amend`: nothing here touches an award's `awardedAt`,
+ * which is the field that grant exists for (change-chains §4a2). The raid date
+ * here labels the import, and the awards inside it keep the timestamps their
+ * Gargul paste gave them — which is why the two can legitimately disagree, and
+ * why the editor says so on screen.
+ *
+ * **Zones are the field with teeth.** The phase every award in the session
+ * counts in is derived from them, and fairness and contention read that phase,
+ * so a relabel re-ranks loot. The result message names the phase it moved to
+ * rather than leaving that to be discovered.
+ */
+const updateSessionSchema = z.object({
+  sessionId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a raid date."),
+  zones: z.array(z.string().min(1)).min(1, "Pick at least one zone."),
+  note: z.string().optional(),
+});
+
+export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
+
+const KNOWN_ZONES = new Set(PHASES.flatMap((p) => p.zones));
+
+export async function updateSessionAction(input: UpdateSessionInput): Promise<LootActionResult> {
+  const parsed = updateSessionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+  const badZone = parsed.data.zones.find((zone) => !KNOWN_ZONES.has(zone));
+  if (badZone) return { ok: false, message: `Unknown zone “${badZone}”.` };
+
+  try {
+    requireCapability(await resolveViewer(), "loot.award");
+    const repo = await getWriteRepo();
+    const before = (await repo.listRaidSessions()).find((s) => s.id === parsed.data.sessionId);
+    if (!before) return { ok: false, message: "That import no longer exists." };
+
+    const result = await repo.updateRaidSession(
+      parsed.data.sessionId,
+      { date: parsed.data.date, zones: parsed.data.zones, note: parsed.data.note?.trim() || undefined },
+      await actingOfficer(),
+    );
+    if (!result.ok) return { ok: false, message: result.error };
+    refreshAfterWrite("/", "layout");
+
+    const wasPhase = phaseForZones(before.zones);
+    const nowPhase = phaseForZones(result.session.zones);
+    const phaseNote =
+      wasPhase === nowPhase
+        ? ""
+        : nowPhase === undefined
+          ? " Its awards no longer count in any phase."
+          : ` Its awards now count in phase ${nowPhase}.`;
+    return { ok: true, message: `Import updated.${phaseNote}` };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Updating the import failed." };
   }
 }
 

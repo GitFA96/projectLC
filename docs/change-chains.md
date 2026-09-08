@@ -817,6 +817,37 @@ Three things here are easy to get half-right:
 "when" — recency, fairness windows, ledger order — reads the date, which is why
 it is the one field with its own grant.
 
+## 4a3. Edit the import an award arrived in
+
+**Chain:** `updateRaidSession` (the write **and** its audit line, one
+transaction) → `phaseForZones` → `sessionPhase` on every award in it →
+`analysis/contention.ts` and `analysis/fairness.ts`.
+
+A raid session carries three correctable facts — the night, the zones, the note
+— and they are not equally consequential:
+
+- **Zones re-rank loot.** Nothing stores an award's phase; it is derived from
+  its session's zones every time the read model is built, and both the
+  contention view and the fairness numbers filter on it. Re-labelling a
+  Karazhan import as Serpentshrine moves every award in it into another phase's
+  arithmetic, which is a loot verdict changing. The editor says which phase
+  before it saves, because after is too late to be a warning.
+- **The session date is a label, not a second copy of `awardedAt`.** Each award
+  keeps the timestamp its Gargul line carried (§4a2 is the same rule seen from
+  the award's side), so moving the night does not move the wins. The two can
+  legitimately disagree and both editors say so on screen. It follows that this
+  is `loot.award` work and not `loot.amend`: that grant exists for the field
+  this one never touches.
+- **`id`, `guildId` and `source` are not editable.** The repo spreads the stored
+  session and overwrites three fields rather than accepting a whole one — which
+  import this is, and whether it came from a paste, are not things a correction
+  to the night's label may quietly rewrite.
+
+The audit line is `loot.session-amended`, written in the transaction that made
+the change and rendered on the audit page's **Ledger** tab. A kind with no
+entry in that page's `KIND_LABEL` renders as its raw string, which is the
+failure worth remembering — `isLedger` will route it either way.
+
 ## 4b. Add a policy field
 
 **Chain:** `analysis/policy.ts` (type + default) → `sanitizePolicy` in

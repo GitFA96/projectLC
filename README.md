@@ -649,7 +649,15 @@ Every award with its wishlist-match status, filterable by character, class,
 phase, session, off-spec and winner status. A **Decided on** column shows the
 rank and score the award was made at, with the whole arithmetic on hover; the
 item's own page prints it in full under the award it explains. Fully editable: add a missing drop,
-fix an item or winner, delete awards, or delete a whole import.
+fix an item or winner, delete awards, or edit or delete a whole import.
+
+Picking one import from the sidebar opens its own bar. **Edit import** corrects
+what the Gargul paste was filed under — the raid date, the zones, the note —
+without touching the awards inside it: each keeps the timestamp its line
+carried, so a re-dated night and an award's own date can legitimately disagree.
+Re-labelling the **zones** is the change with reach, because the phase those
+awards count in is derived from them and fairness and contention read that
+phase; the editor names the phase it is about to move to.
 
 Awards whose winner didn't match the roster show amber. Each can be **assigned to
 a character** (typo, rename, late add) or **marked off-roster** (disenchanted,

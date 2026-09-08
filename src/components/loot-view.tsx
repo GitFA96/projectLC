@@ -18,6 +18,7 @@ import {
 } from "@/components/roster-actions";
 import { LootAwardDialog, type AwardDialogTarget } from "@/components/loot-award-dialog";
 import { OffSpecConflict } from "@/components/loot/offspec-conflict";
+import { SessionEditDialog } from "@/components/loot/session-edit-dialog";
 import {
   LOOT_WINDOWS,
   dayOf,
@@ -82,6 +83,13 @@ export interface SessionOption {
   label: string;
   date: string;
   count: number;
+  /**
+   * The zones behind `label`, as the editor needs them back — a label is
+   * joined for reading and can't be split back into the list it came from
+   * without agreeing on the separator in two places.
+   */
+  zones: string[];
+  note?: string;
 }
 
 export function LootView({
@@ -123,6 +131,7 @@ export function LootView({
   const selection = useSelection();
   const { selected, clear } = selection;
   const [dialog, setDialog] = React.useState<AwardDialogTarget | null>(null);
+  const [editingSession, setEditingSession] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
   const [actionResult, setActionResult] = React.useState<LootActionResult | null>(null);
 
@@ -342,6 +351,7 @@ export function LootView({
   );
 
   const activeSession = sessionFilter === "all" ? undefined : sessions.find((s) => s.id === sessionFilter);
+  const sessionBeingEdited = sessions.find((s) => s.id === editingSession);
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[200px_1fr]">
@@ -493,6 +503,19 @@ export function LootView({
               >
                 <Plus className="h-3.5 w-3.5" /> Add award
               </Button>
+              {/* The import's own facts — the night, the raids, the note —
+                  beside the two things already done to it here. Relabelling
+                  the raids moves the phase its awards count in, which is why
+                  the dialog says so before it saves rather than after. */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2.5 text-xs"
+                disabled={pending}
+                onClick={() => setEditingSession(activeSession.id)}
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit import
+              </Button>
               <DangerButton
                 disabled={pending}
                 confirmLabel="Delete import — confirm"
@@ -585,6 +608,18 @@ export function LootView({
           roster={characters}
           canAmend={canAmend}
           onClose={() => setDialog(null)}
+        />
+      )}
+
+      {/* Held as an id rather than the session object, and keyed by it: the
+          ledger comes back from the server as new props after a save, and a
+          captured session would hold the values the officer just changed. */}
+      {sessionBeingEdited && (
+        <SessionEditDialog
+          key={sessionBeingEdited.id}
+          target={sessionBeingEdited}
+          onClose={() => setEditingSession(null)}
+          onSaved={setActionResult}
         />
       )}
     </div>

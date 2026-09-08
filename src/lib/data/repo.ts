@@ -542,6 +542,26 @@ export type DeleteSessionResult =
   | { ok: false; error: string };
 
 /**
+ * What an officer may correct about a Gargul import after it has landed: the
+ * night it was, the raids it covered, the note beside it.
+ *
+ * Deliberately not the awards. `zones` is the consequential field — the phase
+ * every award in the session counts in is derived from it, and fairness and
+ * contention read that phase — while `date` labels the import and leaves each
+ * award's own `awardedAt` alone. See docs/change-chains.md §4a3.
+ */
+export interface RaidSessionMetaInput {
+  /** ISO date of the raid night. */
+  date: string;
+  zones: string[];
+  note?: string;
+}
+
+export type UpdateSessionResult =
+  | { ok: true; session: RaidSession }
+  | { ok: false; error: string };
+
+/**
  * A fetched report ready to persist: identity fields are derived at save time.
  * `upkeepTracks` is stamped there too — the fetcher shouldn't have to remember
  * to state what it asked for, and a drifting record would be worse than none.
@@ -843,6 +863,17 @@ export interface WriteRepo extends Repo {
   updateLootAward(awardId: string, input: AwardEditInput, audit?: AwardAuditActor): Promise<AwardWriteResult>;
   /** Remove one award outright. Returns false when it didn't exist. Audited like an edit. */
   deleteLootAward(awardId: string, audit?: AwardAuditActor): Promise<boolean>;
+  /**
+   * Correct one import's own facts — raid date, zones, note. Its awards keep
+   * their items, winners and timestamps; only what the session says about the
+   * night changes, and re-labelling the zones moves the phase those awards
+   * count in. Audited like an award edit.
+   */
+  updateRaidSession(
+    raidSessionId: string,
+    input: RaidSessionMetaInput,
+    audit?: AwardAuditActor,
+  ): Promise<UpdateSessionResult>;
   /**
    * Delete a whole raid session (one Gargul import): its awards are removed and
    * any Warcraft Logs report linked to it is unlinked (the report itself stays).

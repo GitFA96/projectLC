@@ -1519,6 +1519,59 @@ describe("sqlite repo", () => {
       expect((await repo.listLootAwards()).length).toBe(before - 1);
     });
 
+    it("edits an import's own facts, leaving its awards where they were", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      const before = (await repo.listLootAwards()).find((a) => a.award.itemId === 99930)!;
+      const officer = { guildId: (await repo.getGuild()).id, actor: "Melige" };
+
+      const saved = await repo.updateRaidSession(
+        sessionId,
+        { date: "2026-06-12", zones: ["Serpentshrine Cavern", "Tempest Keep"], note: "  progress night  " },
+        officer,
+      );
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) throw new Error("unreachable");
+      expect(saved.session.note).toBe("progress night");
+      // What an edit may not touch: which import this is, and where it came from.
+      expect(saved.session.id).toBe(sessionId);
+      expect(saved.session.source).toBe("gargul");
+
+      const row = (await repo.listLootAwards()).find((a) => a.award.id === before.award.id)!;
+      expect(row.session.date).toBe("2026-06-12");
+      expect(row.session.zones).toEqual(["Serpentshrine Cavern", "Tempest Keep"]);
+      // The award keeps the timestamp its paste gave it — the session date is
+      // the import's label, not a second copy of when the item was won.
+      expect(row.award.awardedAt).toBe(before.award.awardedAt);
+      // Relabelling the raids is what moves the phase the award counts in.
+      expect(before.sessionPhase).toBe(1);
+      expect(row.sessionPhase).toBe(2);
+
+      const [entry] = await repo.listGuildAudit();
+      expect(entry.kind).toBe("loot.session-amended");
+      expect(entry.actor).toBe("Melige");
+      expect(entry.detail).toContain("2026-06-11 → 2026-06-12");
+      expect(entry.detail).toContain("Karazhan → Serpentshrine Cavern + Tempest Keep");
+    });
+
+    it("says so rather than inventing an import to edit", async () => {
+      const repo = getSqliteRepo();
+      const missing = await repo.updateRaidSession("rs_nothing", { date: "2026-06-12", zones: ["Karazhan"] });
+      expect(missing.ok).toBe(false);
+    });
+
+    it("refuses an import with no zones, and writes no audit line for an unchanged save", async () => {
+      const repo = getSqliteRepo();
+      const sessionId = await seedSession(repo);
+      const officer = { guildId: (await repo.getGuild()).id, actor: "Melige" };
+
+      expect((await repo.updateRaidSession(sessionId, { date: "2026-06-11", zones: [] })).ok).toBe(false);
+
+      // An officer opening the editor and saving unchanged is not an event.
+      await repo.updateRaidSession(sessionId, { date: "2026-06-11", zones: ["Karazhan"] }, officer);
+      expect(await repo.listGuildAudit()).toHaveLength(0);
+    });
+
     it("deletes a whole import: awards go, the session goes, a linked report is unlinked", async () => {
       const repo = getSqliteRepo();
       const sessionId = await seedSession(repo);

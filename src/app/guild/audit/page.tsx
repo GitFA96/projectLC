@@ -63,6 +63,7 @@ const KIND_LABEL: Record<string, string> = {
   "break-glass.used": "Operator override used",
   "break-glass.closed": "Operator override closed",
   "loot.amended": "Award edited",
+  "loot.session-amended": "Import edited",
   "loot.removed": "Award removed",
 };
 

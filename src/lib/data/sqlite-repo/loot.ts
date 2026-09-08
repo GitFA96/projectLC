@@ -9,7 +9,7 @@ import {
   withTx,
 } from "@/lib/data/db";
 import { harvestItemFacts, isPlaceholderName } from "@/lib/items/item-data";
-import { lootAwardSchema } from "@/lib/import/schemas";
+import { lootAwardSchema, raidSessionSchema } from "@/lib/import/schemas";
 import type {
   AwardAuditActor,
   AwardDraft,
@@ -19,7 +19,9 @@ import type {
   DeleteSessionResult,
   GargulCommitResult,
   RaidSessionDraft,
+  RaidSessionMetaInput,
   ResolveAwardResult,
+  UpdateSessionResult,
   WriteRepo,
 } from "@/lib/data/repo";
 import type { AwardDecision, LootAward, RaidSession } from "@/lib/types";
@@ -81,6 +83,16 @@ function describeAwardEdit(before: LootAward, after: LootAward): string[] {
   if (before.offspec !== after.offspec) {
     changes.push(after.offspec ? "main spec → off-spec" : "off-spec → main spec");
   }
+  if ((before.note ?? "") !== (after.note ?? "")) changes.push("note changed");
+  return changes;
+}
+
+/** The same, for the import itself rather than one row in it. */
+function describeSessionEdit(before: RaidSession, after: RaidSession): string[] {
+  const changes: string[] = [];
+  if (before.date !== after.date) changes.push(`night ${before.date} → ${after.date}`);
+  const zonesOf = (s: RaidSession) => s.zones.join(" + ");
+  if (zonesOf(before) !== zonesOf(after)) changes.push(`raid ${zonesOf(before)} → ${zonesOf(after)}`);
   if ((before.note ?? "") !== (after.note ?? "")) changes.push("note changed");
   return changes;
 }
@@ -347,6 +359,53 @@ export const lootWrites = {
       }
     });
     return deleted;
+  },
+
+  async updateRaidSession(
+    raidSessionId: string,
+    input: RaidSessionMetaInput,
+    audit?: AwardAuditActor,
+  ): Promise<UpdateSessionResult> {
+    const existing = readModel().store.raidSessions.find((s) => s.id === raidSessionId);
+    if (!existing) return { ok: false, error: "Raid session not found — maybe already removed." };
+
+    // Spread the stored session so `id`, `guildId` and `source` are carried
+    // rather than accepted: which import this is, and where it came from, are
+    // not things an edit of the night's label may change.
+    const parsed = raidSessionSchema.safeParse({
+      ...existing,
+      date: input.date,
+      zones: input.zones,
+      note: input.note?.trim() || undefined,
+    } satisfies RaidSession);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid raid session." };
+    }
+    const session = parsed.data;
+    const changes = describeSessionEdit(existing, session);
+
+    const db = getDb();
+    withTx(db, () => {
+      db.prepare("UPDATE raid_sessions SET date = ?, zones_json = ?, note = ? WHERE id = ?").run(
+        session.date,
+        JSON.stringify(session.zones),
+        session.note ?? null,
+        raidSessionId,
+      );
+      // Re-labelling the raids moves the phase every award in this import
+      // counts in, which is a fairness number — the guild is told, in the same
+      // stream a re-dated award appears in.
+      if (changes.length > 0) {
+        auditAward(
+          db,
+          audit,
+          "loot.session-amended",
+          `${existing.date} ${existing.zones.join(" + ")} — import edited: ${changes.join("; ")}.`,
+        );
+      }
+      bumpDataVersion(db);
+    });
+    return { ok: true, session };
   },
 
   async deleteRaidSession(raidSessionId: string, audit?: AwardAuditActor): Promise<DeleteSessionResult> {

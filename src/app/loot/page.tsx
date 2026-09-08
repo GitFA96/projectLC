@@ -53,6 +53,10 @@ export default async function LootPage() {
     label: s.zones.join(" + "),
     date: s.date,
     count: rows.filter((r) => r.sessionId === s.id).length,
+    // The label's own parts, for the editor: what an import says about the
+    // night is correctable, and it is correctable from where it is read.
+    zones: s.zones,
+    note: s.note,
   }));
 
   return (

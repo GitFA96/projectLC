@@ -375,6 +375,20 @@ const BUMPS: Record<string, WriteCase<unknown>> = {
   deleteLootAward: write({
     call: async (repo) => expect(await repo.deleteLootAward((await repo.listLootAwards())[0].award.id)).toBe(true),
   }),
+  updateRaidSession: write({
+    call: async (repo) => {
+      const session = (await repo.listRaidSessions())[0];
+      return expect(
+        (
+          await repo.updateRaidSession(session.id, {
+            date: "2026-06-12",
+            zones: ["Serpentshrine Cavern"],
+            note: "relabelled",
+          })
+        ).ok,
+      ).toBe(true);
+    },
+  }),
   deleteRaidSession: write({
     call: async (repo) => expect((await repo.deleteRaidSession((await repo.listRaidSessions())[0].id)).ok).toBe(true),
   }),
