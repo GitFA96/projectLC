@@ -412,6 +412,14 @@ const BUMPS: Record<string, WriteCase<unknown>> = {
     },
     call: async (repo) => repo.setReportExcludedFights(REPORT.code, [1]),
   }),
+  setReportScope: write({
+    setup: async (repo) => {
+      await repo.saveWclReport(REPORT, [fight({ actorName: "Pyrelia" })]);
+    },
+    // Attendance and career performance are built from the guild's nights, and
+    // the read model bakes in which those are.
+    call: async (repo) => repo.setReportScope(REPORT.code, "pug"),
+  }),
   setReportConsumableAdjustments: write({
     call: async (repo) =>
       repo.setReportConsumableAdjustments(REPORT.code, [

@@ -38,6 +38,7 @@ change here means.
 - getAccount
 - getAllConsumableAdjustments
 - getAllExcludedFights
+- getAllReportScopes
 - getCharacterMembershipId
 - getDataVersion
 - getDb
@@ -55,6 +56,7 @@ change here means.
 - getReportConsumablePrices
 - getReportExcludedFights
 - getReportPayback
+- getReportScope
 - getSheetItemIds
 - getSimProfile
 - getTemplateBoard
@@ -113,6 +115,7 @@ change here means.
 - setReportConsumablePrices
 - setReportExcludedFights
 - setReportPayback
+- setReportScope
 - setSheetItemId
 - setSimProfile
 - setSuccessionWindows

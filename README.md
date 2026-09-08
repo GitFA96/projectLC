@@ -309,6 +309,20 @@ because a wowsims setup describes a spec rather than a person. The header keeps 
 
 One raid night at a time, or **All raids** ranked, in five tabs.
 
+**Whose raid it was** comes first: **Guild**, **One-off** and **Pug** are three
+headings, and only Guild counts. A community run or a pug keeps every pull and
+reads here in full, while feeding nobody's attendance, gold per raid or
+performance — the tag is set per report on the import page, and nothing is
+deleted to apply it. Each heading has its own **All raids** rollup over its own
+nights.
+
+Under the heading, nights are grouped by the raid they ran — Black Temple,
+Mount Hyjal, Tempest Keep — so a month of dates is a few short rows. The grouping
+comes from the bosses that were actually killed, not from the raid label
+somebody typed: most nights here run two instances, and they are listed under
+both. Picking a raid finds a night; it does not narrow **All raids**, which
+always spans the whole heading.
+
 **Which pulls count** is a switch, not a setting: click a pull in the header to
 leave it out and everything recomputes without it. A joke pull or a two-man farm
 boss stops skewing the night in one click, and the exclusion survives a re-fetch.

@@ -36,6 +36,7 @@ export {
   type SimProfileRow,
 } from "@/lib/data/db/meta/sim-profiles";
 export * from "@/lib/data/db/meta/adjustments";
+export * from "@/lib/data/db/meta/scopes";
 export * from "@/lib/data/db/meta/policy";
 export * from "@/lib/data/db/meta/sheets";
 export * from "@/lib/data/db/meta/alternatives";

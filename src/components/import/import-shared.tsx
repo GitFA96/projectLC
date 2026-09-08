@@ -5,6 +5,7 @@ import { CircleAlert, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type ItemRef } from "@/components/item-link";
 import { type Quality } from "@/lib/constants/wow";
+import { type RaidScope } from "@/lib/analysis/raid-scope";
 export interface ImportPrefill {
   tab?: string;
   character?: string;
@@ -109,6 +110,12 @@ export interface ImportedReport {
   encounterCount: number;
   killCount: number;
   sessionLabel?: string;
+  /**
+   * Whose night this was. `"guild"` is the default and the only scope that
+   * feeds attendance, gold per raid and performance — the other two keep the
+   * whole report and read on their own heading in the raid logs.
+   */
+  scope: RaidScope;
   /**
    * Set when this report saw an aura the tables have since learned to place:
    * re-importing it would change a real number. Absent means nothing to gain —

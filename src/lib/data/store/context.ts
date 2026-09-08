@@ -20,7 +20,13 @@ import {
 } from "@/lib/loot/priority-sheet";
 import { parsePriorityChain } from "@/lib/loot/priority-chain";
 import { resolvePolicy } from "@/lib/analysis/policy";
-import { PHASE_IDS, phaseForZones, raidOfBoss } from "@/lib/constants/wow";
+import {
+  DEFAULT_RAID_SCOPE,
+  isGuildScope,
+  raidsOfEncounters,
+  type RaidScope,
+} from "@/lib/analysis/raid-scope";
+import { PHASE_IDS, phaseForZones } from "@/lib/constants/wow";
 import { specFingerprints, specOfPull } from "@/lib/sim/profile";
 import type {
   AttendanceSummary,
@@ -446,31 +452,73 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
   const reportStartByCode = new Map(wclReports.map((r) => [r.code, r.startTime]));
 
   /**
-   * Which tier each report was, read off the bosses actually pulled in it.
+   * Which raids each report ran, read off the bosses actually pulled in it —
+   * and, from that, which tier it was.
    *
    * **Not** off `report.zone`. That column looks like a zone and isn't: it
    * carries whatever the raid leader typed — "SSC+TK Wednesday", "ssc/tk",
    * "SSC/TK - gruul" — so matching it against zone names finds nothing at all,
    * silently, and every week reads as an unknown tier. The encounter names come
-   * from the log itself and `raidOfBoss` already maps them, which makes this the
+   * from the log itself and `raidsOfEncounters` maps them, which makes this the
    * one source that cannot drift from what was raided.
+   *
+   * The list is handed out as well as reduced to a tier, because the raid
+   * picker on the logs page sections nights by it. One derivation, so a night
+   * cannot be filed under Black Temple here and under whatever somebody typed
+   * there.
    *
    * A night that touched two tiers takes the higher, the same rule awards and
    * sessions use via `phaseForZones`.
    */
-  const zonesByReport = new Map<string, Set<string>>();
+  const encountersByReport = new Map<string, Set<string>>();
   for (const row of wclPlayerFights) {
-    const raid = raidOfBoss(row.encounterName);
-    if (!raid) continue;
-    const zones = zonesByReport.get(row.reportCode) ?? new Set<string>();
-    zones.add(raid.name);
-    zonesByReport.set(row.reportCode, zones);
+    const seen = encountersByReport.get(row.reportCode) ?? new Set<string>();
+    seen.add(row.encounterName);
+    encountersByReport.set(row.reportCode, seen);
+  }
+  const raidsByReport = new Map<string, string[]>(
+    [...encountersByReport].map(([code, names]) => [code, raidsOfEncounters(names)] as const),
+  );
+  function raidsOfReport(code: string): string[] {
+    return raidsByReport.get(code) ?? [];
   }
   const phaseByReport = new Map<string, Phase>();
-  for (const [code, zones] of zonesByReport) {
-    const phase = phaseForZones([...zones]);
+  for (const [code, raids] of raidsByReport) {
+    const phase = phaseForZones(raids);
     if (phase !== undefined) phaseByReport.set(code, phase);
   }
+
+  /**
+   * Whose night each report was — the guild's, a community one-off, or a pug.
+   *
+   * The report-level twin of `isExcusedPull` further down, and the same rule
+   * applies: one switch, one meaning. `isExcusedPull` takes a pull out of the
+   * count; this takes the whole night out, and it has to reach every reader for
+   * the reason that one does — a night dropped from the raid page and left in
+   * everybody's career would be worse than not dropping it at all.
+   *
+   * Unclassified is a guild raid, so a database that predates this setting
+   * behaves exactly as it did.
+   */
+  function scopeOfReport(code: string): RaidScope {
+    return config.reportScopeByCode?.[code] ?? DEFAULT_RAID_SCOPE;
+  }
+
+  /** Does this night count towards the guild's own record? */
+  function isGuildReport(code: string): boolean {
+    return isGuildScope(scopeOfReport(code));
+  }
+
+  /**
+   * The nights the guild's own record is built from — attendance's denominator
+   * as well as its numerator.
+   *
+   * Filtering only the rows would be the bug that looks like it works: every
+   * raider's pug pulls would leave their career, and the pug night would stay
+   * in the count of raids they could have attended, so tagging one night would
+   * drop the whole roster's attendance.
+   */
+  const guildReports = wclReports.filter((r) => isGuildReport(r.code));
 
   /** Kills only: a wipe has no comparable number, and the sim never wipes. */
   function simKills(): WclPlayerFight[] {
@@ -579,14 +627,17 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
   }
 
   function computeAttendance(characterId: string): AttendanceSummary | undefined {
-    if (wclReports.length === 0) return undefined;
-    const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === characterId);
+    // Guild nights on both sides of every fraction — see `guildReports`.
+    if (guildReports.length === 0) return undefined;
+    const myRows = wclPlayerFights.filter(
+      (r) => wclRowCharacterId(r) === characterId && isGuildReport(r.reportCode),
+    );
     const attended = new Set(myRows.map((r) => r.reportCode));
     const exemptWeeks = exemptWeeksByCharacter.get(characterId) ?? new Set<string>();
     const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
 
     // Fair denominator: only raids since their first logged appearance count.
-    const chronological = [...wclReports].sort((a, b) => compareText(a.startTime, b.startTime));
+    const chronological = [...guildReports].sort((a, b) => compareText(a.startTime, b.startTime));
     const firstIdx = chronological.findIndex((r) => attended.has(r.code));
     const since = firstIdx === -1 ? [] : chronological.slice(firstIdx);
     // Excused weeks drop out of the raid-level markup entirely (not counted as
@@ -727,6 +778,12 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
    * on the pull the officer took out — and that is the safe direction: this
    * only ever makes a positive claim, so losing evidence loses the prompt, and
    * never invents a wrong one.
+   *
+   * A pug or one-off night is deliberately NOT excluded, unlike everything
+   * else built from a career (`careerRowsOf`). The scope decides whose numbers
+   * a night counts towards; a sapper thrown on a Sunday pug still proves the
+   * same person is an engineer, and §2a's whole design is that this claim only
+   * ever goes one way.
    */
   let explosivesByCharacter: Map<string, number> | undefined;
   function explosiveThrowsOf(characterId: string): number {
@@ -748,10 +805,19 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
     return explosivesByCharacter.get(characterId) ?? 0;
   }
 
+  /**
+   * A character's raiding record: guild nights, minus the excused pulls.
+   *
+   * Both filters are here rather than at the callers because this is what
+   * "career" means — the performance summary, the development series, gold per
+   * raid and every loot score are built on it, and a reader that disagreed
+   * about which nights count would put a different number on the standing board
+   * than on the raider's own page.
+   */
   function careerRowsOf(characterId: string): WclPlayerFight[] {
-    const chronologicalReports = [...wclReports].sort((a, b) => compareText(a.startTime, b.startTime));
+    const chronologicalReports = [...guildReports].sort((a, b) => compareText(a.startTime, b.startTime));
     const mine = wclPlayerFights.filter(
-      (r) => wclRowCharacterId(r) === characterId && !isExcusedPull(r),
+      (r) => wclRowCharacterId(r) === characterId && !isExcusedPull(r) && isGuildReport(r.reportCode),
     );
     return chronologicalReports.flatMap((report) =>
       mine.filter((r) => r.reportCode === report.code).sort((a, b) => a.fightId - b.fightId),
@@ -798,6 +864,7 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
     gearSets,
     guild,
     guildBossDrops,
+    guildReports,
     importedCurrentOf,
     isExcusedPull,
     itemCommentsByItem,
@@ -813,10 +880,12 @@ export function buildContext(store: EntityStore, config: StoreConfig) {
     priorityRuleFor,
     pullsByReport,
     raidSessions,
+    raidsOfReport,
     raiderMetricsOf,
     redemptions,
     roster,
     rulesForPhase,
+    scopeOfReport,
     sessionsById,
     sheetItemIdFor,
     simPullsOf,

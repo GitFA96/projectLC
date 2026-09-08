@@ -11,6 +11,7 @@ import {
   setSimProfile,
   addAbilities,
   setReportExcludedFights,
+  setReportScope,
   withTx,
 } from "@/lib/data/db";
 import { harvestItemFacts } from "@/lib/items/item-data";
@@ -176,6 +177,21 @@ export const wclWrites = {
     withTx(db, () => {
       setReportExcludedFights(db, code, fightIds);
       // The read model bakes the filter in — the bump forces it to rebuild.
+      bumpDataVersion(db);
+    });
+  },
+
+  async setReportScope(code, scope) {
+    const db = getDb();
+    withTx(db, () => {
+      setReportScope(db, code, scope);
+      /*
+       * Attendance, career performance and gold per raid are all baked into the
+       * read model, and this decides which nights they are built from — so the
+       * bump is what makes one report's tag reach every raider's page, not just
+       * the raid logs. Without it the row lands on disk and nothing moves until
+       * a restart.
+       */
       bumpDataVersion(db);
     });
   },

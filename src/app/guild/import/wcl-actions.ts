@@ -5,6 +5,7 @@ import { getWriteRepo } from "@/lib/data/repo";
 import { refreshAfterWrite } from "@/lib/refresh";
 import { can, requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
+import { RAID_SCOPES, raidScopeLabel } from "@/lib/analysis/raid-scope";
 import { WclError, extractReportCode, hasWclCredentials } from "@/lib/wcl/client";
 import { fetchWclReport } from "@/lib/wcl/fetch-report";
 import type { IgnoredCombatantInfo, UnclassifiedAura } from "@/lib/wcl/normalize";
@@ -185,6 +186,48 @@ export async function updateWclReportMetaAction(input: {
     if (!result.ok) return { ok: false, message: result.error };
     refreshAfterWrite("/", "layout");
     return { ok: true, message: "Report updated." };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
+const scopeSchema = z.object({
+  code: z.string().min(1),
+  scope: z.enum(RAID_SCOPES.map((s) => s.scope) as [string, ...string[]]),
+});
+
+/**
+ * Say whose night a report was — the guild's, a community one-off, or a pug.
+ *
+ * This is the one switch that takes a whole log out of the guild's record:
+ * attendance, gold per raid, performance and every loot score built on them.
+ * The report itself is untouched and stays readable on its own heading in the
+ * raid logs, which is invariant 6 applied to a night rather than to a raider —
+ * the alternative on offer was deleting the import, and a night that happened
+ * has to stay explainable.
+ */
+export async function setWclReportScopeAction(input: {
+  code: string;
+  scope: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const parsed = scopeSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Unknown raid scope." };
+  try {
+    requireCapability(await resolveViewer(), "import.run");
+    const repo = await getWriteRepo();
+    if (!(await repo.listWclReports()).some((r) => r.report.code === parsed.data.code)) {
+      return { ok: false, message: "Report not found — maybe removed." };
+    }
+    const scope = parsed.data.scope as (typeof RAID_SCOPES)[number]["scope"];
+    await repo.setReportScope(parsed.data.code, scope);
+    refreshAfterWrite("/", "layout");
+    return {
+      ok: true,
+      message:
+        scope === "guild"
+          ? "Counted as a guild raid again — attendance, gold and performance include it."
+          : `Filed under ${raidScopeLabel(scope)} — it no longer counts towards attendance, gold or performance.`,
+    };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Update failed." };
   }

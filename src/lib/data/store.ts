@@ -1,4 +1,5 @@
 import type { PolicyOverrides } from "@/lib/analysis/policy";
+import type { RaidScope } from "@/lib/analysis/raid-scope";
 import type { Guide } from "@/lib/guides";
 import type { WishlistAlternative } from "@/lib/analysis/wishlist-alternatives";
 import type {
@@ -207,6 +208,13 @@ export function validateStore(store: EntityStore, sourceLabel: string): void {
  */
 export interface StoreConfig {
   excludedFightsByCode?: Record<string, number[]>;
+  /**
+   * Whose night each report was, keyed by report code — the officer's answer to
+   * a question no log carries. Only the codes an officer classified are here;
+   * anything absent is a guild raid, which is what every report was before this
+   * setting existed. See `analysis/raid-scope.ts` and change-chains §3a.
+   */
+  reportScopeByCode?: Record<string, RaidScope>;
   /**
    * membershipId → when that person was last actually here.
    *

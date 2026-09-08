@@ -3003,6 +3003,116 @@ describe("sqlite repo", () => {
       expect(reports.map((r) => r.report.code)).toEqual(["TESTreport000001", "SEEDsscProgress1"]);
     });
 
+    /*
+     * A report's scope: whose night it was.
+     *
+     * The whole point is that ONE tag reaches everything derived from a pull.
+     * Tagging the raid page alone is the bug this is designed against — it is
+     * exactly what `excluded_fights` did before change-chains §3 was written,
+     * and it left the same nights scoring against every raider on their own
+     * page while the raid page looked clean.
+     */
+    describe("report scope", () => {
+      it("defaults to the guild, and clears back to it rather than storing the default", async () => {
+        const repo = getSqliteRepo();
+        await repo.saveWclReport(reportDraft, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+        expect(await repo.getReportScope(reportDraft.code)).toBe("guild");
+
+        await repo.setReportScope(reportDraft.code, "pug");
+        expect(await repo.getReportScope(reportDraft.code)).toBe("pug");
+
+        await repo.setReportScope(reportDraft.code, "guild");
+        expect(await repo.getReportScope(reportDraft.code)).toBe("guild");
+        // Back to no row at all — an unclassified night and a deliberately
+        // guild one mean the same thing, so they must not be two states.
+        const db = new DatabaseSync(process.env.PROJECTLC_DB!);
+        const row = db
+          .prepare("SELECT 1 FROM meta WHERE key = ?")
+          .get(`report_scope:${reportDraft.code}`);
+        db.close();
+        expect(row).toBeUndefined();
+      });
+
+      it("carries the scope and the raids it ran on the report list", async () => {
+        const repo = getSqliteRepo();
+        await repo.saveWclReport(reportDraft, [
+          fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+          fightDraft({
+            fightId: 2,
+            actorName: "Pyrelia",
+            encounterId: 724,
+            encounterName: "Lady Vashj",
+          }),
+        ]);
+        await repo.setReportScope(reportDraft.code, "one-off");
+
+        const listed = (await repo.listWclReports()).find((r) => r.report.code === reportDraft.code)!;
+        expect(listed.scope).toBe("one-off");
+        // From the bosses, not from `zone` — which says "Karazhan" alone here.
+        expect(listed.raids).toEqual(["Karazhan", "Serpentshrine Cavern"]);
+      });
+
+      it("takes a tagged night out of attendance, on both sides of the fraction", async () => {
+        const repo = getSqliteRepo();
+        const guildNight = { ...reportDraft, code: "SCOPEguild00001" };
+        const pugNight = {
+          ...reportDraft,
+          code: "SCOPEpug0000001",
+          startTime: "2026-06-17T19:00:00.000Z",
+          endTime: "2026-06-17T22:30:00.000Z",
+        };
+        await repo.saveWclReport(guildNight, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+        await repo.saveWclReport(pugNight, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+
+        const before = (await repo.getCharacterPerformance("pyrelia"))!.attendance!;
+        await repo.setReportScope(pugNight.code, "pug");
+        const after = (await repo.getCharacterPerformance("pyrelia"))!.attendance!;
+
+        // She was at both, so the percentage cannot move: the night leaves the
+        // numerator and the denominator together. A filter on the rows alone
+        // would leave the raid in the count of raids she could have attended
+        // and drop her to 50%.
+        expect(before.recentPct).toBe(100);
+        expect(after.recentPct).toBe(100);
+        expect(after.raidsAttended).toBe(before.raidsAttended - 1);
+        expect(after.raidsTracked).toBe(before.raidsTracked - 1);
+      });
+
+      it("takes its pulls out of the career, and leaves the night readable", async () => {
+        const repo = getSqliteRepo();
+        const pugNight = { ...reportDraft, code: "SCOPEcareer0001" };
+        await repo.saveWclReport(pugNight, [
+          fightDraft({ fightId: 1, actorName: "Pyrelia", parsePercent: 91 }),
+        ]);
+        expect((await repo.getCharacterPerformance("pyrelia"))!.reports.map((r) => r.report.code)).toContain(
+          pugNight.code,
+        );
+
+        await repo.setReportScope(pugNight.code, "pug");
+
+        const perf = (await repo.getCharacterPerformance("pyrelia"))!;
+        expect(perf.reports.map((r) => r.report.code)).not.toContain(pugNight.code);
+        // Invariant 6: unlinked from the guild's record, never destroyed. The
+        // night still opens on its own heading in the raid logs.
+        const raid = await repo.getRaidReport(pugNight.code);
+        expect(raid).not.toBeNull();
+        expect(raid!.report.code).toBe(pugNight.code);
+        expect((await repo.listWclReports()).map((r) => r.report.code)).toContain(pugNight.code);
+      });
+
+      it("keeps a pug night's strangers off the roster prompt", async () => {
+        const repo = getSqliteRepo();
+        const pugNight = { ...reportDraft, code: "SCOPEuntracked1" };
+        await repo.saveWclReport(pugNight, [
+          fightDraft({ fightId: 1, actorName: "Somestranger" }),
+        ]);
+        expect((await repo.listUntrackedLogPlayers()).map((p) => p.name)).toContain("Somestranger");
+
+        await repo.setReportScope(pugNight.code, "pug");
+        expect((await repo.listUntrackedLogPlayers()).map((p) => p.name)).not.toContain("Somestranger");
+      });
+    });
+
     it("keeps the unrecognized-aura dump with the report", async () => {
       // It used to live only in the import result: close the tab and the app's
       // record of what it failed to understand was gone.

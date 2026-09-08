@@ -120,6 +120,7 @@ export default async function ImportPage({
           sessionLabel: r.session
             ? `${format(parseISO(r.session.date), "d MMM yyyy")} — ${r.session.zones.join(" + ")}`
             : undefined,
+          scope: r.scope,
           // "Re-importing this would change what it says" — the report's own
           // record of what the app couldn't place, asked against today's tables.
           // Beside the refetch button rather than in a panel of its own: the

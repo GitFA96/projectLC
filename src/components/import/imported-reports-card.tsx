@@ -20,11 +20,69 @@ import {
   deleteWclReportAction,
   deleteWclReportsAction,
   refetchWclReport,
+  setWclReportScopeAction,
   updateWclReportMetaAction,
 } from "@/app/guild/import/wcl-actions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RAID_SCOPES, isGuildScope, type RaidScope } from "@/lib/analysis/raid-scope";
+import { cn } from "@/lib/utils";
 import { ActionResultLine, DangerButton, useRosterAction } from "@/components/roster-actions";
 import { type ImportedReport } from "@/components/import/import-shared";
 import { RefetchFailures, RefetchStatus, type QueueItem } from "@/components/import/import-queue";
+/**
+ * Whose night this was — the one control that takes a whole log out of the
+ * guild's record.
+ *
+ * A select rather than a checkbox because there are three answers and two of
+ * them mean "not ours" for different reasons, and an officer reading the list
+ * later has to be able to tell a community one-off from a pug. Saving is
+ * immediate: there is nothing to confirm, and the same press puts it back.
+ */
+function ScopePicker({
+  r,
+  pending,
+  run,
+}: {
+  r: ImportedReport;
+  pending: boolean;
+  run: (fn: () => Promise<{ ok: boolean; message: string }>) => void;
+}) {
+  return (
+    <Select
+      value={r.scope}
+      onValueChange={(scope) =>
+        run(() => setWclReportScopeAction({ code: r.code, scope: scope as RaidScope }))
+      }
+      disabled={pending}
+    >
+      <SelectTrigger
+        className={cn(
+          "h-7 w-28 text-xs",
+          // Not-guild is the exception and should read as one at a glance,
+          // down a column that is otherwise every row saying the same word.
+          !isGuildScope(r.scope) && "border-warn-line bg-warn-soft text-warn-ink",
+        )}
+        aria-label={`What ${r.title} counts as`}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {RAID_SCOPES.map((s) => (
+          <SelectItem key={s.scope} value={s.scope} title={s.blurb}>
+            {s.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /** One report row: title/zone with an inline rename editor. */
 function ImportedReportRow({
   r,
@@ -137,6 +195,9 @@ function ImportedReportRow({
         {r.encounterCount} ({r.killCount})
       </TableCell>
       <TableCell className="text-right text-sm tabular-nums">{r.playerCount}</TableCell>
+      <TableCell>
+        <ScopePicker r={r} pending={pending} run={run} />
+      </TableCell>
       <TableCell className="text-xs text-muted-foreground">{r.sessionLabel ?? "—"}</TableCell>
       <TableCell
         className="text-xs tabular-nums text-muted-foreground"
@@ -271,6 +332,16 @@ export function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) 
           parses and consumable data — attendance recounts immediately. The same report can always
           be imported again.
         </p>
+        <p className="text-xs text-muted-foreground">
+          <strong>Counts as</strong> says whose night it was. Only <strong>Guild</strong> feeds
+          attendance, gold per raid, performance and the loot scores built on them — file a
+          community one-off or a pug and it drops out of all of those, keeps every pull, and moves
+          under its own heading on the{" "}
+          <a href="/logs" className="underline underline-offset-2 hover:text-foreground">
+            raid logs
+          </a>
+          . Nothing is deleted, and putting it back to Guild counts it again.
+        </p>
       </CardHeader>
       <CardContent className="space-y-2">
         {reports.length === 0 ? (
@@ -292,6 +363,12 @@ export function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) 
                 <TableHead>Report</TableHead>
                 <TableHead className="text-right">Bosses (kills)</TableHead>
                 <TableHead className="text-right">Players</TableHead>
+                <TableHead
+                  className="w-32"
+                  title="Guild nights are what attendance, gold per raid and performance are counted from. A one-off or a pug keeps its whole report and reads on its own heading in the raid logs."
+                >
+                  Counts as
+                </TableHead>
                 <TableHead>Linked session</TableHead>
                 <TableHead className="w-28" title="When this report was last fetched from Warcraft Logs">
                   Imported

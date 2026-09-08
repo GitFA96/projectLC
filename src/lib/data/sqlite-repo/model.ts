@@ -3,6 +3,7 @@ import {
   getDataVersion,
   getAllConsumableAdjustments,
   getAllExcludedFights,
+  getAllReportScopes,
   getDb,
   getEnchantNames,
   getItemPriorityRules,
@@ -69,6 +70,7 @@ export function readModel(): CachedModel {
     version,
     repo: createRepoFromStore(store, {
       excludedFightsByCode: getAllExcludedFights(db),
+      reportScopeByCode: getAllReportScopes(db),
       policy: getGuildPolicy(db),
       itemPriorityRules: getItemPriorityRules(db),
       prioritySheetsByPhase: getPrioritySheets(db),

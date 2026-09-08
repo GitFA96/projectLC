@@ -27,7 +27,7 @@ import type { StoreContext } from "./context";
  */
 
 export function characterViews(ctx: StoreContext) {
-  const { config, awardsOf, awardsWithContext, careerRowsOf, charactersBySlug, commentsOf, computeAttendance, currentOf, developmentOf, gearSets, guild, importedCurrentOf, isExcusedPull, loggedSpecOf, mainNameOf, offOverridesOf, offPullOf, overridesOf, policy, pullsByReport, raiderMetricsOf, redemptions, roster, sessionsById, summarize, wclPlayerFights, wclReports, wclRowCharacterId, wishlistsOf } = ctx;
+  const { config, awardsOf, awardsWithContext, careerRowsOf, charactersBySlug, commentsOf, computeAttendance, currentOf, developmentOf, gearSets, guild, guildReports, importedCurrentOf, isExcusedPull, loggedSpecOf, mainNameOf, offOverridesOf, offPullOf, overridesOf, policy, pullsByReport, raiderMetricsOf, redemptions, roster, sessionsById, summarize, wclPlayerFights, wclReports, wclRowCharacterId, wishlistsOf } = ctx;
   return {
     async getGuild() {
       return guild;
@@ -126,7 +126,15 @@ export function characterViews(ctx: StoreContext) {
       const myRows = wclPlayerFights.filter((r) => wclRowCharacterId(r) === character.id);
       const reportPulls = pullsByReport();
       const myOffPull = offPullOf(character.id);
-      const reports: PerformanceReportView[] = [...wclReports]
+      /*
+       * Guild nights only — this page IS the guild's performance record, and
+       * `career` below is the figure a raider argues with. A pug or a one-off
+       * is read on its own night's page under its own heading; unlike an
+       * excused pull, which is shown greyed because the parse on a farm boss is
+       * still worth reading, a night that was somebody else's raid has nothing
+       * to say about this raider's standing here.
+       */
+      const reports: PerformanceReportView[] = [...guildReports]
         .sort((a, b) => compareText(b.startTime, a.startTime))
         .map((report): PerformanceReportView | undefined => {
           const rows = myRows

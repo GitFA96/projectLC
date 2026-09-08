@@ -312,6 +312,7 @@ describe("per-report settings use the meta-key convention", () => {
     for (const key of [
       "consumable_prices",
       "excluded_fights",
+      "report_scope",
       "consumable_adjustments",
       "gold_payback",
       "raid_board",

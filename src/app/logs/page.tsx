@@ -31,6 +31,7 @@ import { DeathProfiles } from "@/components/logs/death-profiles";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
 import { RaidLogTabs } from "@/components/logs/raid-log-tabs";
+import { ReportPicker } from "@/components/logs/report-picker";
 import { PreparednessPanel } from "@/components/logs/preparedness-table";
 import { RaidBoard } from "@/components/raid-planner/board";
 import { ConsumableUsageTable } from "@/components/logs/consumable-usage-table";
@@ -40,6 +41,13 @@ import { ConsumablePricePanel } from "@/components/logs/consumable-price-panel";
 import { GoldTable } from "@/components/logs/gold-table";
 import { PaybackPanel } from "@/components/logs/payback-panel";
 import { DEFAULT_POLICY, type GuildPolicy } from "@/lib/analysis/policy";
+import {
+  DEFAULT_RAID_SCOPE,
+  isGuildScope,
+  parseRaidScope,
+  raidScopeLabel,
+  type RaidScope,
+} from "@/lib/analysis/raid-scope";
 import { PetSpendCard } from "@/components/logs/pet-spend-card";
 import { SeasonDashboard } from "@/components/logs/season-dashboard";
 import { UptimeByBoss } from "@/components/logs/uptime-by-boss";
@@ -83,8 +91,6 @@ const SEVERITY_VARIANT: Record<ImprovementSeverity, "destructive" | "warning" | 
   low: "muted",
 };
 
-type WclReportList = Awaited<ReturnType<Awaited<ReturnType<typeof getRepo>>["listWclReports"]>>;
-
 export default async function LogsPage({ searchParams }: { searchParams: Search }) {
   const access = await pageView("logs.view", { returnTo: "/logs" });
   if (!access.allowed) return <NoAccess reason={access.reason} />;
@@ -97,6 +103,24 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
 
   const repo = await getRepo();
   const reports = await repo.listWclReports();
+
+  /*
+   * Which heading is open. A named report answers it itself — opening a pug
+   * night has to show the Pug heading, or the picker would highlight a night
+   * that isn't in the list under it. Only the season rollup, which is about a
+   * set of nights rather than one, reads `?scope=`.
+   */
+  const requestedScope =
+    parseRaidScope(Array.isArray(sp.scope) ? sp.scope[0] : sp.scope) ?? DEFAULT_RAID_SCOPE;
+  const scope: RaidScope =
+    reports.find((r) => r.report.code === requested)?.scope ?? requestedScope;
+  const inScope = reports.filter((r) => r.scope === scope);
+  /*
+   * With no report asked for, open this scope's newest night — not the newest
+   * night overall, which `getRaidReport` would pick and which could be a pug
+   * raid. `reports` is already newest first.
+   */
+  const openCode = requested ?? inScope[0]?.report.code;
 
   let raid: RaidReportView | null = null;
   let priceOverrides: Record<string, ConsumablePrice> = {};
@@ -126,8 +150,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   let policy: GuildPolicy = DEFAULT_POLICY;
 
   if (seasonMode) {
+    // This heading's nights and no others: a rollup that mixed the guild's
+    // gold with a pug's would be the number this whole setting exists to stop.
     const built = await Promise.all(
-      reports.map(async ({ report }): Promise<SeasonReportInput | null> => {
+      inScope.map(async ({ report }): Promise<SeasonReportInput | null> => {
         const view = await repo.getRaidReport(report.code);
         if (!view) return null;
         const [overrides, reportAdjustments, reportPayback] = await Promise.all([
@@ -166,7 +192,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
       ),
     );
   } else {
-    raid = await repo.getRaidReport(requested);
+    raid = await repo.getRaidReport(openCode);
     priceOverrides = raid ? await repo.getReportConsumablePrices(raid.report.code) : {};
     adjustments = raid ? await repo.getReportConsumableAdjustments(raid.report.code) : [];
     payback = raid ? await repo.getReportPayback(raid.report.code) : EMPTY_PAYBACK;
@@ -230,19 +256,28 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
         />
       ) : (
         <>
-          <ReportPicker reports={reports} activeCode={seasonMode ? "all" : raid?.report.code} />
+          <ReportPicker
+            reports={reports}
+            scope={scope}
+            activeCode={seasonMode ? "all" : raid?.report.code}
+          />
           {seasonMode ? (
             seasonInputs.length > 0 ? (
               <SeasonDashboard reports={seasonInputs} roster={seasonRoster} policy={policy} />
             ) : (
               <EmptyState
-                title="Nothing to rank yet"
-                description="The imported reports don't have per-player rows to aggregate. Re-fetch them once Warcraft Logs has finished parsing."
+                title={`Nothing to rank under ${raidScopeLabel(scope)}`}
+                description={
+                  inScope.length === 0
+                    ? "No report is filed here yet. Any imported report can be, on the Warcraft Logs tab of the import page."
+                    : "These reports don't have per-player rows to aggregate. Re-fetch them once Warcraft Logs has finished parsing."
+                }
               />
             )
           ) : raid ? (
             <RaidDashboard
               raid={raid}
+              scope={scope}
               priceOverrides={priceOverrides}
               adjustments={adjustments}
               board={board}
@@ -266,30 +301,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
   );
 }
 
-/** Raid switcher: an "All raids" season option plus one pill per imported night. */
-function ReportPicker({ reports, activeCode }: { reports: WclReportList; activeCode?: string }) {
-  const pill = "rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-accent";
-  const activePill = "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary";
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Link href="/logs?report=all" className={cn(pill, activeCode === "all" && activePill)}>
-        All raids
-      </Link>
-      {reports.map(({ report: r }) => (
-        <Link
-          key={r.code}
-          href={`/logs?report=${encodeURIComponent(r.code)}`}
-          className={cn(pill, r.code === activeCode && activePill)}
-        >
-          {format(parseISO(r.startTime), "d MMM")} · {r.zone ?? r.title}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 function RaidDashboard({
   raid,
+  scope,
   priceOverrides,
   adjustments,
   board,
@@ -302,6 +316,8 @@ function RaidDashboard({
   prepScope,
 }: {
   raid: RaidReportView;
+  /** Whose night this was — a non-guild one says so, in the card's own header. */
+  scope: RaidScope;
   priceOverrides: Record<string, ConsumablePrice>;
   adjustments: ConsumableAdjustment[];
   board: Board;
@@ -331,7 +347,21 @@ function RaidDashboard({
           <CardTitle className="flex flex-wrap items-center gap-2">
             {report.title}
             {report.zone && <Badge variant="secondary">{report.zone}</Badge>}
+            {/* Only when it isn't the guild's. Badging every guild night with
+                the word "Guild" would be a column of noise on the reading
+                nobody needs told. */}
+            {!isGuildScope(scope) && (
+              <Badge variant="warning" title="Filed on the import page.">
+                {raidScopeLabel(scope)}
+              </Badge>
+            )}
           </CardTitle>
+          {!isGuildScope(scope) && (
+            <p className="text-xs text-warn-ink">
+              Everything below is this night in full. None of it counts towards anyone&apos;s
+              attendance, gold per raid or performance — only guild raids do.
+            </p>
+          )}
           <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             {format(parseISO(report.startTime), "EEE d MMM yyyy")} · {prep.raiders} raiders ·{" "}
             {kills}/{counted.length} bosses killed

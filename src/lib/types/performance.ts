@@ -5,6 +5,7 @@
  * there, not from this file, so a type moving between domains costs nothing.
  */
 
+import type { RaidScope } from "@/lib/analysis/raid-scope";
 import type { AttendanceSummary } from "./roster";
 import type { Character, RaidSession, WclPlayerFight, WclPlayerOffPull, WclReport, WclRole } from "./entities";
 
@@ -78,6 +79,17 @@ export interface CharacterPerformance {
 export interface WclReportView {
   report: WclReport;
   session?: RaidSession;
+  /**
+   * Whose night this was. `guild` unless an officer said otherwise, and the
+   * only value that counts towards attendance, gold or performance.
+   */
+  scope: RaidScope;
+  /**
+   * The raids this night actually ran, from its bosses — the picker's sections.
+   * Empty when nothing matched `TBC_RAIDS`. Deliberately not `report.zone`,
+   * which is free text an officer typed; see `raidsOfEncounters`.
+   */
+  raids: string[];
   playerCount: number;
   encounterCount: number;
   killCount: number;

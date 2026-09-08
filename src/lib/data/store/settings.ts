@@ -1,4 +1,5 @@
 import { emptyBoard, type Board, type GuildRoster } from "@/lib/analysis/raid-planner";
+import { DEFAULT_RAID_SCOPE, type RaidScope } from "@/lib/analysis/raid-scope";
 import type {
   ConsumableAdjustment,
   ConsumablePrice,
@@ -42,6 +43,10 @@ export function settingViews(ctx: StoreContext) {
 
     async getReportExcludedFights(code: string): Promise<number[]> {
       return config.excludedFightsByCode?.[code] ?? [];
+    },
+
+    async getReportScope(code: string): Promise<RaidScope> {
+      return config.reportScopeByCode?.[code] ?? DEFAULT_RAID_SCOPE;
     },
 
     // Per-report prices are persisted config, not entity-store data — the

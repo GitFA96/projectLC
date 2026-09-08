@@ -2,6 +2,7 @@ import type { MembersView } from "@/lib/analysis/members";
 import type { GuildVisibility, PublicProfile } from "@/lib/analysis/public-profile";
 import type { SuccessionState } from "@/lib/auth/succession";
 import type { Board, GuildRoster } from "@/lib/analysis/raid-planner";
+import type { RaidScope } from "@/lib/analysis/raid-scope";
 import type { EnchantReference } from "@/lib/analysis/enchants";
 import type { PrioritySheetDocument } from "@/lib/loot/priority-sheet";
 import type { BossDropDraft, MergedDrop } from "@/lib/loot/drop-table";
@@ -243,6 +244,12 @@ export interface Repo {
    * means the whole night counts — see WriteRepo.setReportExcludedFights.
    */
   getReportExcludedFights(code: string): Promise<number[]>;
+  /**
+   * Whose night one report was — the guild's, a community one-off, or a pug.
+   * `"guild"` unless an officer said otherwise, which is what every report
+   * imported before this setting existed reads as.
+   */
+  getReportScope(code: string): Promise<RaidScope>;
   /**
    * An officer's corrections to what one raid's logs say each raider used —
    * the counts, not the prices. Empty when nobody has changed anything.
@@ -904,6 +911,16 @@ export interface WriteRepo extends Repo {
    * whole night again.
    */
   setReportExcludedFights(code: string, fightIds: number[]): Promise<void>;
+  /**
+   * Say whose night a report was. Only `"guild"` feeds attendance, gold per
+   * raid, performance and the loot scores built on them; the other scopes keep
+   * the whole report and read on their own heading in the raid logs.
+   *
+   * Setting it back to `"guild"` clears the record rather than storing the
+   * default, so an unclassified report and a deliberately guild one are the
+   * same row — which is the point: they mean the same thing.
+   */
+  setReportScope(code: string, scope: RaidScope): Promise<void>;
   /**
    * Replace a raid's hand corrections to consumable counts. Each entry adds or
    * removes uses for one raider and one consumable; an empty list hands the

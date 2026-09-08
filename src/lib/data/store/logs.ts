@@ -29,7 +29,7 @@ import type { StoreContext } from "./context";
  */
 
 export function logViews(ctx: StoreContext) {
-  const { config, charactersById, consumableNames, items, policy, pullsByReport, sessionsById, simPullsOf, simSpecs, wclPlayerFights, wclPlayerOffPull, wclReports, wclRowCharacterId } = ctx;
+  const { config, charactersById, consumableNames, guildReports, items, policy, pullsByReport, raidsOfReport, scopeOfReport, sessionsById, simPullsOf, simSpecs, wclPlayerFights, wclPlayerOffPull, wclReports, wclRowCharacterId } = ctx;
   return {
     async listWclReports(): Promise<WclReportView[]> {
       return [...wclReports]
@@ -39,6 +39,9 @@ export function logViews(ctx: StoreContext) {
           return {
             report,
             session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
+            scope: scopeOfReport(report.code),
+            // From the bosses, never from `report.zone` — see raidsOfEncounters.
+            raids: raidsOfReport(report.code),
             playerCount: new Set(rows.map((r) => r.actorName.toLowerCase())).size,
             encounterCount: new Set(rows.map((r) => r.encounterId)).size,
             killCount: new Set(rows.filter((r) => r.kill).map((r) => r.fightId)).size,
@@ -85,12 +88,22 @@ export function logViews(ctx: StoreContext) {
       return wclPlayerFights.filter((r) => r.reportCode === reportCode && r.fightId === fightId);
     },
 
+    /**
+     * Names in the logs that no roster character answers to — the prompt to add
+     * somebody, or to link a rename.
+     *
+     * Guild nights only. A pug or a one-off is twenty-odd strangers by
+     * definition, and listing them here would bury the one raider this is
+     * actually about under a queue nobody can finish. They are still on their
+     * own night's page, under its own heading.
+     */
     async listUntrackedLogPlayers(): Promise<UntrackedLogPlayer[]> {
-      const reportStart = new Map(wclReports.map((r) => [r.code, r.startTime]));
+      const reportStart = new Map(guildReports.map((r) => [r.code, r.startTime]));
       const byName = new Map<string, UntrackedLogPlayer>();
       const codesByName = new Map<string, Set<string>>();
       for (const row of wclPlayerFights) {
         if (wclRowCharacterId(row) !== null) continue;
+        if (!reportStart.has(row.reportCode)) continue;
         const key = row.actorName.toLowerCase();
         const seen = reportStart.get(row.reportCode) ?? "";
         const codes = codesByName.get(key) ?? new Set<string>();

@@ -2,6 +2,7 @@ import {
   getRefusedItemNames,
   getAllConsumableAdjustments,
   getAllExcludedFights,
+  getAllReportScopes,
   getDb,
   getEnchantNames,
   getReportConsumableAdjustments,
@@ -21,6 +22,7 @@ import {
   listStrandedSimSettings,
   getAbilities,
   getReportExcludedFights,
+  getReportScope,
   membershipLastSeenByGuild,
   loadStore,
 } from "@/lib/data/db";
@@ -95,6 +97,7 @@ export const readMethods: Repo = {
   listGuildRosters: async () => listGuildRosters(getDb()),
   getGuildRoster: async (id) => getGuildRoster(getDb(), id),
   getReportExcludedFights: async (code) => getReportExcludedFights(getDb(), code),
+  getReportScope: async (code) => getReportScope(getDb(), code),
   /*
    * The spec index is counted off the pull rows in the read model; whether a
    * setup is saved for a spec lives in the meta table. Neither knows about the
@@ -210,6 +213,7 @@ export const readMethods: Repo = {
     const before = await readModel().repo.measureRoster();
     const proposed = createRepoFromStore(loadStore(db), {
       excludedFightsByCode: getAllExcludedFights(db),
+      reportScopeByCode: getAllReportScopes(db),
       policy: merged,
       itemPriorityRules: getItemPriorityRules(db),
       prioritySheetsByPhase: getPrioritySheets(db),

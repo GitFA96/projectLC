@@ -433,6 +433,7 @@ namespaced key. The ones that exist:
 |---|---|
 | `consumable_prices:<code>` | `setReportConsumablePrices` |
 | `excluded_fights:<code>` | `setReportExcludedFights` |
+| `report_scope:<code>` | `setReportScope` (absent = a guild raid; see §3a) |
 | `consumable_adjustments:<code>` | `setReportConsumableAdjustments` |
 | `gold_payback:<code>` | `setReportPayback` |
 | `raid_board:<code>` | `setRaidBoard` |
@@ -688,6 +689,54 @@ and a sanitizer that drops junk on read — so a hand-edited or stale row can
 never crash a page. Follow the existing shape rather than inventing another
 pattern, and add the key to the table above.
 
+## 3a. Whose night a report was
+
+**Chain:** `analysis/raid-scope.ts` → `db/meta/scopes.ts` (`report_scope:<code>`)
+→ `StoreConfig.reportScopeByCode` → **both** config assemblies in
+`sqlite-repo/` → `scopeOfReport` / `guildReports` in `store/context.ts` →
+`careerRowsOf` **and** `computeAttendance` → the season branch of
+`app/logs/page.tsx`.
+
+A log records pulls and never whose raid it was: the guild's Wednesday and a
+Sunday pug are the same columns. So the scope is an officer's statement, filed
+on the import page, and it is the report-level twin of `characters.status` —
+§5i answers the same question one raider at a time.
+
+**Only `guild` counts.** A one-off or a pug keeps every row and reads on its own
+heading in the raid logs; it feeds nobody's attendance, gold per raid or
+performance. Nothing is deleted, which is invariant 6 applied to a night rather
+than to a raider — the alternative on offer was removing the import, and a night
+that happened has to stay explainable.
+
+Four things that are easy to get wrong, all of which the tests now pin:
+
+- **Attendance needs both sides of the fraction.** Filtering the rows alone
+  takes a raider's pug pulls out of their record and leaves the pug night in the
+  count of raids they could have attended — so tagging one night drops the whole
+  roster's attendance. `computeAttendance` reads `guildReports` for its
+  denominator for exactly this reason.
+- **Both config assemblies, not one.** `sqlite-repo/model.ts` builds the live
+  read model and `previewGuildPolicy` in `reads.ts` builds a throwaway one. A
+  scope missing from the second makes the policy preview measure the roster
+  against nights the real page doesn't count, and the preview's whole claim is
+  that it cannot drift from what saving would do.
+- **Accounting is scoped; evidence is not.** Attendance, gold, performance and
+  the loot scores built on them count guild nights only. What a log *proves*
+  about a person or an item — a thrown sapper (§2a), a gear snapshot, which spec
+  somebody played — counts every night, because a pug raid proves the same fact
+  a guild raid does. `explosiveThrowsOf` says so where it would otherwise look
+  like an oversight.
+- **The default writes nothing.** An absent row is a guild raid, so every report
+  imported before this existed reads as it always did, and setting a night back
+  to Guild deletes the row rather than storing the word. A column on
+  `wcl_reports` would have been the §2 `INSERT OR REPLACE` trap on the one
+  button an officer presses to keep an old import current: `saveWclReport`
+  replaces the report wholesale, so a refetch would silently reset it.
+
+`listUntrackedLogPlayers` is scoped too, for a different reason: a pug is twenty
+strangers by definition, and a roster prompt nobody can finish is a prompt
+officers learn to ignore.
+
 ## 4. Any write, ever
 
 **Chain:** write via `WriteRepo` → `bumpDataVersion(db)` → `refreshAfterWrite(path)`.
@@ -940,6 +989,10 @@ leaving them in the totals, which reads as a missing row rather than an error.
 
 `inactive` is deliberately inside the guild. They raided with us and their
 nights still have to add up — §6 of the invariants, one page down.
+
+The report-level version of this question is §3a, and the two compose: a night
+tagged `pug` is out entirely, and within a guild night `isGuildCharacter` still
+decides which spend was ours.
 
 ## 4f2. A lookup queue must record what it already asked
 
