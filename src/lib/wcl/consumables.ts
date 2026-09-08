@@ -244,6 +244,21 @@ const AURA_DEFS: AuraDef[] = [
   /* Off-slot consumables (stack with everything — sweaty-raider tells) */
   { label: "Bogling Root", category: "misc", ids: [5665], buffNames: ["Fury of the Bogling"] },
   { label: "Kreeg's Stout Beatdown", category: "misc", ids: [22790] },
+  /*
+   * Goldenmist Special Brew — +70 max health for an hour, which is why it sits
+   * up across a whole night rather than being pressed on a pull. Off-slot and
+   * stacking, so it belongs beside Kreeg's rather than in the food bucket: it
+   * applies its own name, not "Well Fed".
+   *
+   * Probed on this guild's 27 Aug BT/MH report (JYyaWqR9N7QpfCtL), not
+   * remembered: 206 pull snapshots carried it across 11 raiders, against 9
+   * casts and 3 applybuff inside boss pulls — the shape of a drink taken
+   * between pulls. Wowhead's tooltip for spell 29348 calls it an "Item Effect"
+   * spelled exactly as the item, so label and aura agree and there is no second
+   * entry for them to split against (§5f). Item 29348 is The Bladefist; the id
+   * here is the spell.
+   */
+  { label: "Goldenmist Special Brew", category: "misc", ids: [29348] },
   // Situational engineering/herb DPS consumables — off-slot, stack with elixirs.
   { label: "Flame Cap", category: "misc", ids: [28714] },
   { label: "Eye of the Night", category: "misc", ids: [31033] },

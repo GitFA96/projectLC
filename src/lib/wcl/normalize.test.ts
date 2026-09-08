@@ -159,6 +159,10 @@ const combatantInfo = [
       // Class buffs are filtered from the dump; genuine unknowns stay in it.
       { name: "Greater Blessing of Kings", ability: 25898 },
       { name: "Mystery Brew", ability: 424242 },
+      // Curated off-slot brew: classified, so it never reaches the dump.
+      { name: "Goldenmist Special Brew", ability: 29348 },
+      // Already tracked as a CAST — a known item on its buff side, not a find.
+      { name: "Nightmare Seed", ability: 28726 },
     ],
     gear: gear({ 4: { permanentEnchant: null } }),
   },
@@ -376,6 +380,25 @@ describe("normalizeWclReport", () => {
     // …and neither do curated class buffs or tracked upkeep auras.
     expect(result.unclassifiedAuras.some((a) => a.name === "Greater Blessing of Kings")).toBe(false);
     expect(result.unclassifiedAuras.some((a) => a.name === "Commanding Shout")).toBe(false);
+  });
+
+  it("keeps a cast-tracked item out of the dump, so it is never curated twice", () => {
+    /*
+     * Nightmare Seed is in the cast list and priced there. Offering it as an
+     * unrecognized aura is how it ends up curated as one too — and `row.extras`
+     * is priced as a prep line of `1 + deaths`, which bills one 30-second combat
+     * item a second time. The dump must not suggest that repair.
+     */
+    expect(result.unclassifiedAuras.some((a) => a.abilityId === 28726)).toBe(false);
+    // It is suppressed from the DUMP only — the cast still counts.
+    expect(row(9, "Thrainn").otherCasts).toEqual(["Nightmare Seed"]);
+    // And it stays out of the prep bucket that would double-bill it.
+    expect(row(7, "Pyrelia").extras).not.toContain("Nightmare Seed");
+  });
+
+  it("classifies the Goldenmist brew as an off-slot extra rather than dumping it", () => {
+    expect(result.unclassifiedAuras.some((a) => a.abilityId === 29348)).toBe(false);
+    expect(row(7, "Pyrelia").extras).toContain("Goldenmist Special Brew");
   });
 
   it("captures the worn-gear snapshot per pull", () => {

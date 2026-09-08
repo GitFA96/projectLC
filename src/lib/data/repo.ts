@@ -48,6 +48,7 @@ import type {
   ItemContention,
   ItemDemand,
   ItemPriorityRule,
+  LogPlayerPerformance,
   LootAward,
   LootPriorityWeights,
   Phase,
@@ -121,6 +122,19 @@ export interface Repo {
   listWclReports(): Promise<WclReportView[]>;
   /** Per-report performance + career rollup for one character (null = unknown character). */
   getCharacterPerformance(slug: string): Promise<CharacterPerformance | null>;
+  /**
+   * The same per-night record for a bare logged name — every scope, no roster
+   * character, null when no imported pull carries that name.
+   *
+   * Deliberately a second reader rather than an argument on the one above.
+   * `getCharacterPerformance` answers "how is this raider doing here", which is
+   * a guild question with a guild answer: guild nights, and a career a raider
+   * argues with. This answers "what do the logs say about this person", which
+   * is the same evidence with none of the accounting, for somebody the guild
+   * may never have tracked. Folding them into one function with a flag would
+   * put the two meanings one typo apart. See change-chains §3a.
+   */
+  getLogPlayerPerformance(name: string): Promise<LogPlayerPerformance | null>;
   /** Raid-wide rollup of one report (defaults to the latest); null when no reports. */
   getRaidReport(code?: string): Promise<RaidReportView | null>;
   /**
@@ -952,6 +966,20 @@ export interface WriteRepo extends Repo {
    * same row — which is the point: they mean the same thing.
    */
   setReportScope(code: string, scope: RaidScope): Promise<void>;
+  /**
+   * The same, for several reports at once — the checkbox flow on the imported
+   * list.
+   *
+   * One transaction and **one** version bump, not one per report: the scope
+   * decides which nights attendance and performance are built from, so a loop
+   * over the single writer would rebuild the whole read model once per report
+   * and recount every raider's attendance five times to answer it once.
+   *
+   * Returns how many rows actually moved. A report already on that scope is
+   * not a failure and is simply not counted — the officer selected a range and
+   * some of it was already right.
+   */
+  setReportScopes(codes: string[], scope: RaidScope): Promise<number>;
   /**
    * Replace a raid's hand corrections to consumable counts. Each entry adds or
    * removes uses for one raider and one consumable; an empty list hands the

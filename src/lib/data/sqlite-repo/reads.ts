@@ -86,6 +86,7 @@ export const readMethods: Repo = {
   getDashboard: () => readModel().repo.getDashboard(),
   listWclReports: () => readModel().repo.listWclReports(),
   getCharacterPerformance: (slug) => readModel().repo.getCharacterPerformance(slug),
+  getLogPlayerPerformance: (name) => readModel().repo.getLogPlayerPerformance(name),
   getRaidReport: (code) => readModel().repo.getRaidReport(code),
   getComparison: (slugs, reportFilter) => readModel().repo.getComparison(slugs, reportFilter),
   listUntrackedLogPlayers: () => readModel().repo.listUntrackedLogPlayers(),

@@ -26,6 +26,7 @@ import type {
   RaidFight,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { logPlayerGearHref } from "@/components/logs/log-player-url";
 
 import {
   comparePrepRows,
@@ -1400,14 +1401,24 @@ function Enchants({
     </>
   );
 
-  if (slug === undefined) {
-    return <span title={`${name} isn't matched to a roster character`}>{badge}</span>;
-  }
+  /*
+   * Both records carry the same gear audit at the same anchor, so an unmatched
+   * name opens its own rather than dead-ending — this badge is the shortest
+   * route to "which slots are bare", and a pug's are as answerable as a main's.
+   */
   return (
     <Link
-      href={`/characters/${encodeURIComponent(slug)}/performance?report=${encodeURIComponent(reportCode)}#enchants`}
+      href={
+        slug === undefined
+          ? logPlayerGearHref(name, reportCode)
+          : `/characters/${encodeURIComponent(slug)}/performance?report=${encodeURIComponent(reportCode)}#enchants`
+      }
       className="hover:underline"
-      title={`${title} — open the gear audit`}
+      title={
+        slug === undefined
+          ? `${title} — open the gear audit (${name} isn't on the roster)`
+          : `${title} — open the gear audit`
+      }
     >
       {badge}
     </Link>

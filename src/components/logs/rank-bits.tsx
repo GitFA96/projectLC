@@ -3,6 +3,7 @@ import { CLASS_TEXT_COLORS } from "@/lib/constants/wow";
 import type { WowClass } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { logPlayerHref } from "@/components/logs/log-player-url";
 
 /**
  * Small presentational bits shared by the raid-log rankings — server boards and
@@ -16,24 +17,28 @@ export function classColor(className?: string): string | undefined {
     : undefined;
 }
 
-/** Class-colored raider name, linking matched roster characters to their logs. */
+/**
+ * Class-colored raider name, always a link — the question behind a name in a
+ * board is "how did they play", and every name can now answer it.
+ *
+ * Where it goes says which record exists. A matched name goes to the roster
+ * character's performance page, the guild's own account of them. An unmatched
+ * one goes to `/logs/player/<name>`, which reads the same pulls and counts
+ * towards nothing; that used to be a `<span>` with a tooltip explaining why
+ * there was nowhere to click, which is a dead end on the one row an officer
+ * looking at a pug night most wants to open.
+ */
 export function Raider({ name, slug, className }: { name: string; slug?: string; className?: string }) {
   const color = classColor(className);
-  if (slug) {
-    return (
-      <Link
-        href={`/characters/${encodeURIComponent(slug)}/performance`}
-        className="font-medium hover:underline"
-        style={color ? { color } : undefined}
-      >
-        {name}
-      </Link>
-    );
-  }
   return (
-    <span className="font-medium" style={color ? { color } : undefined} title="Not matched to a roster character">
+    <Link
+      href={slug ? `/characters/${encodeURIComponent(slug)}/performance` : logPlayerHref(name)}
+      className="font-medium hover:underline"
+      style={color ? { color } : undefined}
+      title={slug ? undefined : `${name} isn't on the roster — read their logged pulls`}
+    >
       {name}
-    </span>
+    </Link>
   );
 }
 

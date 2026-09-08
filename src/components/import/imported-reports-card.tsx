@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { ExternalLink, Loader2, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
   deleteWclReportsAction,
   refetchWclReport,
   setWclReportScopeAction,
+  setWclReportScopesAction,
   updateWclReportMetaAction,
 } from "@/app/guild/import/wcl-actions";
 import {
@@ -35,6 +37,8 @@ import { cn } from "@/lib/utils";
 import { ActionResultLine, DangerButton, useRosterAction } from "@/components/roster-actions";
 import { type ImportedReport } from "@/components/import/import-shared";
 import { RefetchFailures, RefetchStatus, type QueueItem } from "@/components/import/import-queue";
+import { nightHref } from "@/components/logs/raid-filter-url";
+
 /**
  * Whose night this was — the one control that takes a whole log out of the
  * guild's record.
@@ -80,6 +84,45 @@ function ScopePicker({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/**
+ * File every selected report under one scope.
+ *
+ * Buttons rather than the row's select, and the difference is the point: a
+ * select shows what something *is*, and a selection of five reports has no one
+ * scope to show — a control reading "Pug" over a mixed set would be stating
+ * something false. These read as what they do. Three short labels also fit
+ * without a menu, so the options stay visible instead of costing a press to
+ * discover.
+ */
+function BulkScope({
+  count,
+  busy,
+  onPick,
+}: {
+  count: number;
+  busy: boolean;
+  onPick: (scope: RaidScope) => void;
+}) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <span className="text-xs text-muted-foreground">File {count} as</span>
+      {RAID_SCOPES.map((s) => (
+        <Button
+          key={s.scope}
+          size="sm"
+          variant="outline"
+          className="h-7"
+          disabled={busy}
+          title={s.blurb}
+          onClick={() => onPick(s.scope)}
+        >
+          {s.label}
+        </Button>
+      ))}
+    </span>
   );
 }
 
@@ -151,7 +194,17 @@ function ImportedReportRow({
           </span>
         ) : (
           <>
-            <span className="text-sm font-medium">{r.title}</span>
+            {/* The name opens the night this report became — the app's own page
+                for it, not Warcraft Logs'. An officer checking a fresh import is
+                one press from the pulls, parses and gold it produced; the code
+                beside it still goes to the source. */}
+            <Link
+              href={nightHref(r.code, [])}
+              title={`Open ${r.title} in the raid logs`}
+              className="text-sm font-medium underline-offset-2 hover:underline"
+            >
+              {r.title}
+            </Link>
             {r.zone && <span className="ml-2 text-xs text-muted-foreground">{r.zone}</span>}
             {/* This night's own record of what the app couldn't place, asked
                 against today's tables. Only appears when re-importing would
@@ -323,9 +376,24 @@ export function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) 
                 Remove {selected.length} selected
               </DangerButton>
             )}
+            {selected.length > 0 && (
+              <BulkScope
+                count={selected.length}
+                busy={busy}
+                onPick={(scope) => {
+                  const codes = selected;
+                  // Cleared on the way out: the rows stay, now showing their new
+                  // scope, and leaving them ticked would leave "Remove N
+                  // selected" armed over a job that is already done.
+                  setSelected([]);
+                  run(() => setWclReportScopesAction({ codes, scope }));
+                }}
+              />
+            )}
           </span>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
+          Click a report&apos;s name to open that night in the raid logs.{" "}
           <strong>Refetch</strong> pulls a report again from Warcraft Logs, keeping its name, raid
           label and linked session — that&apos;s how an older import gains anything the app has
           learned to track since. Removing one deletes its pulls,
@@ -340,7 +408,8 @@ export function ImportedReportsCard({ reports }: { reports: ImportedReport[] }) 
           <a href="/logs" className="underline underline-offset-2 hover:text-foreground">
             raid logs
           </a>
-          . Nothing is deleted, and putting it back to Guild counts it again.
+          . Nothing is deleted, and putting it back to Guild counts it again. Tick several
+          reports to file them all at once.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">

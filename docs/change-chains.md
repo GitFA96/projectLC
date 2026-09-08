@@ -100,6 +100,18 @@ and at five stacks for 90% of it, from the same row. Inside a window the stack
 opens at 1, because the log only numbers stacks from 2 up — so a re-application
 after a drop starts over and must not inherit the previous window's five.
 
+**An item tracked as a cast must not also be curated as an aura.** The two
+paths are priced separately and they add up: a cast becomes an in-fight
+breakdown line, while a `misc` aura lands in `row.extras`, which `raid-report`
+prices as a *prep* line of `1 + deaths`. Curate one item on both sides and the
+gold page bills it twice, with nothing to flag it — a 30-second combat item
+charged as though it were a flask. This is not hypothetical: Nightmare Seed sat
+in the cast list and showed up in the aura dump anyway, which is exactly the
+repair the dump appears to be asking for. `normalize.ts` now drops any aura
+whose id `classifyCast` already knows, so the dump can no longer suggest it.
+The suppression is **dump-only** — no row changes either way — and it is by id,
+because `classifyCast`'s name fallback would reach past the curated list.
+
 **Death recaps are fetched per pull, not per death or per night.** Per death is
 ~97 queries on a quiet night against an import that otherwise costs about seven;
 the whole night unfiltered is ~5,000 events in the first page alone and pages
@@ -433,7 +445,7 @@ namespaced key. The ones that exist:
 |---|---|
 | `consumable_prices:<code>` | `setReportConsumablePrices` |
 | `excluded_fights:<code>` | `setReportExcludedFights` |
-| `report_scope:<code>` | `setReportScope` (absent = a guild raid; see §3a) |
+| `report_scope:<code>` | `setReportScope` / `setReportScopes` (absent = a guild raid; see §3a) |
 | `consumable_adjustments:<code>` | `setReportConsumableAdjustments` |
 | `gold_payback:<code>` | `setReportPayback` |
 | `raid_board:<code>` | `setRaidBoard` |
@@ -736,6 +748,29 @@ Four things that are easy to get wrong, all of which the tests now pin:
 `listUntrackedLogPlayers` is scoped too, for a different reason: a pug is twenty
 strangers by definition, and a roster prompt nobody can finish is a prompt
 officers learn to ignore.
+
+**One read is deliberately unscoped, and it is the exception that proves the
+rule.** `getLogPlayerPerformance` — behind `/logs/player/<name>` — reads every
+scope, because it is keyed by a logged *name* rather than a character and exists
+for people whose nights are pug nights: filtering it to `guildReports` the way
+`careerRowsOf` does would leave it permanently empty for exactly the raider it
+is for. That is safe only because nothing downstream reads it. It joins to no
+character, so there is no attendance denominator, no standing row, no gold per
+raid and no loot score to move; the page states as much in its first paragraph.
+Two things follow for anyone changing it. **Never widen it into
+`getCharacterPerformance`** — the two answer different questions ("what do the
+logs say about this person" versus "how is this raider doing here") and a flag
+between them puts the guild's own record one typo from a pug's. And **anything
+new that consumes it must be evidence, not accounting**: the moment a figure
+built from this read reaches a page that also shows roster numbers, a pug night
+is counted, which is the one thing §3a exists to prevent.
+
+**A bulk scope write is one transaction and one bump, not one per report.**
+`setReportScopes` exists only for that: the scope decides which nights
+attendance and performance are built from, so looping the single writer over
+five reports rebuilds the read model five times and recounts every raider's
+attendance five times to answer it once. The version-bump test pins the count,
+not just that a bump happened.
 
 **The raid filter is a client filter, and the scope is not.** Scope decides what
 the server counts, so it is a link and a re-render. Which raids to *show* is a

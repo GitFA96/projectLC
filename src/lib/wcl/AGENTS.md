@@ -48,6 +48,12 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   without a refetch — the one place that rule doesn't apply. An elixir the list
   doesn't name still counts as coverage (the pattern fallback in `classifyAura`
   catches it) but stays unplaced, and the raid page names it for curation.
+- **The dump must not offer a repair that double-bills.** An aura whose id is
+  already a tracked *cast* is a known item seen on its buff side, not a find —
+  and curating it as an aura too puts it in `row.extras`, which is priced as a
+  prep line of `1 + deaths` on top of the per-cast price. Nightmare Seed was
+  sitting in both places waiting for someone to "finish" it. `normalize` drops
+  those ids from the dump; see [change-chains §1](../../../docs/change-chains.md).
 - **A pet has no `combatantinfo`, so its consumables live in the buff stream.**
   WCL writes one snapshot per player per pull and none for a pet. The cast that
   applied a scroll or a meal is usually not logged either — both happen *between*

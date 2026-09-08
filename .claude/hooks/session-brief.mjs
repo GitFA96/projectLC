@@ -56,7 +56,10 @@ try {
     up
       ? `The dev server is answering on :${DEV_PORT}. Build into \`.next-build\` ` +
         "(`NEXT_DIST_DIR=.next-build npm run build`) — a plain build shares `.next` and takes " +
-        "it down, and the symptom is 404s on nested routes rather than an error."
+        "it down, and the symptom is 404s on nested routes rather than an error. " +
+        "This says it is answering, not that it is enforcing: `npm run dev:local` serves " +
+        "every page as an unrestricted viewer, so a page rendering there is no evidence " +
+        "its capability gate works."
       : `Nothing is listening on :${DEV_PORT}, so \`npm run build\` is safe as it stands.`,
   ];
   const planText = plan && planLine(plan);

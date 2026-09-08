@@ -233,6 +233,46 @@ export async function setWclReportScopeAction(input: {
   }
 }
 
+const bulkScopeSchema = z.object({
+  codes: z.array(z.string().min(1)).min(1),
+  scope: z.enum(RAID_SCOPES.map((s) => s.scope) as [string, ...string[]]),
+});
+
+/**
+ * File several reports under one scope — the checkbox flow on the imported list.
+ *
+ * One repo call rather than a loop over the single writer, so the whole batch
+ * is one transaction, one version bump and one read-model rebuild. Looping here
+ * would recount every raider's attendance once per report to answer it once.
+ */
+export async function setWclReportScopesAction(input: {
+  codes: string[];
+  scope: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const parsed = bulkScopeSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "No reports selected." };
+  try {
+    requireCapability(await resolveViewer(), "import.run");
+    const repo = await getWriteRepo();
+    const scope = parsed.data.scope as (typeof RAID_SCOPES)[number]["scope"];
+    const moved = await repo.setReportScopes(parsed.data.codes, scope);
+    if (moved === 0) {
+      return { ok: false, message: "None of those reports are imported any more." };
+    }
+    refreshAfterWrite("/", "layout");
+    const plural = moved === 1 ? "report" : "reports";
+    return {
+      ok: true,
+      message:
+        scope === "guild"
+          ? `${moved} ${plural} counted as guild raids again — attendance, gold and performance include them.`
+          : `${moved} ${plural} filed under ${raidScopeLabel(scope)} — they no longer count towards attendance, gold or performance.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
 /**
  * How many pulls an unknown aura has to appear at before it files itself.
  *

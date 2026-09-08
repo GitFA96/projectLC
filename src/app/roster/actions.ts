@@ -6,7 +6,8 @@ import { equipLoggedGearAction } from "@/app/characters/[name]/current-gear-acti
 import { refreshAfterWrite } from "@/lib/refresh";
 import { requireCapability } from "@/lib/auth/can";
 import { resolveViewer } from "@/lib/auth/viewer";
-import { CHARACTER_STATUSES, WOW_CLASSES, type Role, type WowClass } from "@/lib/constants/wow";
+import { CHARACTER_STATUSES, WOW_CLASSES } from "@/lib/constants/wow";
+import { guessRole } from "@/lib/wcl/roles";
 
 export type RosterActionResult = { ok: boolean; message: string };
 
@@ -149,18 +150,6 @@ const trackPlayersSchema = z.object({
   status: z.enum(["pug", "main"]),
 });
 export type TrackPlayersInput = z.infer<typeof trackPlayersSchema>;
-
-const MELEE_SPECS = new Set(
-  ["arms", "fury", "combat", "assassination", "subtlety", "enhancement", "feral", "retribution"],
-);
-
-/** Best-effort Role from what the log knows; always editable afterwards. */
-function guessRole(wclRole: "tank" | "healer" | "dps" | undefined, wowClass: WowClass, spec?: string): Role {
-  if (wclRole === "tank") return "Tank";
-  if (wclRole === "healer") return "Healer";
-  if (spec && MELEE_SPECS.has(spec.toLowerCase())) return "Melee DPS";
-  return ["Warrior", "Rogue", "Paladin"].includes(wowClass) ? "Melee DPS" : "Ranged DPS";
-}
 
 /**
  * Create characters for names seen in logs (as known puggers, or straight

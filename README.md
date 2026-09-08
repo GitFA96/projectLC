@@ -76,6 +76,14 @@ Then start the server and read the console: it prints a **claim code** once. Tak
 it to `/claim` and you become the first guild master. Everybody after you gets in
 by invitation, issued on `/roster/members`.
 
+Once enforcement is on, `npm run dev:local` is the way back to a server you can
+read without signing in — it runs with `PROJECTLC_AUTH` off **and** bound to
+`127.0.0.1`. Those belong together: `next dev` listens on `0.0.0.0` by default,
+so enforcement off without the binding puts the loot ledger, the audit log and
+the council's notes in front of anyone on your network. Production cannot make
+this mistake — the server refuses to boot with enforcement off when
+`NODE_ENV=production`, and there is no override.
+
 ---
 
 # The pages
@@ -304,6 +312,31 @@ Expand any boss row for that pull's detail.
 The sim comparison used to be a tab here; it lives at [`/sim`](#sim-sim) now,
 because a wowsims setup describes a spec rather than a person. The header keeps a
 **Sim** button that opens it with this raider already chosen.
+
+## Logged pulls `/logs/player/[name]`
+
+The same dashboard for somebody who isn't on the roster — a pug, a one-off's
+raid leader, a trial you haven't added yet. Click any raider's name in a raid
+log and it opens: parses, preparation, class toolkit and gear audit, over every
+night that names them.
+
+Nothing is tracked to show it. There is no character to create and none is
+created; the URL is the name the log spells, the page reads the imported pulls
+under it, and closing the tab leaves nothing behind. That is the point — the
+question "how did that pug actually play" used to cost a roster row per
+stranger.
+
+It is also why the guild's own figures are **absent rather than zero**.
+Attendance has no denominator for somebody nobody expected; standing, gold per
+raid and the loot score are the guild's ledger, and a visitor is not in it. What
+a log *proves* — a parse, a flask, an unenchanted cloak — is the same fact
+whoever's raid it was, and that is the whole page.
+
+Unlike a raider's own page it reads **every heading**, guild nights included: a
+pug's nights are pug nights, and filtering to the guild's own would leave it
+empty for exactly the person it exists to show. A name that *is* on the roster
+opens here too and says so, pointing at their performance page for anything that
+counts.
 
 ## Raid logs `/logs`
 

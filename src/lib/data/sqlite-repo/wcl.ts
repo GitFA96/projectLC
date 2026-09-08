@@ -196,6 +196,22 @@ export const wclWrites = {
     });
   },
 
+  async setReportScopes(codes, scope) {
+    const known = new Set(readModel().store.wclReports.map((r) => r.code));
+    // A code that no longer exists is skipped rather than written: the list is
+    // a client's snapshot, and a report can be deleted between rendering it and
+    // pressing this.
+    const live = [...new Set(codes)].filter((code) => known.has(code));
+    if (live.length === 0) return 0;
+    const db = getDb();
+    withTx(db, () => {
+      for (const code of live) setReportScope(db, code, scope);
+      // Once for the batch — see the note on the single writer.
+      bumpDataVersion(db);
+    });
+    return live.length;
+  },
+
   async setReportConsumableAdjustments(code, adjustments) {
     const db = getDb();
     withTx(db, () => {

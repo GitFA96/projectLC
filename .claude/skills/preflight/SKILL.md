@@ -25,6 +25,23 @@ either side.
 | auth, the build, or the `Dockerfile` | `npm run image` |
 | deployment config or env handling | `npm run doctor` |
 
+## Seeing the page, and what that is worth
+
+`npm run dev:local` is the server with `PROJECTLC_AUTH` off and bound to
+`127.0.0.1` — the way to `curl` a gated page, or to look at one, without a
+Discord session. Use it to check a page renders against real data.
+
+**It cannot tell you the page is gated.** Enforcement is off, so a route that
+forgot its `pageView()` renders exactly like one that did not. `npm run check`
+covers that (`pages.test.ts` enumerates every `page.tsx`); a real anonymous
+response against an enforcing server is `npm run image`. Report what you
+actually verified — "the panels render" is not "the gate works".
+
+The two switches ship together and neither is optional: `next dev` binds
+`0.0.0.0` by default, and auth-off on the network serves the ledger to it.
+Production cannot make this mistake — `boot.ts` refuses to start without
+enforcement and has no override.
+
 **Build into `.next-build` whenever the dev server is up.** They share `.next`
 by default and a build takes the running server down with it — and it does not
 look like that: the server keeps answering top-level routes and 404s every

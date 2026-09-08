@@ -6,8 +6,9 @@ import { ChevronRight } from "lucide-react";
 import type { ConsumableTypeRow } from "@/lib/types";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { logPlayerHref } from "@/components/logs/log-player-url";
 
-/** One provider chip: a class-uncolored name that deep-links when matched. */
+/** One provider chip: a class-uncolored name, deep-linked to whichever record it has. */
 function Provider({ name, slug, count }: { name: string; slug?: string; count: number }) {
   const label = (
     <>
@@ -17,16 +18,14 @@ function Provider({ name, slug, count }: { name: string; slug?: string; count: n
   );
   return (
     <span className="inline-flex whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs">
-      {slug ? (
-        <Link
-          href={`/characters/${encodeURIComponent(slug)}/performance`}
-          className="font-medium hover:underline"
-        >
-          {label}
-        </Link>
-      ) : (
-        <span title="Not matched to a roster character">{label}</span>
-      )}
+      {/* Unmatched names deep-link too, to their logged pulls — see `Raider`. */}
+      <Link
+        href={slug ? `/characters/${encodeURIComponent(slug)}/performance` : logPlayerHref(name)}
+        className="font-medium hover:underline"
+        title={slug ? undefined : `${name} isn't on the roster — read their logged pulls`}
+      >
+        {label}
+      </Link>
     </span>
   );
 }

@@ -434,6 +434,13 @@ const BUMPS: Record<string, WriteCase<unknown>> = {
     // the read model bakes in which those are.
     call: async (repo) => repo.setReportScope(REPORT.code, "pug"),
   }),
+  setReportScopes: write({
+    setup: async (repo) => {
+      await repo.saveWclReport(REPORT, [fight({ actorName: "Pyrelia" })]);
+    },
+    // One bump for the batch, but it still has to be one — see the writer.
+    call: async (repo) => expect(await repo.setReportScopes([REPORT.code], "one-off")).toBe(1),
+  }),
   setReportConsumableAdjustments: write({
     call: async (repo) =>
       repo.setReportConsumableAdjustments(REPORT.code, [

@@ -3153,6 +3153,45 @@ describe("sqlite repo", () => {
         expect((await repo.listWclReports()).map((r) => r.report.code)).toContain(pugNight.code);
       });
 
+      it("files several nights at once, in one version bump", async () => {
+        const repo = getSqliteRepo();
+        const codes = ["SCOPEbulk000001", "SCOPEbulk000002", "SCOPEbulk000003"];
+        for (const code of codes) {
+          await repo.saveWclReport({ ...reportDraft, code }, [
+            fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+          ]);
+        }
+
+        const db = new DatabaseSync(process.env.PROJECTLC_DB!);
+        const version = () =>
+          Number((db.prepare("SELECT value FROM meta WHERE key = 'data_version'").get() as { value: string }).value);
+        const before = version();
+        expect(await repo.setReportScopes(codes, "one-off")).toBe(3);
+        const after = version();
+        db.close();
+
+        // One, not three. The scope decides which nights attendance is built
+        // from, so a bump per report would recount every raider three times.
+        expect(after).toBe(before + 1);
+        const listed = await repo.listWclReports();
+        for (const code of codes) {
+          expect(listed.find((r) => r.report.code === code)!.scope).toBe("one-off");
+        }
+      });
+
+      it("skips a code that is no longer imported rather than failing the batch", async () => {
+        const repo = getSqliteRepo();
+        const live = "SCOPEbulk000004";
+        await repo.saveWclReport({ ...reportDraft, code: live }, [
+          fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+        ]);
+        // The list a client renders is a snapshot; a report can be deleted
+        // between drawing it and pressing this.
+        expect(await repo.setReportScopes([live, "SCOPEgone000001"], "pug")).toBe(1);
+        expect(await repo.getReportScope(live)).toBe("pug");
+        expect(await repo.getReportScope("SCOPEgone000001")).toBe("guild");
+      });
+
       it("keeps a pug night's strangers off the roster prompt", async () => {
         const repo = getSqliteRepo();
         const pugNight = { ...reportDraft, code: "SCOPEuntracked1" };
@@ -3165,6 +3204,106 @@ describe("sqlite repo", () => {
         expect((await repo.listUntrackedLogPlayers()).map((p) => p.name)).not.toContain("Somestranger");
       });
     });
+
+    /*
+     * The un-guilded read: one logged name, every night, nothing tracked.
+     *
+     * Its whole reason to exist is the case `getCharacterPerformance` cannot
+     * answer — somebody with no roster row, whose nights are pug nights — so
+     * these pin both halves: that it reads scopes a career refuses, and that
+     * reading it creates nothing and changes nothing that counts.
+     */
+    describe("a logged name's own record", () => {
+      const pugNight = {
+        ...reportDraft,
+        code: "LOGPLAYERpug001",
+        title: "Sunday pug",
+        startTime: "2026-06-17T19:00:00.000Z",
+        endTime: "2026-06-17T22:30:00.000Z",
+      };
+
+      it("answers for a stranger, on a night the guild does not count", async () => {
+        const repo = getSqliteRepo();
+        await repo.saveWclReport(pugNight, [
+          fightDraft({ fightId: 1, actorName: "Somestranger", parsePercent: 72, className: "Mage" }),
+          fightDraft({ fightId: 2, actorName: "Somestranger", parsePercent: 64, className: "Mage" }),
+        ]);
+        await repo.setReportScope(pugNight.code, "pug");
+
+        // The roster read has nothing to say about them — that is the gap.
+        expect(await repo.getCharacterPerformance("somestranger")).toBeNull();
+
+        const player = (await repo.getLogPlayerPerformance("somestranger"))!;
+        expect(player.name).toBe("Somestranger");
+        expect(player.wowClass).toBe("Mage");
+        expect(player.reports).toHaveLength(1);
+        expect(player.career!.fights).toBe(2);
+        expect(player.scopeByCode[pugNight.code]).toBe("pug");
+        // Nobody's roster row was invented to answer this.
+        expect(player.rosterSlug).toBeUndefined();
+        expect((await repo.listCharacters()).map((s) => s.character.name)).not.toContain(
+          "Somestranger",
+        );
+      });
+
+      it("is null for a name no imported pull carries", async () => {
+        const repo = getSqliteRepo();
+        expect(await repo.getLogPlayerPerformance("nobodyatall")).toBeNull();
+      });
+
+      it("matches the name however it is cased — a URL is not a spelling", async () => {
+        const repo = getSqliteRepo();
+        await repo.saveWclReport(pugNight, [
+          fightDraft({ fightId: 1, actorName: "Somestranger" }),
+        ]);
+        const lower = await repo.getLogPlayerPerformance("somestranger");
+        const shouty = await repo.getLogPlayerPerformance("SOMESTRANGER");
+        expect(lower).not.toBeNull();
+        expect(shouty?.name).toBe(lower?.name);
+      });
+
+      it("reads both scopes for a roster character, and says whose page to read instead", async () => {
+        const repo = getSqliteRepo();
+        // Pyrelia is on the seed roster. One guild night, one pug night.
+        await repo.saveWclReport(reportDraft, [
+          fightDraft({ fightId: 1, actorName: "Pyrelia" }),
+        ]);
+        await repo.saveWclReport(pugNight, [fightDraft({ fightId: 1, actorName: "Pyrelia" })]);
+        await repo.setReportScope(pugNight.code, "pug");
+
+        // The career is the guild's own record and stays that way.
+        const career = (await repo.getCharacterPerformance("pyrelia"))!;
+        expect(career.reports.map((r) => r.report.code)).toEqual([reportDraft.code]);
+
+        const player = (await repo.getLogPlayerPerformance("pyrelia"))!;
+        expect(player.reports.map((r) => r.report.code).sort()).toEqual(
+          [pugNight.code, reportDraft.code].sort(),
+        );
+        expect(player.scopeByCode[reportDraft.code]).toBe("guild");
+        expect(player.scopeByCode[pugNight.code]).toBe("pug");
+        // ...and the page it feeds points at the record that counts.
+        expect(player.rosterSlug).toBe("pyrelia");
+      });
+
+      it("shows an excused pull and counts nothing from it, exactly as a career does", async () => {
+        const repo = getSqliteRepo();
+        await repo.saveWclReport(pugNight, [
+          fightDraft({ fightId: 1, actorName: "Somestranger", parsePercent: 90 }),
+          fightDraft({ fightId: 2, actorName: "Somestranger", parsePercent: 10 }),
+        ]);
+        await repo.setReportScope(pugNight.code, "pug");
+        // An officer excused the farm boss for the night, not for half of it.
+        await repo.setReportExcludedFights(pugNight.code, [2]);
+
+        const player = (await repo.getLogPlayerPerformance("somestranger"))!;
+        const night = player.reports[0];
+        expect(night.rows).toHaveLength(2);
+        expect(night.excusedFightIds).toEqual([2]);
+        expect(night.summary.fights).toBe(1);
+        expect(player.career!.fights).toBe(1);
+      });
+    });
+
 
     it("keeps the unrecognized-aura dump with the report", async () => {
       // It used to live only in the import result: close the tab and the app's

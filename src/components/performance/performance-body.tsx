@@ -1,0 +1,898 @@
+import type * as React from "react";
+import Link from "next/link";
+import { format, parseISO } from "date-fns";
+import { Check, ExternalLink, X } from "lucide-react";
+import { potionNames, potionsUsed, prepotName } from "@/lib/analysis/potions";
+import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/preparation";
+import {
+  consumableTitle,
+  countedList,
+  coverage,
+  fmtAmount,
+  fmtDuration,
+  upkeepAverages,
+  usesOf,
+} from "@/lib/analysis/performance-view";
+import { cooldownsForClass, uptimeTracksForClass } from "@/lib/wcl/class-tracks";
+import { P2_ENCHANT_GUIDE } from "@/lib/wcl/enchants";
+import type { EnchantReference } from "@/lib/analysis/enchants";
+import { gradeWornGems, summarizeGems, type GemSummary } from "@/lib/analysis/gems";
+import type {
+  GearSet,
+  Item,
+  PerformanceReportView,
+  Phase,
+  Role,
+  WclPlayerFight,
+  WclPlayerOffPull,
+  WowClass,
+} from "@/lib/types";
+import { FightRows } from "@/components/performance/fight-rows";
+import { FightGraphPanel } from "@/components/performance/fight-graph";
+import { PerformanceTabs } from "@/components/performance/performance-tabs";
+import { GearTable } from "@/components/gear-table";
+import { SpecBadge } from "@/components/spec-badge";
+import { ParseBadge, parseColor } from "@/components/parse-badge";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import { compareText } from "@/lib/sort";
+
+/**
+ * One night of a player's log record, and the career KPIs above it.
+ *
+ * Everything here is read off the pull rows and nothing else: parses, what was
+ * running at each pull, cooldowns and upkeep, the gear snapshot. That is why it
+ * is a component rather than part of the raider's page — a Warcraft Logs report
+ * proves the same things about a pug as about a main, so the guild's own
+ * `/characters/<name>/performance` and the on-demand `/logs/player/<name>`
+ * render exactly this and differ only in what they wrap it in. A second copy of
+ * these panels would drift the day one of them learned a new consumable.
+ *
+ * What is *not* here is the guild's accounting — attendance, standing, loot,
+ * development. Those need a roster character to mean anything and the raider's
+ * page adds them around this; see change-chains §3a, "accounting is scoped;
+ * evidence is not".
+ */
+export function PerformanceBody({
+  subject,
+  subjectName,
+  wowClass,
+  role,
+  active,
+  itemsById,
+  enchants,
+  ownWishlists,
+  activePhase,
+  attendanceWeeks,
+}: {
+  /**
+   * Whose record this is. Only prose depends on it: two sentences under the
+   * pull table describe guild machinery — excusing farm content, the standing
+   * board — that a logged name is not in, and saying so to somebody reading a
+   * pug's page would be pointing them at a page about somebody else.
+   */
+  subject: "roster" | "logged";
+  /** Shown nowhere on its own; the fight graph's actor fallback. */
+  subjectName: string;
+  wowClass: WowClass;
+  role: Role;
+  /** The night being read. */
+  active: PerformanceReportView;
+  itemsById: Map<number, Item>;
+  enchants: EnchantReference;
+  /** The subject's own wishlists — empty for anyone not on the roster. */
+  ownWishlists: GearSet[];
+  activePhase: Phase;
+  /** Guild-only slot: the attendance strip, between the pulls and consumables. */
+  attendanceWeeks?: React.ReactNode;
+}) {
+  // Pulls an officer excused on the raid page. They stay in the table — the
+  // parse is still worth reading — but nothing on them counts, so the
+  // preparation columns say so rather than showing a cross nobody owes.
+  const excused = new Set(active.excusedFightIds);
+  // The pulls the night's figures are actually built from. `active.summary`
+  // already excludes the excused ones; anything counted here has to agree with
+  // it, or the card under the table contradicts the KPI above it.
+  const countedRows = active.rows.filter((r) => !excused.has(r.fightId));
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-muted-foreground">Median parse</p>
+            <p
+              className="mt-1 text-2xl font-semibold tabular-nums tracking-tight"
+              style={
+                active.summary.medianParse !== undefined
+                  ? { color: parseColor(active.summary.medianParse) }
+                  : undefined
+              }
+            >
+              {active.summary.medianParse ?? "—"}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              ilvl-bracket median {active.summary.medianBracket ?? "—"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-muted-foreground">Best parse</p>
+            <p
+              className="mt-1 text-2xl font-semibold tabular-nums tracking-tight"
+              style={
+                active.summary.bestParse !== undefined
+                  ? { color: parseColor(active.summary.bestParse) }
+                  : undefined
+              }
+            >
+              {active.summary.bestParse ?? "—"}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {active.summary.kills} kill{active.summary.kills === 1 ? "" : "s"},{" "}
+              {active.summary.wipes} wipe{active.summary.wipes === 1 ? "" : "s"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-muted-foreground">Deaths</p>
+            <p
+              className={cn(
+                "mt-1 text-2xl font-semibold tabular-nums tracking-tight",
+                active.summary.deaths > 0 && "text-destructive",
+              )}
+            >
+              {active.summary.deaths}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              across {active.summary.fights} pulls
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-muted-foreground">Prepared</p>
+            <p
+              className={cn(
+                "mt-1 text-2xl font-semibold tabular-nums tracking-tight",
+                active.summary.preparedPct < 80 && "text-warn-ink",
+              )}
+            >
+              {active.summary.preparedPct}%
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              flask/elixirs + food at pull
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-medium text-muted-foreground">Potions / pull</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">
+              {active.summary.potionsPerFight}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {active.summary.prepots} pre-pot{active.summary.prepots === 1 ? "" : "s"} ·{" "}
+              {active.summary.potionsTotal} total
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <PerformanceTabs
+        overview={
+          <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            {active.report.title}
+            {active.report.zone && <Badge variant="secondary">{active.report.zone}</Badge>}
+            {active.summary.spec && (
+              <span className="text-xs font-normal text-muted-foreground">
+                played as{" "}
+                <SpecBadge
+                  spec={active.summary.spec}
+                  wowClass={wowClass}
+                  title="Spec in this report's pulls"
+                />
+              </span>
+            )}
+          </CardTitle>
+          <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            {format(parseISO(active.report.startTime), "d MMM yyyy")}
+            <span
+              title={
+                active.rows.length < active.reportPulls
+                  ? "Missing pulls usually mean a late join or early leave"
+                  : undefined
+              }
+            >
+              · present for {active.rows.length} of {active.reportPulls} boss pulls
+            </span>
+            {active.session && (
+              <>
+                · linked to the{" "}
+                <Link
+                  href={`/loot?session=${encodeURIComponent(active.session.id)}`}
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  {format(parseISO(active.session.date), "d MMM")} loot session
+                </Link>
+              </>
+            )}
+            ·
+            <a
+              href={`https://classic.warcraftlogs.com/reports/${encodeURIComponent(active.report.code)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+            >
+              open on Warcraft Logs <ExternalLink className="h-3 w-3" />
+            </a>
+          </p>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-6" />
+                <TableHead>Boss</TableHead>
+                <TableHead className="w-24">Result</TableHead>
+                <TableHead className="w-20 text-right">Parse</TableHead>
+                <TableHead className="w-20 text-right" title="Percentile within the item-level bracket — gear-adjusted">
+                  Bracket
+                </TableHead>
+                <TableHead className="w-28 text-right">Output</TableHead>
+                <TableHead className="w-16 text-right">Deaths</TableHead>
+                <TableHead className="w-14" title="Flask or at least one elixir at pull">Flask</TableHead>
+                <TableHead className="w-14" title="Well Fed at pull">Food</TableHead>
+                <TableHead className="w-16" title="Consumables used during the pull — potions, healthstones, runes, mana gems, seeds, drums, sapper charges (pre-pot shown as +)">
+                  Used
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <FightRows
+                colSpan={10}
+                rows={active.rows.map((row) => ({
+                  id: row.id,
+                  detail: fightDetail(row),
+                  excused: excused.has(row.fightId),
+                  cells: (
+                    <>
+                      <TableCell>
+                        <span className="text-sm font-medium">{row.encounterName}</span>
+                        <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+                          {fmtDuration(row.durationMs)}
+                        </span>
+                        {row.spec && row.spec !== active.summary.spec && (
+                          <SpecBadge
+                            spec={row.spec}
+                            wowClass={wowClass}
+                            title="Played a different spec on this pull"
+                            className="ml-2"
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {row.kill ? (
+                          <Badge variant="success">Kill</Badge>
+                        ) : (
+                          <Badge variant="warning">
+                            Wipe{row.fightPercentage !== undefined && ` ${Math.round(row.fightPercentage)}%`}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ParseBadge pct={row.parsePercent} />
+                      </TableCell>
+                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                        {row.bracketPercent !== undefined ? Math.round(row.bracketPercent) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">{fmtAmount(row)}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">
+                        {row.deaths > 0 ? (
+                          <span className="font-medium text-destructive">{row.deaths}</span>
+                        ) : (
+                          <span className="text-muted-foreground/50">0</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {excused.has(row.fightId) ? (
+                          <Excused />
+                        ) : (
+                          <Mark
+                            ok={hasConsumableCoverage(row)}
+                            half={elixirCoverage(row).grade === "partial"}
+                            title={consumableTitle(row)}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {excused.has(row.fightId) ? <Excused /> : <Mark ok={hasFood(row)} />}
+                      </TableCell>
+                      <TableCell className="text-sm tabular-nums">
+                        {potionsUsed(row) + row.otherCasts.length + row.sappers > 0 ? (
+                          <span
+                            title={[
+                              ...potionNames(row).map((p, i) =>
+                                i === 0 && row.prepot ? `${p} (pre-pull)` : p,
+                              ),
+                              ...row.otherCasts,
+                              ...(row.sappers > 0 ? [`sapper ×${row.sappers}`] : []),
+                            ].join(", ")}
+                          >
+                            {potionsUsed(row) + row.otherCasts.length + row.sappers}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50">0</span>
+                        )}
+                      </TableCell>
+                    </>
+                  ),
+                }))}
+              />
+            </TableBody>
+          </Table>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Parses are Warcraft Logs percentiles (healers on HPS, tanks within the tank
+            bracket); wipes don&apos;t parse. A <span className="text-success-ink">+</span> in
+            Used means a pre-pot was already running at the pull. Click a row for the
+            pull&apos;s items, cooldowns and upkeep.
+            {subject === "roster" && (
+              <>
+                {" "}
+                Content the guild has stopped gearing for &mdash; last phase&apos;s raid, cleared
+                on the way past &mdash; can be excused from preparation for good on the{" "}
+                <Link href="/" className="underline underline-offset-2">
+                  guild page
+                </Link>
+                ; those pulls still parse and still count as turning up.
+              </>
+            )}
+            {excused.size > 0 && (
+              <>
+                {" "}
+                {excused.size} pull{excused.size === 1 ? " is" : "s are"} greyed out and marked
+                &mdash;: they were excused on the{" "}
+                <Link
+                  href={`/logs?report=${encodeURIComponent(active.report.code)}`}
+                  className="underline underline-offset-2"
+                >
+                  raid page
+                </Link>{" "}
+                and count towards nothing here &mdash; not this report&apos;s figures and not
+                the career rollup{subject === "roster" ? ", and not the standing board" : ""}.
+              </>
+            )}
+          </p>
+        </CardContent>
+      </Card>
+
+      {attendanceWeeks}
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Consumables this report</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              What was actually running at each pull — the cheapest performance there is.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableBody>
+                <ConsumableRows label="Flask" entries={coverage(countedRows, (r) => (r.flask ? [r.flask] : []))} total={countedRows.length} />
+                <ConsumableRows label="Elixirs" entries={coverage(countedRows, (r) => r.elixirs)} total={countedRows.length} />
+                <ConsumableRows label="Scrolls" entries={coverage(countedRows, (r) => r.scrolls)} total={countedRows.length} />
+                <TableRow>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food</TableCell>
+                  <TableCell className="text-sm">Well Fed</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {countedRows.filter((r) => hasFood(r)).length}/{countedRows.length} pulls
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Weapon</TableCell>
+                  <TableCell className="text-sm">Oil / stone / poison / imbue</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {countedRows.filter((r) => r.weaponBuff).length}/{countedRows.length} pulls
+                  </TableCell>
+                </TableRow>
+                <ConsumableRows
+                  label="Potions"
+                  entries={coverage(countedRows, (r) => r.potions)}
+                  total={countedRows.length}
+                  uses={usesOf(countedRows, (r) => r.potions)}
+                />
+                <ConsumableRows
+                  label="In-fight items"
+                  entries={coverage(countedRows, (r) => r.otherCasts)}
+                  total={countedRows.length}
+                  uses={usesOf(countedRows, (r) => r.otherCasts)}
+                />
+                {active.summary.sappers > 0 && (
+                  <TableRow>
+                    <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sappers</TableCell>
+                    <TableCell className="text-sm">Sapper charges thrown</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">×{active.summary.sappers}</TableCell>
+                  </TableRow>
+                )}
+                {countedRows.some((r) => r.extras.length > 0) && (
+                  <ConsumableRows
+                    label="Other buffs"
+                    entries={coverage(countedRows, (r) => r.extras)}
+                    total={countedRows.length}
+                  />
+                )}
+                <OffPullRows offPull={active.offPull} />
+              </TableBody>
+            </Table>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Everything above the divider was up at a boss pull. Off-pull counts are
+              everything else the night held — trash, running back, buffing up — which is
+              where most of a raid actually happens.
+            </p>
+          </CardContent>
+        </Card>
+
+        <ToolkitCard rows={active.rows} />
+      </div>
+
+      <GearPanel
+        rows={active.rows}
+        missingEnchants={active.summary.missingEnchants}
+        itemsById={itemsById}
+        wowClass={wowClass}
+        role={role}
+        ownWishlists={ownWishlists}
+        enchants={enchants}
+        activePhase={activePhase}
+      />
+          </>
+        }
+        graph={
+          <FightGraphPanel
+            code={active.report.code}
+            actorName={active.rows[0]?.actorName ?? subjectName}
+            fights={[...active.rows]
+              .sort((a, b) => a.fightId - b.fightId)
+              .map((r) => ({
+                fightId: r.fightId,
+                encounterName: r.encounterName,
+                kill: r.kill,
+                fightPercentage: r.fightPercentage,
+              }))}
+          />
+        }
+      />
+    </>
+  );
+}
+
+function Mark({ ok, title, half }: { ok: boolean; title?: string; half?: boolean }) {
+  return ok ? (
+    <Check
+      className={cn("h-3.5 w-3.5", half ? "text-warn-ink" : "text-success-ink")}
+      aria-label={title ?? "yes"}
+    />
+  ) : (
+    <X className="h-3.5 w-3.5 text-muted-foreground/40" aria-label={title ?? "no"} />
+  );
+}
+
+/**
+ * A pull the officer took out of the count.
+ *
+ * Deliberately not a tick and not a cross: the question "were they flasked"
+ * has no answer here, because nobody is being asked. A red X on a farm boss
+ * the council already agreed doesn't count is the thing this replaces.
+ */
+function Excused() {
+  return (
+    <span
+      className="text-xs text-muted-foreground/60"
+      title="Excused — this pull was taken out of the count on the raid page, so nothing on it scores"
+    >
+      —
+    </span>
+  );
+}
+
+/** "Haste Potion ×2 · Master Healthstone" from a list with repeats. */
+function UpkeepPct({ pct }: { pct: number }) {
+  return (
+    <span
+      className={cn(
+        "font-medium tabular-nums",
+        pct >= 90 ? "text-success-ink" : pct < 60 ? "text-warn-ink" : undefined,
+      )}
+    >
+      {pct}%
+    </span>
+  );
+}
+
+/** Expanded per-pull detail: items used, cooldowns cast, maintained uptime. */
+function fightDetail(row: WclPlayerFight): React.ReactNode {
+  const sapperEntries = Array<string>(row.sappers).fill("Sapper charge");
+  // The pre-pull potion is listed with the rest, named as what it was rather
+  // than as a separate badge — it is one of the items this pull consumed.
+  const prepot = prepotName(row);
+  const items = [
+    ...(prepot === undefined ? [] : [`${prepot} (pre-pull)`]),
+    ...row.potions,
+    ...row.otherCasts,
+    ...sapperEntries,
+  ];
+  const trackedCds = cooldownsForClass(row.className);
+  const trackedUptime = uptimeTracksForClass(row.className);
+  const hasAnything =
+    items.length > 0 || row.cooldowns.length > 0 || row.upkeep.length > 0 ||
+    trackedCds.length > 0 || trackedUptime.length > 0;
+  if (!hasAnything) return null;
+
+  return (
+    <div className="grid gap-x-8 gap-y-2 text-xs sm:grid-cols-3">
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Items used
+        </p>
+        <p className="mt-0.5">
+          {items.length > 0 ? (
+            countedList(items)
+          ) : (
+            <span className="text-muted-foreground/60">none</span>
+          )}
+        </p>
+      </div>
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Cooldowns
+        </p>
+        <p className="mt-0.5">
+          {row.cooldowns.length > 0 ? (
+            countedList(row.cooldowns)
+          ) : (
+            <span className="text-muted-foreground/60">
+              {trackedCds.length > 0 ? "none of the tracked cooldowns used" : "—"}
+            </span>
+          )}
+        </p>
+      </div>
+      <div>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Upkeep
+        </p>
+        {row.upkeep.length > 0 ? (
+          <p className="mt-0.5 space-x-2">
+            {row.upkeep.map((u) => (
+              <span key={u.name} className="inline-block whitespace-nowrap">
+                {u.name} <UpkeepPct pct={u.pct} />
+              </span>
+            ))}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-muted-foreground/60">
+            {trackedUptime.length > 0 ? "no tracked debuff/buff upkeep detected" : "—"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Pull-length-weighted average upkeep per label across the report's pulls. */
+function ToolkitCard({ rows }: { rows: WclPlayerFight[] }) {
+  const cooldownTotals = usesOf(rows, (r) => r.cooldowns);
+  const upkeep = upkeepAverages(rows);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cooldowns &amp; upkeep this report</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          The class toolkit: major cooldowns cast, and the debuffs/buffs this player kept
+          running. Pulls missing an upkeep drag its average down.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {cooldownTotals.size === 0 && upkeep.size === 0 ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            Nothing tracked in this report. Reports imported before cooldown/upkeep tracking
+            existed need a re-import to backfill.
+          </p>
+        ) : (
+          <Table>
+            <TableBody>
+              {[...cooldownTotals].map(([name, count], i) => (
+                <TableRow key={name}>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {i === 0 ? "Cooldowns" : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{name}</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">×{count}</TableCell>
+                </TableRow>
+              ))}
+              {[...upkeep].map(([name, pct], i) => (
+                <TableRow key={name}>
+                  <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {i === 0 ? "Upkeep" : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{name}</TableCell>
+                  <TableCell className="text-right text-sm">
+                    <UpkeepPct pct={pct} /> <span className="text-xs text-muted-foreground">avg</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Consumables used away from the boss pulls, plus anything fed to a pet.
+ *
+ * Boss pulls are a minority of a raid night, so a raider who potions hard on
+ * trash used to read as one who didn't potion at all. Pet food sits here for
+ * the same reason: it's a twenty-minute buff, applied between pulls by anyone
+ * who bothers.
+ */
+function OffPullRows({ offPull }: { offPull?: WclPlayerOffPull }) {
+  if (!offPull) return null;
+  const tally = (names: string[]) => {
+    const counts = new Map<string, number>();
+    for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]));
+  };
+  // A scroll with a cast behind it is counted below; the sighting it also
+  // produced is the same scroll, not a second one.
+  const counted = new Set(offPull.petConsumables.map((p) => p.name));
+  const groups: { label: string; entries: [string, number][]; countless?: boolean }[] = [
+
+    { label: "Off-pull potions", entries: tally(offPull.potions) },
+    { label: "Off-pull items", entries: tally(offPull.otherCasts) },
+    // Names only here — this panel counts what was used, not when.
+    { label: "Pet", entries: tally(offPull.petConsumables.map((p) => p.name)) },
+    /*
+     * Seen on the pet with nothing logged applying it, which for a pet is the
+     * usual case — no combatantinfo, and scrolls read between pulls. The count
+     * column is blanked rather than filled: a pet re-entering play republishes
+     * every aura it holds, so a number here would count summons.
+     */
+    {
+      label: "Seen on pet",
+      entries: offPull.petBuffsSeen
+        .filter((s) => !counted.has(s.name))
+        .map((s) => [s.name, 0] as [string, number]),
+      countless: true,
+    },
+  ].filter((g) => g.entries.length > 0);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <>
+      {groups.map((group, groupIndex) =>
+        group.entries.map(([name, count], i) => (
+          <TableRow key={`${group.label}-${name}`} className={groupIndex === 0 && i === 0 ? "border-t-2" : undefined}>
+            <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {i === 0 ? group.label : ""}
+            </TableCell>
+            <TableCell className="text-sm">{name}</TableCell>
+            <TableCell className="text-right text-sm tabular-nums">
+              {group.countless ? (
+                <span
+                  className="text-xs text-muted-foreground"
+                  title="Seen on the pet — the log cannot say how many were read"
+                >
+                  seen
+                </span>
+              ) : (
+                `×${count}`
+              )}
+            </TableCell>
+
+          </TableRow>
+        )),
+      )}
+    </>
+  );
+}
+
+/**
+ * Where a raider's gems stand, in one line.
+ *
+ * Two separate asks, kept separate: a green gem is worth replacing whatever
+ * phase it is, while a rare one only matters in gear they're keeping. Silence
+ * when there's nothing to say — and an explicit count of gems the item cache
+ * can't grade yet, so "no flags" is never confused with "nothing checked".
+ */
+function GemSummaryLine({ summary, activePhase }: { summary: GemSummary; activePhase: Phase }) {
+  if (summary.graded === 0 && summary.unknown === 0) return null;
+  const flagged = summary.uncommon + summary.rareInCurrentTier;
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {flagged === 0 ? (
+        <span className="inline-flex items-center gap-1 text-success-ink">
+          <Check className="h-3.5 w-3.5" /> No gems worth replacing on this snapshot.
+        </span>
+      ) : (
+        <>
+          {summary.uncommon > 0 && (
+            <>
+              <span className="font-medium text-warn-ink">
+                {summary.uncommon} uncommon gem{summary.uncommon === 1 ? "" : "s"}
+              </span>{" "}
+              — a rare cut of the same gem is a straight upgrade
+            </>
+          )}
+          {summary.uncommon > 0 && summary.rareInCurrentTier > 0 && " · "}
+          {summary.rareInCurrentTier > 0 && (
+            <>
+              <span className="font-medium text-warn-ink">
+                {summary.rareInCurrentTier} rare gem{summary.rareInCurrentTier === 1 ? "" : "s"} in
+                phase {activePhase} gear
+              </span>{" "}
+              — worth the epic cut on pieces they&apos;re keeping
+            </>
+          )}
+          .
+        </>
+      )}
+      {summary.unknown > 0 && (
+        <span className="opacity-70">
+          {" "}
+          ({summary.unknown} gem{summary.unknown === 1 ? "" : "s"} not in the item cache yet —
+          backfill item data to grade {summary.unknown === 1 ? "it" : "them"}.)
+        </span>
+      )}
+    </p>
+  );
+}
+
+function GearPanel({
+  rows,
+  missingEnchants,
+  itemsById,
+  wowClass,
+  role,
+  ownWishlists,
+  enchants,
+  activePhase,
+}: {
+  rows: WclPlayerFight[];
+  missingEnchants: string[];
+  itemsById: Map<number, Item>;
+  wowClass: WowClass;
+  role: Role;
+  /** The character's own wishlists — the first reference for "is this BiS". */
+  ownWishlists: GearSet[];
+  enchants: EnchantReference;
+  activePhase: Phase;
+}) {
+  // Rows are in pull order; the last snapshot is what they currently wear.
+  const latest = [...rows].reverse().find((r) => r.gear.length > 0);
+  const gems = summarizeGems(gradeWornGems(latest?.gear ?? [], itemsById, activePhase));
+
+  return (
+    /* Anchored: the raid page's preparedness table links straight to this
+       audit, which is the one place that names WHICH slots are bare. Landing
+       at the top of a long page would leave the reader to hunt for it. */
+    <Card id="enchants" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>Gear worn{latest ? ` on ${latest.encounterName}` : ""}</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {missingEnchants.length === 0 ? (
+            <span className="inline-flex items-center gap-1 text-success-ink">
+              <Check className="h-3.5 w-3.5" /> Every expected slot carries a permanent enchant.
+            </span>
+          ) : (
+            <>
+              Missing permanent enchants on{" "}
+              <span className="font-medium text-foreground">{missingEnchants.join(", ")}</span> —
+              worth a nudge before next raid (freshly awarded items show here until enchanted).
+            </>
+          )}
+        </p>
+        <GemSummaryLine summary={gems} activePhase={activePhase} />
+      </CardHeader>
+      <CardContent>
+        {!latest ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            No gear snapshot stored for this report — imports from before gear tracking only kept
+            the enchant audit. Re-import the report to capture items, enchants and gems.
+          </p>
+        ) : (
+          <>
+            <GearTable
+              gear={latest.gear}
+              itemsById={itemsById}
+              wowClass={wowClass}
+              role={role}
+              ownWishlists={ownWishlists}
+              enchants={enchants}
+              activePhase={activePhase}
+            />
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Enchants are named — and judged — from the guild&apos;s own imported SixtyUpgrades
+              sets: they list each slot&apos;s enchant with the same id the logs report, so a set
+              names that enchant in <em>everyone&apos;s</em> logs and says what this slot should
+              have. BiS means it matches the reference shown next to it. An enchant no imported set
+              has named stays an id: hover the item for Wowhead&apos;s tooltip, which renders it
+              with this enchant and these gems applied. Importing more lists names more of them.
+              The log doesn&apos;t carry socket counts, so an empty socket is invisible here:
+              compare the gems column against the tooltip&apos;s sockets.
+            </p>
+          </>
+        )}
+        <details className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs">
+          <summary className="cursor-pointer font-medium">
+            Phase 2 enchant reference — what good looks like right now
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {P2_ENCHANT_GUIDE.map((row) => (
+              <li key={row.slot}>
+                <span className="font-medium">{row.slot}:</span>{" "}
+                <span className="text-muted-foreground">{row.picks}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConsumableRows({
+  label,
+  entries,
+  total,
+  uses,
+}: {
+  label: string;
+  entries: Map<string, number>;
+  total: number;
+  /** When given, rows show total uses (×n) instead of pull coverage. */
+  uses?: Map<string, number>;
+}) {
+  if (entries.size === 0) {
+    return (
+      <TableRow>
+        <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</TableCell>
+        <TableCell className="text-sm text-muted-foreground/60">none seen</TableCell>
+        <TableCell className="text-right text-sm tabular-nums text-muted-foreground/60">0/{total} pulls</TableCell>
+      </TableRow>
+    );
+  }
+  return (
+    <>
+      {[...entries].map(([name, count], i) => (
+        <TableRow key={name}>
+          <TableCell className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {i === 0 ? label : ""}
+          </TableCell>
+          <TableCell className="text-sm">{name}</TableCell>
+          <TableCell className="text-right text-sm tabular-nums">
+            {uses ? `×${uses.get(name) ?? count}` : `${count}/${total} pulls`}
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}

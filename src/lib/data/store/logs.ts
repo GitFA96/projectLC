@@ -1,7 +1,10 @@
 import { summarizeRaidReport } from "@/lib/analysis/raid-report";
 import { normalizeItemName } from "@/lib/loot/priority-sheet";
 import { fingerprintRows, specFingerprints } from "@/lib/sim/profile";
+import { summarizePerformance } from "@/lib/analysis/performance";
 import type {
+  LogPlayerPerformance,
+  PerformanceReportView,
   Profession,
   RaidReportView,
   SimSpecDetail,
@@ -29,7 +32,7 @@ import type { StoreContext } from "./context";
  */
 
 export function logViews(ctx: StoreContext) {
-  const { config, charactersById, consumableNames, guildReports, items, policy, pullsByReport, raidsOfReport, scopeOfReport, sessionsById, simPullsOf, simSpecs, wclPlayerFights, wclPlayerOffPull, wclReports, wclRowCharacterId } = ctx;
+  const { config, charactersById, charactersBySlug, consumableNames, guildReports, isExcusedPull, items, policy, pullsByReport, raidsOfReport, scopeOfReport, sessionsById, simPullsOf, simSpecs, wclPlayerFights, wclPlayerOffPull, wclReports, wclRowCharacterId } = ctx;
   return {
     async listWclReports(): Promise<WclReportView[]> {
       return [...wclReports]
@@ -131,6 +134,90 @@ export function logViews(ctx: StoreContext) {
       return [...byName.values()].sort(
         (a, b) => b.appearances - a.appearances || compareText(a.name, b.name),
       );
+    },
+
+    /**
+     * One logged name's whole record — the on-demand read behind
+     * `/logs/player/<name>`.
+     *
+     * Keyed by the name the log spells, not by a roster character, and that is
+     * the whole reason it exists: `getCharacterPerformance` can only answer for
+     * somebody the guild tracks, and answering "how did that pug play" by
+     * creating a roster row for them is a bookkeeping cost per stranger.
+     *
+     * **Every scope, unlike every other per-person read here.** A pug's nights
+     * are pug nights; filtering to `guildReports` the way a career does would
+     * leave this permanently empty for exactly the raider it is for. That is
+     * safe because nothing downstream counts it: no attendance (there is no
+     * roster denominator), no standing, no gold per raid, no loot score. The
+     * rule is change-chains §3a — accounting is scoped, evidence is not, and a
+     * parse is evidence whoever's raid it was.
+     *
+     * Excused pulls behave exactly as they do on a raider's page: shown in the
+     * table, absent from every summary. An officer who excused the farm boss
+     * excused it for the whole night, not for the guild half of it.
+     */
+    async getLogPlayerPerformance(name: string): Promise<LogPlayerPerformance | null> {
+      const key = name.toLowerCase();
+      const myRows = wclPlayerFights.filter((r) => r.actorName.toLowerCase() === key);
+      if (myRows.length === 0) return null;
+      const reportPulls = pullsByReport();
+      /*
+       * Matched by name, and only by name. `offPullOf` resolves through a
+       * character id, which this read has no business having — and an off-pull
+       * row already carries the actor name for exactly the case where nothing
+       * matched.
+       */
+      const myOffPull = wclPlayerOffPull.filter((o) => o.actorName.toLowerCase() === key);
+
+      const reports: PerformanceReportView[] = [...wclReports]
+        .sort((a, b) => compareText(b.startTime, a.startTime))
+        .map((report): PerformanceReportView | undefined => {
+          const rows = myRows
+            .filter((r) => r.reportCode === report.code)
+            .sort((a, b) => a.fightId - b.fightId);
+          const counted = rows.filter((r) => !isExcusedPull(r));
+          const summary = summarizePerformance(counted, policy);
+          return summary
+            ? {
+                report,
+                session: report.raidSessionId ? sessionsById.get(report.raidSessionId) : undefined,
+                rows,
+                excusedFightIds: rows.filter(isExcusedPull).map((r) => r.fightId),
+                summary,
+                offPull: myOffPull.find((o) => o.reportCode === report.code),
+                reportPulls: reportPulls.get(report.code) ?? rows.length,
+              }
+            : undefined;
+        })
+        .filter((v): v is PerformanceReportView => v !== undefined);
+
+      // Oldest night first, so "latest pull" facts — the gear snapshot, the
+      // enchant audit — come from the newest data, as they do for a raider.
+      const chronological = [...reports]
+        .reverse()
+        .flatMap((r) => r.rows.filter((row) => !isExcusedPull(row)));
+      const career = summarizePerformance(chronological, policy);
+      /*
+       * The spelling on their most recent night. `reports` is newest first, so
+       * this is the name they raid under now rather than the one on whichever
+       * row the table happened to return first.
+       */
+      const newest = reports[0]?.rows[0] ?? myRows[0];
+      const character = charactersBySlug.get(key);
+
+      return {
+        name: newest.actorName,
+        wowClass: myRows.find((r) => r.className)?.className,
+        role: career?.role ?? newest.role ?? "dps",
+        reports,
+        career,
+        offPull: myOffPull,
+        scopeByCode: Object.fromEntries(
+          reports.map(({ report }) => [report.code, scopeOfReport(report.code)]),
+        ),
+        rosterSlug: character?.name.toLowerCase(),
+      };
     },
 
     async listEncounterNames(): Promise<string[]> {

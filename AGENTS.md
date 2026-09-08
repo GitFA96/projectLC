@@ -126,6 +126,11 @@ about 50 lines — a guide nobody finishes is a guide nobody reads.
 
 ```bash
 npm run dev       # the user usually has :3000 running already — don't kill it
+npm run dev:local # the same server with PROJECTLC_AUTH off and bound to
+                  # 127.0.0.1 — what makes a page readable to curl or to a
+                  # browser with no Discord session. The two switches ship
+                  # together on purpose: `next dev` binds 0.0.0.0 by default,
+                  # and auth-off on the LAN serves the ledger to the network
 npm run check     # tsc --noEmit + vitest — run this before you say you're done
 npm test          # vitest alone
 npm run test:coverage  # vitest + coverage. CI runs this instead of `npm test`;

@@ -244,6 +244,30 @@ already written down as its own pitfall for the award dialog, and it turned out
 to be the same bug wearing a different hat.
 
 
+## A page rendering under `dev:local` says nothing about its gate
+
+`npm run dev:local` runs the server with `PROJECTLC_AUTH` off, so
+`resolveViewer()` hands every request an `unrestrictedViewer()` and every
+`pageView()` returns allowed. That is the point — it is what makes a page
+readable to `curl`, or to a browser with no Discord session, and it is the only
+practical way to see a new page render against real data.
+
+The trap is what the render then appears to prove. **A page with no
+`pageView()` call at all looks exactly like a correctly gated one from there**,
+because nothing is being refused to anybody. An agent that smoke-tests a new
+route this way, sees the panels, and reports the page working has verified the
+markup and learned nothing whatsoever about who may read it.
+
+The gate is proved by `src/lib/auth/pages.test.ts`, which enumerates every
+`page.tsx` and fails on one that declares nothing — and by measuring a real
+anonymous response against a *configured* server, which is what
+`scripts/smoke-image.sh` does to `/roster` in a container with enforcement on.
+Both run without a browser. Neither is replaced by looking at the page.
+
+The same asymmetry runs the other way too, and matters across sessions: the
+session brief reports whether :3000 is answering, not whether it is enforcing.
+A dev server somebody left running may be either.
+
 ## Your workstation build is not the build that ships
 
 `resolveViewer()` returns `unrestrictedViewer()` when `PROJECTLC_AUTH` is off,

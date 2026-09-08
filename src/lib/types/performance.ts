@@ -94,3 +94,43 @@ export interface WclReportView {
   encounterCount: number;
   killCount: number;
 }
+
+/**
+ * One logged name's whole record, across every night they appear on.
+ *
+ * The un-guilded twin of `CharacterPerformance`, and the differences are the
+ * point. It is keyed by the name a Warcraft Logs report spells rather than by a
+ * roster character, so it answers for people the guild has never tracked; and
+ * it reads **every scope**, because a pug's nights are pug nights and filtering
+ * to the guild's own would leave the page permanently empty for exactly the
+ * raider it exists to show.
+ *
+ * Nothing here is guild accounting — no attendance, no standing, no gold per
+ * raid, no loot score — because there is no roster row to count it against, and
+ * building this read must never add one. See change-chains §3a: accounting is
+ * scoped, evidence is not.
+ */
+export interface LogPlayerPerformance {
+  /** The name as the newest report spells it. */
+  name: string;
+  /** From their pulls. Absent only when no pull recorded a class. */
+  wowClass?: string;
+  /** Dominant role across their pulls — the log answers in three buckets. */
+  role: WclRole;
+  /** Newest night first, whatever its scope. */
+  reports: PerformanceReportView[];
+  /** Rollup over every counted pull. Undefined when nothing counted. */
+  career?: PerformanceSummary;
+  /** Off-pull consumable records, one per report that had any. */
+  offPull: WclPlayerOffPull[];
+  /** Each night's scope by report code, so the picker can label a pug a pug. */
+  scopeByCode: Record<string, RaidScope>;
+  /**
+   * The roster character this name matches, if any — their slug.
+   *
+   * Present means the page is looking at somebody the guild already tracks, and
+   * it says so and points at their guild record rather than quietly showing a
+   * second, differently-scoped version of a raider who has a page already.
+   */
+  rosterSlug?: string;
+}

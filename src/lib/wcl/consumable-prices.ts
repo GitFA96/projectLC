@@ -60,6 +60,11 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Flame Cap": { gold: 3, charges: 1 },
   "Bogling Root": { gold: 1, charges: 1 },
   "Kreeg's Stout Beatdown": { gold: 1, charges: 1 },
+  /* Nobody has quoted the council a price for the brew, so it stays at 0 rather
+     than being guessed at — the Arcane Bomb and Thistle Tea rule. It still needs
+     a key: the family fallback only catches `elixir of…` and `…elixir`, so a
+     missing one is the same 0 with nothing saying it was a decision. */
+  "Goldenmist Special Brew": { gold: 0, charges: 1 },
   "Eye of the Night": { gold: 30, charges: 5 },
   Enlightened: { gold: 5, charges: 1 },
   /* Rogue-only, and not an auction-house staple the way a Haste Potion is —

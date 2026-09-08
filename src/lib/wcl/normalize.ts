@@ -1086,6 +1086,21 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
           }
         }
         if (track || isNonConsumableAura(aura.name, aura.ability)) continue;
+        /*
+         * An aura whose id is already a tracked CAST is not a discovery — it is
+         * a known item seen on its buff side, and dumping it invites exactly the
+         * wrong repair. Nightmare Seed is the case that proved it: 47 casts and
+         * 47 applybuffs on the probed 27 Aug report, already priced once per
+         * cast. Curating it as an aura as well would put it in `row.extras`,
+         * which `raid-report` prices as a prep line of `1 + deaths` — billing
+         * one 30-second combat item a second time, on the gold page, silently.
+         *
+         * By id only: an id from a log is a fact and a name is not, and
+         * `classifyCast`'s name fallback would reach past the curated list.
+         * Dump-only, like `isNonConsumableAura` above — no row changes either
+         * way, so this can never eat something that was being counted.
+         */
+        if (classifyCast(aura.ability)) continue;
         const key = `${aura.name.toLowerCase()}|${aura.ability ?? ""}`;
         const entry = unclassified.get(key);
         if (entry) entry.count++;
