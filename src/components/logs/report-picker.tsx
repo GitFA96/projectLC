@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   RAID_SCOPES,
   groupReportsByRaid,
+  keepOfferedRaids,
   type RaidScope,
 } from "@/lib/analysis/raid-scope";
+import { RaidFilter, type PickerNight, type RaidChip } from "@/components/logs/raid-filter";
 import type { WclReportView } from "@/lib/types";
 
 /**
@@ -14,24 +15,31 @@ import type { WclReportView } from "@/lib/types";
  *
  * Two levels, and they answer different questions. **Scope** is the heading —
  * the guild's own raids, a community one-off, a pug — and it decides what the
- * rest of the app counts, so it is the coarse switch and it comes first.
- * **Raid** is a way to find a night inside a scope, and nothing more: an
- * officer looking for last month's Hyjal should not have to read six weeks of
- * dates. Picking a raid does not narrow "All raids", which always spans the
- * whole scope — a season rollup of a single instance would be a different
- * number wearing the same name.
+ * rest of the app counts, so it is the coarse switch and it comes first, as
+ * links: changing it changes what the page is about.
  *
- * A night that ran two instances is listed under both, because that is where
- * somebody will look for it. It is the same night and the same link.
+ * **Raid** is a filter over the nights inside a heading, and nothing more. It
+ * is multi-select and it presses instantly, because the nights are already on
+ * the page — see `RaidFilter`. Picking a raid does not narrow "All raids",
+ * which always spans the whole heading: a season rollup of a single instance
+ * would be a different number wearing the same name.
+ *
+ * A night that ran two instances answers to both chips. It is listed once,
+ * which is the point of the chips replacing a section per raid — most nights
+ * here run SSC and TK together, so sections listed most dates twice and cost
+ * five rows to say what one row says.
  */
 export function ReportPicker({
   reports,
   scope,
+  raids,
   activeCode,
 }: {
   reports: WclReportView[];
   /** The scope being shown — the heading whose nights are listed. */
   scope: RaidScope;
+  /** Raids the URL asked to show, before pruning to what this scope has. */
+  raids: string[];
   /** The report open right now, or `"all"` for the season rollup. */
   activeCode?: string;
 }) {
@@ -39,7 +47,33 @@ export function ReportPicker({
   for (const r of reports) counts.set(r.scope, (counts.get(r.scope) ?? 0) + 1);
   const mine = reports.filter((r) => r.scope === scope);
   const current = RAID_SCOPES.find((s) => s.scope === scope) ?? RAID_SCOPES[0];
-  const groups = groupReportsByRaid(mine, (r) => r.raids);
+
+  // One chip per raid this heading actually holds, in TBC order, with how many
+  // nights ran it — a chip for a raid nobody here raided would be a dead press.
+  const chips: RaidChip[] = groupReportsByRaid(mine, (r) => r.raids).map((group) => ({
+    raid: group.raid,
+    short: group.short,
+    count: group.reports.length,
+  }));
+
+  /*
+   * Pruned here, on the server, so a raid left in the URL by another heading
+   * cannot select a chip that isn't drawn — and so the remount key below is
+   * built from what the filter will actually hold.
+   */
+  const offered = keepOfferedRaids(
+    raids,
+    chips.map((c) => c.raid),
+  );
+
+  const nights: PickerNight[] = mine.map((r) => ({
+    code: r.report.code,
+    // Formatted here rather than in the browser: this renders on the server and
+    // hydrates on the client, and a date computed twice can disagree.
+    label: format(parseISO(r.report.startTime), "d MMM"),
+    title: `${r.report.title}${r.report.zone ? ` · ${r.report.zone}` : ""} — ${r.killCount}/${r.encounterCount} bosses, ${r.playerCount} raiders`,
+    raids: r.raids,
+  }));
 
   return (
     <div className="space-y-2.5">
@@ -78,57 +112,43 @@ export function ReportPicker({
       {mine.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No {current.label.toLowerCase()} raids yet. Any imported report can be filed as one on the{" "}
-          <Link href="/guild/import?tab=wcl" className="underline underline-offset-2 hover:text-foreground">
+          <Link
+            href="/guild/import?tab=wcl"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
             import page
           </Link>
           .
         </p>
       ) : (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={allHref(scope)} className={cn(PILL, activeCode === "all" && ACTIVE_PILL)}>
-              All {current.label.toLowerCase()} raids
-            </Link>
-            <span className="text-xs text-muted-foreground">
-              {mine.length} night{mine.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          {groups.map((group) => (
-            <div key={group.raid} className="flex flex-wrap items-baseline gap-1.5">
-              <Badge
-                variant="muted"
-                className="min-w-24 justify-center font-normal"
-                title={group.raid}
-              >
-                {group.short ?? group.raid}
-              </Badge>
-              {group.reports.map((r) => (
-                <Link
-                  key={r.report.code}
-                  href={`/logs?report=${encodeURIComponent(r.report.code)}`}
-                  title={`${r.report.title}${r.report.zone ? ` · ${r.report.zone}` : ""} — ${r.killCount}/${r.encounterCount} bosses, ${r.playerCount} raiders`}
-                  className={cn(PILL, r.report.code === activeCode && ACTIVE_PILL)}
-                >
-                  {format(parseISO(r.report.startTime), "d MMM")}
-                </Link>
-              ))}
-            </div>
-          ))}
-        </div>
+        <RaidFilter
+          /*
+           * Remount when the URL's picks genuinely change — a pasted link, or a
+           * switch of heading. The filter owns its selection once mounted (a
+           * chip press rewrites the URL without a navigation), so this is what
+           * resets it, rather than an effect adjusting state on a prop.
+           */
+          key={offered.join("|")}
+          nights={nights}
+          chips={chips}
+          initial={offered}
+          activeCode={activeCode}
+          allHref={allHref(scope)}
+          allLabel={`All ${current.label.toLowerCase()} raids`}
+        />
       )}
     </div>
   );
 }
 
-const PILL = "rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-accent";
-const ACTIVE_PILL =
-  "border-foreground/30 bg-primary text-primary-foreground hover:bg-primary";
-
 /**
  * A scope's landing link — its season rollup.
  *
  * The guild's keeps the bare `?report=all` it has always had, so every link
- * anybody bookmarked or wrote into a doc still lands where it did.
+ * anybody bookmarked or wrote into a doc still lands where it did. Raid picks
+ * are deliberately dropped: this is the switch that changes what the page is
+ * about, and carrying a guild raid's chip into the pug heading would land on a
+ * filter with nothing to match.
  */
 function allHref(scope: RaidScope): string {
   return scope === "guild" ? "/logs?report=all" : `/logs?report=all&scope=${scope}`;

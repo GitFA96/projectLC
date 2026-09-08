@@ -116,6 +116,12 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
     reports.find((r) => r.report.code === requested)?.scope ?? requestedScope;
   const inScope = reports.filter((r) => r.scope === scope);
   /*
+   * Which raids the picker is narrowed to. Repeated `?raid=` params, because
+   * the filter is multi-select — and read here rather than in the component so
+   * a pasted or bookmarked link opens on the same shortened list.
+   */
+  const raidFilter = Array.isArray(sp.raid) ? sp.raid : sp.raid ? [sp.raid] : [];
+  /*
    * With no report asked for, open this scope's newest night — not the newest
    * night overall, which `getRaidReport` would pick and which could be a pug
    * raid. `reports` is already newest first.
@@ -259,6 +265,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Search 
           <ReportPicker
             reports={reports}
             scope={scope}
+            raids={raidFilter}
             activeCode={seasonMode ? "all" : raid?.report.code}
           />
           {seasonMode ? (

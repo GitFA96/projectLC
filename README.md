@@ -316,12 +316,14 @@ performance — the tag is set per report on the import page, and nothing is
 deleted to apply it. Each heading has its own **All raids** rollup over its own
 nights.
 
-Under the heading, nights are grouped by the raid they ran — Black Temple,
-Mount Hyjal, Tempest Keep — so a month of dates is a few short rows. The grouping
-comes from the bosses that were actually killed, not from the raid label
-somebody typed: most nights here run two instances, and they are listed under
-both. Picking a raid finds a night; it does not narrow **All raids**, which
-always spans the whole heading.
+Under the heading is a row of **raid filters** — Black Temple, Mount Hyjal,
+Tempest Keep — over one compact list of nights. Press as many as you like and
+the list shortens to those raids; press Clear to get them all back. Which raids
+a night ran comes from the bosses actually killed, not from the raid label
+somebody typed, so a night that ran two instances answers to both filters and is
+still listed once. The filter narrows the list of nights only: **All raids**
+always spans the whole heading, because a season rollup of a single instance
+would be a different number wearing the same name.
 
 **Which pulls count** is a switch, not a setting: click a pull in the header to
 leave it out and everything recomputes without it. A joke pull or a two-man farm

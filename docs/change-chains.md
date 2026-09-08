@@ -737,6 +737,16 @@ Four things that are easy to get wrong, all of which the tests now pin:
 strangers by definition, and a roster prompt nobody can finish is a prompt
 officers learn to ignore.
 
+**The raid filter is a client filter, and the scope is not.** Scope decides what
+the server counts, so it is a link and a re-render. Which raids to *show* is a
+display question over nights already on the page, so `RaidFilter` narrows them
+in the browser and keeps the URL in step with `history.replaceState` — a round
+trip per press would rebuild the whole season dashboard to shorten a row of
+dates. Two things follow: the night links carry the picks, so choosing a night
+does not undo the narrowing; and the component is reset by a **remount key**
+built from the server's pruned picks rather than by an effect adjusting state,
+which is what the `react-hooks/set-state-in-effect` rule is there to stop.
+
 ## 4. Any write, ever
 
 **Chain:** write via `WriteRepo` → `bumpDataVersion(db)` → `refreshAfterWrite(path)`.

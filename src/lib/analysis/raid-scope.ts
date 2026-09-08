@@ -107,6 +107,47 @@ function raidRank(name: string): number {
   return index === -1 ? TBC_RAIDS.length : index;
 }
 
+/**
+ * Keep only the nights that ran one of the raids picked.
+ *
+ * **An empty selection is everything**, not nothing. The filter exists to
+ * narrow a long list, so "I have picked nothing" has to mean "show me all of
+ * it" — the alternative is a control whose default state is an empty page.
+ *
+ * A night that ran two instances survives if either was picked, and one whose
+ * bosses matched nothing survives only when `Other` itself is picked. Both
+ * follow from the list being about where somebody raided, not about a single
+ * label the night carries.
+ */
+export function filterReportsByRaids<T>(
+  reports: readonly T[],
+  raidsOf: (report: T) => readonly string[],
+  selected: readonly string[],
+): T[] {
+  if (selected.length === 0) return [...reports];
+  const wanted = new Set(selected);
+  return reports.filter((report) => {
+    const raids = raidsOf(report);
+    return raids.length === 0 ? wanted.has(OTHER_RAID) : raids.some((r) => wanted.has(r));
+  });
+}
+
+/**
+ * Drop picks that no night in this list can satisfy.
+ *
+ * A raid stays selected in the URL while the scope changes underneath it —
+ * pick Black Temple, switch to Pug, and the guild's raid is still in the query
+ * string with nothing to match. Left alone that reads as an empty scope rather
+ * than as a filter nobody cleared, so the picks are pruned to what is on offer.
+ */
+export function keepOfferedRaids(
+  selected: readonly string[],
+  offered: readonly string[],
+): string[] {
+  const available = new Set(offered);
+  return [...new Set(selected)].filter((raid) => available.has(raid));
+}
+
 export interface RaidGroup<T> {
   /** The raid, as `TBC_RAIDS` names it, or `OTHER_RAID`. */
   raid: string;

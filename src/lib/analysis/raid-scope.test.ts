@@ -3,8 +3,10 @@ import {
   DEFAULT_RAID_SCOPE,
   OTHER_RAID,
   RAID_SCOPES,
+  filterReportsByRaids,
   groupReportsByRaid,
   isGuildScope,
+  keepOfferedRaids,
   parseRaidScope,
   raidScopeLabel,
   raidsOfEncounters,
@@ -78,6 +80,63 @@ describe("raidsOfEncounters", () => {
   it("is empty when nothing matched, rather than inventing a raid", () => {
     expect(raidsOfEncounters(["Some Trash Pack"])).toEqual([]);
     expect(raidsOfEncounters([])).toEqual([]);
+  });
+});
+
+describe("filterReportsByRaids", () => {
+  const nights = [
+    { code: "bt", raids: ["Black Temple"] },
+    { code: "ssctk", raids: ["Serpentshrine Cavern", "Tempest Keep"] },
+    { code: "mystery", raids: [] },
+  ];
+  const raidsOf = (n: { raids: string[] }) => n.raids;
+
+  // The control exists to narrow a long list; a default that showed nothing
+  // would be a filter whose resting state is an empty page.
+  it("shows everything when nothing is picked", () => {
+    expect(filterReportsByRaids(nights, raidsOf, []).map((n) => n.code)).toEqual([
+      "bt",
+      "ssctk",
+      "mystery",
+    ]);
+  });
+
+  it("keeps a night that ran any of the picked raids", () => {
+    expect(filterReportsByRaids(nights, raidsOf, ["Tempest Keep"]).map((n) => n.code)).toEqual([
+      "ssctk",
+    ]);
+    expect(
+      filterReportsByRaids(nights, raidsOf, ["Black Temple", "Tempest Keep"]).map((n) => n.code),
+    ).toEqual(["bt", "ssctk"]);
+  });
+
+  it("lists an unmatched night only under Other", () => {
+    expect(filterReportsByRaids(nights, raidsOf, [OTHER_RAID]).map((n) => n.code)).toEqual([
+      "mystery",
+    ]);
+    expect(filterReportsByRaids(nights, raidsOf, ["Black Temple"]).map((n) => n.code)).not.toContain(
+      "mystery",
+    );
+  });
+
+  it("keeps the order it was given, and copies rather than aliases", () => {
+    const all = filterReportsByRaids(nights, raidsOf, []);
+    expect(all).not.toBe(nights);
+    expect(filterReportsByRaids(nights, raidsOf, ["Karazhan"])).toEqual([]);
+  });
+});
+
+describe("keepOfferedRaids", () => {
+  // Pick Black Temple, switch to the Pug heading, and the pick is still in the
+  // query string with nothing to match — which reads as an empty scope.
+  it("drops picks nothing on offer can satisfy", () => {
+    expect(keepOfferedRaids(["Black Temple", "Karazhan"], ["Karazhan"])).toEqual(["Karazhan"]);
+    expect(keepOfferedRaids(["Black Temple"], [])).toEqual([]);
+  });
+
+  it("dedupes, and keeps what is offered", () => {
+    expect(keepOfferedRaids(["Karazhan", "Karazhan"], ["Karazhan"])).toEqual(["Karazhan"]);
+    expect(keepOfferedRaids([], ["Karazhan"])).toEqual([]);
   });
 });
 
