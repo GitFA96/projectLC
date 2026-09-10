@@ -37,6 +37,21 @@ import { compareText } from "@/lib/sort";
  * overstates what got through; folding it into "stopped" credits the raid for
  * something it did not do.
  *
+ * On a boss pull it answers a third question, and this one is not read off the
+ * interrupt stream at all: **what did we press that stopped nothing**. Warcraft
+ * Logs emits an interrupt event only when a cast dies, so an unlanded press is
+ * an ordinary cast that `normalize.ts` failed to pair with one. Three rules
+ * travel with it.
+ *
+ * It is **boss pulls only**, because that is where the casts are fetched, so
+ * the night and per-instance tables carry no press counts at all rather than
+ * counts that silently omit the trash. It is **added to nothing that was here
+ * before** — not `total`, not `onHeals`, not a stopped-cast tally — so every
+ * existing number still counts a cast that actually died. And it is **not a
+ * mistake the view names**: a press that cut nothing may have missed, or may
+ * have been aimed at a window that had already closed, and the log cannot say
+ * which. Whether it should have landed is the council's assignment to make.
+ *
  * And an ability is only called **interruptible** when this report shows it
  * being interrupted at least once. Otherwise the board says so instead of
  * implying a miss: most of what a boss casts cannot be interrupted at all, and
@@ -68,8 +83,38 @@ export interface InterruptMoment {
   phase?: string;
 }
 
+/**
+ * A press that stopped nothing, ready to draw beside the ones that did.
+ *
+ * No `stopped` and no heal flag, because there was no cast to name — and no
+ * reason either. Warcraft Logs cannot say whether a press missed or connected
+ * with nothing to interrupt (see `NormalizedUnlandedInterrupt`), so "pressed,
+ * nothing stopped" is the entire claim this carries and the board must not
+ * dress it up as a mistake. Whether a window was there to be hit is the same
+ * assignment question invariant 5 keeps out of here.
+ */
+export interface InterruptAttempt {
+  /** ms from the pull start. */
+  atMs: number;
+  /** The interrupt as the log named it. */
+  spell: string;
+  /** The mob it was pressed on, absent when the log named none. */
+  target?: string;
+  /** Warcraft Logs' own name for the phase. */
+  phase?: string;
+}
+
 export interface InterruptLane extends InterruptActor {
   moments: InterruptMoment[];
+  /**
+   * Presses on this pull that cut no cast, in press order.
+   *
+   * Always empty on a report imported before presses were fetched, which is not
+   * the same statement as a pull where every press landed — `RaidInterruptView.unlanded`
+   * is what the board reads to tell those apart, and it can only do it for the
+   * night as a whole.
+   */
+  unlanded: InterruptAttempt[];
 }
 
 export interface InterruptCount {
@@ -79,6 +124,19 @@ export interface InterruptCount {
   healing?: boolean;
 }
 
+/** Presses and landings, summed over whatever the caller is counting. */
+export interface InterruptPresses {
+  /**
+   * Presses that cut no cast.
+   *
+   * Present only where presses are actually recorded — boss pulls and their
+   * phases. **Absent is not zero:** the night and per-instance tables leave it
+   * off because trash presses are not fetched at all, and a 0 there would claim
+   * a clean sheet nothing measured.
+   */
+  unlanded?: number;
+}
+
 /**
  * One phase of a pull, with what was stopped in it.
  *
@@ -86,7 +144,7 @@ export interface InterruptCount {
  * of a miss — most phases have nothing interruptible in them — so listing every
  * phase at zero would read as a scoreboard of failures the log never claimed.
  */
-export interface InterruptPhase {
+export interface InterruptPhase extends InterruptPresses {
   /** WCL's name, which already carries the guild's numbering: "P2: Essence of Desire". */
   name: string;
   total: number;
@@ -96,8 +154,12 @@ export interface InterruptPhase {
   interrupters: InterruptTally[];
 }
 
-/** One boss pull's interrupting. Pulls where nobody interrupted are left out. */
-export interface InterruptFight {
+/**
+ * One boss pull's interrupting. Pulls where nobody pressed anything are left
+ * out — but a pull where somebody pressed and stopped nothing is kept, because
+ * that is the case an officer is looking for.
+ */
+export interface InterruptFight extends InterruptPresses {
   fightId: number;
   lanes: InterruptLane[];
   /** Who pressed on this pull, most first — the same table the phases carry. */
@@ -122,7 +184,7 @@ export interface InterruptFight {
 }
 
 /** One interrupter's tally, split by the spell they pressed. */
-export interface InterruptTally extends InterruptActor {
+export interface InterruptTally extends InterruptActor, InterruptPresses {
   count: number;
   /** Interrupts that landed on a curated healing cast. */
   onHeals: number;
@@ -130,10 +192,11 @@ export interface InterruptTally extends InterruptActor {
 }
 
 /** One interrupt spell a raider pressed, counted. */
-export interface InterruptSpellCount {
+export interface InterruptSpellCount extends InterruptPresses {
   name: string;
   /** WCL class for the spell, absent for one nobody has curated. */
   wowClass?: string;
+  /** Presses of it that cut a cast. */
   count: number;
 }
 
@@ -184,7 +247,7 @@ export interface InterruptZone {
 }
 
 export interface RaidInterruptView {
-  /** Boss pulls that had at least one interrupt, in pull order. */
+  /** Boss pulls that saw a press, in pull order. */
   fights: InterruptFight[];
   /** Trash, per instance, biggest first. */
   zones: InterruptZone[];
@@ -205,18 +268,35 @@ export interface RaidInterruptView {
   total: number;
   /** Of those, how many stopped a curated healing cast. */
   onHeals: number;
+  /**
+   * Presses on boss pulls that stopped nothing, across the night.
+   *
+   * Zero is the ambiguous case again and the board has to say so: a report
+   * imported before `INTERRUPT_CAST_IDS` reached the casts filter holds no
+   * presses at all, and so does a night where every press landed. Only a
+   * re-import tells them apart — and unlike the interrupts themselves this
+   * cannot be recovered by curating anything, because the press is not in the
+   * interrupt stream to begin with.
+   *
+   * Boss pulls only. Trash presses are not fetched, so the night and per-zone
+   * tables carry no press counts at all rather than counts that quietly omit
+   * most of the night.
+   */
+  unlanded: number;
 }
 
 interface TallyAcc {
   actor: InterruptActor;
   count: number;
   onHeals: number;
+  unlanded: number;
   spells: Map<string, InterruptSpellCount>;
 }
 
 /** What one phase accumulates while the moments are walked in time order. */
 interface PhaseAcc {
   total: number;
+  unlanded: number;
   stopped: Map<string, StoppedAcc>;
   tallies: Map<string, TallyAcc>;
 }
@@ -234,7 +314,7 @@ function tallyFor(into: Map<string, TallyAcc>, actor: InterruptActor): TallyAcc 
     existing.actor.slug ??= actor.slug;
     return existing;
   }
-  const fresh: TallyAcc = { actor: { ...actor }, count: 0, onHeals: 0, spells: new Map() };
+  const fresh: TallyAcc = { actor: { ...actor }, count: 0, onHeals: 0, unlanded: 0, spells: new Map() };
   into.set(actor.name, fresh);
   return fresh;
 }
@@ -264,11 +344,40 @@ function addToTally(
   acc.spells.set(name, entry);
 }
 
-function finishTally(acc: TallyAcc): InterruptTally {
+/**
+ * A press that stopped nothing, onto the same tally its landings are on.
+ *
+ * Keyed on the log's own name rather than the curated one, because this is only
+ * ever called for a pull or a phase table — where `addToTally` is called with
+ * no spell id and keys the landings the same way. Keying the two halves
+ * differently would split one button into two rows on the same table.
+ */
+function addPressToTally(acc: TallyAcc, spell: string): void {
+  acc.unlanded++;
+  const entry = acc.spells.get(spell) ?? { name: spell, count: 0 };
+  entry.unlanded = (entry.unlanded ?? 0) + 1;
+  acc.spells.set(spell, entry);
+}
+
+/**
+ * `presses` says whether this table is one where an unlanded press would have
+ * been recorded. It is not the same question as whether there were any: a boss
+ * pull where every press landed reports 0, while the night table — which
+ * includes trash, where presses are not fetched — reports nothing at all rather
+ * than a zero it cannot stand behind.
+ */
+function finishTally(acc: TallyAcc, presses = false): InterruptTally {
   return {
     ...acc.actor,
     count: acc.count,
     onHeals: acc.onHeals,
+    ...(presses ? { unlanded: acc.unlanded } : {}),
+    /*
+     * Ordered by what LANDED, not by what was pressed — deliberately, because
+     * the presses are a view the reader turns on and off. Ordering on them
+     * would reshuffle the chips under the toggle and put a shaman's Earth Shock
+     * above a rogue's Kick on the strength of 365 nukes.
+     */
     spells: [...acc.spells.values()].sort(
       (a, b) => b.count - a.count || compareText(a.name, b.name),
     ),
@@ -348,6 +457,7 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
   const onTrash = new Map<string, number>();
   let total = 0;
   let onHeals = 0;
+  let unlanded = 0;
 
   /* ---- Boss pulls: a lane per interrupter, plus the phase split ---- */
   const laneByFight = new Map<number, Map<string, InterruptLane>>();
@@ -358,7 +468,7 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
   for (const row of rows) {
     if (row.interrupts.length === 0) continue;
     const lanes = laneByFight.get(row.fightId) ?? new Map<string, InterruptLane>();
-    const lane = lanes.get(row.actorName) ?? { ...actorOf(row.actorName), moments: [] };
+    const lane = lanes.get(row.actorName) ?? { ...actorOf(row.actorName), moments: [], unlanded: [] };
     const stopped = stoppedByFight.get(row.fightId) ?? new Map<string, StoppedAcc>();
     for (const i of row.interrupts) {
       if (!interruptAbilityOf(i.spellId)) bump(uncurated, i.spell);
@@ -389,6 +499,40 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
   }
 
   /*
+   * The presses that stopped nothing, onto the same lanes.
+   *
+   * A second pass rather than a branch inside the one above, because a raider
+   * can appear here who appears nowhere in it: somebody who pressed nine
+   * Pummels on the Illidari Council and stopped four is on both lists, and
+   * somebody who pressed one and stopped none is on this one alone. Skipping
+   * the second case would hide exactly the raider the toggle exists to show.
+   *
+   * They are NOT added to `total`, `onHeals` or any stopped-cast tally. Every
+   * one of those counts a cast that died, and a press that cut nothing did not
+   * kill one — the board's existing sentence "these are presses that landed"
+   * stays true of every number that was there before this.
+   */
+  const unlandedByFight = new Map<number, number>();
+  for (const row of rows) {
+    if (row.unlandedInterrupts.length === 0) continue;
+    const lanes = laneByFight.get(row.fightId) ?? new Map<string, InterruptLane>();
+    const lane = lanes.get(row.actorName) ?? { ...actorOf(row.actorName), moments: [], unlanded: [] };
+    for (const press of row.unlandedInterrupts) {
+      lane.unlanded.push({
+        atMs: press.atMs,
+        spell: press.spell,
+        ...(press.target ? { target: press.target } : {}),
+        ...(press.phase ? { phase: press.phase } : {}),
+      });
+      unlanded++;
+      unlandedByFight.set(row.fightId, (unlandedByFight.get(row.fightId) ?? 0) + 1);
+    }
+    lane.unlanded.sort((a, b) => a.atMs - b.atMs || compareText(a.spell, b.spell));
+    lanes.set(row.actorName, lane);
+    laneByFight.set(row.fightId, lanes);
+  }
+
+  /*
    * The phase split needs a second pass, because a lane belongs to one raider
    * while a phase belongs to the pull. Walking every moment of a pull in TIME
    * order is the only order the phases come out right in — and it is also why
@@ -398,19 +542,42 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
    */
   for (const [fightId, lanes] of laneByFight) {
     const inTimeOrder = [...lanes.values()]
-      .flatMap((lane) => lane.moments.map((m) => ({ m, actor: lane as InterruptActor })))
-      .sort((a, b) => a.m.atMs - b.m.atMs || compareText(a.actor.name, b.actor.name));
+      .flatMap((lane) => [
+        ...lane.moments.map((m) => ({
+          atMs: m.atMs,
+          phase: m.phase,
+          landed: m as InterruptMoment | undefined,
+          spell: m.spell,
+          actor: lane as InterruptActor,
+        })),
+        ...lane.unlanded.map((press) => ({
+          atMs: press.atMs,
+          phase: press.phase,
+          landed: undefined,
+          spell: press.spell,
+          actor: lane as InterruptActor,
+        })),
+      ])
+      .sort((a, b) => a.atMs - b.atMs || compareText(a.actor.name, b.actor.name));
     const phases = new Map<string, PhaseAcc>();
-    for (const { m, actor } of inTimeOrder) {
+    for (const { phase, landed, spell, actor } of inTimeOrder) {
       /*
        * A moment before the encounter's first phase transition belongs to no
        * phase. The log gave no boundary there, and inventing one would file a
        * pull's opening seconds under P1 on the strength of nothing.
        */
-      if (!m.phase) continue;
-      const acc = phases.get(m.phase) ?? { total: 0, stopped: new Map(), tallies: new Map() };
+      if (!phase) continue;
+      const acc =
+        phases.get(phase) ?? { total: 0, unlanded: 0, stopped: new Map(), tallies: new Map() };
+      phases.set(phase, acc);
+      /* A press that cut nothing raises the press count and nothing else. */
+      if (!landed) {
+        acc.unlanded++;
+        addPressToTally(tallyFor(acc.tallies, actor), spell);
+        continue;
+      }
       acc.total++;
-      bumpStopped(acc.stopped, m.stopped, m.healing);
+      bumpStopped(acc.stopped, landed.stopped, landed.healing);
       /*
        * No spell id here — the lane keeps the log's name and drops the id — so
        * ranks are not collapsed inside a phase table. That is the right trade:
@@ -418,8 +585,7 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
        * table above is where a shaman's two Earth Shock ranks are already added
        * up on the id.
        */
-      addToTally(tallyFor(acc.tallies, actor), undefined, m.spell, m.healing, 1);
-      phases.set(m.phase, acc);
+      addToTally(tallyFor(acc.tallies, actor), undefined, spell, landed.healing, 1);
     }
     if (phases.size > 0) phaseByFight.set(fightId, phases);
   }
@@ -469,7 +635,10 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
   const fights: InterruptFight[] = [...laneByFight]
     .map(([fightId, lanes]) => {
       const laneList = [...lanes.values()].sort(
-        (a, b) => b.moments.length - a.moments.length || compareText(a.name, b.name),
+        (a, b) =>
+          b.moments.length - a.moments.length ||
+          b.unlanded.length - a.unlanded.length ||
+          compareText(a.name, b.name),
       );
       /*
        * The pull's own interrupter table, built from the lanes rather than a
@@ -482,12 +651,15 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
         for (const m of lane.moments) {
           addToTally(tallyFor(pullTallies, lane), undefined, m.spell, m.healing, 1);
         }
+        for (const press of lane.unlanded) {
+          addPressToTally(tallyFor(pullTallies, lane), press.spell);
+        }
       }
       return {
         fightId,
         lanes: laneList,
         interrupters: [...pullTallies.values()]
-          .map(finishTally)
+          .map((acc) => finishTally(acc, true))
           .sort((x, y) => y.count - x.count || compareText(x.name, y.name)),
         casts: castsByFight.get(fightId) ?? [],
         stopped: countsOf(stoppedByFight.get(fightId) ?? new Map()),
@@ -495,13 +667,15 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
           ([name, acc]) => ({
             name,
             total: acc.total,
+            unlanded: acc.unlanded,
             stopped: countsOf(acc.stopped),
             interrupters: [...acc.tallies.values()]
-              .map(finishTally)
+              .map((tally) => finishTally(tally, true))
               .sort((a, b) => b.count - a.count || compareText(a.name, b.name)),
           }),
         ),
         total: laneList.reduce((sum, l) => sum + l.moments.length, 0),
+        unlanded: unlandedByFight.get(fightId) ?? 0,
         onHeals: healsByFight.get(fightId) ?? 0,
       };
     })
@@ -537,8 +711,12 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
       zone,
       total: zoneTotal.get(zone) ?? 0,
       onHeals: zoneHeals.get(zone) ?? 0,
+      /*
+       * No press counts on trash: the casts are not fetched outside a boss
+       * pull, so a zero here would be a clean sheet nothing measured.
+       */
       interrupters: [...tallies.values()]
-        .map(finishTally)
+        .map((acc) => finishTally(acc))
         .sort((a, b) => b.count - a.count || compareText(a.name, b.name)),
       stopped: countsOf(zoneStopped.get(zone) ?? new Map()),
     }))
@@ -561,5 +739,6 @@ export function buildInterruptView(input: InterruptInput): RaidInterruptView {
       .sort((a, b) => b.count - a.count || compareText(a.name, b.name)),
     total,
     onHeals,
+    unlanded,
   };
 }

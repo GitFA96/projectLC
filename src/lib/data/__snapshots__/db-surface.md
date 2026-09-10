@@ -12,11 +12,15 @@ change here means.
 - addGuildOwner
 - bumpDataVersion
 - characterIdentity
+- characterIdsForMembership
 - clearRefusedItemNames
 - closeBreakGlass
 - countAccounts
 - countAppAdmins
+- countGuildRoles
+- countMemberships
 - createAuthSession
+- currentGuildId
 - deleteBossComment
 - deleteBossDrop
 - deleteGuide
@@ -82,6 +86,7 @@ change here means.
 - insertWclPlayerOffPull
 - insertWclReport
 - listAccounts
+- listGuildRoles
 - listGuildRosters
 - listSimProfiles
 - listStrandedSimSettings

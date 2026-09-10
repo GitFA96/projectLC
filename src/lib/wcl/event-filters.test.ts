@@ -23,6 +23,7 @@ import {
   DEBUFF_TRACK_NAMES,
   SHAMAN_TOTEM_CASTS,
 } from "@/lib/wcl/class-tracks";
+import { INTERRUPT_ABILITIES, INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
 
 /**
  * The filters decide what a report import can ever contain.
@@ -102,6 +103,7 @@ describe("the filters the import actually sends", () => {
       ["TRACKED_CAST_IDS", TRACKED_CAST_IDS],
       ["SCROLL_CAST_IDS", SCROLL_CAST_IDS],
       ["COOLDOWN_CAST_IDS", COOLDOWN_CAST_IDS],
+      ["INTERRUPT_CAST_IDS", INTERRUPT_CAST_IDS],
     ] as const) {
       expect([...list].length, `${label} is empty`).toBeGreaterThan(0);
       for (const id of list) expect(ids, `${label} lost ${id}`).toContain(String(id));
@@ -116,6 +118,22 @@ describe("the filters the import actually sends", () => {
       expect([...list].length, `${label} is empty`).toBeGreaterThan(0);
       for (const name of list) expect(names, `${label} lost ${name}`).toContain(`"${name}"`);
     }
+  });
+
+  it("carries every interrupt button, or the board can only see what landed", () => {
+    // The Interrupts stream holds landings only. A press that cut no cast is an
+    // ordinary cast, so an id missing here means that press is never fetched —
+    // and the pull reads as one where every press landed, for ever.
+    const ids = idsIn(CASTS_FILTER);
+    for (const ability of INTERRUPT_ABILITIES) {
+      expect(ids, `${ability.name} (${ability.id}) is not in the casts filter`).toContain(
+        String(ability.id),
+      );
+    }
+    // Both Earth Shock ranks, because a shaman pressing the other one would
+    // otherwise contribute landings with no presses beside them.
+    expect(ids).toContain("25454");
+    expect(ids).toContain("8042");
   });
 
   it("carries Devastate, the cast nobody expects", () => {

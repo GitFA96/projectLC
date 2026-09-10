@@ -108,6 +108,7 @@ export const COLUMN_MIGRATIONS: ColumnMigration[] = [
   { table: "wcl_player_fights", column: "boss_amount", type: "REAL" },
   { table: "wcl_player_fights", column: "dispels_json", type: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "wcl_player_fights", column: "interrupts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
+  { table: "wcl_player_fights", column: "unlanded_interrupts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "wcl_player_offpull", column: "trash_interrupts_json", type: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "wcl_player_offpull", column: "trash_dispels_json", type: "TEXT NOT NULL DEFAULT '[]'" },
   { table: "wcl_player_offpull", column: "pet_buffs_seen_json", type: "TEXT NOT NULL DEFAULT '[]'" },

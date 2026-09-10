@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { TriangleAlert } from "lucide-react";
+import { Check, TriangleAlert } from "lucide-react";
 import { resolveAwardAction, type ResolveAwardInput } from "@/app/loot/actions";
+import { cn } from "@/lib/utils";
+import { resolveControlFace, type ResolveMode } from "@/components/loot/resolve-face";
 import {
   Select,
   SelectContent,
@@ -20,8 +22,9 @@ export interface ResolveRosterOption {
 
 /**
  * Inline winner resolution: a Select used as an action menu (value stays ""
- * so the trigger always reads as a button). On success the server action
- * revalidates and the ledger re-renders with the new winner.
+ * so the trigger always reads as a button, and so picking the same option
+ * twice still fires). On success the server action revalidates and the ledger
+ * re-renders with the new winner.
  */
 export function ResolveAwardControl({
   awardId,
@@ -30,11 +33,12 @@ export function ResolveAwardControl({
 }: {
   awardId: string;
   /** "unresolved" = needs attention; "external" = settled off-roster (offer undo). */
-  mode: "unresolved" | "external";
+  mode: ResolveMode;
   roster: ResolveRosterOption[];
 }) {
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string>();
+  const face = resolveControlFace(mode);
 
   function onChoose(value: string) {
     const input: ResolveAwardInput = value.startsWith("chr:")
@@ -50,8 +54,20 @@ export function ResolveAwardControl({
   return (
     <span className="inline-flex items-center gap-1">
       <Select value="" onValueChange={onChoose} disabled={pending}>
-        <SelectTrigger className="h-6 w-auto gap-0.5 border-dashed px-2 text-xs text-muted-foreground shadow-none">
-          <SelectValue placeholder={pending ? "Saving…" : "Resolve"} />
+        <SelectTrigger
+          title={face.title}
+          aria-label={`Winner: ${face.label}`}
+          className={cn(
+            "h-6 w-auto gap-0.5 px-2 text-xs shadow-none",
+            // An open question is dashed and inked like the badge beside it; a
+            // settled one is flat and quiet, so a full ledger reads at a glance.
+            face.open
+              ? "border-dashed border-warn-line text-warn-ink"
+              : "border-transparent bg-muted text-muted-foreground",
+          )}
+        >
+          {!face.open && !pending && <Check className="h-3 w-3 shrink-0" />}
+          <SelectValue placeholder={pending ? "Saving…" : face.label} />
         </SelectTrigger>
         <SelectContent align="end">
           {mode === "external" ? (

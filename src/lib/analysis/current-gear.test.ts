@@ -119,6 +119,7 @@ function pull(
     castTimes: [],
     dispels: [],
     interrupts: [],
+    unlandedInterrupts: [],
     drums: 0,
     runes: 0,
     healthstones: 0,

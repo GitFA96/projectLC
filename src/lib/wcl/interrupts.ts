@@ -7,13 +7,18 @@
  * value: "Wando kicked 49 times" is a keybind, while "Wando stopped sixteen
  * Spirit Shocks in Essence of Desire" is raid work.
  *
- * **This list labels; it does not filter.** Like `dispels.ts` and unlike every
- * other curated list here, the Interrupts fetch asks Warcraft Logs for *every*
- * interrupt and stores the spell ids alongside the names the log gave them.
- * Classification happens at read time, so curating a spell below re-grades
+ * **This list labels the interrupts; it filters the presses.** Like
+ * `dispels.ts`, the Interrupts fetch asks Warcraft Logs for *every* interrupt
+ * and stores the spell ids alongside the names the log gave them, so
+ * classification happens at read time and curating a spell below re-grades
  * reports imported months ago with no refetch. What still needs a re-import is
  * the fetch itself — a report imported before it existed has no interrupt rows
  * at all, and the board says so rather than reading as a night nobody kicked on.
+ *
+ * The presses that stopped *nothing* are the exception, and they cost what every
+ * filtered list costs. They are not in the Interrupts stream at all — see
+ * `INTERRUPT_CAST_IDS` below, which puts these same ids in the **casts** filter
+ * and drags the whole of change-chains §1 along with it.
  *
  * Every id below was read off this guild's own MH+BT report (cWrNZY23Rx6V4faw,
  * 30 Aug), not remembered.
@@ -65,6 +70,38 @@ export const INTERRUPT_ABILITIES: InterruptAbility[] = [
 export const INTERRUPT_ABILITY_BY_ID = new Map<number, InterruptAbility>(
   INTERRUPT_ABILITIES.map((a) => [a.id, a]),
 );
+
+/**
+ * The same ids as a **filter**, for the friendly casts fetch.
+ *
+ * This is the one export here that narrows a fetch rather than labelling what
+ * came back, and it buys the other half of the board. Warcraft Logs emits an
+ * `interrupt` event only when a cast actually died, so a press that stopped
+ * nothing exists nowhere in that stream — it is an ordinary `cast`, and until
+ * these ids reached `CASTS_FILTER` the app had never seen one.
+ *
+ * So it is change-chains §1 like every other filtered list: **a report imported
+ * before this existed holds no presses at all**, which reads exactly like a
+ * night where every press landed. `analysis/interrupts.ts` says "not recorded"
+ * rather than showing a clean sheet, and only a re-import tells them apart.
+ *
+ * Matching a press to its interrupt is unusually safe. Probed across the boss
+ * pulls of cWrNZY23Rx6V4faw: all 38 landed interrupts sit 1–13ms from a cast of
+ * the same spell by the same player on the same pull, with the same target on
+ * every one, while the closest two presses of one spell by one player are 4,980ms
+ * apart. `normalize.ts` allows 250ms, which is twenty times the worst observed
+ * gap and twenty times inside the tightest collision.
+ *
+ * **What an unlanded press means differs by button, and the council chose to
+ * count them all.** Kick, Pummel and Counterspell do nothing else, so a press
+ * that stopped nothing missed its window — 11 of 24 Pummels, 8 of 14
+ * Counterspells and 2 of 13 Kicks on the probed night's boss pulls. Earth Shock
+ * and Feral Charge have day jobs: 373 Earth Shock casts on those same pulls
+ * against 8 interrupts, because it is also a shaman's nuke. Both kinds are
+ * counted, and every tally stays split **per spell** so the shaman's 365 sit on
+ * their own row instead of drowning the warriors' 11.
+ */
+export const INTERRUPT_CAST_IDS = new Set<number>(INTERRUPT_ABILITIES.map((a) => a.id));
 
 /**
  * The curated entry for a logged interrupt, or undefined for one nobody has

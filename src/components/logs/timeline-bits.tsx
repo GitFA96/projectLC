@@ -112,6 +112,16 @@ export interface Marker {
   color?: string;
   /** Tooltip text; the timestamp is appended. */
   label?: string;
+  /**
+   * Draw it as an outline instead of a filled pip — the press happened but
+   * whatever the lane is counting did not.
+   *
+   * Shape rather than colour, because colour is already carrying a meaning on
+   * every lane that uses this (a heal, a provider) and a second meaning on the
+   * same channel makes both unreadable — in either theme, and for anybody who
+   * cannot separate the two hues.
+   */
+  hollow?: boolean;
 }
 
 /** Pips for the moments a cast happened, over whatever the lane already shows. */
@@ -122,9 +132,16 @@ function MarkerPips({ markers, durationMs }: { markers: Marker[]; durationMs: nu
       {markers.map((m, i) => (
         <span
           key={`${m.atMs}-${i}`}
-          className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] border border-background"
+          className={cn(
+            "absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] border",
+            m.hollow ? "border-current bg-transparent" : "border-background",
+          )}
           title={`${m.label ? `${m.label} · ` : ""}cast ${mmss(m.atMs)}`}
-          style={{ left: `${Math.min(100, Math.max(0, (m.atMs / dur) * 100))}%`, backgroundColor: m.color ?? "var(--foreground)" }}
+          style={
+            m.hollow
+              ? { left: `${Math.min(100, Math.max(0, (m.atMs / dur) * 100))}%`, color: m.color ?? "var(--foreground)" }
+              : { left: `${Math.min(100, Math.max(0, (m.atMs / dur) * 100))}%`, backgroundColor: m.color ?? "var(--foreground)" }
+          }
         />
       ))}
     </>

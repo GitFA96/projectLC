@@ -201,7 +201,9 @@ export const readMethods: Repo = {
    *
    * A full rebuild per preview is deliberate. It is the same code path the
    * real read model uses, so the preview cannot drift from what saving would
-   * actually do — and at guild scale the rebuild is cheap.
+   * actually do. It is not cheap — see `sqlite-repo.ts` for the measurement —
+   * but this runs when an officer drags a policy slider, where a second of
+   * "what would this change" is worth paying and a wrong preview is not.
    */
   async previewGuildPolicy(overrides: PolicyOverrides) {
     const db = getDb();

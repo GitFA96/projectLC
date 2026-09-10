@@ -32,6 +32,13 @@ identically to SQLite. Never compute a summary in a backend.
   stays invisible until restart. `write-contract.test.ts` calls every method on
   `WriteRepo` and watches the counter, so a new writer fails until it is listed
   there — in `BUMPS`, or in `NO_BUMP` with the argument for why not.
+- **`loadStore()` builds the read model. It is not a way to answer a
+  question.** It reads and zod-parses every guild table — seconds, not
+  milliseconds, at one real guild's size (`sqlite-repo.ts` has the numbers). A
+  caller that wants three rows must query for three rows; `db/identity.ts` is
+  where the narrow readers live. This is not hypothetical tidiness:
+  `resolveSignedInViewer` called it twice per authenticated request to find one
+  membership, and that alone was ~1.5s on every page in the app.
 - **Every *column* added after the first release needs an entry in
   `COLUMN_MIGRATIONS`.** A missing one works in tests and breaks the user's real
   database; `migrations.test.ts` walks the list and pins the columns no entry

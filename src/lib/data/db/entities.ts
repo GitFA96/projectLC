@@ -475,9 +475,9 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
        duration_ms, actor_name, character_id, class_name, spec, role, parse_percent,
        bracket_percent, amount, deaths, flask, elixirs_json, late_consumables_json, scrolls_json, food, weapon_buff,
        prepot, prepot_label, death_times_json, potions_json, other_casts_json, extras_json, cooldowns_json, cast_times_json,
-       dispels_json, interrupts_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
+       dispels_json, interrupts_json, unlanded_interrupts_json, upkeep_json, gear_json, talents_json, drums, runes, healthstones, sappers, missing_enchants_json, fight_start_ms,
        boss_parse_percent, boss_amount
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     f.id, f.reportCode, f.fightId, f.encounterId, f.encounterName, f.kill ? 1 : 0,
     f.fightPercentage ?? null, f.durationMs, f.actorName, f.characterId, f.className ?? null,
@@ -490,6 +490,7 @@ export function insertWclPlayerFight(db: DatabaseSync, f: WclPlayerFight): void 
     JSON.stringify(f.extras), JSON.stringify(f.cooldowns), JSON.stringify(f.castTimes),
     JSON.stringify(f.dispels),
     JSON.stringify(f.interrupts),
+    JSON.stringify(f.unlandedInterrupts),
     JSON.stringify(f.upkeep),
     JSON.stringify(f.gear), JSON.stringify(f.talents),
     f.drums, f.runes, f.healthstones, f.sappers, JSON.stringify(f.missingEnchants),

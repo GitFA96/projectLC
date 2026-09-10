@@ -4,6 +4,7 @@ import {
   accountSchema,
   authSessionSchema,
   guildInviteSchema,
+  guildRoleSchema,
   membershipSchema,
 } from "@/lib/import/schemas";
 import type { AccountRow } from "@/lib/types";
@@ -20,6 +21,7 @@ import {
   rowToAccount,
   rowToAuthSession,
   rowToGuildInvite,
+  rowToGuildRole,
   rowToMembership,
 } from "@/lib/data/db/rows";
 /**
@@ -626,6 +628,52 @@ export function characterIdentity(
 ): { guildId: string; name: string } | null {
   const row = db.prepare("SELECT guild_id, name FROM characters WHERE id = ?").get(characterId) as Row | undefined;
   return row ? { guildId: row.guild_id as string, name: row.name as string } : null;
+}
+
+/**
+ * Tenancy stats for the service console: how many memberships and roles exist
+ * across the deployment, not within one guild.
+ *
+ * Counted rather than measured off a loaded store — the console showed two
+ * numbers and paid for every item, pull and award in the database to get them.
+ */
+export function countMemberships(db: DatabaseSync): number {
+  return Number((db.prepare("SELECT COUNT(*) AS n FROM memberships").get() as { n: number }).n);
+}
+
+export function countGuildRoles(db: DatabaseSync): number {
+  return Number((db.prepare("SELECT COUNT(*) AS n FROM guild_roles").get() as { n: number }).n);
+}
+
+/**
+ * A guild's roles, with what each one grants.
+ *
+ * Narrow on purpose. Resolving a viewer needs the baseline role and the ones
+ * they hold, and the only other way to get them was `loadStore()` — which
+ * parses every item, pull and award in the database through zod to answer a
+ * question about three rows. That is fine once at boot and ruinous per request:
+ * the viewer is resolved on every authenticated page, by the layout's nav and
+ * by the page's own gate, and it was the whole cost of a page load.
+ */
+export function listGuildRoles(db: DatabaseSync, guildId: string): GuildRole[] {
+  const rows = db
+    .prepare("SELECT * FROM guild_roles WHERE guild_id = ? ORDER BY sort, name")
+    .all(guildId) as Row[];
+  return rows.map((r) => guildRoleSchema.parse(rowToGuildRole(r)));
+}
+
+/**
+ * The characters this membership plays, by id.
+ *
+ * `ownsCharacter()` is a fact about who plays what, so the viewer carries it —
+ * and one indexed read answers it. See `listGuildRoles` for why this is not
+ * taken off the store.
+ */
+export function characterIdsForMembership(db: DatabaseSync, membershipId: string): string[] {
+  const rows = db
+    .prepare("SELECT id FROM characters WHERE membership_id = ?")
+    .all(membershipId) as Row[];
+  return rows.map((r) => r.id as string);
 }
 
 /** The roles a guild actually has right now. Roles are deletable; grants naming them are not. */

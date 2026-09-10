@@ -46,6 +46,7 @@ function fight(over: Partial<WclPlayerFight> = {}): WclPlayerFight {
     castTimes: [],
     dispels: [],
     interrupts: [],
+    unlandedInterrupts: [],
     upkeep: [],
     drums: 0,
     runes: 0,

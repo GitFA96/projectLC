@@ -15,6 +15,7 @@ import {
   DEBUFF_TRACK_NAMES,
   SHAMAN_TOTEM_CASTS,
 } from "@/lib/wcl/class-tracks";
+import { INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
 
 /**
  * The `filterExpression` each event fetch sends to Warcraft Logs.
@@ -86,9 +87,15 @@ export function buildEventFilter(lists: {
  * rides along for the reason chains §1 spends most of its length on: for a
  * shared debuff the cast stream is the only record of who actually cast it,
  * because WCL credits the aura to whoever holds the window.
+ *
+ * `INTERRUPT_CAST_IDS` is here for the mirror image of that argument. The
+ * `Interrupts` stream below is unfiltered and carries every interrupt that
+ * *landed*; a press that stopped nothing produces no interrupt event anywhere,
+ * so the cast IS the only record it happened. Without it the board can only
+ * report landings, which reads as a raid that never missed a window.
  */
 export const CASTS_FILTER = buildEventFilter({
-  ids: [TRACKED_CAST_IDS, SCROLL_CAST_IDS, COOLDOWN_CAST_IDS],
+  ids: [TRACKED_CAST_IDS, SCROLL_CAST_IDS, COOLDOWN_CAST_IDS, INTERRUPT_CAST_IDS],
   names: [SAPPER_CAST_NAMES, SHAMAN_TOTEM_CASTS, APPLY_CAST_NAMES],
 });
 
@@ -129,6 +136,11 @@ export const UNFILTERED_ON_PURPOSE = {
    * The same trade, earned the same way: 262 events across a full night, of
    * which 239 were real interrupts. Filtering would also hide the interrupts
    * nobody thought to curate, which are exactly the ones worth seeing.
+   *
+   * It carries only what landed, which is why `INTERRUPT_CAST_IDS` is in
+   * `CASTS_FILTER` above. Leaving this stream unfiltered is not what makes the
+   * presses visible, and confusing the two is how somebody concludes the board
+   * needs no re-import.
    */
   Interrupts: "read-time classification, and the uncurated presses are the point",
   /**

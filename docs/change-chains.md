@@ -22,8 +22,9 @@ The events fetch is filtered *server-side by Warcraft Logs*.
 id/name lists, and `fetch-report.ts` sends it:
 
 ```
-ability.id IN (TRACKED_CAST_IDS ∪ SCROLL_CAST_IDS ∪ COOLDOWN_CAST_IDS)
-  OR ability.name IN (SAPPER_CAST_NAMES ∪ SHAMAN_TOTEM_CASTS)
+ability.id IN (TRACKED_CAST_IDS ∪ SCROLL_CAST_IDS ∪ COOLDOWN_CAST_IDS
+               ∪ INTERRUPT_CAST_IDS)
+  OR ability.name IN (SAPPER_CAST_NAMES ∪ SHAMAN_TOTEM_CASTS ∪ APPLY_CAST_NAMES)
 ```
 
 The Buffs fetch is filtered the same way (`BUFF_TRACK_NAMES` ∪ `FLASK_BUFF_IDS`
@@ -257,7 +258,24 @@ the paragraphs above say about dispels holds: ids stored beside names,
 `interruptAbilityOf` and `isHealingCast` classifying at read time so curating
 `wcl/interrupts.ts` re-grades old nights, the fetch itself still §1, trash
 counted per instance (201 of 239), and the excluded-pull switch not reaching it.
-Three things are its own.
+Four things are its own.
+
+**A press that stopped nothing is not in that stream, and buying it costs the
+whole of §1.** Warcraft Logs emits an `interrupt` event only where a cast died,
+so the sole record of a kick that cut nothing is its own `cast` — which is why
+`INTERRUPT_CAST_IDS` is in `CASTS_FILTER` and why this one interrupt fact
+cannot be recovered by curating anything later. `normalize.ts` pairs each
+landing off against a press within 250ms (probed: all 38 landings sit 1–13ms
+from their cast, the same target every time, while the closest two presses of
+one spell by one player are 4,980ms apart) and keeps the leftovers as
+`unlandedInterrupts`. Three consequences. It is **boss pulls only**, because on
+trash an Earth Shock press cannot be told from the shaman's rotation — so the
+night and per-instance tables carry no press counts at all rather than counts
+that omit most of the evening. It is added to **nothing** that already meant "a
+cast died", so `total`, `onHeals` and every stopped-cast tally still mean what
+they did. And empty is **ambiguous in a way curation cannot fix**: a pull where
+every press landed and a report imported before the presses were fetched are the
+same row, and only a re-import separates them.
 
 **The stream carries more than interrupts.** 23 of those 262 events were
 `applydebuff` — Polymorph, Cheap Shot, Garrote - Silence, Intimidation, Charge

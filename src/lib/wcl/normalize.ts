@@ -24,6 +24,7 @@ import {
   type UptimeTrack,
 } from "@/lib/wcl/class-tracks";
 
+import { INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
 import { compareText } from "@/lib/sort";
 
 /**
@@ -391,6 +392,19 @@ export interface NormalizedPlayerFight {
    * got interrupted". The victim side is derived in analysis from these.
    */
   interrupts: NormalizedInterrupt[];
+  /**
+   * Presses of the same buttons that stopped **nothing**, in press order.
+   *
+   * The complement of `interrupts` and never an overlap: one press is in
+   * exactly one of the two lists, so `interrupts.length +
+   * unlandedInterrupts.length` is what this raider actually pressed on the pull.
+   *
+   * Empty means one of two things and the row cannot tell them apart — nobody
+   * missed a window, or the report predates `INTERRUPT_CAST_IDS` reaching the
+   * casts filter and holds no presses at all. `analysis/interrupts.ts` reports
+   * that ambiguity rather than resolving it.
+   */
+  unlandedInterrupts: NormalizedUnlandedInterrupt[];
   /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
   upkeep: {
     name: string;
@@ -495,6 +509,40 @@ export interface NormalizedInterrupt {
    * refetch, which is precisely what the id-at-read-time rule above exists to
    * avoid needing.
    */
+  phase?: string;
+}
+
+/**
+ * A press that stopped nothing.
+ *
+ * Reconstructed rather than logged: Warcraft Logs emits an `interrupt` event
+ * only when a cast actually died, so this is a `cast` of a curated interrupt
+ * spell that no interrupt event sat next to. That makes it the one interrupt
+ * fact that is **not** classified at read time — the press has to be paired off
+ * at import, and a report imported before the casts were fetched holds none.
+ *
+ * There is no `stopped`, because nothing was, and no heal flag for the same
+ * reason. Why a press missed its window is deliberately not recorded: the
+ * damage stream cannot answer it. On the probed Illidari Council pull, four
+ * Pummels came back `hitType: 10` and five more came back as ordinary hits, and
+ * all nine did zero damage to Lady Malande — so "missed" and "connected with
+ * nothing to interrupt" are the same row from here, and only "pressed, nothing
+ * stopped" is a claim the log supports.
+ *
+ * Boss pulls only. On trash an Earth Shock press is indistinguishable from the
+ * shaman's rotation, there is no pull to time it against, and the volume is the
+ * night — so trash stays the plain landed count it already was.
+ */
+export interface NormalizedUnlandedInterrupt {
+  /** ms from the pull start. */
+  atMs: number;
+  /** WCL spell id of the interrupt pressed. */
+  spellId?: number;
+  /** The interrupt as the log named it. */
+  spell: string;
+  /** The enemy it was pressed on, absent when the cast event named none. */
+  target?: string;
+  /** WCL's own name for the phase it happened in — "P2: Essence of Desire". */
   phase?: string;
 }
 
@@ -878,6 +926,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         castTimes: [],
         dispels: [],
         interrupts: [],
+        unlandedInterrupts: [],
         upkeep: [],
         gear: [],
         talents: [],
@@ -1515,6 +1564,99 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
    */
   const interruptsByActor = new Map<string, Map<string, NormalizedTrashInterrupt>>();
 
+  /**
+   * Every press of a curated interrupt button on a boss pull, waiting to be
+   * claimed by the interrupt it caused.
+   *
+   * Warcraft Logs never says a press *missed*. The `Interrupts` stream carries
+   * landings only, so the sole record of a press that cut no cast is its own
+   * `cast` event — which is why `INTERRUPT_CAST_IDS` sits in `CASTS_FILTER`,
+   * and why this half of the board is the one thing here that cannot be
+   * recovered at read time. Whatever the loop below does not claim is a press
+   * that stopped nothing.
+   *
+   * Claiming is one-to-one and nearest-first, because two presses of the same
+   * spell would otherwise both match the one interrupt between them.
+   */
+  interface InterruptPress {
+    fight: (typeof fights)[number];
+    actorName: string;
+    ts: number;
+    spellId?: number;
+    spell: string;
+    target?: string;
+    /** An interrupt event claimed it, so it belongs in `interrupts` instead. */
+    landed: boolean;
+  }
+  /**
+   * How far an interrupt event may sit from the press that caused it.
+   *
+   * Measured, not chosen. Across the boss pulls of cWrNZY23Rx6V4faw all 38
+   * landed interrupts sit **1–13ms** from a cast of the same spell by the same
+   * player, carrying the same target on every one — while the closest two
+   * presses of one spell by one player are **4,980ms** apart. This is twenty
+   * times outside the worst pairing and twenty times inside the tightest
+   * collision, so neither widening nor tightening it by a factor of ten would
+   * change a single row.
+   */
+  const PRESS_MATCH_MS = 250;
+  const pressKey = (fightId: number, actorName: string, spellId: number | undefined, spell: string) =>
+    `${fightId}|${actorName.toLowerCase()}|${spellId ?? spell.toLowerCase()}`;
+  const presses: InterruptPress[] = [];
+  const pressesByKey = new Map<string, InterruptPress[]>();
+
+  for (const rawEvent of events.casts) {
+    const parsed = rawCastEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    // `begincast` is a bar starting; a press is the cast that went out.
+    if (event.type !== "cast" || event.sourceID === undefined) continue;
+    const abilityId = event.ability?.guid ?? event.abilityGameID;
+    if (abilityId === undefined || !INTERRUPT_CAST_IDS.has(abilityId)) continue;
+    const actor = actorById.get(event.sourceID);
+    const fight = bossFightOf(event);
+    const spell = event.ability?.name;
+    if (!actor || !fight || !spell) continue;
+    const target = event.targetID === undefined ? undefined : anyActorById.get(event.targetID)?.name;
+    const press: InterruptPress = {
+      fight,
+      actorName: actor.name,
+      ts: event.timestamp,
+      spellId: abilityId,
+      spell,
+      ...(target ? { target } : {}),
+      landed: false,
+    };
+    presses.push(press);
+    const key = pressKey(fight.id, actor.name, abilityId, spell);
+    const list = pressesByKey.get(key) ?? [];
+    list.push(press);
+    pressesByKey.set(key, list);
+  }
+
+  /** Mark the press an interrupt came out of, so it is not counted as a miss. */
+  const claimPress = (
+    fightId: number,
+    actorName: string,
+    spellId: number | undefined,
+    spell: string,
+    ts: number,
+  ): void => {
+    const list = pressesByKey.get(pressKey(fightId, actorName, spellId, spell));
+    if (!list) return;
+    let best: InterruptPress | undefined;
+    let bestDelta = Infinity;
+    for (const press of list) {
+      if (press.landed) continue;
+      const delta = Math.abs(press.ts - ts);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = press;
+      }
+    }
+    if (best && bestDelta <= PRESS_MATCH_MS) best.landed = true;
+  };
+
   for (const rawEvent of events.interrupts ?? []) {
     const parsed = rawInterruptEventSchema.safeParse(rawEvent);
     if (!parsed.success) continue;
@@ -1537,6 +1679,12 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     };
 
     const fight = bossFightOf(event);
+    /*
+     * Before anything else, and regardless of whether this raider has a row on
+     * the pull: an interrupt that lands accounts for its press either way, and
+     * leaving it unclaimed would report the raid's best kicks as misses.
+     */
+    if (fight) claimPress(fight.id, actor.name, event.ability?.guid, spell, event.timestamp);
     const row = fight ? rows.get(keyOf(fight.id, actor.name)) : undefined;
     if (fight && row) {
       const phase = phaseNameOf(fight, event.timestamp);
@@ -1587,8 +1735,31 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
     interruptsByActor.set(actor.name, byKey);
   }
 
+  /*
+   * The leftovers. A press nobody claimed cut no cast — that is the entire
+   * claim, and the file deliberately makes no second one about why.
+   *
+   * A press on a pull the raider has no ranked row for is dropped rather than
+   * invented a row for: every other stream files against the rows the rankings
+   * defined, and a lane with no raider on it is not a miss anybody can answer.
+   */
+  for (const press of presses) {
+    if (press.landed) continue;
+    const row = rows.get(keyOf(press.fight.id, press.actorName));
+    if (!row) continue;
+    const phase = phaseNameOf(press.fight, press.ts);
+    row.unlandedInterrupts.push({
+      atMs: Math.max(0, Math.min(press.ts, press.fight.endTime) - press.fight.startTime),
+      spell: press.spell,
+      ...(press.spellId !== undefined ? { spellId: press.spellId } : {}),
+      ...(press.target ? { target: press.target } : {}),
+      ...(phase ? { phase } : {}),
+    });
+  }
+
   for (const row of rows.values()) {
     row.interrupts.sort((a, b) => a.atMs - b.atMs || compareText(a.target, b.target));
+    row.unlandedInterrupts.sort((a, b) => a.atMs - b.atMs || compareText(a.spell, b.spell));
   }
   for (const [actorName, byKey] of interruptsByActor) {
     const entry = offPullByActor.get(actorName);

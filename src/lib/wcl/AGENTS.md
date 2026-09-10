@@ -8,7 +8,7 @@ normalize.ts     raw JSON → the rows we persist (pure)
 consumables.ts   curated consumable knowledge (ids, aura names, categories)
 class-tracks.ts  curated cooldowns / uptime auras / totem casts
 dispels.ts       curated dispel spells — labels only, never a filter
-interrupts.ts    curated interrupts + which stopped casts heal; labels only too
+interrupts.ts    curated interrupts + which stopped casts heal; ids also filter casts
 deployables.ts   the five things laid on the ground; flags casts already fetched
 consumable-prices.ts, enchants.ts, fight-graph.ts
 ```
@@ -134,6 +134,16 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   older than the fetch has no interrupt rows at all and the board says so rather
   than reading as a night nobody kicked on. A `filterExpression` here would also
   hide the interrupts nobody thought to curate, which are the ones worth seeing.
+- **A press that stopped nothing is in the *casts* stream, not that one.** WCL
+  emits an `interrupt` only where a cast died, so `INTERRUPT_CAST_IDS` is in
+  `CASTS_FILTER` and `normalize.ts` pairs each landing off against a press
+  within 250ms — measured, not chosen: all 38 landings on the probed night sit
+  1–13ms from their cast while the closest two presses of one spell by one
+  player are 4,980ms apart. The leftovers are `unlandedInterrupts`, boss pulls
+  only (on trash an Earth Shock press cannot be told from the rotation). This is
+  the one interrupt fact curation cannot back-fill, so an empty list means
+  "nobody missed" **or** "fetched before presses were", and only a re-import
+  says which.
 - **A phase id is not the phase number a raider says out loud.** WCL counts
   intermissions as phases: on Reliquary of Souls the ids run 1 "P1: Essence of
   Suffering", 2 "Intermission One", 3 "P2: Essence of Desire" — so the phase the

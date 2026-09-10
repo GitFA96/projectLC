@@ -109,6 +109,7 @@ function fight(over: Partial<WclPlayerFightDraft> & { actorName: string }): WclP
     castTimes: [],
     dispels: [],
     interrupts: [],
+    unlandedInterrupts: [],
     upkeep: [],
     gear: [],
     drums: 0,

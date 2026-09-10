@@ -35,6 +35,7 @@ const row = (over: Partial<WclPlayerFight> = {}): WclPlayerFight => ({
   castTimes: [],
   dispels: [],
   interrupts: [],
+  unlandedInterrupts: [],
   upkeep: [],
   gear: [],
   talents: [],
@@ -494,5 +495,151 @@ describe("buildInterruptView — curation", () => {
     expect(view.total).toBe(0);
     expect(view.fights).toEqual([]);
     expect(view.zones).toEqual([]);
+  });
+});
+
+/**
+ * The presses that stopped nothing.
+ *
+ * Two rules do most of the work here and they pull in opposite directions: the
+ * presses have to be visible enough that a pull nobody landed anything on still
+ * shows up, and quiet enough that no number which meant "a cast died" changes
+ * meaning under them.
+ */
+describe("buildInterruptView — presses that stopped nothing", () => {
+  /** A Pummel that cut nothing, the shape the Illidari Council wipe produced 11 of. */
+  const missed = (atMs: number, spell = "Pummel", phase?: string) => ({
+    atMs,
+    spellId: 6554,
+    spell,
+    target: "Lady Malande",
+    ...(phase ? { phase } : {}),
+  });
+
+  it("counts them without touching anything that means a cast died", () => {
+    const view = buildInterruptView({
+      rows: [row({ interrupts: [kick(118_200)], unlandedInterrupts: [missed(120_000)] })],
+    });
+
+    const pull = view.fights[0];
+    // The landing counts stay exactly what they were.
+    expect(pull.total).toBe(1);
+    expect(view.total).toBe(1);
+    expect(pull.stopped).toEqual([{ name: "Spirit Shock", count: 1 }]);
+    // And the press is counted beside them, never inside them.
+    expect(pull.unlanded).toBe(1);
+    expect(view.unlanded).toBe(1);
+    expect(pull.lanes[0].unlanded).toEqual([
+      { atMs: 120_000, spell: "Pummel", target: "Lady Malande" },
+    ]);
+  });
+
+  it("keeps a pull where somebody pressed and stopped nothing at all", () => {
+    /*
+     * The case the toggle exists for. A pull is left out when nobody pressed —
+     * a boss with nothing interruptible is not a boss the raid failed to kick —
+     * but a raider who pressed nine Pummels and stopped none is the opposite of
+     * nothing to report.
+     */
+    const view = buildInterruptView({
+      rows: [row({ unlandedInterrupts: [missed(120_000), missed(124_000)] })],
+    });
+
+    expect(view.fights.map((f) => f.fightId)).toEqual([113]);
+    const pull = view.fights[0];
+    expect(pull.total).toBe(0);
+    expect(pull.unlanded).toBe(2);
+    expect(pull.lanes.map((l) => l.name)).toEqual(["Wando"]);
+    expect(pull.interrupters[0]).toMatchObject({ name: "Wando", count: 0, unlanded: 2 });
+  });
+
+  it("splits a raider's tally per button, so a nuke does not read as a missed kick", () => {
+    /*
+     * The reason every count here stays per spell. Earth Shock is a shaman's
+     * damage button and an interrupt at once — 373 casts against 8 interrupts on
+     * the probed night's boss pulls — while a Pummel has no other job. One
+     * merged "missed 366 interrupts" would be false about both.
+     */
+    const view = buildInterruptView({
+      rows: [
+        row({
+          actorName: "Arë",
+          className: "Shaman",
+          interrupts: [{ ...kick(118_200), spellId: 25454, spell: "Earth Shock" }],
+          unlandedInterrupts: [
+            { atMs: 120_000, spellId: 25454, spell: "Earth Shock", target: "Essence of Desire" },
+            missed(121_000),
+          ],
+        }),
+      ],
+    });
+
+    const tally = view.fights[0].interrupters[0];
+    expect(tally.unlanded).toBe(2);
+    expect(tally.spells).toEqual([
+      { name: "Earth Shock", count: 1, unlanded: 1 },
+      { name: "Pummel", count: 0, unlanded: 1 },
+    ]);
+  });
+
+  it("files a press in its own phase", () => {
+    const view = buildInterruptView({
+      rows: [
+        row({
+          interrupts: [kick(118_200, "Spirit Shock", 41426, DESIRE)],
+          unlandedInterrupts: [missed(60_000, "Pummel", "P1: Essence of Suffering"), missed(120_000, "Pummel", DESIRE)],
+        }),
+      ],
+    });
+
+    const phases = view.fights[0].phases;
+    expect(phases.map((p) => [p.name, p.total, p.unlanded])).toEqual([
+      // In time order, which is why the unphased press cannot be appended after.
+      ["P1: Essence of Suffering", 0, 1],
+      [DESIRE, 1, 1],
+    ]);
+  });
+
+  it("leaves press counts off the night and trash tables entirely", () => {
+    /*
+     * Absent, not zero. Presses are only fetched on boss pulls, so a 0 on the
+     * night table would claim a clean sheet across an evening of trash that
+     * nothing measured.
+     */
+    const view = buildInterruptView({
+      rows: [row({ interrupts: [kick(118_200)], unlandedInterrupts: [missed(120_000)] })],
+      offPull: [
+        offPull({
+          trashInterrupts: [
+            {
+              zone: "Black Temple",
+              spellId: 38768,
+              spell: "Kick",
+              target: "Illidari Nightlord",
+              stopped: "Shadow Bolt",
+              stoppedId: 31627,
+              count: 3,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(view.night[0].unlanded).toBeUndefined();
+    expect(view.zones[0].interrupters[0].unlanded).toBeUndefined();
+    // …and the spell chips on those tables carry no press figure either.
+    expect(view.night[0].spells.every((s) => s.unlanded === undefined)).toBe(true);
+  });
+
+  it("reports nothing rather than a clean sheet for a report imported before presses", () => {
+    /*
+     * The ambiguity the board has to surface: this is identical to a night
+     * where every press landed, and only a re-import tells them apart. The view
+     * says 0 and the board says which 0 it is.
+     */
+    const view = buildInterruptView({ rows: [row({ interrupts: [kick(118_200)] })] });
+    expect(view.unlanded).toBe(0);
+    expect(view.fights[0].unlanded).toBe(0);
+    expect(view.fights[0].lanes[0].unlanded).toEqual([]);
   });
 });

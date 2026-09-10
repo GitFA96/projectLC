@@ -397,6 +397,11 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   -- a re-import is the fetch itself, which older reports predate.
   dispels_json          TEXT NOT NULL DEFAULT '[]',
   interrupts_json       TEXT NOT NULL DEFAULT '[]',
+  -- Presses of the same buttons that stopped nothing. Unlike the row above this
+  -- one cannot be recovered at read time: WCL logs no event for a press that
+  -- cut no cast, so it is paired off at import. Empty also means "imported
+  -- before the presses were fetched" — nothing may read it as "nobody missed".
+  unlanded_interrupts_json TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
   talents_json          TEXT NOT NULL DEFAULT '[]',

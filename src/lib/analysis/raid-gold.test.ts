@@ -119,6 +119,8 @@ function fight(
     castTimes: [],
     dispels: [],
     interrupts: [],
+
+    unlandedInterrupts: [],
     upkeep: [],
     drums: 0,
     runes: 0,

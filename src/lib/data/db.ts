@@ -71,5 +71,5 @@ export {
   upsertGuildBossDrop,
 } from "@/lib/data/db/entities";
 export * from "@/lib/data/db/identity";
-export { loadStore } from "@/lib/data/db/rows";
+export { currentGuildId, loadStore } from "@/lib/data/db/rows";
 export { bumpDataVersion, getDataVersion, withTx } from "@/lib/data/db/core";

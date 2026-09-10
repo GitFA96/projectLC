@@ -86,7 +86,7 @@ export function rowToMembership(r: Row): unknown {
   };
 }
 
-function rowToGuildRole(r: Row): unknown {
+export function rowToGuildRole(r: Row): unknown {
   return {
     id: r.id, guildId: r.guild_id, name: r.name, colour: opt(r.colour), sort: r.sort,
     capabilities: JSON.parse((r.capabilities_json as string | null) ?? "[]"),
@@ -274,6 +274,9 @@ function rowToWclPlayerFight(r: Row): unknown {
     // Same reading as dispels above: null is "no interrupts recorded", which is
     // not "nobody interrupted". Only a re-import tells the two apart.
     interrupts: JSON.parse((r.interrupts_json as string | null) ?? "[]"),
+    // Null is "imported before presses were fetched", which analysis reports as
+    // unrecorded rather than as a pull where every press landed.
+    unlandedInterrupts: JSON.parse((r.unlanded_interrupts_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     talents: JSON.parse((r.talents_json as string | null) ?? "[]"),
@@ -291,6 +294,19 @@ function parseAll<T>(label: string, schema: { parse: (d: unknown) => T }, rows: 
       throw new Error(`SQLite row invalid (${label}): ${e instanceof Error ? e.message : String(e)}`);
     }
   });
+}
+
+/**
+ * The id of the one guild this deployment serves.
+ *
+ * A viewer is resolved against a *named* guild, and until routing carries one
+ * there is exactly one to name (see `resolveSignedInViewer`). Reading the id on
+ * its own rather than through `loadStore()` is the difference between one
+ * indexed row and every row in the database.
+ */
+export function currentGuildId(db: DatabaseSync): string | undefined {
+  const row = db.prepare("SELECT id FROM guild LIMIT 1").get() as Row | undefined;
+  return row ? (row.id as string) : undefined;
 }
 
 export function loadStore(db: DatabaseSync): EntityStore {

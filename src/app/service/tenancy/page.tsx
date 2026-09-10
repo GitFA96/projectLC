@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { findOpenBreakGlass, getDb, listAccounts, loadStore } from "@/lib/data/db";
+import { findMembershipByAccount, findOpenBreakGlass, getDb, listAccounts } from "@/lib/data/db";
+import { getRepo } from "@/lib/data/repo";
 import { currentAccount } from "@/lib/auth/session";
 import { pageView } from "@/lib/auth/view";
 import { NoAccess } from "@/components/no-access";
@@ -30,9 +31,13 @@ export default async function TenancyPage() {
   const db = getDb();
   const accounts = listAccounts(db);
   const me = await currentAccount();
-  const store = loadStore(db);
-  const open = me ? findOpenBreakGlass(db, me.id, store.guild.id) : undefined;
-  const isMember = me ? store.memberships.some((m) => m.accountId === me.id) : false;
+  const repo = await getRepo();
+  const guild = await repo.getGuild();
+  const open = me ? findOpenBreakGlass(db, me.id, guild.id) : undefined;
+  // Scoped to the guild this card is about, like the override above it. An
+  // operator who is a member of some *other* guild still needs a break-glass
+  // for this one.
+  const isMember = me ? findMembershipByAccount(db, guild.id, me.id) !== undefined : false;
 
   return (
     <>
@@ -52,8 +57,8 @@ export default async function TenancyPage() {
         </CardHeader>
         <CardContent>
           <BreakGlassCard
-            guildId={store.guild.id}
-            guildName={store.guild.name}
+            guildId={guild.id}
+            guildName={guild.name}
             open={open ? { reason: open.reason, expiresAt: open.expiresAt } : null}
             isMember={isMember}
           />

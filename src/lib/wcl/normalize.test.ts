@@ -2012,8 +2012,31 @@ describe("normalizeWclReport — interrupts", () => {
     ...over,
   });
 
+  /** A friendly cast of an interrupt button. Pyrelia is a mage, hence 2139. */
+  const press = (
+    over: Partial<{
+      timestamp: number;
+      type: string;
+      fight: number;
+      sourceID: number;
+      targetID: number;
+      ability: { name: string; guid: number };
+    }> = {},
+  ) => ({
+    timestamp: 150000,
+    type: "cast",
+    fight: 7,
+    sourceID: 2,
+    targetID: 50,
+    ability: { name: "Counterspell", guid: 2139 },
+    ...over,
+  });
+
   const run = (interrupts: unknown[], report: unknown = rawReport) =>
     normalizeWclReport(report, { combatantInfo: [], deaths: [], casts: [], interrupts });
+
+  const runWith = (interrupts: unknown[], casts: unknown[], report: unknown = rawReport) =>
+    normalizeWclReport(report, { combatantInfo: [], deaths: [], casts, interrupts });
 
   it("files an interrupt on the presser's pull row, with what it stopped and when", () => {
     const result = run([interrupt()]);
@@ -2190,6 +2213,132 @@ describe("normalizeWclReport — interrupts", () => {
       const result = run([interrupt()], phasedReport);
       const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
       expect(pyrelia.interrupts[0].phase).toBeUndefined();
+    });
+
+    it("names the phase a press that stopped nothing happened in", () => {
+      // Same join, and it has to be: a phase table that counts the landings of
+      // one phase against the presses of the whole pull answers nothing.
+      const result = runWith(
+        [onMoroes(660000)],
+        [press({ fight: 9, timestamp: 720000, targetID: 60 })],
+        phasedReport,
+      );
+      const pyrelia = result.rows.find((r) => r.fightId === 9 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.unlandedInterrupts.map((p) => p.phase)).toEqual(["P2: Essence of Desire"]);
+    });
+  });
+
+  /**
+   * The presses that stopped nothing — the half Warcraft Logs does not record.
+   *
+   * An `interrupt` event only exists where a cast died, so a press that cut
+   * nothing is an ordinary cast that has to be paired off against the
+   * interrupts around it. Everything below is about that pairing being exactly
+   * as tight as the probe said it needed to be.
+   */
+  describe("presses that stopped nothing", () => {
+    it("keeps a press no interrupt came out of", () => {
+      const result = runWith([], [press()]);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.unlandedInterrupts).toEqual([
+        {
+          // 150000 in report time, on a pull that started at 100000.
+          atMs: 50000,
+          spellId: 2139,
+          spell: "Counterspell",
+          target: "Attumen the Huntsman",
+        },
+      ]);
+      // And it is counted as an interrupt nowhere.
+      expect(pyrelia.interrupts).toEqual([]);
+    });
+
+    it("drops the press its interrupt came out of", () => {
+      /*
+       * The pairing this whole feature rests on. Probed on cWrNZY23Rx6V4faw:
+       * every one of 38 landed interrupts sits 1–13ms from its own cast, so a
+       * 3ms gap is the normal case rather than an edge one.
+       */
+      const result = runWith([interrupt({ timestamp: 150003 })], [press()]);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts).toHaveLength(1);
+      expect(pyrelia.unlandedInterrupts).toEqual([]);
+    });
+
+    it("claims one press per interrupt, nearest first", () => {
+      // Two presses, one landing: exactly one of them stopped nothing, and it
+      // is the one the interrupt did not come out of.
+      const result = runWith(
+        [interrupt({ timestamp: 160002 })],
+        [press({ timestamp: 150000 }), press({ timestamp: 160000 })],
+      );
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts).toHaveLength(1);
+      expect(pyrelia.unlandedInterrupts.map((p) => p.atMs)).toEqual([50000]);
+    });
+
+    it("does not pair a press with an interrupt seconds away", () => {
+      /*
+       * The other direction, and why the window is 250ms rather than "the
+       * nearest one". The closest two presses of one spell by one player on the
+       * probed night are 4,980ms apart, so anything at second scale is a
+       * different press — pairing them would erase a real miss and credit a
+       * landing to a press that had nothing to do with it.
+       */
+      const result = runWith([interrupt({ timestamp: 155000 })], [press({ timestamp: 150000 })]);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts).toHaveLength(1);
+      expect(pyrelia.unlandedInterrupts).toHaveLength(1);
+    });
+
+    it("does not pair a press with somebody else's interrupt, or another button's", () => {
+      const result = runWith(
+        [
+          // Same millisecond, different presser.
+          interrupt({ timestamp: 150000, sourceID: 1 }),
+          // Same presser, different button.
+          interrupt({ timestamp: 150000, ability: { name: "Kick", guid: 38768 } }),
+        ],
+        [press()],
+      );
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.unlandedInterrupts).toHaveLength(1);
+    });
+
+    it("ignores a press outside a boss pull", () => {
+      /*
+       * Trash presses are deliberately not kept: an Earth Shock there is
+       * indistinguishable from the shaman's rotation, there is no pull to time
+       * it against, and the volume is the whole night. Trash stays the landed
+       * count it already was.
+       */
+      const result = runWith([], [press({ fight: 8, timestamp: 460000, targetID: 51 })]);
+      expect(result.rows.every((r) => r.unlandedInterrupts.length === 0)).toBe(true);
+    });
+
+    it("ignores a cast that is not an interrupt button at all", () => {
+      const result = runWith([], [press({ ability: { name: "Frostbolt", guid: 27072 } })]);
+      expect(result.rows.every((r) => r.unlandedInterrupts.length === 0)).toBe(true);
+    });
+
+    it("ignores the bar opening and counts only the cast that went out", () => {
+      // `begincast` is a bar starting; counting both would double every press.
+      const result = runWith([], [press({ type: "begincast" }), press()]);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.unlandedInterrupts).toHaveLength(1);
+    });
+
+    it("records none at all when the report was fetched before presses were", () => {
+      /*
+       * The ambiguity the board has to report rather than resolve: this is
+       * identical to a pull where every press landed, and unlike the rest of
+       * the interrupt data no amount of curation recovers it — the press is not
+       * in the interrupt stream to begin with. Only a re-import fills it in.
+       */
+      const result = runWith([interrupt()], []);
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.interrupts).toHaveLength(1);
+      expect(pyrelia.unlandedInterrupts).toEqual([]);
     });
   });
 });

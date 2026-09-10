@@ -1,4 +1,11 @@
-import { findOpenBreakGlass, getDb, loadStore } from "@/lib/data/db";
+import {
+  characterIdsForMembership,
+  currentGuildId,
+  findMembershipByAccount,
+  findOpenBreakGlass,
+  getDb,
+  listGuildRoles,
+} from "@/lib/data/db";
 import { currentAccount } from "@/lib/auth/session";
 import { anonymousViewer, appAdminViewer, memberViewer, type Viewer } from "@/lib/auth/viewer";
 
@@ -12,12 +19,20 @@ import { anonymousViewer, appAdminViewer, memberViewer, type Viewer } from "@/li
  *
  * Everything here fails **closed**: any question it cannot answer resolves to
  * the anonymous viewer, which is granted nothing.
+ *
+ * **Reads are narrow on purpose — never `loadStore()` here.** This runs twice
+ * on every authenticated request (the layout resolves a viewer for the nav, the
+ * page's `pageView()` resolves one for its gate) and `loadStore` parses every
+ * item, pull and award through zod. That was ~0.9s a call at one guild's size,
+ * so it was the entire cost of a page: every page sat at ~1.5s regardless of
+ * what it rendered, and an anonymous request — which returns above, before any
+ * of this — answered in 5ms. Four indexed reads answer the same question.
  */
 export async function resolveSignedInViewer(guildId?: string): Promise<Viewer> {
   const account = await currentAccount();
   if (!account) return anonymousViewer();
 
-  const store = loadStore(getDb());
+  const db = getDb();
   /*
    * The guild being viewed — not "whichever membership turns up first".
    *
@@ -31,10 +46,11 @@ export async function resolveSignedInViewer(guildId?: string): Promise<Viewer> {
    * Until routing carries a guild (§9 step 8) there is exactly one, and naming
    * it here is both correct today and the seam that change plugs into.
    */
-  const viewing = guildId ?? store.guild.id;
-  const membership = store.memberships.find(
-    (m) => m.accountId === account.id && m.guildId === viewing,
-  );
+  const viewing = guildId ?? currentGuildId(db);
+  // No guild row is not a state this app reaches — `getDb()` seeds one. If it
+  // ever does, nobody is a member of a guild that isn't there.
+  if (!viewing) return anonymousViewer(account.id);
+  const membership = findMembershipByAccount(db, viewing, account.id);
   if (!membership) {
     // Signed in, but a stranger to this guild: an outsider, not an error. An
     // app admin lands here too, and lands here with nothing — the flag opens
@@ -49,7 +65,7 @@ export async function resolveSignedInViewer(guildId?: string): Promise<Viewer> {
      * viewed. Expiry lives in the query, so a forgotten override simply stops
      * working — nobody has to remember to close it.
      */
-    const glass = findOpenBreakGlass(getDb(), account.id, viewing);
+    const glass = findOpenBreakGlass(db, account.id, viewing);
     return appAdminViewer(
       account.id,
       glass ? { guildId: glass.guildId, reason: glass.reason, expiresAt: glass.expiresAt } : null,
@@ -61,11 +77,19 @@ export async function resolveSignedInViewer(guildId?: string): Promise<Viewer> {
    * hold. The baseline is added here rather than being assigned to each
    * membership, so "what can a plain raider see" stays one editable row and
    * nobody can be created without it.
+   *
+   * Read for this guild and no other. A role from another guild would be
+   * "capabilities crossing a boundary", which `validateStore` says never
+   * happens; it used to be a `.filter()` a reader had to remember, and is now
+   * the query's own `WHERE guild_id = ?`. That check still runs on every
+   * read-model rebuild, which every page triggers, so a database that can
+   * express the state is still caught loudly.
    */
-  const baseline = store.guildRoles.find((r) => r.guildId === membership.guildId && r.baseline);
+  const roles = listGuildRoles(db, membership.guildId);
+  const baseline = roles.find((r) => r.baseline);
   const held = new Set(membership.roleIds);
-  const granted = store.guildRoles
-    .filter((r) => r.guildId === membership.guildId && (held.has(r.id) || r.id === baseline?.id))
+  const granted = roles
+    .filter((r) => held.has(r.id) || r.id === baseline?.id)
     .flatMap((r) => r.capabilities);
 
   return memberViewer({
@@ -80,8 +104,6 @@ export async function resolveSignedInViewer(guildId?: string): Promise<Viewer> {
     // memberViewer sanitizes and expands: a capability retired in a release is
     // dropped rather than guessed at, and implications are resolved once.
     capabilities: granted,
-    characterIds: store.roster
-      .filter((c) => c.membershipId === membership.id)
-      .map((c) => c.id),
+    characterIds: characterIdsForMembership(db, membership.id),
   });
 }

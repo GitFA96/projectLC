@@ -583,6 +583,38 @@ export const wclPlayerFightSchema = z.object({
     )
     .default([]),
   /**
+   * Presses of the same buttons that stopped **nothing** — the complement of
+   * `interrupts`, never an overlap.
+   *
+   * Reconstructed at import and not recoverable later: Warcraft Logs emits an
+   * `interrupt` event only for a press that cut a cast, so a press that missed
+   * its window is an ordinary cast paired off against the interrupts around it.
+   * That makes this the one interrupt field a re-import is the only way to fill
+   * — everything else here is classified when the page is drawn.
+   *
+   * Empty means "nobody missed" **or** "this report predates the presses being
+   * fetched", and nothing in the row can tell them apart. There is no
+   * `stopped` and no reason: the damage stream cannot separate a press that
+   * missed from one that connected with nothing to interrupt (nine zero-damage
+   * Pummels on one Lady Malande pull, under two different hit types), so
+   * "pressed, nothing stopped" is the whole claim.
+   */
+  unlandedInterrupts: z
+    .array(
+      z.object({
+        atMs: z.number().nonnegative(),
+        /** WCL spell id of the interrupt pressed. */
+        spellId: z.number().int().optional(),
+        /** The interrupt as the log named it. */
+        spell: z.string().min(1),
+        /** The enemy it was pressed on, absent when the cast named none. */
+        target: z.string().min(1).optional(),
+        /** The phase it happened in, as Warcraft Logs names it. */
+        phase: z.string().min(1).optional(),
+      }),
+    )
+    .default([]),
+  /**
    * Each death, ms from the pull start, in order — and what landed it.
    *
    * The count alone says a raid loses people; the timing says whether they lose

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MessageSquareWarning, Package, Users } from "lucide-react";
 import { getRepo } from "@/lib/data/repo";
-import { countAccounts, getDb, loadStore } from "@/lib/data/db";
+import { countAccounts, countGuildRoles, countMemberships, getDb } from "@/lib/data/db";
 import { pageView } from "@/lib/auth/view";
 import { NoAccess } from "@/components/no-access";
 import { PageHeader } from "@/components/page-header";
@@ -28,13 +28,13 @@ export default async function ServicePage() {
   if (!access.allowed) return <NoAccess reason={access.reason} />;
 
   const repo = await getRepo();
-  const [feedback, unresolvedItems, unnamedEnchants] = await Promise.all([
+  const [feedback, unresolvedItems, unnamedEnchants, guild] = await Promise.all([
     repo.listFeedback(),
     repo.listUnresolvedItemIds(),
     repo.listUnnamedEnchantIds(),
+    repo.getGuild(),
   ]);
   const db = getDb();
-  const store = loadStore(db);
   const openReports = feedback.filter((r) => r.status === "open").length;
   const gaps = unresolvedItems.length + unnamedEnchants.length;
 
@@ -78,13 +78,13 @@ export default async function ServicePage() {
             </p>
             <p>
               <span className="font-medium text-foreground tabular-nums">
-                {store.memberships.length}
+                {countMemberships(db)}
               </span>{" "}
-              memberships · <span className="tabular-nums">{store.guildRoles.length}</span> roles
+              memberships · <span className="tabular-nums">{countGuildRoles(db)}</span> roles
             </p>
             <p>
-              1 guild — <span className="text-foreground">{store.guild.name}</span>, publishing{" "}
-              <span className="text-foreground">{store.guild.visibility}</span>
+              1 guild — <span className="text-foreground">{guild.name}</span>, publishing{" "}
+              <span className="text-foreground">{guild.visibility}</span>
             </p>
             <Link href="/service/tenancy" className="inline-block underline underline-offset-2">
               Accounts and overrides →
