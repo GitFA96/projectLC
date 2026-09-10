@@ -2328,6 +2328,35 @@ describe("normalizeWclReport — interrupts", () => {
       expect(pyrelia.unlandedInterrupts).toHaveLength(1);
     });
 
+    it("orders presses by when they happened, then by button", () => {
+      /*
+       * The list is a press order, and the stream does not arrive in one — the
+       * casts come back grouped per ability, so two buttons on one pull are
+       * interleaved here and nowhere else. A row that printed them as they
+       * arrived would read as a timeline while not being one, and the phase
+       * column beside it would step backwards.
+       *
+       * The tie is broken on the button rather than left to arrival order, so
+       * two imports of the same report produce the same row.
+       */
+      const result = runWith(
+        [],
+        [
+          press({ timestamp: 160000 }),
+          press({ timestamp: 150000 }),
+          press({ timestamp: 155000, ability: { name: "Kick", guid: 38768 } }),
+          press({ timestamp: 155000 }),
+        ],
+      );
+      const pyrelia = result.rows.find((r) => r.fightId === 7 && r.actorName === "Pyrelia")!;
+      expect(pyrelia.unlandedInterrupts.map((p) => [p.atMs, p.spell])).toEqual([
+        [50000, "Counterspell"],
+        [55000, "Counterspell"],
+        [55000, "Kick"],
+        [60000, "Counterspell"],
+      ]);
+    });
+
     it("records none at all when the report was fetched before presses were", () => {
       /*
        * The ambiguity the board has to report rather than resolve: this is
