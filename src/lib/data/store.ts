@@ -264,6 +264,14 @@ export interface StoreConfig {
    * near-miss — and the import card now says which is which.
    */
   refusedItemNames?: { nameKey: string; name: string; reason: string; near: string[]; checkedAt: string }[];
+  /**
+   * Enchant ids the dictionary was asked about and had no name for.
+   *
+   * The same distinction as `refusedItemNames`, for the queue that lacked it:
+   * `listUnnamedEnchantIds` is "what nothing names", which counted a dead
+   * lookup and an unasked one as the same thing.
+   */
+  refusedEnchantIds?: number[];
   /** Officer corrections to consumable counts, keyed by report code. */
   consumableAdjustmentsByCode?: Record<string, ConsumableAdjustment[]>;
 }

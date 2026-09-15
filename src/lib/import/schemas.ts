@@ -615,6 +615,48 @@ export const wclPlayerFightSchema = z.object({
     )
     .default([]),
   /**
+   * Every time a boss's pairing mechanic reached this raider on this pull.
+   *
+   * One entry per cast that touched them: `picked` when the boss's own debuff
+   * was on them, and `picked: false` when they were merely standing in the
+   * damage. Both are kept because the second set is the larger one — across the
+   * thirteen Mother Shahraz pulls probed, 1,039,671 damage landed on raiders
+   * who were never picked against 990,266 on the ones who were.
+   *
+   * `atMs` is shared by everyone in one cast, which is what lets
+   * `analysis/pairings.ts` rebuild who was linked with whom without storing a
+   * partner list on every row.
+   *
+   * Empty means "imported before pairings were fetched" as readily as it means
+   * "this boss never picked anybody" — two different fetches had to exist for a
+   * row to carry one, and only a re-import tells them apart.
+   */
+  pairings: z
+    .array(
+      z.object({
+        /** ms from the pull start — the join key across raiders. */
+        atMs: z.number().nonnegative(),
+        /** WCL spell id of the pairing DEBUFF, never of its damage. */
+        spellId: z.number().int(),
+        /** The mechanic as the log named it. */
+        spell: z.string().min(1),
+        /** The debuff was on this raider. False = caught in its damage only. */
+        picked: z.boolean(),
+        /** How long they held it; only ever present when picked. */
+        heldMs: z.number().nonnegative().optional(),
+        /** Damage taken from the mechanic in that window, absorbs included. */
+        damage: z.number().nonnegative().default(0),
+        /**
+         * The same cast's damage to this raider's pets and deployables — never
+         * added to `damage`, because a dead thornling is not damage they took.
+         */
+        petDamage: z.number().nonnegative().default(0),
+        /** Which of those it killed, by the log's own name for each. */
+        petsKilled: z.array(z.string().min(1)).default([]),
+      }),
+    )
+    .default([]),
+  /**
    * Each death, ms from the pull start, in order — and what landed it.
    *
    * The count alone says a raid loses people; the timing says whether they lose

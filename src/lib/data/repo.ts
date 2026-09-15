@@ -302,6 +302,12 @@ export interface Repo {
    * the enchant-name resolver, commonest first.
    */
   listUnnamedEnchantIds(): Promise<number[]>;
+  /**
+   * Enchant ids already taken to the dictionary and still unnamed — asked, not
+   * unasked. Kept apart from the queue above so a count that stays put says
+   * which of the two it means; see change-chains §4f2.
+   */
+  listRefusedEnchantIds(): Promise<number[]>;
   /** The council's factor weighting, with unset factors filled from the defaults. */
   getLootPriorityWeights(): Promise<LootPriorityWeights>;
   /** The whole policy in force — defaults where the council has set nothing. */
@@ -1099,6 +1105,20 @@ export interface WriteRepo extends Repo {
    * With no keys, forgets every one.
    */
   clearRefusedItemNames(nameKeys?: string[]): Promise<number>;
+  /**
+   * Record that the dictionary was asked about these enchant ids and had no
+   * name, so the backfill stops re-fetching work that cannot succeed.
+   *
+   * A throttled run must be filtered out by the caller, for the same reason a
+   * transport error is never filed against a name: being turned away says
+   * nothing about the id.
+   */
+  recordRefusedEnchantIds(ids: number[]): Promise<number>;
+  /**
+   * Put refused enchant ids back in the queue — the press after the dictionary
+   * comes back, or moves. With no ids, forgets every one.
+   */
+  clearRefusedEnchantIds(ids?: number[]): Promise<number>;
   /**
    * Harvest item data out of records already imported: names from wishlists
    * and loot pastes, icons from the gear snapshot on every logged pull. No

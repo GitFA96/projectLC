@@ -121,6 +121,7 @@ function fight(
     interrupts: [],
 
     unlandedInterrupts: [],
+    pairings: [],
     upkeep: [],
     drums: 0,
     runes: 0,

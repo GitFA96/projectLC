@@ -19,6 +19,17 @@ import type { StoreContext } from "./context";
 
 export function itemViews(ctx: StoreContext) {
   const { config, charactersById, consumableNames, currentGearOverrides, gearSets, itemCommentsByItem, items, itemsById, lootAwards, rulesForPhase, wclPlayerFights } = ctx;
+
+  /** Every enchant id something already names — an import, or a past lookup. */
+  const namedEnchantIds = (): Set<number> => {
+    const named = new Set<number>();
+    for (const set of gearSets) {
+      for (const slot of set.slots) if (slot.enchant?.id) named.add(slot.enchant.id);
+    }
+    for (const id of Object.keys(config.enchantNames ?? {})) named.add(Number(id));
+    return named;
+  };
+
   return {
     async getItem(id: number) {
       return itemsById.get(id);
@@ -78,17 +89,32 @@ export function itemViews(ctx: StoreContext) {
       );
     },
 
+    /**
+     * Ids asked about and still unnamed — the standing list, not a message.
+     *
+     * Settled by any route drops it, the same rule the refused item names
+     * follow: an imported gear set names an enchant the dictionary never knew,
+     * and a job that finished itself must not stay on an officer's list.
+     */
+    async listRefusedEnchantIds(): Promise<number[]> {
+      const named = namedEnchantIds();
+      return (config.refusedEnchantIds ?? []).filter((id) => !named.has(id)).sort((a, b) => a - b);
+    },
+
     async listUnnamedEnchantIds(): Promise<number[]> {
       // Every enchant id ever logged that no imported set and no earlier
       // lookup names, commonest first — a backfill run is capped, so the
       // ordering decides which raiders stop seeing a bare id soonest.
-      const named = new Set<number>();
-      for (const set of gearSets) {
-        for (const slot of set.slots) if (slot.enchant?.id) named.add(slot.enchant.id);
-      }
-      for (const id of Object.keys(config.enchantNames ?? {})) named.add(Number(id));
+      //
+      // Ids already taken to the dictionary and refused are NOT here: this is
+      // strictly "never asked". Conflating the two is what let the button
+      // re-fetch the same ids on every press while its count never moved —
+      // change-chains §4f2, the failure the item queues were fixed for first.
+      const named = namedEnchantIds();
+      const asked = new Set(config.refusedEnchantIds ?? []);
       const counts = new Map<number, number>();
-      const want = (id: number | undefined) => id !== undefined && id > 0 && !named.has(id);
+      const want = (id: number | undefined) =>
+        id !== undefined && id > 0 && !named.has(id) && !asked.has(id);
       for (const row of wclPlayerFights) {
         for (const item of row.gear) {
           if (want(item.enchant)) {

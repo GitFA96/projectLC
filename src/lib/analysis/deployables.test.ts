@@ -34,6 +34,7 @@ const row = (over: Partial<WclPlayerFight> = {}): WclPlayerFight => ({
   dispels: [],
   interrupts: [],
   unlandedInterrupts: [],
+  pairings: [],
   upkeep: [],
   gear: [],
   talents: [],

@@ -1,5 +1,11 @@
 import { WclError, wclQuery } from "@/lib/wcl/client";
-import { BUFFS_FILTER, CASTS_FILTER, DEBUFFS_FILTER } from "@/lib/wcl/event-filters";
+import {
+  BUFFS_FILTER,
+  CASTS_FILTER,
+  DEBUFFS_FILTER,
+  PAIRING_DAMAGE_FILTER,
+  PAIRING_DEBUFFS_FILTER,
+} from "@/lib/wcl/event-filters";
 import { normalizeWclReport, type NormalizedReport } from "@/lib/wcl/normalize";
 
 /**
@@ -104,10 +110,20 @@ async function fetchAllEvents(
     | "Buffs"
     | "DamageTaken"
     | "Dispels"
-    | "Interrupts",
+    | "Interrupts"
+    /**
+     * Everything, which is only affordable behind a tight ability filter — and
+     * is the ONLY way to see damage taken by a pet. `DamageTaken` is players
+     * only: on one probed pull it returned 109 Fatal Attraction hits while the
+     * same filter under `All` returned 160, the extra 51 being thornlings,
+     * land mines, turrets and hunter pets. That is not a hostility setting —
+     * unset and `Friendlies` both return the same 109.
+     */
+    | "All",
   endTime: number,
   filter?: string,
-  hostility: "Friendlies" | "Enemies" = "Friendlies",
+  /** Null asks for every side, which a pet-inclusive fetch needs. */
+  hostility: "Friendlies" | "Enemies" | null = "Friendlies",
   /** Report-relative start, for a fetch scoped to one pull rather than the night. */
   startTime = 0,
   /** Restrict to these fights. Null asks for the whole report. */
@@ -162,8 +178,18 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
       return [];
     });
 
-  const [combatantInfo, deaths, casts, debuffs, buffs, dispels, interrupts, enemyCasts] =
-    await Promise.all([
+  const [
+    combatantInfo,
+    deaths,
+    casts,
+    debuffs,
+    buffs,
+    dispels,
+    interrupts,
+    enemyCasts,
+    pairings,
+    pairingDamage,
+  ] = await Promise.all([
     fetchAllEvents(code, "CombatantInfo", reportDuration),
     fetchAllEvents(code, "Deaths", reportDuration),
     // Which lists feed this, and why each is in it, is on event-filters.ts.
@@ -227,6 +253,58 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
         ? Promise.resolve([])
         : fetchAllEvents(code, "Casts", reportDuration, undefined, "Enemies", 0, bossFightIds),
     ),
+    soft(
+      "Pairing debuffs (who a boss linked together)",
+      // Friendlies, which is what separates this from the uptime fetch above:
+      // that one runs with `Enemies` because it measures what we put on the
+      // boss, and a pairing debuff is on our own raiders. The same pull that
+      // returns 1,157 events there returns zero Fatal Attraction.
+      //
+      // Scoped to boss pulls because the mechanic is one: all 126 applications
+      // across five nights came from Mother Shahraz inside her own pull, and a
+      // report-wide fetch would page through the night to find nothing else.
+      bossFightIds.length === 0
+        ? Promise.resolve([])
+        : fetchAllEvents(
+            code,
+            "Debuffs",
+            reportDuration,
+            PAIRING_DEBUFFS_FILTER,
+            "Friendlies",
+            0,
+            bossFightIds,
+          ),
+    ),
+    soft(
+      "Pairing damage (what the link cost, including the bystanders)",
+      // A second fetch rather than a wider filter on the one above, because the
+      // damage is a different data type — and it has to be asked for at all, or
+      // the view can only say who was picked and never what it cost. It is the
+      // half that carries the bystanders: across the probed pulls more of this
+      // damage landed on raiders who were never picked than on the ones who
+      // were.
+      //
+      // `All` rather than `DamageTaken`, and that is not a tidy-up: **the
+      // DamageTaken stream is players only.** Probed on one Mother Shahraz kill,
+      // the same ability filter returns 109 events there and 160 under `All` —
+      // the 51 extra are thornlings, land mines, flame turrets and hunter pets
+      // taking the same AoE, 60 of which it killed outright across six reports.
+      // Hostility is left unset for the same reason; `Friendlies` and unset
+      // both return the same players-only 109 from `DamageTaken`, so the data
+      // type is the thing that was hiding them. The ability filter is what
+      // keeps `All` affordable.
+      bossFightIds.length === 0
+        ? Promise.resolve([])
+        : fetchAllEvents(
+            code,
+            "All",
+            reportDuration,
+            PAIRING_DAMAGE_FILTER,
+            null,
+            0,
+            bossFightIds,
+          ),
+    ),
   ]);
 
   const damageTaken = await soft(
@@ -243,6 +321,8 @@ export async function fetchWclReport(code: string): Promise<NormalizedReport> {
     dispels,
     interrupts,
     enemyCasts,
+    pairings,
+    pairingDamage,
     damageTaken,
   });
   normalized.warnings.push(...softWarnings);

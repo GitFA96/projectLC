@@ -373,6 +373,37 @@ absence looked confirmed the first time.
 zero rows, which reads exactly like "the raid never did this". A probe built
 that way once looked like proof that a debuff was absent.
 
+**A boss mechanic that links raiders is two ids, two fetches, and a hostility
+you have to get right.** `pairings.ts` curates them and Mother Shahraz's Fatal
+Attraction is the worked example. Three things about it generalise:
+
+- **The debuff and the damage share a name and are different spells** — 41001
+  and 40871. The debuff is the only record of who was picked; the damage is AoE
+  and reaches people it never named, more of them than it did (1,039,671 damage
+  on raiders never picked against 990,266 on the picked, across thirteen pulls).
+  Match on **ids**. A name filter merges the two and the picks become fiction.
+- **There is no cast event to anchor on.** Shahraz's enemy cast stream on those
+  pulls holds only Interrupting Shriek and her Prismatic Auras, so the debuff
+  application *is* the event. Nothing downstream may look for a cast.
+- **It cannot ride on `DEBUFFS_FILTER`.** That fetch goes out with hostility
+  `Enemies` because uptime is about what we put on the boss, and a pairing
+  debuff is on our own raiders — the same pull that returns 1,157 events there
+  returns zero Fatal Attraction. Adding the name to `DEBUFF_TRACK_NAMES` is a
+  no-op that reviews as correct; it needs its own `Friendlies` fetch.
+- **The damage fetch is `All`, not `DamageTaken`, because `DamageTaken` is
+  players only.** This one was shipped wrong first and read as "pets are never
+  hit by it". The same ability filter on the same pull returns 109 events under
+  `DamageTaken` and 160 under `All`; the 51 extra are thornlings, land mines,
+  flame turrets, snakes and hunter pets. **Varying hostility does not find
+  this** — unset and `Friendlies` both return the players-only 109. A pet's
+  damage is filed against its `petOwner`'s row and never added to the damage
+  that raider took, and `overkill` is what separates a tick from a casualty.
+
+Who was linked with whom is **not stored**: every row carries the moment the
+debuff went out, and `analysis/pairings.ts` clusters rows across raiders on it.
+That is safe by three orders of magnitude (0–10ms inside one cast, 21,054ms to
+the next), and it is why nothing had to write the same partner list three times.
+
 **The escape hatch: fetch live for one pull.** `fight-casts.ts` and
 `fight-upkeep.ts` query WCL at the moment somebody asks, unfiltered by the
 curated lists, for a single fight. A question asked that way answers for reports
@@ -1090,15 +1121,16 @@ decides which spend was ours.
 
 ## 4f2. A lookup queue must record what it already asked
 
-**Chain:** the resolver's `unmatched` → `recordRefusedItemNames` →
-`listUnmatched*Names` (which filter on it) → the import card.
+**Chain:** the resolver's misses → `recordRefused*` → the `listUnmatched*` /
+`listUnnamed*` queue (which filters on it) → the import card.
 
-The two name queues (`listUnmatchedSheetNames`,
-`listUnmatchedConsumableNames`) are built from what the item cache **cannot
-match**. That makes "nobody has asked" and "we asked and Wowhead refused" the
-same number, so the button offers four names, the press does nothing, and it
-offers the same four next time — forever. The failure is silent and it is the
-officer who absorbs it.
+**Three queues are built this way, and every one of them needed the record.**
+The two name queues (`listUnmatchedSheetNames`, `listUnmatchedConsumableNames`)
+come from what the item cache **cannot match**; `listUnnamedEnchantIds` comes
+from the enchant ids nothing **names**. Either way "nobody has asked" and "we
+asked and were refused" are the same number, so the button offers four names,
+the press does nothing, and it offers the same four next time — forever. The
+failure is silent and it is the officer who absorbs it.
 
 `item_name_lookups` is the difference, in the same shape the items table uses
 for `armor_token`: absent means nobody asked, a row means we asked and the
@@ -1115,6 +1147,31 @@ answer needs a person. Three things follow:
   cache at all ("Warglaive of Azzinoth (Main Hand)" pins to an item called
   something else). Filtering on the cache alone leaves a finished job on the
   list permanently, which is the exact failure this record exists to prevent.
+  The enchant half is the same rule with a different route: an imported
+  SixtyUpgrades set names an id the dictionary never knew, and that refusal must
+  drop itself.
+
+**The second thing the record buys is telling an outage from an answer.**
+`enchant_name_lookups` went in after the dictionary's host moved: every lookup
+began failing at once, including for ids already named in this deployment's own
+table, and the card went on reporting them as "not in the enchantment table" —
+a claim about the table, made by code that could no longer reach it. A queue
+with no memory cannot distinguish "this id has no name" from "nothing has a name
+today", so it reports the first and is sometimes describing the second. Two
+things follow, and they are the enchant analogue of never recording an `error`:
+
+- **A throttled run files nothing.** It stops mid-queue and the id it stopped on
+  was never answered for.
+- **Say what happened, not what it means.** "got no answer" is true either way;
+  "not in the enchantment table" was only ever an inference, and it was wrong
+  for four days without anyone being able to tell.
+
+**Name the source, and expect it to move.** The enchant dictionary is not
+Wowhead — Wowhead has no page for a SpellItemEnchantment id, which is the whole
+reason the resolver exists. It reads the name out of a page's schema.org block
+and **requires the id in that block to match the one it asked about**; a title
+or a breadcrumb would be shorter and would name an enchant off a redirect or a
+soft 404, and that name goes on a raider's gear panel forever.
 
 ## 5g. A consumable whose rank only the id carries
 

@@ -71,6 +71,7 @@ const pull = (over: Partial<WclPlayerFight> = {}): WclPlayerFight =>
     dispels: [],
     interrupts: [],
     unlandedInterrupts: [],
+    pairings: [],
     upkeep: [],
     gear: [],
     talents: [50, 11, 0],

@@ -1584,7 +1584,7 @@ describe("sqlite repo", () => {
             actorName: "Thrainn", role: "dps", elixirs: [],
  lateConsumables: [], scrolls: [], food: false, weaponBuff: false,
             prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [], castTimes: [],
- dispels: [], interrupts: [], unlandedInterrupts: [], upkeep: [],
+ dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [],
             deaths: 0, deathTimes: [], drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [], gear: [], talents: [],
           },
         ],
@@ -1711,7 +1711,7 @@ describe("sqlite repo", () => {
  lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
-          dispels: [], interrupts: [], unlandedInterrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], gear: [], talents: [33, 28, 0],
         },
       ],
@@ -2607,6 +2607,121 @@ describe("sqlite repo", () => {
     expect(await repo.listRefusedItemNames()).toHaveLength(0);
   });
 
+  /**
+   * The enchant backfill's queue, and the record that keeps it honest.
+   *
+   * The same distinction the refused item names draw, in the queue that went
+   * without it longest: this one is built from the ids nothing NAMES, so a
+   * lookup that came back empty left no trace and the ids were re-fetched on
+   * every press while the badge never moved. It took an outage to notice —
+   * when the dictionary's host moved, every id failed at once and the card
+   * reported them as missing from a table it could no longer reach.
+   */
+  describe("naming worn enchants", () => {
+    const ENCHANT_REPORT = "ENCHANT000000001";
+
+    /** One pull whose gear carries a permanent enchant nothing names. */
+    async function pullWearing(repo: ReturnType<typeof getSqliteRepo>, ...enchantIds: number[]) {
+      const saved = await repo.saveWclReport(
+        {
+          code: ENCHANT_REPORT,
+          title: "Enchant night",
+          startTime: "2026-06-20T19:00:00Z",
+          endTime: "2026-06-20T22:00:00Z",
+          raidSessionId: null,
+        },
+        [
+          {
+            fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
+            actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [],
+            lateConsumables: [], scrolls: [], food: false,
+            weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
+            castTimes: [],
+            dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [],
+            drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [],
+            gear: enchantIds.map((enchant, i) => ({ slot: i, id: 30000 + i, enchant, gems: [] })),
+            talents: [],
+          },
+        ],
+      );
+      expect(saved.ok).toBe(true);
+    }
+
+    it("queues an enchant id nothing names, and drops it once it has a name", async () => {
+      const repo = getSqliteRepo();
+      await pullWearing(repo, 2685);
+      expect(await repo.listUnnamedEnchantIds()).toContain(2685);
+
+      expect(await repo.addEnchantNames([{ id: 2685, name: "+60 Spell Damage vs Undead" }])).toBe(1);
+      expect(await repo.listUnnamedEnchantIds()).not.toContain(2685);
+    });
+
+    it("separates an id nobody has asked about from one already asked about", async () => {
+      const repo = getSqliteRepo();
+      await pullWearing(repo, 2685);
+
+      // Never asked: work the button can still do.
+      expect(await repo.listUnnamedEnchantIds()).toContain(2685);
+      expect(await repo.listRefusedEnchantIds()).toEqual([]);
+
+      expect(await repo.recordRefusedEnchantIds([2685])).toBe(1);
+
+      // The queue shrinks by exactly the id that was tried. Before this, the
+      // same ids were re-fetched on every press and the count never moved.
+      expect(await repo.listUnnamedEnchantIds()).not.toContain(2685);
+      expect(await repo.listRefusedEnchantIds()).toEqual([2685]);
+    });
+
+    it("hands the ids back when the retry press clears them", async () => {
+      const repo = getSqliteRepo();
+      await pullWearing(repo, 2685);
+      await repo.recordRefusedEnchantIds([2685]);
+      expect(await repo.listUnnamedEnchantIds()).not.toContain(2685);
+
+      // The press after the dictionary comes back — or moves house, which is
+      // the one event that changes the answer for every id at once.
+      expect(await repo.clearRefusedEnchantIds()).toBe(1);
+      expect(await repo.listRefusedEnchantIds()).toEqual([]);
+      expect(await repo.listUnnamedEnchantIds()).toContain(2685);
+    });
+
+    it("drops a refusal once an import names the id instead", async () => {
+      const repo = getSqliteRepo();
+      await pullWearing(repo, 2685);
+      await repo.recordRefusedEnchantIds([2685]);
+      expect(await repo.listRefusedEnchantIds()).toEqual([2685]);
+
+      // A SixtyUpgrades set names what the dictionary never knew. The chore
+      // finished itself, so it stops being listed as one.
+      await repo.addEnchantNames([{ id: 2685, name: "+60 Spell Damage vs Undead" }]);
+      expect(await repo.listRefusedEnchantIds()).toEqual([]);
+    });
+
+    it("queues a temporary enchant too, not only a permanent one", async () => {
+      // The weapon-buff column reports oils, stones and poisons by the same
+      // kind of id, and they were never queued at all.
+      const repo = getSqliteRepo();
+      const saved = await repo.saveWclReport(
+        { code: ENCHANT_REPORT, title: "Oil night", startTime: "2026-06-20T19:00:00Z", endTime: "2026-06-20T22:00:00Z", raidSessionId: null },
+        [
+          {
+            fightId: 1, encounterId: 601, encounterName: "Void Reaver", kill: true, durationMs: 134000,
+            actorName: "Thrainn", role: "dps", deaths: 0, deathTimes: [], elixirs: [],
+            lateConsumables: [], scrolls: [], food: false,
+            weaponBuff: true, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
+            castTimes: [],
+            dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [],
+            drums: 0, runes: 0, healthstones: 0, sappers: 0, missingEnchants: [],
+            gear: [{ slot: 15, id: 30001, temp: 2623, gems: [] }],
+            talents: [],
+          },
+        ],
+      );
+      expect(saved.ok).toBe(true);
+      expect(await repo.listUnnamedEnchantIds()).toContain(2623);
+    });
+  });
+
   it("puts rings back in the token queue after they were filed as tokens", async () => {
     // The state the buggy classifier left: rings flagged as armor tokens with
     // their slot wiped, plus one genuine token something redeems from.
@@ -2763,7 +2878,7 @@ describe("sqlite repo", () => {
  lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
-          dispels: [], interrupts: [], unlandedInterrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [],
           // The snapshot spells icons with an extension; the cache stores them bare.
           gear: [{ slot: 0, id: 99953, icon: "inv_helmet_15.jpg", gems: [] }],
@@ -2795,7 +2910,7 @@ describe("sqlite repo", () => {
  lateConsumables: [], scrolls: [], food: false,
           weaponBuff: false, prepot: false, potions: [], otherCasts: [], extras: [], cooldowns: [],
           castTimes: [],
-          dispels: [], interrupts: [], unlandedInterrupts: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
+          dispels: [], interrupts: [], unlandedInterrupts: [], pairings: [], upkeep: [], drums: 0, runes: 0, healthstones: 0, sappers: 0,
           missingEnchants: [], talents: [], gear: [],
         },
       ],
@@ -2835,6 +2950,7 @@ describe("sqlite repo", () => {
         interrupts: [],
 
         unlandedInterrupts: [],
+        pairings: [],
         upkeep: [],
         gear: [],
         drums: 0,

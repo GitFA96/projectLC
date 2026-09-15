@@ -16,6 +16,7 @@ import {
   SHAMAN_TOTEM_CASTS,
 } from "@/lib/wcl/class-tracks";
 import { INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
+import { PAIRING_DAMAGE_IDS, PAIRING_DEBUFF_IDS } from "@/lib/wcl/pairings";
 
 /**
  * The `filterExpression` each event fetch sends to Warcraft Logs.
@@ -114,6 +115,28 @@ export const BUFFS_FILTER = buildEventFilter({
   ids: [FLASK_BUFF_IDS.keys(), SCROLL_BUFF_IDS.keys(), PET_BUFF_IDS.keys(), ELIXIR_BUFF_IDS.keys()],
   names: [BUFF_TRACK_NAMES, ELIXIR_BUFF_NAMES],
 });
+
+/**
+ * Who a boss linked together, and what the link cost — two filters, because the
+ * mechanic is two spell ids under one name.
+ *
+ * Both are **id** filters rather than name filters, and that is the point:
+ * Fatal Attraction's debuff (41001) and its damage (40871) are both called
+ * "Fatal Attraction", so a name filter would merge the record of who was picked
+ * with the record of who got hurt — and the second is a strictly larger set,
+ * with more than half the damage landing on raiders who were never picked.
+ *
+ * These are also the reason the pairing fetch cannot ride on `DEBUFFS_FILTER`
+ * above. That one runs with hostility `Enemies`, because debuff *uptime* is
+ * about what we put on the boss; a pairing debuff is on our own raiders. Probed
+ * on the 30 Aug kill pull, the uptime fetch returns 1,157 debuff events and
+ * **zero** Fatal Attraction — so curating the name into `DEBUFF_TRACK_NAMES`
+ * would have been a no-op that reviews as correct, which is chains §1 exactly.
+ */
+export const PAIRING_DEBUFFS_FILTER = buildEventFilter({ ids: [PAIRING_DEBUFF_IDS] });
+
+/** The damage half, whose targets include the bystanders the debuff never names. */
+export const PAIRING_DAMAGE_FILTER = buildEventFilter({ ids: [PAIRING_DAMAGE_IDS] });
 
 /**
  * The fetches that ask for everything, and why each one has to.

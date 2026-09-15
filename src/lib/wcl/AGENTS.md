@@ -10,6 +10,7 @@ class-tracks.ts  curated cooldowns / uptime auras / totem casts
 dispels.ts       curated dispel spells — labels only, never a filter
 interrupts.ts    curated interrupts + which stopped casts heal; ids also filter casts
 deployables.ts   the five things laid on the ground; flags casts already fetched
+pairings.ts      boss mechanics that link several raiders; two ids per entry
 consumable-prices.ts, enchants.ts, fight-graph.ts
 ```
 
@@ -144,6 +145,56 @@ vanilla flasks below were found, after eleven pulls of one had already graded as
   the one interrupt fact curation cannot back-fill, so an empty list means
   "nobody missed" **or** "fetched before presses were", and only a re-import
   says which.
+- **A pairing mechanic is two spell ids under one name, and only one of them
+  says who was picked.** Fatal Attraction's debuff is 41001 and its damage is
+  40871, both named "Fatal Attraction". The debuff is the sole record of a pick
+  — Mother Shahraz emits no cast event for it at all, her cast stream on those
+  pulls carrying only Interrupting Shriek and the Prismatic Auras — while the
+  damage is `isAoE`, is self-sourced, and reaches people the debuff never named.
+  Across thirteen probed pulls it dealt 1,039,671 to raiders who were never
+  picked against 990,266 to the ones who were, so reading the picks off the
+  damage would invent pairings out of the majority. `pairings.ts` keeps the two
+  in separate id lists and `event-filters.ts` sends them as two fetches.
+- **A friendly-side debuff cannot ride on the uptime fetch.** `DEBUFFS_FILTER`
+  goes out with hostility `Enemies`, because uptime is about what we put on the
+  boss. A pairing debuff is on our own raiders: the same pull that returns 1,157
+  events to that fetch returns **zero** Fatal Attraction, so curating the name
+  into `DEBUFF_TRACK_NAMES` is a §1 no-op that reviews as correct. It needs its
+  own `Friendlies` fetch.
+- **Only players have ever been *picked*, and that is a probed negative, not a
+  rule.** All 252 debuff events across five nights named an actor WCL types as
+  `Player` — no pet, no NPC, none of the five deployables. It is not the log
+  hiding pets: on one probed kill Shahraz's Interrupting Shriek lands on pets 51
+  times, so they are plainly eligible for her debuffs and simply not for this
+  one. `normalize.ts` tests for `Player` when it opens a window, and that test
+  is load-bearing rather than tidy: a window is a span of time any raider's
+  damage can be attributed to, so admitting a pet would let a hit that belongs
+  to no cast borrow it and appear as a bystander of a pairing that never
+  happened.
+- **`DamageTaken` is a players-only stream, and it hid half a mechanic.** The
+  pairing damage was first fetched with it, which read as "no pet ever takes
+  this". Under `All` the same ability filter on the same pull returns **160
+  events instead of 109** — the extra 51 are thornlings, goblin land mines,
+  flame turrets, snakes and hunter pets, 80,178 damage across six reports,
+  killing 60 of them. **Hostility is not the lever**: unset and `Friendlies`
+  both return the same players-only 109, so a probe that varies hostility and
+  concludes "pets are never hit" asked the wrong question. Use `All` behind a
+  tight ability filter when a pet can be a target, file the hit against its
+  `petOwner`, and never add it to the damage that raider took. `overkill` is
+  the only killing-blow marker a damage event carries — a land mine detonating
+  on its own timer produces no damage event at all and is correctly not a
+  casualty.
+- **A pairing does not always pick three, because a roll that lands on a tank
+  is lost.** Across sixteen reports from four guilds (101 casts), 0 of 254
+  picks landed on a current Saber Lash target where uniform picking predicts
+  about 30; three rolls over the whole raid with tank and duplicate rolls
+  discarded predicts a 1 / 2 / 3 split of 6.3 / 37.5 / 57.2 against the
+  observed 6 / 37 / 58. **Pets and deployables do not soak rolls**: 0–47 of
+  them alive at the cast, no effect on the pick count (r = −0.002), and no
+  45 s+ hole in the 21–42 s cast rhythm where a nobody-picked cast would sit.
+  Deaths, raid size and shadow resistance explain nothing either — don't re-run
+  those without a new idea. Nothing may pad a cast or draw a short one as
+  incomplete.
 - **A phase id is not the phase number a raider says out loud.** WCL counts
   intermissions as phases: on Reliquary of Souls the ids run 1 "P1: Essence of
   Suffering", 2 "Intermission One", 3 "P2: Essence of Desire" — so the phase the

@@ -110,6 +110,7 @@ function fight(over: Partial<WclPlayerFightDraft> & { actorName: string }): WclP
     dispels: [],
     interrupts: [],
     unlandedInterrupts: [],
+    pairings: [],
     upkeep: [],
     gear: [],
     drums: 0,
@@ -569,6 +570,15 @@ const BUMPS: Record<string, WriteCase<unknown>> = {
       await repo.recordRefusedItemNames([{ nameKey: normalizeItemName(name), name, reason: "unknown", near: [] }]);
     },
     call: async (repo) => expect(await repo.clearRefusedItemNames()).toBe(1),
+  }),
+  recordRefusedEnchantIds: write({
+    call: async (repo) => expect(await repo.recordRefusedEnchantIds([99911])).toBe(1),
+  }),
+  clearRefusedEnchantIds: write({
+    setup: async (repo) => {
+      await repo.recordRefusedEnchantIds([99911]);
+    },
+    call: async (repo) => expect(await repo.clearRefusedEnchantIds()).toBe(1),
   }),
   harvestItemCache: write({
     // The icon on a logged pull's gear snapshot is the fact this digs out; no

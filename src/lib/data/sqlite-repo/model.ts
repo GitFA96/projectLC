@@ -1,4 +1,5 @@
 import {
+  getRefusedEnchantIds,
   getRefusedItemNames,
   getDataVersion,
   getAllConsumableAdjustments,
@@ -79,6 +80,7 @@ export function readModel(): CachedModel {
       wishlistAlternatives: getWishlistAlternatives(db) as WishlistAlternative[],
       enchantNames: getEnchantNames(db),
       refusedItemNames: getRefusedItemNames(db),
+      refusedEnchantIds: getRefusedEnchantIds(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     }),
     store,

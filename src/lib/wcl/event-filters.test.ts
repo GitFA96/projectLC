@@ -3,6 +3,8 @@ import {
   BUFFS_FILTER,
   CASTS_FILTER,
   DEBUFFS_FILTER,
+  PAIRING_DAMAGE_FILTER,
+  PAIRING_DEBUFFS_FILTER,
   UNFILTERED_ON_PURPOSE,
   buildEventFilter,
 } from "@/lib/wcl/event-filters";
@@ -24,6 +26,7 @@ import {
   SHAMAN_TOTEM_CASTS,
 } from "@/lib/wcl/class-tracks";
 import { INTERRUPT_ABILITIES, INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
+import { PAIRING_DEBUFFS } from "@/lib/wcl/pairings";
 
 /**
  * The filters decide what a report import can ever contain.
@@ -168,6 +171,43 @@ describe("the filters the import actually sends", () => {
     const names = namesIn(BUFFS_FILTER);
     for (const name of [...BUFF_TRACK_NAMES, ...ELIXIR_BUFF_NAMES]) {
       expect(names).toContain(`"${name}"`);
+    }
+  });
+
+  it("keeps a pairing's debuff and its damage in separate filters", () => {
+    /*
+     * The trap the pairing view is built around: Fatal Attraction's debuff
+     * (41001) and its damage (40871) share a NAME. These are id filters for
+     * that reason, and the two must never cross — the debuff stream is the only
+     * record of who was picked, while the damage reaches bystanders who
+     * outnumber them.
+     */
+    const debuffIds = idsIn(PAIRING_DEBUFFS_FILTER);
+    const damageIds = idsIn(PAIRING_DAMAGE_FILTER);
+    expect(PAIRING_DEBUFFS.length).toBeGreaterThan(0);
+    for (const pairing of PAIRING_DEBUFFS) {
+      expect(debuffIds, `${pairing.name} would never be fetched`).toContain(String(pairing.id));
+      expect(damageIds).not.toContain(String(pairing.id));
+      for (const id of pairing.damageIds) {
+        expect(damageIds, `${pairing.name}'s damage would never be fetched`).toContain(String(id));
+        expect(debuffIds).not.toContain(String(id));
+      }
+    }
+    // Names on either would merge the two halves back together.
+    expect(namesIn(PAIRING_DEBUFFS_FILTER).size).toBe(0);
+    expect(namesIn(PAIRING_DAMAGE_FILTER).size).toBe(0);
+  });
+
+  it("keeps a pairing debuff out of the uptime filter it cannot ride on", () => {
+    // chains §1 with an extra twist: the uptime fetch runs with hostility
+    // Enemies, so curating a pairing debuff into DEBUFF_TRACK_NAMES would be a
+    // no-op that reviews as correct. Probed on the 30 Aug kill pull, that fetch
+    // returns 1,157 debuff events and zero Fatal Attraction.
+    const uptimeNames = namesIn(DEBUFFS_FILTER);
+    for (const pairing of PAIRING_DEBUFFS) {
+      expect(uptimeNames, `${pairing.name} is in the Enemies-side uptime filter`).not.toContain(
+        `"${pairing.name}"`,
+      );
     }
   });
 

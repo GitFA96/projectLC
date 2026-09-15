@@ -50,6 +50,7 @@ export default async function ImportPage({
     unmatchedSheetNames,
     unmatchedConsumableNames,
     refusedNames,
+    refusedEnchants,
   ] = await Promise.all([
       repo.listCharacters(),
       repo.listItems(),
@@ -62,6 +63,7 @@ export default async function ImportPage({
       repo.listUnmatchedSheetNames(),
       repo.listUnmatchedConsumableNames(),
       repo.listRefusedItemNames(),
+      repo.listRefusedEnchantIds(),
     ]);
 
   /*
@@ -137,7 +139,7 @@ export default async function ImportPage({
           unmatchedConsumableNames={unmatchedConsumableNames.length}
           refusedNames={refusedNames}
         />
-        <EnchantNamesCard unnamed={unnamedEnchants.length} />
+        <EnchantNamesCard unnamed={unnamedEnchants.length} refused={refusedEnchants} />
         <TierTokenCard
           tokensToMap={tokenQueue.tokensWithoutPieces.length}
           unchecked={tokenQueue.unchecked.length}

@@ -179,6 +179,22 @@ CREATE TABLE IF NOT EXISTS enchant_names (
   name        TEXT NOT NULL,
   resolved_at TEXT NOT NULL
 );
+-- Enchant ids the dictionary had no name for.
+--
+-- The §4f2 record, for the queue that was missing it. listUnnamedEnchantIds
+-- is built from the ids nothing NAMES, so a failed lookup left no trace and the
+-- same ids were re-fetched on every press while the badge never moved. Worse,
+-- the card reported them as "not in the enchantment table" — a claim about the
+-- table that was false the day the host moved and every lookup started failing.
+--
+-- No reason column, unlike item_name_lookups: an id is an id, so there is no
+-- misspelling to correct and no near-miss to read. Either the dictionary knows
+-- it or a person names it by hand. checked_at is what makes "asked before the
+-- source moved" answerable, which is the question that cost an afternoon.
+CREATE TABLE IF NOT EXISTS enchant_name_lookups (
+  id         INTEGER PRIMARY KEY,
+  checked_at TEXT NOT NULL
+);
 -- Item names taken to Wowhead and refused.
 --
 -- The queues that offer names for lookup are built from what the cache CANNOT
@@ -402,6 +418,11 @@ CREATE TABLE IF NOT EXISTS wcl_player_fights (
   -- cut no cast, so it is paired off at import. Empty also means "imported
   -- before the presses were fetched" — nothing may read it as "nobody missed".
   unlanded_interrupts_json TEXT NOT NULL DEFAULT '[]',
+  -- Casts of a boss mechanic that links raiders together, one entry per cast
+  -- that reached this raider — as one of the picked, or as somebody standing in
+  -- the damage. Two fetches had to exist for a row to carry any, so empty means
+  -- "imported before pairings were fetched" as readily as "nobody was picked".
+  pairings_json         TEXT NOT NULL DEFAULT '[]',
   upkeep_json           TEXT NOT NULL DEFAULT '[]',
   gear_json             TEXT NOT NULL DEFAULT '[]',
   talents_json          TEXT NOT NULL DEFAULT '[]',

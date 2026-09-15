@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveEnchantNames } from "@/lib/items/enchant-names";
+import { parseEnchantName, resolveEnchantNames } from "@/lib/items/enchant-names";
 
 /**
- * The one place the app talks to wowclassicdb.
+ * The one place the app talks to Warcraft DB.
  *
  * Everything asserted here is about being a good guest on somebody else's free
  * API, because that is the part with no second chance: a backfill that bursts,
@@ -20,17 +20,39 @@ interface Call {
 }
 
 /** A fetch that answers from a table of ids, and records what it was asked. */
+let NAMED_ID = 0;
+
 function stubFetch(answer: (id: number) => Response | Promise<Response>) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", (url: string, init: RequestInit) => {
     calls.push({ url, init });
     const id = Number(url.split("/").pop());
+    // So `named()` can answer as the page for whichever id was asked — the
+    // parser refuses a page whose id is not the one it asked about.
+    NAMED_ID = id;
     return Promise.resolve(answer(id));
   });
   return calls;
 }
 
-const named = (name: string) => new Response(JSON.stringify({ name }), { status: 200 });
+/**
+ * A page the way the real one answers: HTML carrying a schema.org block that
+ * names the entity AND the id it is about.
+ */
+function page(id: number, name: string): Response {
+  const graph = [
+    { "@type": "WebSite", name: "Warcraft DB" },
+    { "@type": "Thing", name, identifier: String(id), url: `https://tbc.warcraftdb.com/data/enchantment/${id}` },
+  ];
+  return new Response(
+    `<html><head><title>${name} - TBC Anniversary - Warcraft DB</title>` +
+      `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": graph })}</script>` +
+      `</head><body>${name}</body></html>`,
+    { status: 200 },
+  );
+}
+
+const named = (name: string) => page(NAMED_ID, name);
 const status = (code: number) => new Response("", { status: code });
 
 const idsAsked = (calls: Call[]) => calls.map((c) => Number(c.url.split("/").pop()));
@@ -57,8 +79,8 @@ describe("naming an enchant", () => {
     const calls = stubFetch(() => named("x"));
     await resolveEnchantNames([2661, 1593], { pauseMs: 0 });
     expect(calls.map((c) => c.url)).toEqual([
-      "https://api.wowclassicdb.com/tbc/enchantment/2661",
-      "https://api.wowclassicdb.com/tbc/enchantment/1593",
+      "https://tbc.warcraftdb.com/data/enchantment/2661",
+      "https://tbc.warcraftdb.com/data/enchantment/1593",
     ]);
   });
 
@@ -77,9 +99,17 @@ describe("an id the database has nothing for", () => {
   it.each([
     ["a 404", () => status(404)],
     ["a 500", () => status(500)],
-    ["an answer with no name field", () => new Response("{}", { status: 200 })],
-    ["an answer whose name is blank", () => named("   ")],
-    ["a body that is not JSON at all", () => new Response("<html>", { status: 200 })],
+    ["a page with no structured block", () => new Response("<html>ok</html>", { status: 200 })],
+    ["a page whose name is blank", () => named("   ")],
+    ["a block that is not JSON at all", () => new Response(
+      '<script type="application/ld+json">{ nope </script>', { status: 200 })],
+    [
+      // The soft 404: a page that answers 200 and is about something else. The
+      // name would render on a raider's gear panel forever, so the id has to
+      // match or there is no name.
+      "a page about a different id",
+      (id: number) => page(id + 1, "+35 Agility"),
+    ],
   ])("%s leaves the id unresolved", async (_label, answer) => {
     stubFetch(answer);
     const result = await resolveEnchantNames([2661], { pauseMs: 0 });
@@ -87,7 +117,7 @@ describe("an id the database has nothing for", () => {
   });
 
   it("does not abandon the run — the next id is still tried", async () => {
-    stubFetch((id) => (id === 2661 ? status(404) : named("+15 Agility")));
+    stubFetch((id) => (id === 2661 ? status(404) : page(id, "+15 Agility")));
     const result = await resolveEnchantNames([2661, 2564], { pauseMs: 0 });
     expect(result.failed).toEqual([2661]);
     expect(result.resolved).toEqual([{ id: 2564, name: "+15 Agility" }]);
@@ -102,7 +132,7 @@ describe("an id the database has nothing for", () => {
 
 describe("being turned away", () => {
   it.each([429, 403])("stops the whole run on a %i", async (code) => {
-    const calls = stubFetch((id) => (id === 1 ? named("first") : status(code)));
+    const calls = stubFetch((id) => (id === 1 ? page(id, "first") : status(code)));
     const result = await resolveEnchantNames([1, 2, 3, 4], { pauseMs: 0 });
 
     // The distinction that matters: what came back before the refusal is kept
@@ -184,7 +214,7 @@ describe("the trickle", () => {
       asked.push(id);
       // The second id answers; the first hangs until its own signal aborts it,
       // which is the case the AbortController exists for.
-      if (id === 2) return Promise.resolve(named("answered"));
+      if (id === 2) return Promise.resolve(page(id, "answered"));
       return new Promise((_resolve, reject) => {
         init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
       });
@@ -200,5 +230,54 @@ describe("the trickle", () => {
     const result = await run;
     expect(result.failed).toEqual([1]);
     expect(result.resolved).toEqual([{ id: 2, name: "answered" }]);
+  });
+});
+
+/**
+ * The parser, apart from the fetch.
+ *
+ * Worth its own cases because it is the whole defence against a wrong name: the
+ * page is HTML written for people, and the name it yields is written into the
+ * cache forever and shown on a raider's gear panel. Reading the title or the
+ * breadcrumb would be shorter and would happily name an enchant off a redirect.
+ */
+describe("reading a name off the page", () => {
+  const block = (obj: unknown) =>
+    `<script type="application/ld+json">${JSON.stringify(obj)}</script>`;
+
+  it("takes the name from the node whose identifier is the id asked about", () => {
+    const html = block({
+      "@graph": [
+        { "@type": "Thing", name: "+15 Agility", identifier: "2564" },
+        { "@type": "Thing", name: "+20 Spirit", identifier: "2567" },
+      ],
+    });
+    expect(parseEnchantName(2567, html)).toBe("+20 Spirit");
+  });
+
+  it("accepts a numeric identifier as readily as a string one", () => {
+    expect(parseEnchantName(2567, block({ "@graph": [{ name: "+20 Spirit", identifier: 2567 }] }))).toBe(
+      "+20 Spirit",
+    );
+  });
+
+  it("accepts a bare object, not only a @graph", () => {
+    expect(parseEnchantName(2567, block({ name: "+20 Spirit", identifier: "2567" }))).toBe("+20 Spirit");
+  });
+
+  it("reads past a block it cannot parse rather than giving up on the page", () => {
+    const html = `<script type="application/ld+json">{ not json </script>` +
+      block({ "@graph": [{ name: "+20 Spirit", identifier: "2567" }] });
+    expect(parseEnchantName(2567, html)).toBe("+20 Spirit");
+  });
+
+  it.each([
+    ["no structured block at all", "<html><title>+20 Spirit</title></html>"],
+    ["a block naming a different id", block({ "@graph": [{ name: "+20 Spirit", identifier: "9999" }] })],
+    ["a node with no identifier", block({ "@graph": [{ name: "+20 Spirit" }] })],
+    ["a name that is not a string", block({ "@graph": [{ name: 20, identifier: "2567" }] })],
+    ["a blank name", block({ "@graph": [{ name: "   ", identifier: "2567" }] })],
+  ])("yields nothing for %s", (_label, html) => {
+    expect(parseEnchantName(2567, html)).toBeUndefined();
   });
 });

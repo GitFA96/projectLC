@@ -3,12 +3,15 @@
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import type { RaidFight } from "@/lib/types";
+import type { RaidPairingView } from "@/lib/analysis/pairings";
 import type {
   DeployableAbstainer,
   DeployableCount,
   RaidDeployableView,
 } from "@/lib/analysis/deployables";
 import { DEPLOYABLES, deployableLabelsFor } from "@/lib/wcl/deployables";
+import { PAIRING_DEBUFFS } from "@/lib/wcl/pairings";
+import { PairingSections } from "@/components/logs/pairing-board";
 import { Raider } from "@/components/logs/rank-bits";
 import { CollapsibleCard } from "@/components/logs/collapsible-card";
 import { LANE_GRID, mmss, TimeAxis, TimelineLane, timeTicks } from "@/components/logs/timeline-bits";
@@ -18,13 +21,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 /**
- * What the raid put on the ground, pull by pull.
+ * The Mother Shahraz card: what the raid put on the ground, and who she linked
+ * together. `DeployableTimeline` is the wrapper; each tab's body is below it.
  *
  * On a fight that wants the kit — Mother Shahraz is the one this was built for
  * — the count is the least interesting half. "Six land mines" says nothing
  * about whether they were down before the first cast or trickled in over two
  * minutes, and that is the difference the officers are actually asking about.
  * So it is a timeline first, with the per-pull tally underneath it.
+ *
+ * The pairing half lives in `pairing-board.tsx` and arrived from a question
+ * about this kit — whether a turret or a land mine can be caught in Fatal
+ * Attraction. It can: that tab's "kit killed" column is what the mechanic
+ * destroyed, and it was invisible until the damage was fetched with a data type
+ * that includes pets at all.
  */
 
 /**
@@ -81,7 +91,91 @@ function Tally({ totals }: { totals: { name: string; count: number }[] }) {
   );
 }
 
+/**
+ * The name of the pairing tab, read off the curated list rather than typed
+ * here — a second mechanic added there renames the tab with it instead of
+ * leaving this quietly wrong.
+ */
+const PAIRING_LABEL = PAIRING_DEBUFFS.length === 1 ? PAIRING_DEBUFFS[0].name : "Pairings";
+
+/**
+ * One card, two tabs: what the raid put on the ground, and who the boss linked
+ * together.
+ *
+ * They share a card because they share a fight — and, as it turned out, because
+ * they share a casualty list. This timeline was built for Mother Shahraz, and
+ * the question that produced the second tab was asked about this kit: whether a
+ * turret or a land mine can be picked by Fatal Attraction, or soak its damage.
+ * It cannot be picked — no pet has ever taken the debuff — but it is very much
+ * hit, and the mechanic kills thornlings, land mines and flame turrets by the
+ * dozen. The pairing tab counts what died, one tab away from what was laid.
+ *
+ * There are two tab rows on screen when this is open, which `board-section.tsx`
+ * warns about — its own boards use folds for exactly that reason. The pull tabs
+ * inside each half are separated from these by a line of summary text, which is
+ * what keeps them from reading as one control; a third row would not survive
+ * that trick and should become a fold instead.
+ */
 export function DeployableTimeline({
+  fights,
+  deployables,
+  pairings,
+}: {
+  fights: RaidFight[];
+  deployables: RaidDeployableView;
+  pairings: RaidPairingView;
+}) {
+  /*
+   * The tab with something in it opens first, the same rule the dispel and
+   * interrupt card follows: a report imported after deployables shipped but
+   * before pairings did has one and not the other, and opening on the empty
+   * half reads as "this night had none" until you click.
+   */
+  const defaultTab = deployables.total === 0 && pairings.total > 0 ? "pairings" : "deployables";
+
+  return (
+    <CollapsibleCard
+      title={`Deployables & ${PAIRING_LABEL}`}
+      description="What the raid put on the ground — land mines, snake traps, thornlings, dog whistles and flame turrets — and who the boss linked together. Neither is scored: what the kit is worth on a pull, and what a pairing should have cost, are the council's calls."
+    >
+      <Tabs defaultValue={defaultTab}>
+        <TabsList className="h-auto flex-wrap justify-start">
+          <TabsTrigger value="deployables">
+            Deployables
+            {/*
+              A zero is left off rather than shown, same as the dispel card: it
+              would claim the raid laid nothing when it may only mean this
+              report predates the tracking — a distinction each half spells out
+              once its tab is open.
+            */}
+            {deployables.total > 0 && (
+              <span className="ml-1 text-[10px] tabular-nums text-muted-foreground">
+                {deployables.total}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="pairings">
+            {PAIRING_LABEL}
+            {pairings.total > 0 && (
+              <span className="ml-1 text-[10px] tabular-nums text-muted-foreground">
+                {pairings.total}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="deployables">
+          <DeployableSections fights={fights} deployables={deployables} />
+        </TabsContent>
+        <TabsContent value="pairings">
+          <PairingSections fights={fights} pairings={pairings} />
+        </TabsContent>
+      </Tabs>
+    </CollapsibleCard>
+  );
+}
+
+function DeployableSections({
   fights,
   deployables,
 }: {
@@ -90,27 +184,22 @@ export function DeployableTimeline({
 }) {
   const withDrops = fights.filter((f) => deployables.fights.some((d) => d.fightId === f.fightId));
 
-  if (deployables.total === 0) {
+  if (deployables.total === 0 || withDrops.length === 0) {
     return (
-      <CollapsibleCard
-        title="Deployables"
-        description="Land mines, snake traps, thornlings, dog whistles and flame turrets — what the raid put on the ground, and when."
-      >
-        <p className="py-1 text-sm text-muted-foreground">
-          None recorded for this night. That is <em>not</em> the same as nobody laying one: reports
-          imported before these five were tracked contain no events for them at all. Re-import this
-          report to fill it in.
-        </p>
-      </CollapsibleCard>
+      <p className="py-1 text-sm text-muted-foreground">
+        None recorded for this night. That is <em>not</em> the same as nobody laying one: reports
+        imported before these five were tracked contain no events for them at all. Re-import this
+        report to fill it in.
+      </p>
     );
   }
 
   return (
-    <CollapsibleCard
-      title="Deployables"
-      description="Land mines, snake traps, thornlings, dog whistles and flame turrets — laid on the pull, in the order they went down. The count is the smaller half of this: what matters on a fight that wants the kit is whether it was down early and how many people laid one."
-    >
-      <div className="space-y-3">
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Laid on the pull, in the order they went down. The count is the smaller half: what matters
+        on a fight that wants the kit is whether it was down early and how many people laid one.
+      </p>
         <Tally totals={deployables.totals} />
 
         <Tabs defaultValue={String(withDrops[0].fightId)}>
@@ -186,9 +275,8 @@ export function DeployableTimeline({
           })}
         </Tabs>
 
-        <SilenceTable silence={deployables.silence} />
-      </div>
-    </CollapsibleCard>
+      <SilenceTable silence={deployables.silence} />
+    </div>
   );
 }
 

@@ -82,6 +82,54 @@ export function addEnchantNames(db: DatabaseSync, names: { id: number; name: str
   return written;
 }
 
+/** Every enchant id the dictionary has been asked about and had no name for. */
+export function getRefusedEnchantIds(db: DatabaseSync): number[] {
+  return (db.prepare("SELECT id FROM enchant_name_lookups").all() as Row[]).map((r) =>
+    Number(r.id),
+  );
+}
+
+/**
+ * Record enchant ids the dictionary had nothing for, refreshing when they were
+ * last asked about.
+ *
+ * Refreshing rather than ignoring, for the same reason the item verdicts are
+ * replaced: a re-ask is how an officer checks whether a source that has come
+ * back up knows them now, and the newer answer is the true one.
+ *
+ * A throttled run must never get here — being turned away says nothing about
+ * the id, and filing it would take a resolvable enchant out of the queue.
+ */
+export function recordRefusedEnchantIds(db: DatabaseSync, ids: number[]): number {
+  const stmt = db.prepare(
+    `INSERT INTO enchant_name_lookups (id, checked_at) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET checked_at = excluded.checked_at`,
+  );
+  const at = new Date().toISOString();
+  let written = 0;
+  for (const id of ids) {
+    if (!Number.isInteger(id) || id <= 0) continue;
+    written += Number(stmt.run(id, at).changes);
+  }
+  return written;
+}
+
+/**
+ * Forget past enchant refusals, so the backfill offers those ids again.
+ *
+ * The press after the dictionary moves house, which is the one thing that
+ * changes the answer for every id at once.
+ */
+export function clearRefusedEnchantIds(db: DatabaseSync, ids?: number[]): number {
+  if (ids === undefined) {
+    return Number(db.prepare("DELETE FROM enchant_name_lookups").run().changes);
+  }
+  const stmt = db.prepare("DELETE FROM enchant_name_lookups WHERE id = ?");
+  let removed = 0;
+  for (const id of ids) removed += Number(stmt.run(id).changes);
+  return removed;
+}
+
 /** One name Wowhead was asked about and would not identify. */
 export interface RefusedItemName {
   nameKey: string;

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   addEnchantNames,
+  clearRefusedEnchantIds,
   clearRefusedItemNames,
+  recordRefusedEnchantIds,
   recordRefusedItemNames,
   bumpDataVersion,
   getDb,
@@ -176,6 +178,28 @@ export const itemWrites = {
     let removed = 0;
     withTx(db, () => {
       removed = clearRefusedItemNames(db, nameKeys);
+      if (removed > 0) bumpDataVersion(db);
+    });
+    return removed;
+  },
+
+  async recordRefusedEnchantIds(ids: number[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const db = getDb();
+    let written = 0;
+    withTx(db, () => {
+      written = recordRefusedEnchantIds(db, ids);
+      // The backfill queue is part of the read model, and it filters on these.
+      if (written > 0) bumpDataVersion(db);
+    });
+    return written;
+  },
+
+  async clearRefusedEnchantIds(ids?: number[]): Promise<number> {
+    const db = getDb();
+    let removed = 0;
+    withTx(db, () => {
+      removed = clearRefusedEnchantIds(db, ids);
       if (removed > 0) bumpDataVersion(db);
     });
     return removed;

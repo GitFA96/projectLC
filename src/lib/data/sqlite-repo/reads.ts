@@ -1,4 +1,5 @@
 import {
+  getRefusedEnchantIds,
   getRefusedItemNames,
   getAllConsumableAdjustments,
   getAllExcludedFights,
@@ -181,6 +182,7 @@ export const readMethods: Repo = {
   listTokenBackfill: () => readModel().repo.listTokenBackfill(),
   getEnchantReference: () => readModel().repo.getEnchantReference(),
   listUnnamedEnchantIds: () => readModel().repo.listUnnamedEnchantIds(),
+  listRefusedEnchantIds: () => readModel().repo.listRefusedEnchantIds(),
   getLootPriorityWeights: () => readModel().repo.getLootPriorityWeights(),
   getItemPriorityRule: (itemId, ...names) => readModel().repo.getItemPriorityRule(itemId, ...names),
   getPrioritySheet: (phase) => readModel().repo.getPrioritySheet(phase),
@@ -224,6 +226,7 @@ export const readMethods: Repo = {
       guides: asGuides(getGuides(db)),
       enchantNames: getEnchantNames(db),
       refusedItemNames: getRefusedItemNames(db),
+      refusedEnchantIds: getRefusedEnchantIds(db),
       consumableAdjustmentsByCode: getAllConsumableAdjustments(db),
     });
     const after = await proposed.measureRoster();

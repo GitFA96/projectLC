@@ -277,6 +277,9 @@ function rowToWclPlayerFight(r: Row): unknown {
     // Null is "imported before presses were fetched", which analysis reports as
     // unrecorded rather than as a pull where every press landed.
     unlandedInterrupts: JSON.parse((r.unlanded_interrupts_json as string | null) ?? "[]"),
+    // Null is "imported before the pairing fetches existed", which the board
+    // reports as unrecorded rather than as a boss that picked nobody.
+    pairings: JSON.parse((r.pairings_json as string | null) ?? "[]"),
     upkeep: JSON.parse((r.upkeep_json as string | null) ?? "[]"),
     gear: JSON.parse((r.gear_json as string | null) ?? "[]"),
     talents: JSON.parse((r.talents_json as string | null) ?? "[]"),

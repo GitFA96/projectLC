@@ -120,6 +120,7 @@ function pull(
     dispels: [],
     interrupts: [],
     unlandedInterrupts: [],
+    pairings: [],
     drums: 0,
     runes: 0,
     healthstones: 0,

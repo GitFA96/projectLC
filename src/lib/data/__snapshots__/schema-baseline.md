@@ -118,6 +118,11 @@ already exists will never get it.
 - source
 - set_at
 
+## enchant_name_lookups
+
+- id
+- checked_at
+
 ## enchant_names
 
 - id

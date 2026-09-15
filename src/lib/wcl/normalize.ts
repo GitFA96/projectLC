@@ -25,6 +25,7 @@ import {
 } from "@/lib/wcl/class-tracks";
 
 import { INTERRUPT_CAST_IDS } from "@/lib/wcl/interrupts";
+import { PAIRING_BY_DAMAGE_ID, pairingOf, type PairingDebuff } from "@/lib/wcl/pairings";
 import { compareText } from "@/lib/sort";
 
 /**
@@ -234,6 +235,12 @@ const rawDamageEventSchema = z.looseObject({
   targetID: z.number().optional(),
   amount: z.number().optional(),
   absorbed: z.number().optional(),
+  /**
+   * Damage past the target's remaining health — the log's own marker for a
+   * killing blow, and the only one on a damage event. Read by the pairing step
+   * to tell "the thornling took a tick" from "the thornling died to it".
+   */
+  overkill: z.number().optional(),
   ability: rawAbilitySchema.nullish(),
 });
 
@@ -405,6 +412,16 @@ export interface NormalizedPlayerFight {
    * that ambiguity rather than resolving it.
    */
   unlandedInterrupts: NormalizedUnlandedInterrupt[];
+  /**
+   * Every time a boss's pairing mechanic reached this raider on this pull — as
+   * one of the picked, or as somebody standing in the damage.
+   *
+   * Boss pulls only, because that is where it is fetched, and empty on every
+   * report imported before it was. That is not the same statement as a pull
+   * nobody was picked on, and `analysis/pairings.ts` reports the ambiguity
+   * rather than resolving it.
+   */
+  pairings: NormalizedPairingHit[];
   /** Maintained debuff/buff uptimes, % of the pull, best target; `targets` breaks it down per victim with up-intervals. */
   upkeep: {
     name: string;
@@ -544,6 +561,56 @@ export interface NormalizedUnlandedInterrupt {
   target?: string;
   /** WCL's own name for the phase it happened in — "P2: Essence of Desire". */
   phase?: string;
+}
+
+/**
+ * One raider's share of one cast of a pairing mechanic.
+ *
+ * Two rows can describe the same cast very differently, and keeping both is the
+ * point. `picked: true` is a raider the boss actually linked — the debuff was
+ * on them, and `heldMs` says for how long. `picked: false` is a raider who was
+ * standing in the damage it dealt and was never linked to anybody; across the
+ * thirteen Mother Shahraz pulls probed, *more* of the damage landed on those
+ * than on the picked (1,039,671 against 990,266), so a view built only from the
+ * debuff would miss the larger half of what the mechanic cost.
+ *
+ * `atMs` is the moment the debuff went out, and it is the **join key**: every
+ * row of one cast carries the same one, so `analysis/pairings.ts` reconstructs
+ * who was linked with whom by clustering rows across raiders. That is safe by a
+ * wide margin — see `PAIRING_CLUSTER_MS`.
+ */
+export interface NormalizedPairingHit {
+  /** ms from the pull start — when the debuff went out, shared by everyone in the cast. */
+  atMs: number;
+  /** WCL spell id of the pairing DEBUFF, never of its damage. */
+  spellId: number;
+  /** The mechanic as the log named it ("Fatal Attraction"). */
+  spell: string;
+  /** The boss's own debuff was on this raider, so they were one of the picked. */
+  picked: boolean;
+  /** How long they held it. Only ever set when `picked`. */
+  heldMs?: number;
+  /**
+   * Damage this raider took from the mechanic inside that window, mitigation
+   * and absorbs included. Zero is real and common for a pair that separated.
+   */
+  damage: number;
+  /**
+   * The same cast's damage to this raider's **pets and deployables**.
+   *
+   * Kept apart from `damage` because it is not damage the raider took, and
+   * adding the two would put a dead thornling on somebody's damage-taken line.
+   * A pet cannot be picked — nothing in five nights of probing ever put the
+   * debuff on one — so this is always collateral.
+   */
+  petDamage: number;
+  /**
+   * Which of them the cast killed, by the log's own name for each, in the order
+   * they died. Read off `overkill`, the only killing-blow marker a damage event
+   * carries; a land mine that goes off on its own timer produces no damage
+   * event at all and is correctly absent.
+   */
+  petsKilled: string[];
 }
 
 /**
@@ -797,6 +864,10 @@ export interface RawEventInputs {
   interrupts?: unknown[];
   /** Enemy casts on boss pulls. Absent on fetches older than the denominator. */
   enemyCasts?: unknown[];
+  /** Pairing debuffs on our own raiders. Absent on fetches older than the pairing board. */
+  pairings?: unknown[];
+  /** Damage from those mechanics, whose targets include raiders never picked. */
+  pairingDamage?: unknown[];
   /** Damage taken near each death, for the recap. Absent on older fetches. */
   damageTaken?: unknown[];
 }
@@ -927,6 +998,7 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         dispels: [],
         interrupts: [],
         unlandedInterrupts: [],
+        pairings: [],
         upkeep: [],
         gear: [],
         talents: [],
@@ -1833,6 +1905,230 @@ export function normalizeWclReport(rawInput: unknown, events: RawEventInputs): N
         compareText(a.caster, b.caster) ||
         compareText(a.ability, b.ability),
     );
+
+  /*
+   * 4e. Pairings — who a boss linked together, and what it cost.
+   *
+   * Built in two passes because the mechanic is two spell ids under one name
+   * and they answer different questions. The debuff (41001) is the only record
+   * of **who was picked**: there is no cast event to anchor to, Mother
+   * Shahraz's cast stream on those pulls carrying nothing but Interrupting
+   * Shriek and her Prismatic Auras. The damage (40871) is `isAoE`, is
+   * self-sourced, and reaches people the debuff never named — so it is read
+   * second, against the windows the first pass opened.
+   *
+   * A window is `applydebuff` → `removedebuff`, per raider. Nothing else
+   * appears in this stream: across five nights of Mother Shahraz it is 126
+   * applications and 126 removals and not one other event type, so there are no
+   * stacks or refreshes to reason about.
+   *
+   * A raider who dies holding it has their window closed by the removal WCL
+   * writes at death, which is why `heldMs` is what they held it for and never
+   * what the mechanic's duration is.
+   */
+  /** One raider's hold on one cast, open until its `removedebuff` arrives. */
+  interface PairingWindow {
+    actorName: string;
+    pairing: PairingDebuff;
+    /** Report-clock ms, not pull-relative — the damage stream is matched on it. */
+    start: number;
+    end?: number;
+    fight: { startTime: number; endTime: number };
+  }
+  /** Damage to one raider from one cast, with enough to place it on a row. */
+  interface PairingDamageAcc {
+    fightId: number;
+    actorName: string;
+    window: PairingWindow;
+    amount: number;
+    /** The same cast's damage to that raider's pets and deployables. */
+    petAmount: number;
+    /** Which of them it killed, by the log's own name for each. */
+    killed: string[];
+  }
+  /**
+   * How far outside a window a hit may sit and still belong to it.
+   *
+   * Measured, not chosen, and with an enormous margin: the spread inside one
+   * cast is 0–10ms across all thirteen probed pulls, while the closest two
+   * casts on one pull are 21,054ms apart. Every one of the 1,782 damage events
+   * lands inside a window already, so this only absorbs the millisecond of
+   * slack between a final tick and the removal that closes the window.
+   */
+  const PAIRING_DAMAGE_SLACK_MS = 1_000;
+
+  const pairingWindowsByFight = new Map<number, PairingWindow[]>();
+  for (const rawEvent of events.pairings ?? []) {
+    const parsed = rawAuraEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    const pairing = pairingOf(event.ability?.guid);
+    // Players only, which is a test and not a formality: every one of the 252
+    // events probed named a Player, and a pet or a summoned deployable turning
+    // up here would be a new fact about the mechanic rather than a row to file.
+    const actor = event.targetID === undefined ? undefined : actorById.get(event.targetID);
+    const fight = bossFightOf(event);
+    if (!pairing || !actor || !fight) continue;
+    if (event.type !== "applydebuff" && event.type !== "removedebuff") continue;
+
+    const list = pairingWindowsByFight.get(fight.id) ?? [];
+    if (event.type === "applydebuff") {
+      list.push({
+        actorName: actor.name,
+        pairing,
+        start: event.timestamp,
+        fight,
+      });
+      pairingWindowsByFight.set(fight.id, list);
+      continue;
+    }
+    // The open window for this raider, newest first — a removal can only close
+    // one, and two casts on one pull are 21 seconds apart at the closest.
+    for (let i = list.length - 1; i >= 0; i--) {
+      const w = list[i];
+      if (w.actorName === actor.name && w.end === undefined) {
+        w.end = event.timestamp;
+        break;
+      }
+    }
+  }
+
+  /*
+   * The damage, onto whichever window contains it.
+   *
+   * Every one of the 1,782 damage events probed falls inside a window that was
+   * open at the time, so an event matching none is not a bystander this misses
+   * — it is a mechanic behaving differently from anything observed, and it is
+   * dropped rather than filed against a guess.
+   *
+   * Attribution is by **time**, not by who holds the debuff: a hit on somebody
+   * with no window of their own still belongs to the cast whose window it
+   * happened in, and that is exactly the bystander the view exists to show.
+   */
+  const pairingDamage = new Map<string, PairingDamageAcc>();
+  const damageKey = (fightId: number, actorName: string, start: number) =>
+    `${fightId}|${actorName.toLowerCase()}|${start}`;
+  for (const rawEvent of events.pairingDamage ?? []) {
+    const parsed = rawDamageEventSchema.safeParse(rawEvent);
+    if (!parsed.success) continue;
+    const event = parsed.data;
+    if (!PAIRING_BY_DAMAGE_ID.has(event.ability?.guid ?? -1)) continue;
+    const fight = bossFightOf(event);
+    if (!fight || event.targetID === undefined) continue;
+    /*
+     * The unit that took it, and the raider it is filed against — not always
+     * the same one.
+     *
+     * A pet or a deployable cannot be PICKED (nothing in five nights of probing
+     * ever put the debuff on one), but it very much gets hit: the AoE killed 60
+     * thornlings, land mines, flame turrets and hunter pets across six reports.
+     * Those go on their OWNER's row, because a raider is the only thing the
+     * rest of the app can file anything against — and they go in their own
+     * field, because a dead thornling is not damage the raider took.
+     */
+    const hitUnit = anyActorById.get(event.targetID);
+    const asPlayer = actorById.get(event.targetID);
+    const owner =
+      asPlayer ?? (hitUnit?.petOwner != null ? actorById.get(hitUnit.petOwner) : undefined);
+    // A summon nobody owns — one stray snake per report — belongs to no row.
+    if (!hitUnit || !owner) continue;
+    const isPet = asPlayer === undefined;
+    const actor = owner;
+    const windows = pairingWindowsByFight.get(fight.id) ?? [];
+    /*
+     * The cast this hit belongs to. The tolerance absorbs the millisecond of
+     * slack between a final tick and the removal that ends a window — observed
+     * spread inside one cast is 0–10ms against 21 seconds to the next cast, so
+     * it cannot reach the wrong one.
+     *
+     * **The raider's OWN window wins**, and that is not a nicety. Every window
+     * in one cast starts within a few milliseconds of the others and ends
+     * whenever each raider's debuff came off, so a bare "first window that
+     * contains this" answers with somebody else's — and the key built from it
+     * then fails to match the one the picked raider is looked up by, quietly
+     * dropping their damage onto nobody. It cost 32,394 of the 191,220 on one
+     * probed report before the preference was added.
+     */
+    const inRange = (w: PairingWindow) =>
+      event.timestamp >= w.start - PAIRING_DAMAGE_SLACK_MS &&
+      event.timestamp <= (w.end ?? w.start) + PAIRING_DAMAGE_SLACK_MS;
+    const window =
+      windows.find((w) => w.actorName === actor.name && inRange(w)) ?? windows.find(inRange);
+    if (!window) continue;
+    const key = damageKey(fight.id, actor.name, window.start);
+    const acc =
+      pairingDamage.get(key) ??
+      {
+        fightId: fight.id,
+        actorName: actor.name,
+        window,
+        amount: 0,
+        petAmount: 0,
+        killed: [],
+      };
+    // Absorbed damage counts: a shield that ate it is a healer's cooldown spent
+    // on this mechanic, not damage the pairing failed to deal.
+    const amount = (event.amount ?? 0) + (event.absorbed ?? 0);
+    if (isPet) {
+      acc.petAmount += amount;
+      // `overkill` is the log's own marker for a killing blow, and it is what
+      // separates "the mine took a tick" from "the mine died to it". A land
+      // mine that detonates on its own timer carries no damage event at all.
+      if ((event.overkill ?? 0) > 0) acc.killed.push(hitUnit.name);
+    } else {
+      acc.amount += amount;
+    }
+    pairingDamage.set(key, acc);
+  }
+
+  /*
+   * Onto the rows. The picked come from the windows, and the bystanders from
+   * whatever damage is left over with no window of its own — which is why this
+   * walks the damage keys rather than the windows a second time.
+   */
+  const pickedKeys = new Set<string>();
+  for (const [fightId, windows] of pairingWindowsByFight) {
+    for (const w of windows) {
+      const row = rows.get(keyOf(fightId, w.actorName));
+      const key = damageKey(fightId, w.actorName, w.start);
+      pickedKeys.add(key);
+      if (!row) continue;
+      const atMs = Math.max(0, Math.min(w.start, w.fight.endTime) - w.fight.startTime);
+      const hit = pairingDamage.get(key);
+      row.pairings.push({
+        atMs,
+        spellId: w.pairing.id,
+        spell: w.pairing.name,
+        picked: true,
+        ...(w.end !== undefined ? { heldMs: Math.max(0, w.end - w.start) } : {}),
+        damage: hit?.amount ?? 0,
+        petDamage: hit?.petAmount ?? 0,
+        petsKilled: hit?.killed ?? [],
+      });
+    }
+  }
+  for (const [key, hit] of pairingDamage) {
+    // Damage to somebody who WAS picked is already on their row above; what is
+    // left is the bystanders, and they are the larger half of the total.
+    if (pickedKeys.has(key)) continue;
+    const row = rows.get(keyOf(hit.fightId, hit.actorName));
+    if (!row) continue;
+    const { window } = hit;
+    row.pairings.push({
+      atMs: Math.max(0, Math.min(window.start, window.fight.endTime) - window.fight.startTime),
+      spellId: window.pairing.id,
+      spell: window.pairing.name,
+      picked: false,
+      damage: hit.amount,
+      petDamage: hit.petAmount,
+      petsKilled: hit.killed,
+    });
+  }
+  for (const row of rows.values()) {
+    if (row.pairings.length > 1) {
+      row.pairings.sort((a, b) => a.atMs - b.atMs || Number(b.picked) - Number(a.picked));
+    }
+  }
 
   /*
    * 5. Upkeep: maintained debuff/buff uptime from apply/refresh/remove events.

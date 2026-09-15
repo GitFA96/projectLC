@@ -1843,10 +1843,12 @@ describe("ids Warcraft Logs serves under retail names", () => {
     expect(classifyAura("Greater Versatility", 28509)?.category).not.toBe("potion");
   });
 
-  it("classifies Empowerment as a guardian elixir", () => {
+  it("labels the Empowerment aura with the item that casts it", () => {
+    // Wowhead TBC: item 22848 Elixir of Empowerment lists 28514 as its
+    // use-effect. The aura name is no item's name, so it could never resolve.
     expect(classifyAura("Empowerment", 28514)).toEqual({
       category: "guardianElixir",
-      label: "Empowerment",
+      label: "Elixir of Empowerment",
     });
   });
 
@@ -2448,5 +2450,263 @@ describe("normalizeWclReport — deployables", () => {
       "Goblin Land Mine",
     ]);
     expect(result.rows.every((r) => r.castTimes.length === 0)).toBe(true);
+  });
+});
+
+/**
+ * Pairings — who a boss linked together, and who was standing in the damage.
+ *
+ * The mechanic is **two spell ids under one name**, and every test here is
+ * about not confusing them. 41001 is the debuff and the only record of a pick;
+ * 40871 is the damage, it is AoE, and it reaches people the debuff never named.
+ * Reading the picks off the damage would invent pairings out of bystanders,
+ * who on the probed nights took more of it than the picked did.
+ */
+describe("pairing mechanics", () => {
+  /** Mother Shahraz puts it on somebody. Report-clock ms, like every raw event. */
+  const applied = (targetID: number, timestamp: number, fight = 7) => ({
+    timestamp,
+    type: "applydebuff",
+    fight,
+    sourceID: 50,
+    targetID,
+    ability: { name: "Fatal Attraction", guid: 41001 },
+  });
+  const removed = (targetID: number, timestamp: number, fight = 7) => ({
+    ...applied(targetID, timestamp, fight),
+    type: "removedebuff",
+  });
+  /** A tick of the AoE. Self-sourced, exactly as WCL writes it. */
+  const hit = (targetID: number, timestamp: number, amount: number, over = {}) => ({
+    timestamp,
+    type: "damage",
+    fight: 7,
+    sourceID: targetID,
+    targetID,
+    amount,
+    isAoE: true,
+    ability: { name: "Fatal Attraction", guid: 40871 },
+    ...over,
+  });
+
+  /**
+   * The fixture, with the pet naming its owner — which is what WCL actually
+   * sends (`masterData.actors[].petOwner`) and what the pet half of this step
+   * is keyed on. The base fixture leaves it off, so a test that needs the
+   * owner has to say so.
+   */
+  const ownedPet = {
+    ...rawReport,
+    masterData: {
+      actors: rawReport.masterData.actors.map((a) =>
+        a.id === 9 ? { ...a, petOwner: 1 } : a,
+      ),
+    },
+  };
+
+  const run = (pairings: unknown[], pairingDamage: unknown[] = [], report: unknown = ownedPet) =>
+    normalizeWclReport(report, {
+      combatantInfo: [],
+      deaths: [],
+      casts: [],
+      pairings,
+      pairingDamage,
+    });
+
+  const rowFor = (result: ReturnType<typeof run>, actorName: string, fightId = 7) =>
+    result.rows.find((r) => r.fightId === fightId && r.actorName === actorName)!;
+
+  it("records a pick with the window the raider actually held", () => {
+    // 150000 in report time, on a pull that started at 100000.
+    const result = run([applied(1, 150000), removed(1, 154000)]);
+    expect(rowFor(result, "Thrainn").pairings).toEqual([
+      { atMs: 50000, spellId: 41001, spell: "Fatal Attraction", picked: true, heldMs: 4000, damage: 0, petDamage: 0, petsKilled: [] },
+    ]);
+  });
+
+  it("gives everyone in one cast the same moment to be joined on", () => {
+    // Nothing stores who was paired with whom — analysis rebuilds it by
+    // clustering on this number, so the rows have to agree on it. The 1ms
+    // spread is what the real log looks like.
+    const result = run([
+      applied(1, 150000),
+      applied(2, 150001),
+      removed(1, 153000),
+      removed(2, 153000),
+    ]);
+    expect(rowFor(result, "Thrainn").pairings[0].atMs).toBe(50000);
+    expect(rowFor(result, "Pyrelia").pairings[0].atMs).toBe(50001);
+  });
+
+  it("puts the damage on the raider who took it, picked or not", () => {
+    /*
+     * The finding the whole view exists for. Two raiders are picked; a third
+     * standing beside them takes the AoE without ever being linked. A board
+     * built from the debuff alone cannot see Lunara at all.
+     */
+    const result = run(
+      [applied(1, 150000), applied(2, 150000), removed(1, 153000), removed(2, 153000)],
+      [hit(1, 151000, 1155), hit(2, 151000, 1000), hit(3, 151000, 750)],
+    );
+    expect(rowFor(result, "Thrainn").pairings[0]).toMatchObject({ picked: true, damage: 1155 });
+    expect(rowFor(result, "Pyrelia").pairings[0]).toMatchObject({ picked: true, damage: 1000 });
+    expect(rowFor(result, "Lunara").pairings).toEqual([
+      { atMs: 50000, spellId: 41001, spell: "Fatal Attraction", picked: false, damage: 750, petDamage: 0, petsKilled: [] },
+    ]);
+  });
+
+  it("gives a raider their own window's damage, not the first one open", () => {
+    /*
+     * A real bug, caught by running the import against the report the probe
+     * came from: the two picks in one cast start a millisecond apart and end
+     * whenever each raider's debuff came off, so "the first window containing
+     * this hit" answers with somebody else's. The key built from it then failed
+     * to match the one the picked raider is looked up by, and their damage went
+     * to nobody — 32,394 of 191,220 on that report, with every count still
+     * correct and nothing failing.
+     */
+    const result = run(
+      [applied(1, 150000), applied(2, 150001), removed(2, 152000), removed(1, 154000)],
+      [hit(2, 151000, 750)],
+    );
+    expect(rowFor(result, "Pyrelia").pairings).toEqual([
+      { atMs: 50001, spellId: 41001, spell: "Fatal Attraction", picked: true, heldMs: 1999, damage: 750, petDamage: 0, petsKilled: [] },
+    ]);
+    // And it is not ALSO filed as a bystander of the cast that picked them.
+    expect(rowFor(result, "Thrainn").pairings).toHaveLength(1);
+  });
+
+  it("counts what a shield ate", () => {
+    // An absorb is a healer's cooldown spent on this mechanic, not damage the
+    // pairing failed to deal.
+    const result = run(
+      [applied(1, 150000), removed(1, 153000)],
+      [hit(1, 151000, 1298, { absorbed: 2167 })],
+    );
+    expect(rowFor(result, "Thrainn").pairings[0].damage).toBe(3465);
+  });
+
+  it("keeps two casts on one pull apart", () => {
+    const result = run(
+      [applied(1, 150000), removed(1, 153000), applied(1, 180000), removed(1, 183000)],
+      [hit(1, 151000, 500), hit(1, 181000, 900)],
+    );
+    expect(rowFor(result, "Thrainn").pairings).toEqual([
+      { atMs: 50000, spellId: 41001, spell: "Fatal Attraction", picked: true, heldMs: 3000, damage: 500, petDamage: 0, petsKilled: [] },
+      { atMs: 80000, spellId: 41001, spell: "Fatal Attraction", picked: true, heldMs: 3000, damage: 900, petDamage: 0, petsKilled: [] },
+    ]);
+  });
+
+  it("never lets the damage id create a pick", () => {
+    // The trap, stated as a test: 40871 arrives under the same NAME as the
+    // debuff. If the pairing stream were matched on names, this would read as
+    // somebody being picked.
+    const result = run([{ ...applied(1, 150000), ability: { name: "Fatal Attraction", guid: 40871 } }]);
+    expect(result.rows.every((r) => r.pairings.length === 0)).toBe(true);
+  });
+
+  it("files a pet's damage against its owner, in its own field", () => {
+    /*
+     * `DamageTaken` is players only — the trap this whole field exists because
+     * of. Under `All` the same filter also returns thornlings, land mines,
+     * turrets and hunter pets taking the AoE: 80,178 damage and 60 of them
+     * killed across six probed reports, none of it visible before.
+     *
+     * Wolfie is Thrainn's pet in the fixture, and none of this may reach
+     * Thrainn's own `damage` — a dead pet is not damage the raider took.
+     */
+    const result = run(
+      [applied(1, 150000), removed(1, 153000)],
+      [hit(1, 151000, 1155), hit(9, 151000, 800), hit(9, 152000, 400, { overkill: 120 })],
+    );
+    expect(rowFor(result, "Thrainn").pairings).toEqual([
+      {
+        atMs: 50000,
+        spellId: 41001,
+        spell: "Fatal Attraction",
+        picked: true,
+        heldMs: 3000,
+        damage: 1155,
+        petDamage: 1200,
+        petsKilled: ["Wolfie"],
+      },
+    ]);
+  });
+
+  it("gives a raider a row when only their pet was touched", () => {
+    // Somebody who stood clear and lost a thornling has no pick and no damage
+    // of their own, and would otherwise appear nowhere at all.
+    const result = run(
+      [applied(1, 150000), removed(1, 153000)],
+      [hit(9, 151000, 750, { overkill: 40 })],
+    );
+    expect(rowFor(result, "Thrainn").pairings).toEqual([
+      {
+        atMs: 50000,
+        spellId: 41001,
+        spell: "Fatal Attraction",
+        picked: true,
+        heldMs: 3000,
+        damage: 0,
+        petDamage: 750,
+        petsKilled: ["Wolfie"],
+      },
+    ]);
+  });
+
+  it("counts a kill only where the log marks one", () => {
+    // `overkill` is the only killing-blow marker a damage event carries. A land
+    // mine that detonates on its own timer produces no damage event at all, so
+    // a tick without overkill must not be read as a casualty.
+    const result = run(
+      [applied(1, 150000), removed(1, 153000)],
+      [hit(9, 151000, 750), hit(9, 152000, 750)],
+    );
+    expect(rowFor(result, "Thrainn").pairings[0]).toMatchObject({
+      petDamage: 1500,
+      petsKilled: [],
+    });
+  });
+
+  it("opens no window for a pet, so nothing borrows one", () => {
+    /*
+     * The question that produced this feature: can a hunter's pet, or a
+     * deployed turret, be picked or soak the damage? Across 252 debuff events
+     * and 1,782 damage events on thirteen Mother Shahraz pulls, every actor was
+     * a Player — so a pet here would be a new fact about the mechanic, not a
+     * row to file.
+     *
+     * The damage is what makes this load-bearing rather than tidy. A window is
+     * a span of time any raider's damage can be attributed to, so admitting a
+     * pet would let a hit that belongs to no cast borrow the pet's window and
+     * appear as a bystander of a pairing that never happened.
+     */
+    const result = run(
+      [applied(9, 150000), removed(9, 153000)],
+      [hit(9, 151000, 1000), hit(1, 151000, 750)],
+    );
+    expect(result.rows.every((r) => r.pairings.length === 0)).toBe(true);
+  });
+
+  it("drops damage that belongs to no window at all", () => {
+    // Every one of the 1,782 probed hits fell inside a window. One that does
+    // not is the mechanic behaving differently from anything observed, and it
+    // is dropped rather than filed against a guess.
+    const result = run([applied(1, 150000), removed(1, 153000)], [hit(2, 250000, 5000)]);
+    expect(rowFor(result, "Pyrelia").pairings).toEqual([]);
+  });
+
+  it("closes a window at the removal a death writes", () => {
+    // Somebody who dies holding it has a short window, and `heldMs` is what
+    // they held it for rather than what the debuff's duration is.
+    const result = run([applied(1, 150000), removed(1, 151200)]);
+    expect(rowFor(result, "Thrainn").pairings[0].heldMs).toBe(1200);
+  });
+
+  it("records nothing at all when the report predates the fetches", () => {
+    // Indistinguishable from a night the raid never met one of these bosses —
+    // which is why the board says so rather than reading it as a quiet night.
+    const result = normalizeWclReport(rawReport, { combatantInfo: [], deaths: [], casts: [] });
+    expect(result.rows.every((r) => r.pairings.length === 0)).toBe(true);
   });
 });

@@ -13,6 +13,7 @@ change here means.
 - bumpDataVersion
 - characterIdentity
 - characterIdsForMembership
+- clearRefusedEnchantIds
 - clearRefusedItemNames
 - closeBreakGlass
 - countAccounts
@@ -55,6 +56,7 @@ change here means.
 - getMembership
 - getPrioritySheets
 - getRaidBoard
+- getRefusedEnchantIds
 - getRefusedItemNames
 - getReportConsumableAdjustments
 - getReportConsumablePrices
@@ -100,6 +102,7 @@ change here means.
 - openBreakGlass
 - purgeExpiredAuthSessions
 - purgeExpiredInvites
+- recordRefusedEnchantIds
 - recordRefusedItemNames
 - removeGuildOwner
 - revokeAccountSessions

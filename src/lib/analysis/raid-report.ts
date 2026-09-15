@@ -4,6 +4,7 @@ import { elixirCoverage, hasConsumableCoverage, hasFood } from "@/lib/analysis/p
 import { potionNames, potionsUsed } from "@/lib/analysis/potions";
 import { buildDeathProfiles } from "@/lib/analysis/deaths";
 import { buildDeployableView } from "@/lib/analysis/deployables";
+import { buildPairingView } from "@/lib/analysis/pairings";
 import { buildDispelView } from "@/lib/analysis/dispels";
 import { buildInterruptView } from "@/lib/analysis/interrupts";
 import { buildPreparedness } from "@/lib/analysis/preparedness";
@@ -778,6 +779,11 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     professionsByActor: input.professionsByActor,
   });
 
+  /* ---- Who the boss linked together, and who stood in it ---- */
+  // Boss pulls only — the mechanic is one, and both halves of it are fetched
+  // per pull. No off-pull read for the same reason there is no trash side.
+  const pairings = buildPairingView({ rows, slugByActor });
+
   /* ---- Who cleansed what off whom ---- */
   // The trash side reads `input.offPull` unfiltered on purpose: excusing a farm
   // wipe must not excuse the hour of decursing before it (change-chains §5).
@@ -813,6 +819,7 @@ export function summarizeRaidReport(input: RaidReportInput): RaidReportView {
     dispels,
     interrupts,
     deployables,
+    pairings,
     deathProfiles,
     parseBoards,
   };

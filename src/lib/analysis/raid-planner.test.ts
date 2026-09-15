@@ -94,6 +94,7 @@ function row(over: Partial<WclPlayerFight> & { actorName: string }): WclPlayerFi
     dispels: [],
     interrupts: [],
     unlandedInterrupts: [],
+    pairings: [],
     upkeep: [],
     gear: [],
     drums: 0,

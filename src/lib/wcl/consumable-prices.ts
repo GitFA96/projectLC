@@ -123,6 +123,24 @@ const CONSUMABLE_DEFAULTS: Record<string, ConsumablePrice> = {
   "Adept's Elixir": { gold: 12, charges: 1 },
   "Mageblood Potion": { gold: 3, charges: 1 },
   "Elixir of Major Mageblood": { gold: 3, charges: 1 },
+  /*
+   * One elixir, two labels, and they must agree.
+   *
+   * 28514's label moved from the aura name to the item that casts it (item
+   * 22848), so stored rows say "Empowerment" until their report is re-imported
+   * and new ones say "Elixir of Empowerment". Pricing only the new one would
+   * make the same elixir cost two different amounts depending on when its
+   * report was fetched.
+   *
+   * The old label priced at **0** the whole time it was in use: it matches
+   * neither `elixir of…` nor `…elixir`, so it missed the family fallback
+   * entirely — the exact silent failure change-chains §5f describes. 12g is
+   * that fallback made explicit rather than a price anyone quoted, so the
+   * rename moves no gold; the guardian elixirs the council has actually priced
+   * sit at 1–5g, and a per-raid override is where a real number belongs.
+   */
+  Empowerment: { gold: 12, charges: 1 },
+  "Elixir of Empowerment": { gold: 12, charges: 1 },
   "Elixir of Major Defense": { gold: 4.5, charges: 1 },
   "Elixir of Major Fortitude": { gold: 1, charges: 1 },
   "Elixir of Draenic Wisdom": { gold: 5, charges: 1 },

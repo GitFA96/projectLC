@@ -542,7 +542,7 @@ function OverviewPanel({ raid }: { raid: RaidReportView }) {
       <UptimeByBoss fights={counted} upkeep={upkeep} reportStartTime={raid.report.startTime} />
       <UptimeByPlayer fights={counted} playerBuffs={playerBuffs} reportStartTime={raid.report.startTime} />
       <TotemTimeline fights={counted} totems={totems} />
-      <DeployableTimeline fights={counted} deployables={raid.deployables} />
+      <DeployableTimeline fights={counted} deployables={raid.deployables} pairings={raid.pairings} />
       {/*
         One card, two tabs, and it comes after the totems deliberately: a
         shaman's poison work is the totem drops plus whatever they cured by

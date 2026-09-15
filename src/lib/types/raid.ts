@@ -10,6 +10,7 @@ import type { BossDeathProfile } from "@/lib/analysis/deaths";
 import type { CoverageGrade } from "@/lib/analysis/preparation";
 import type { ElixirSlot } from "@/lib/wcl/consumables";
 import type { RaidDeployableView } from "@/lib/analysis/deployables";
+import type { RaidPairingView } from "@/lib/analysis/pairings";
 import type { RaidDispelView } from "@/lib/analysis/dispels";
 import type { RaidInterruptView } from "@/lib/analysis/interrupts";
 import type { RaidSession, WclReport, WclRole, WclUpkeepTarget } from "./entities";
@@ -660,6 +661,15 @@ export interface RaidReportView {
    * can say which it cannot tell.
    */
   deployables: RaidDeployableView;
+  /**
+   * Who a boss linked together with a pairing mechanic, and who was standing in
+   * the damage — Mother Shahraz's Fatal Attraction is the one this exists for.
+   *
+   * Empty on every report imported before the two pairing fetches existed,
+   * which is not the same as a night the raid never met one of those bosses;
+   * the view carries a `total` so the board can say which it cannot tell.
+   */
+  pairings: RaidPairingView;
 }
 
 /**

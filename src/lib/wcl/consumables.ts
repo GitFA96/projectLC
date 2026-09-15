@@ -200,6 +200,14 @@ const AURA_DEFS: AuraDef[] = [
    *   28514  "Empowerment", -30 resistances for 1h
    *   28519  "Flask of Mighty Restoration"  (WCL: "Flask of Mighty Versatility")
    *
+   * 28514 carried its aura name as the label for a while, and that was the same
+   * mistake 28509 below: the aura is "Empowerment" and no item is called that,
+   * so the name lookup could only ever refuse it and the import card offered
+   * the same unresolvable name after every press. Wowhead's TBC item 22848,
+   * Elixir of Empowerment, lists 28514 as its use-effect, word for word
+   * ("Decreases the magical resistances of your spell targets by 30 for 1 hour,
+   * Guardian Elixir"). It is the item.
+   *
    * Curated by **id**, keeping the retail name as a `buffNames` alias so reports
    * already imported under it still match. The lesson generalises: an ability id
    * from a log is a fact, an ability *name* from a log is not.
@@ -213,7 +221,7 @@ const AURA_DEFS: AuraDef[] = [
    * lower down was matching nothing.
    */
   { label: "Elixir of Major Mageblood", category: "guardianElixir", ids: [28509], buffNames: ["Major Mageblood", "Greater Mana Regeneration", "Greater Versatility"] },
-  { label: "Empowerment", category: "guardianElixir", ids: [28514], buffNames: ["Empowerment"] },
+  { label: "Elixir of Empowerment", category: "guardianElixir", ids: [28514], buffNames: ["Empowerment"] },
   { label: "Flask of Mighty Restoration", category: "flask", ids: [28519], buffNames: ["Flask of Mighty Restoration", "Flask of Mighty Versatility"] },
   /* Guardian elixirs */
   { label: "Elixir of Major Defense", category: "guardianElixir", ids: [28502], buffNames: ["Major Defense", "Major Armor"] },
